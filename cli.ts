@@ -1,8 +1,10 @@
 #!/usr/bin/env deno run --allow-read --allow-write --allow-env
 
-import { parse } from "https://deno.land/std@0.208.0/flags/mod.ts";
+import { parse } from "@std/flags";
+import { load } from "@std/dotenv";
 import { formatProject } from "./commands/format.ts";
 import { initProject } from "./commands/init.ts";
+import { testDatabaseConnection } from "./commands/test.ts";
 
 interface CliArgs {
   help?: boolean;
@@ -25,6 +27,26 @@ async function getVersion(): Promise<string> {
 
 const VERSION = await getVersion();
 
+async function getDatabaseUrl(): Promise<string> {
+  try {
+    // Load environment variables from .env.local
+    const env = await load({ envPath: ".env.local" });
+    const databaseUrl = env.DATABASE_URL || Deno.env.get("DATABASE_URL");
+    
+    if (!databaseUrl) {
+      console.error("❌ DATABASE_URL not found in environment variables or .env.local");
+      console.log("💡 Make sure DATABASE_URL is set in your .env.local file");
+      Deno.exit(1);
+    }
+    
+    return databaseUrl;
+  } catch (error) {
+    console.error("❌ Failed to load environment variables:", error instanceof Error ? error.message : String(error));
+    console.log("💡 Make sure .env.local file exists and is properly formatted");
+    Deno.exit(1);
+  }
+}
+
 function showHelp(): void {
   console.log(`
 Semantius CLI v${VERSION}
@@ -42,7 +64,7 @@ OPTIONS:
 COMMANDS:
     init             Initialize a new project
     build            Build the project
-    test             Run tests
+    test             Test database connection
     lint             Run linter
     format           Format code
 
@@ -50,7 +72,7 @@ EXAMPLES:
     deno task start init
     deno task start build --output ./dist
     deno task start test --verbose
-    deno run --allow-read --allow-write --allow-env cli.ts init
+    deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
   `);
 }
 
@@ -94,29 +116,10 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
   }
 }
 
-async function runTests(verbose: boolean = false): Promise<void> {
-  console.log("🧪 Running tests...");
-  
-  try {
-    const args = ["test", "--allow-read", "--allow-write"];
-    if (verbose) {
-      args.push("--verbose");
-    }
-    
-    const command = new Deno.Command("deno", { args });
-    const { code } = await command.output();
-    
-    if (code === 0) {
-      console.log("✅ All tests passed!");
-    } else {
-      console.error("❌ Some tests failed!");
-      Deno.exit(1);
-    }
-    
-  } catch (error) {
-    console.error("❌ Test error:", error instanceof Error ? error.message : String(error));
-    Deno.exit(1);
-  }
+async function runTests(_verbose: boolean = false): Promise<void> {
+  // Get DATABASE_URL and test database connection
+  const databaseUrl = await getDatabaseUrl();
+  await testDatabaseConnection(databaseUrl);
 }
 
 async function lintProject(): Promise<void> {

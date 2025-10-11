@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "description": "Semantius CLI",
   "exports": "./cli.ts",
+  "imports": {
+    "@std/flags": "https://deno.land/std@0.208.0/flags/mod.ts",
+    "@std/dotenv": "https://deno.land/std@0.208.0/dotenv/mod.ts",
+    "@postgres": "https://deno.land/x/postgres@v0.17.0/mod.ts"
+  },
   "tasks": {
     "start": "deno run --allow-read --allow-write --allow-env cli.ts",
     "init": "deno run --allow-read --allow-write --allow-env cli.ts init",
     "build": "deno run --allow-read --allow-write --allow-env cli.ts build",
-    "test": "deno run --allow-read --allow-write --allow-env cli.ts test",
+    "test": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts test",
     "lint": "deno run --allow-read --allow-write --allow-env cli.ts lint",
     "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",
     "check": "deno check cli.ts"
