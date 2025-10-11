@@ -1,0 +1,4 @@
+- lock while migrations are running
+- execute file
+- check name in versions -> execute file -> insert version
+- functions similar but without the check

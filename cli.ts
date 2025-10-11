@@ -4,6 +4,7 @@ import { parse } from "@std/flags";
 import { load } from "@std/dotenv";
 import { formatProject } from "./commands/format.ts";
 import { initProject } from "./commands/init.ts";
+import { migrateCommand } from "./commands/migrate.ts";
 import { testDatabaseConnection } from "./commands/test.ts";
 
 interface CliArgs {
@@ -12,6 +13,7 @@ interface CliArgs {
   verbose?: boolean;
   config?: string;
   output?: string;
+  apps?: string;
   _: string[];
 }
 
@@ -60,6 +62,7 @@ OPTIONS:
     --verbose        Enable verbose output
     --config <FILE>  Specify config file path
     --output <DIR>   Specify output directory
+    --apps <APPS>    Comma-separated list of app names (for migrate command)
 
 COMMANDS:
     init             Initialize a new project
@@ -67,11 +70,14 @@ COMMANDS:
     test             Test database connection
     lint             Run linter
     format           Format code
+    migrate          Process and validate app folders (requires --apps parameter)
 
 EXAMPLES:
     deno task start init
     deno task start build --output ./dist
     deno task start test --verbose
+    deno task start migrate --apps app1,app2,app3
+    deno task start migrate --apps nwind,_ddtest
     deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
   `);
 }
@@ -116,12 +122,6 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
   }
 }
 
-async function runTests(_verbose: boolean = false): Promise<void> {
-  // Get DATABASE_URL and test database connection
-  const databaseUrl = await getDatabaseUrl();
-  await testDatabaseConnection(databaseUrl);
-}
-
 async function lintProject(): Promise<void> {
   console.log("🔍 Running linter...");
   
@@ -148,7 +148,7 @@ async function lintProject(): Promise<void> {
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
     boolean: ["help", "version", "verbose"],
-    string: ["config", "output"],
+    string: ["config", "output", "apps"],
     alias: {
       h: "help",
       v: "version",
@@ -167,6 +167,10 @@ async function main(): Promise<void> {
 
   const command = args._[0];
   
+  // Get database URL for commands that need it
+  let databaseUrl: string | undefined;  
+  databaseUrl = await getDatabaseUrl();  
+  
   switch (command) {
     case "init":
       await initProject();
@@ -177,7 +181,7 @@ async function main(): Promise<void> {
       break;
       
     case "test":
-      await runTests(args.verbose);
+      await testDatabaseConnection(databaseUrl!);
       break;
       
     case "lint":
@@ -187,6 +191,12 @@ async function main(): Promise<void> {
     case "format":
     case "fmt":
       await formatProject();
+      break;
+      
+    case "migrate":
+      // Use --apps flag if provided, otherwise use positional arguments after "migrate"
+      const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
+      await migrateCommand(appsParam, databaseUrl!);
       break;
       
     default:

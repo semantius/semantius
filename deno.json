@@ -15,6 +15,7 @@
     "test": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts test",
     "lint": "deno run --allow-read --allow-write --allow-env cli.ts lint",
     "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",
+    "migrate": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts migrate",
     "check": "deno check cli.ts"
   },
   "compilerOptions": {
