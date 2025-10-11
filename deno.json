@@ -1,0 +1,29 @@
+{
+  "name": "semantius-core",
+  "version": "0.1.0",
+  "description": "Semantius CLI",
+  "exports": "./cli.ts",
+  "tasks": {
+    "start": "deno run --allow-read --allow-write --allow-env cli.ts",
+    "init": "deno run --allow-read --allow-write --allow-env cli.ts init",
+    "build": "deno run --allow-read --allow-write --allow-env cli.ts build",
+    "test": "deno run --allow-read --allow-write --allow-env cli.ts test",
+    "lint": "deno run --allow-read --allow-write --allow-env cli.ts lint",
+    "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",
+    "check": "deno check cli.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns"],
+    "strict": true
+  },
+  "fmt": {
+    "files": {
+      "include": ["**/*.ts", "**/*.js", "**/*.json"]
+    }
+  },
+  "lint": {
+    "files": {
+      "include": ["**/*.ts", "**/*.js"]
+    }
+  }
+}
