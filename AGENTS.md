@@ -2,7 +2,12 @@
 
 
 
-This document provides essential architectural context and non-obvious conventions for AI agents working with the Semantius Core CLI project.This document provides essential information for AI agents working with the Semantius Core CLI project.
+This document provides essential architectural conte### Database Operations Rules
+- **MUST**: Use centralized `getDatabaseUrl()` function
+- **MUST**: Pass database URL as parameter to functions
+- **MUST**: Use `@postgres` client library
+- **MUST**: Close connections in finally blocks
+- **AVOID**: Direct environment variable loading in commandsnon-obvious conventions for AI agents working with the Semantius Core CLI project.This document provides essential information for AI agents working with the Semantius Core CLI project.
 
 
 
@@ -136,12 +141,15 @@ try {3. **test**: Test database connection (`commands/test.ts`)
 
 - **MUST**: Pass database URL as parameter to functions
 
-- **MUST**: Use `@postgres` client library### Code Patterns
+- **MUST**: Use `@postgres` client library
+- **MUST**: Close connections in finally blocks
 
-- **MUST**: Close connections in finally blocks- Follow established command implementation pattern (see existing commands)
+## Development Guidelines
 
-- **AVOID**: Direct environment variable loading in commands- Use consistent error handling with user-friendly messages
-
+### Code Patterns
+- Follow established command implementation pattern (see existing commands)
+- Use consistent error handling with user-friendly messages
+- Use plain text console output without emoji prefixes
 - Exit with `Deno.exit(1)` for fatal errors
 
 ### Import Guidelines
@@ -240,15 +248,17 @@ Each command follows this established pattern:
 // commands/example.ts
 export async function exampleCommand(params?: any): Promise<void> {
   try {
-    console.log("🚀 Starting example command...");
+    console.log("Starting example command...");
     // Implementation
-    console.log("✅ Example command completed!");
+    console.log("Example command completed!");
   } catch (error) {
-    console.error("❌ Example command failed:", error.message);
+    console.error("Example command failed:", error.message);
     Deno.exit(1);
   }
 }
 ```
+
+**Note**: Notice the plain text output without emoji prefixes - this is the required pattern for all commands.
 
 ## Database Integration (Current Implementation)
 
@@ -283,22 +293,32 @@ Tasks are defined in `deno.json` with appropriate permissions for each command:
 
 ## Implemented Console Output Standards
 
-### Emoji Conventions (Currently Used)
-- 🧪 Testing operations
-- 🚀 Starting operations  
-- ✅ Success messages
-- ❌ Error messages
-- 🔍 Information/discovery
-- ⏳ In-progress operations
-- 💡 Tips and suggestions
-- 🔗 Connection information
-- 📂 Database information
-- 👤 User information
-- 📊 Data/statistics
-- 🔐 Security/cleanup operations
-- 🎉 Completion celebrations
+### Message Format Convention (CRITICAL)
+- **ALL commands must use plain text output without emoji prefixes**
+- **NO emoji icons in console messages** - this keeps logs clean and readable
+- Use clear, descriptive text for all console output
+- Follow the pattern established by the migrate command
 
-**Note**: The migrate command uses plain text output without emoji prefixes for cleaner log readability.
+### Error Handling Pattern
+```typescript
+try {
+  console.log("Starting operation...");
+  // Implementation
+  console.log("Operation completed!");
+} catch (error) {
+  console.error("Operation failed:", error.message);
+  Deno.exit(1);
+}
+```
+
+### Console Output Guidelines
+- Use `console.log()` for normal informational messages
+- Use `console.error()` for error messages  
+- Use `console.warn()` for warnings
+- Use `console.info()` for verbose output (respects --verbose flag)
+- **NEVER** use emoji prefixes (🚀, ✅, ❌, etc.) in any command output
+
+**Note**: The migrate and dropall commands use plain text output without emoji prefixes for cleaner log readability. This pattern should be followed by ALL commands.
 
 ### Permission Requirements (Actual)
 - `--allow-read`: File system read access

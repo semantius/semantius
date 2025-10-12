@@ -38,6 +38,7 @@ deno task start [OPTIONS] [COMMAND]
 - `lint`: Run linter
 - `format`: Format code
 - `migrate`: Process and validate app folders (requires --apps parameter)
+- `dropall`: ⚠️ **DANGER**: Drop ALL database objects in public schema (DESTRUCTIVE!)
 
 ### Examples
 
@@ -58,9 +59,44 @@ deno task start test --verbose
 deno task start migrate --apps app1,app2,app3 --verbose
 deno task start migrate --apps nwind,_ddtest
 
+# Drop all database objects (DANGEROUS - use with caution!)
+deno task start dropall --verbose
+
 # Run test directly with deno
 deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
 ```
+
+## ⚠️ IMPORTANT SAFETY WARNING: dropall Command
+
+The `dropall` command is a **DESTRUCTIVE** operation that will permanently delete ALL database objects in the public schema, including:
+
+- All tables and their data
+- All views  
+- All functions and procedures
+- All sequences
+- All custom types
+- All other database objects
+
+**This operation CANNOT be undone!**
+
+### Safety Features
+
+- Requires explicit confirmation by typing 'Y' when prompted
+- Shows detailed warning before execution
+- Lists all objects being dropped with console.log output
+- Only affects the public schema (leaves system schemas intact)
+
+### Usage
+
+```bash
+# Run dropall command (will prompt for confirmation)
+deno task dropall
+
+# Or with verbose output
+deno task start dropall --verbose
+```
+
+**Use this command only in development environments or when you specifically need to reset your database schema completely.**
 
 
 

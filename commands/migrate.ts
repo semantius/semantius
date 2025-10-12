@@ -232,7 +232,7 @@ async function getSqlFiles(folderName: string, subfolder: string): Promise<strin
 
 
 
-async function executeSqlFile(client: Client, folderName: string, fileName: string): Promise<void> {
+async function executeSqlFile(client: Client, folderName: string, fileName: string, versionName: string): Promise<void> {
   const filePath = `./apps/${folderName}/migrations/${fileName}`;
   
   // Start transaction
@@ -249,11 +249,11 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
     // Execute the SQL content
     await client.queryObject(sqlContent);
     
-    // Insert fileName in _versions table after successful execution
+    // Insert versionName in _versions table after successful execution
     const insertVersionQuery = `
       INSERT INTO _versions (name) VALUES ($1)
     `;
-    await client.queryObject(insertVersionQuery, [fileName]);
+    await client.queryObject(insertVersionQuery, [versionName]);
     
     // Commit transaction
     await client.queryObject("COMMIT");
@@ -361,8 +361,8 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
   for (const migrationFile of migrationFiles) {
     console.info(`  ${migrationFile}`);
     
-    // versionName is file name with extension
-    const versionName = migrationFile;
+    // versionName is file name WITHOUT .sql extension AND prefixed with appName + "."
+    const versionName = `${appName}.${migrationFile.replace(/\.sql$/, '')}`;
     
     // Check if this version already exists in _versions table
     const checkVersionQuery = `
@@ -383,7 +383,7 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
     console.info(`  Executing migration: ${versionName}`);
     
     // Execute the SQL file
-    await executeSqlFile(client, folderName, versionName);
+    await executeSqlFile(client, folderName, migrationFile, versionName);
     
     console.info(`  Migration ${versionName} completed and recorded`);
   }

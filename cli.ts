@@ -6,6 +6,7 @@ import { formatProject } from "./commands/format.ts";
 import { initProject } from "./commands/init.ts";
 import { migrateCommand } from "./commands/migrate.ts";
 import { testDatabaseConnection } from "./commands/test.ts";
+import { dropallCommand } from "./commands/dropall.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -83,6 +84,7 @@ COMMANDS:
     lint             Run linter
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
+    dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
 
 EXAMPLES:
     deno task start init
@@ -90,6 +92,7 @@ EXAMPLES:
     deno task start test --verbose
     deno task start migrate --apps app1,app2,app3 --verbose
     deno task start migrate --apps nwind,_ddtest
+    deno task start dropall --verbose
     deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
   `);
 }
@@ -214,6 +217,10 @@ async function main(): Promise<void> {
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
       await migrateCommand(appsParam, databaseUrl!);
+      break;
+      
+    case "dropall":
+      await dropallCommand(databaseUrl!);
       break;
       
     default:
