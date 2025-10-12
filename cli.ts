@@ -167,6 +167,11 @@ async function main(): Promise<void> {
     },
   }) as CliArgs;
 
+  // Override console.info globally based on verbose flag
+  if (!args.verbose) {
+    console.info = () => {};
+  }
+
   if (args.help) {
     showHelp();
     return;
@@ -208,7 +213,7 @@ async function main(): Promise<void> {
     case "migrate":
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
-      await migrateCommand(appsParam, databaseUrl!, args.verbose || false);
+      await migrateCommand(appsParam, databaseUrl!);
       break;
       
     default:
