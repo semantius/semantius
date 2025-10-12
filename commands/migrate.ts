@@ -192,21 +192,114 @@ async function getMigrationFiles(folderName: string): Promise<string[]> {
   }
 }
 
+async function executeSqlFile(client: Client, folderName: string, fileName: string): Promise<void> {
+  const filePath = `./apps/${folderName}/migrations/${fileName}`;
+  
+  // Start transaction
+  await client.queryObject("BEGIN");
+  
+  try {
+    // Read the SQL file contents
+    const sqlContent = await Deno.readTextFile(filePath);
+    
+    if (!sqlContent.trim()) {
+      throw new Error(`Migration file ${fileName} is empty or contains only whitespace`);
+    }
+    
+    // Execute the SQL content
+    await client.queryObject(sqlContent);
+    
+    // Insert fileName in _versions table after successful execution
+    const insertVersionQuery = `
+      INSERT INTO _versions (name) VALUES ($1)
+    `;
+    await client.queryObject(insertVersionQuery, [fileName]);
+    
+    // Commit transaction
+    await client.queryObject("COMMIT");
+    
+  } catch (error) {
+    // Rollback transaction on any error
+    try {
+      await client.queryObject("ROLLBACK");
+    } catch (rollbackError) {
+      console.error(`⚠️  Warning: Failed to rollback transaction for ${fileName}:`, rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
+    }
+    
+    // Re-throw the original error with proper context
+    if (error instanceof Deno.errors.NotFound) {
+      throw new Error(`Migration file not found: ${filePath}`);
+    } else if (error instanceof Error) {
+      throw new Error(`Failed to execute migration ${fileName}: ${error.message}`);
+    } else {
+      throw new Error(`Failed to execute migration ${fileName}: ${String(error)}`);
+    }
+  }
+}
+
 async function executeMigrations(appName: string, folderName: string, client: Client): Promise<void> {
   console.log(`🗂️  Getting migration files for app: ${appName}`);
   
-  // Get all migration files for this app
-  const migrationFiles = await getMigrationFiles(folderName);
+  // Try to acquire advisory lock to prevent concurrent migrations
+  console.log(`🔒 Attempting to acquire migration lock for ${appName}...`);
+  const lockResult = await client.queryObject("SELECT pg_try_advisory_lock(hashtext('migrate'))");
+  const lockAcquired = (lockResult.rows[0] as { pg_try_advisory_lock: boolean }).pg_try_advisory_lock;
   
-  if (migrationFiles.length === 0) {
-    console.log(`📝 No migration files found for ${appName}`);
-    return;
+  if (!lockAcquired) {
+    throw new Error(`Failed to acquire migration lock for ${appName}. Another migration process may be running.`);
   }
   
-  console.log(`📋 Found ${migrationFiles.length} migration file(s) for ${appName}:`);
+  console.log(`✅ Migration lock acquired for ${appName}`);
   
-  // Loop over the list and log each migration file name
-  for (const migrationFile of migrationFiles) {
-    console.log(`  📄 ${migrationFile}`);
+  try {
+    // Get all migration files for this app
+    const migrationFiles = await getMigrationFiles(folderName);
+    
+    if (migrationFiles.length === 0) {
+      console.log(`📝 No migration files found for ${appName}`);
+      return;
+    }
+    
+    console.log(`📋 Found ${migrationFiles.length} migration file(s) for ${appName}:`);
+    
+    // Loop over the list and execute each migration file
+    for (const migrationFile of migrationFiles) {
+      console.log(`  📄 ${migrationFile}`);
+      
+      // versionName is file name with extension
+      const versionName = migrationFile;
+      
+      // Check if this version already exists in _versions table
+      const checkVersionQuery = `
+        SELECT EXISTS (
+          SELECT 1 FROM _versions 
+          WHERE name = $1
+        );
+      `;
+      
+      const versionResult = await client.queryObject(checkVersionQuery, [versionName]);
+      const versionExists = (versionResult.rows[0] as { exists: boolean }).exists;
+      
+      if (versionExists) {
+        console.log(`  ⏭️  Skipping ${versionName} - already applied`);
+        continue;
+      }
+      
+      console.log(`  🔄 Executing migration: ${versionName}`);
+      
+      // Execute the SQL file
+      await executeSqlFile(client, folderName, versionName);
+      
+      console.log(`  ✅ Migration ${versionName} completed and recorded`);
+    }
+    
+  } finally {
+    // Always release the advisory lock
+    try {
+      await client.queryObject("SELECT pg_advisory_unlock(hashtext('migrate'))");
+      console.log(`🔓 Migration lock released for ${appName}`);
+    } catch (unlockError) {
+      console.error(`⚠️  Warning: Failed to release migration lock for ${appName}:`, unlockError instanceof Error ? unlockError.message : String(unlockError));
+    }
   }
 }
