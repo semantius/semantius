@@ -62,7 +62,7 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
         try {
           const stat = await Deno.stat(appPath);
           if (stat.isDirectory) {
-            // Call migrateApp before logging success
+            // Call migrateApp - any errors here should stop the entire process
             await migrateApp(processedApp, databaseUrl, processedApp);
             console.info(`Migrated: ${processedApp}`);
             existingApps.push(processedApp);
@@ -71,12 +71,13 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
             missingApps.push(processedApp);
           }
         } catch (error) {
+          // Only catch directory check errors, not migration errors
           if (error instanceof Deno.errors.NotFound) {
             console.log(`Not found: ${processedApp}`);
             missingApps.push(processedApp);
           } else {
-            console.error(`Error checking ${processedApp}:`, error instanceof Error ? error.message : String(error));
-            missingApps.push(processedApp);
+            // If it's not a NotFound error, it's likely a migration error - re-throw to stop processing
+            throw error;
           }
         }
       }
