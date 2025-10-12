@@ -168,12 +168,12 @@ async function migrateApp(appName: string, databaseUrl: string, folderName: stri
     
     // Ensure _versions table exists
     await ensure_versions(client);
-    
-    // Execute migrations for this app
-    await executeMigrations(appName, folderName, client);
-    
+
     // Execute functions for this app
     await executeFunctions(appName, folderName, client);
+    
+    // Execute migrations for this app
+    await executeMigrations(appName, folderName, client);   
     
   } catch (error) {
     if (error instanceof Error) {
