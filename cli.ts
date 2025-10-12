@@ -70,8 +70,8 @@ USAGE:
 
 OPTIONS:
     -h, --help       Show this help message
-    -v, --version    Show version information
-    --verbose        Enable verbose output
+    --version        Show version information
+    -v, --verbose    Enable verbose output
     --config <FILE>  Specify config file path
     --output <DIR>   Specify output directory
     --apps <APPS>    Comma-separated list of app names (for migrate command)
@@ -88,7 +88,7 @@ EXAMPLES:
     deno task start init
     deno task start build --output ./dist
     deno task start test --verbose
-    deno task start migrate --apps app1,app2,app3
+    deno task start migrate --apps app1,app2,app3 --verbose
     deno task start migrate --apps nwind,_ddtest
     deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
   `);
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     string: ["config", "output", "apps"],
     alias: {
       h: "help",
-      v: "version",
+      v: "verbose",
     },
   }) as CliArgs;
 
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
     case "migrate":
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
-      await migrateCommand(appsParam, databaseUrl!);
+      await migrateCommand(appsParam, databaseUrl!, args.verbose || false);
       break;
       
     default:

@@ -5,8 +5,10 @@
 
 import { Client } from "@postgres";
 
-export async function migrateCommand(apps: string, databaseUrl: string): Promise<void> {
-  console.log("Starting migrate command...");
+export async function migrateCommand(apps: string, databaseUrl: string, verbose: boolean = false): Promise<void> {
+  if (verbose) {
+    console.info("Starting migrate command...");
+  }
   
   try {
     // If no apps provided or empty, default to just "_dd"
@@ -14,8 +16,10 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
     
     // Add _dd prefix to the entire string if it doesn't start with "_dd," and it's not just "_dd"
     const processedAppsString = (appsToProcess === "_dd" || appsToProcess.startsWith("_dd,")) ? appsToProcess : `_dd,${appsToProcess}`;
-    console.log(`Processing apps parameter: ${appsToProcess}`);
-    console.log(`Processed parameter: ${processedAppsString}`);
+    if (verbose) {
+      console.info(`Processing apps parameter: ${appsToProcess}`);
+      console.info(`Processed parameter: ${processedAppsString}`);
+    }
     
     // Split the comma-separated string and trim whitespace
     const appList = processedAppsString.split(",").map(app => app.trim()).filter(app => app.length > 0);
@@ -26,7 +30,9 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
       Deno.exit(1);
     }
 
-    console.log(`Found ${appList.length} app(s) to process`);
+    if (verbose) {
+      console.info(`Found ${appList.length} app(s) to process`);
+    }
     
     // Process each app name
     const processedApps: string[] = [];
@@ -46,7 +52,7 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
         const stat = await Deno.stat(appPath);
         if (stat.isDirectory) {
           // Call migrateApp before logging success
-          await migrateApp(processedApp, databaseUrl, processedApp);
+          await migrateApp(processedApp, databaseUrl, processedApp, verbose);
           console.log(`Found: ${processedApp}`);
           existingApps.push(processedApp);
         } else {
@@ -65,25 +71,27 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
     }
 
     // Summary
-    console.log("\nMigration Summary:");
-    console.log(`Total apps processed: ${processedApps.length}`);
-    console.log(`Existing apps found: ${existingApps.length}`);
-    console.log(`Missing apps: ${missingApps.length}`);
+    if (verbose) {
+      console.info("\nMigration Summary:");
+      console.info(`Total apps processed: ${processedApps.length}`);
+      console.info(`Existing apps found: ${existingApps.length}`);
+      console.info(`Missing apps: ${missingApps.length}`);
 
-    if (existingApps.length > 0) {
-      console.log(`\nFound apps: ${existingApps.join(", ")}`);
+      if (existingApps.length > 0) {
+        console.info(`\nFound apps: ${existingApps.join(", ")}`);
+      }
+
+      if (missingApps.length > 0) {
+        console.info(`\nMissing apps: ${missingApps.join(", ")}`);
+        console.info("Make sure the app folders exist in the apps/ directory");
+      }
+
+      if (missingApps.length === 0) {
+        console.info("\nAll specified apps found and ready for migration!");
+      }
+
+      console.info("Migrate command completed!");
     }
-
-    if (missingApps.length > 0) {
-      console.log(`\nMissing apps: ${missingApps.join(", ")}`);
-      console.log("Make sure the app folders exist in the apps/ directory");
-    }
-
-    if (missingApps.length === 0) {
-      console.log("\nAll specified apps found and ready for migration!");
-    }
-
-    console.log("Migrate command completed!");
     
   } catch (error) {
     console.error("Migrate command failed:", error instanceof Error ? error.message : String(error));
@@ -91,7 +99,7 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
   }
 }
 
-async function ensure_versions(client: Client): Promise<void> {
+async function ensure_versions(client: Client, verbose: boolean = false): Promise<void> {
   // Check if _versions table exists
   const checkTableQuery = `
     SELECT EXISTS (
@@ -117,25 +125,31 @@ async function ensure_versions(client: Client): Promise<void> {
     `;
     
     await client.queryObject(createTableQuery);
-    console.log(`Created _versions table`);
+    if (verbose) {
+      console.info(`Created _versions table`);
+    }
   } 
 }
 
-async function migrateApp(appName: string, databaseUrl: string, folderName: string): Promise<void> {
-  console.log(`Connecting to database for app: ${appName}`);
+async function migrateApp(appName: string, databaseUrl: string, folderName: string, verbose: boolean = false): Promise<void> {
+  if (verbose) {
+    console.info(`Connecting to database for app: ${appName}`);
+  }
   
   const client = new Client(databaseUrl);
   
   try {
     // Connect to the database
     await client.connect();
-    console.log(`Database connection established for ${appName}`);
+    if (verbose) {
+      console.info(`Database connection established for ${appName}`);
+    }
     
     // Ensure _versions table exists
-    await ensure_versions(client);
+    await ensure_versions(client, verbose);
     
     // Execute migrations for this app
-    await executeMigrations(appName, folderName, client);
+    await executeMigrations(appName, folderName, client, verbose);
     
   } catch (error) {
     if (error instanceof Error) {
@@ -157,14 +171,16 @@ async function migrateApp(appName: string, databaseUrl: string, folderName: stri
     // Always close the connection
     try {
       await client.end();
-      console.log(`Database connection closed for ${appName}`);
+      if (verbose) {
+        console.info(`Database connection closed for ${appName}`);
+      }
     } catch (_closeError) {
       console.warn(`Warning: Could not close database connection properly for ${appName}`);
     }
   }
 }
 
-async function getMigrationFiles(folderName: string): Promise<string[]> {
+async function getMigrationFiles(folderName: string, verbose: boolean = false): Promise<string[]> {
   const migrationPath = `./apps/${folderName}/migrations`;
   
   try {
@@ -183,7 +199,9 @@ async function getMigrationFiles(folderName: string): Promise<string[]> {
     return migrationFiles;
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) {
-      console.log(`No migrations folder found at: ${migrationPath}`);
+      if (verbose) {
+        console.info(`No migrations folder found at: ${migrationPath}`);
+      }
       return [];
     } else {
       console.error(`Error reading migrations folder ${migrationPath}:`, error instanceof Error ? error.message : String(error));
@@ -237,11 +255,15 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
   }
 }
 
-async function executeMigrations(appName: string, folderName: string, client: Client): Promise<void> {
-  console.log(`Getting migration files for app: ${appName}`);
+async function executeMigrations(appName: string, folderName: string, client: Client, verbose: boolean = false): Promise<void> {
+  if (verbose) {
+    console.info(`Getting migration files for app: ${appName}`);
+  }
   
   // Try to acquire advisory lock to prevent concurrent migrations
-  console.log(`Attempting to acquire migration lock for ${appName}...`);
+  if (verbose) {
+    console.info(`Attempting to acquire migration lock for ${appName}...`);
+  }
   const lockResult = await client.queryObject("SELECT pg_try_advisory_lock(hashtext('migrate'))");
   const lockAcquired = (lockResult.rows[0] as { pg_try_advisory_lock: boolean }).pg_try_advisory_lock;
   
@@ -249,22 +271,30 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
     throw new Error(`Failed to acquire migration lock for ${appName}. Another migration process may be running.`);
   }
   
-  console.log(`Migration lock acquired for ${appName}`);
+  if (verbose) {
+    console.info(`Migration lock acquired for ${appName}`);
+  }
   
   try {
     // Get all migration files for this app
-    const migrationFiles = await getMigrationFiles(folderName);
+    const migrationFiles = await getMigrationFiles(folderName, verbose);
     
     if (migrationFiles.length === 0) {
-      console.log(`No migration files found for ${appName}`);
+      if (verbose) {
+        console.info(`No migration files found for ${appName}`);
+      }
       return;
     }
     
-    console.log(`Found ${migrationFiles.length} migration file(s) for ${appName}:`);
+    if (verbose) {
+      console.info(`Found ${migrationFiles.length} migration file(s) for ${appName}:`);
+    }
     
     // Loop over the list and execute each migration file
     for (const migrationFile of migrationFiles) {
-      console.log(`  ${migrationFile}`);
+      if (verbose) {
+        console.info(`  ${migrationFile}`);
+      }
       
       // versionName is file name with extension
       const versionName = migrationFile;
@@ -281,23 +311,31 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
       const versionExists = (versionResult.rows[0] as { exists: boolean }).exists;
       
       if (versionExists) {
-        console.log(`  Skipping ${versionName} - already applied`);
+        if (verbose) {
+          console.info(`  Skipping ${versionName} - already applied`);
+        }
         continue;
       }
       
-      console.log(`  Executing migration: ${versionName}`);
+      if (verbose) {
+        console.info(`  Executing migration: ${versionName}`);
+      }
       
       // Execute the SQL file
       await executeSqlFile(client, folderName, versionName);
       
-      console.log(`  Migration ${versionName} completed and recorded`);
+      if (verbose) {
+        console.info(`  Migration ${versionName} completed and recorded`);
+      }
     }
     
   } finally {
     // Always release the advisory lock
     try {
       await client.queryObject("SELECT pg_advisory_unlock(hashtext('migrate'))");
-      console.log(`Migration lock released for ${appName}`);
+      if (verbose) {
+        console.info(`Migration lock released for ${appName}`);
+      }
     } catch (unlockError) {
       console.error(`Warning: Failed to release migration lock for ${appName}:`, unlockError instanceof Error ? unlockError.message : String(unlockError));
     }
