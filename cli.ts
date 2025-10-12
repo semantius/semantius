@@ -6,6 +6,18 @@ import { formatProject } from "./commands/format.ts";
 import { initProject } from "./commands/init.ts";
 import { migrateCommand } from "./commands/migrate.ts";
 import { testDatabaseConnection } from "./commands/test.ts";
+import { red, yellow } from "@std/fmt/colors";
+
+const originalError = console.error;
+const originalWarn = console.warn;
+
+console.error = (...args: any[]) => {
+  originalError(...args.map(arg => typeof arg === 'string' ? red(arg) : arg));
+};
+
+console.warn = (...args: any[]) => {
+  originalWarn(...args.map(arg => typeof arg === 'string' ? yellow(arg) : arg));
+};
 
 interface CliArgs {
   help?: boolean;

@@ -298,6 +298,8 @@ Tasks are defined in `deno.json` with appropriate permissions for each command:
 - 🔐 Security/cleanup operations
 - 🎉 Completion celebrations
 
+**Note**: The migrate command uses plain text output without emoji prefixes for cleaner log readability.
+
 ### Permission Requirements (Actual)
 - `--allow-read`: File system read access
 - `--allow-write`: File system write access  
