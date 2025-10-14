@@ -9,7 +9,8 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "denoland.vscode-deno"
+        "denoland.vscode-deno",
+        "ms-ossdata.vscode-pgsql"
       ],
       "settings": {
         "deno.enable": true,
