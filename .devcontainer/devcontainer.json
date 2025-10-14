@@ -1,6 +1,7 @@
 {
   "name": "Deno",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  
   "features": {
     "ghcr.io/devcontainers-extra/features/deno:1": {
       "version": "latest"
