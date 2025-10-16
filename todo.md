@@ -22,6 +22,7 @@ https://github.com/ariga/atlas
 https://github.com/michaelsogos/pg-diff   https://github.com/michaelsogos/pg-diff-api
 https://github.com/ayatkevich/pg-diff
 https://github.com/stripe/pg-schema-diff?tab=readme-ov-file
+https://github.com/drizzle-team/drizzle-orm/issues/3106
 
 
 apps   https://claude.ai/chat/8fd66886-2d49-4321-a3d4-13e0f65e669c  https://claude.ai/chat/0435970f-1b16-4d28-909b-34017e6dcfd6
