@@ -230,6 +230,75 @@ async function getSqlFiles(folderName: string, subfolder: string): Promise<strin
   }
 }
 
+async function executeSQL(client: Client, sqlContent: string, fileName: string): Promise<void> {
+  try {
+    // Execute the SQL content
+    await client.queryObject(sqlContent);
+  } catch (sqlError) {
+    // Capture and display detailed PostgreSQL error information
+    console.error(`\n=== SQL Error in ${fileName} ===`);
+    
+    if (sqlError instanceof Error) {
+      console.error(`Message: ${sqlError.message}`);
+      
+      // Check if this is a PostgresError with fields
+      const postgresError = sqlError as Error & {
+        fields?: {
+          severity?: string;
+          code?: string;
+          message?: string;
+          position?: string;
+          detail?: string;
+          hint?: string;
+          where?: string;
+          file?: string;
+          line?: string;
+          routine?: string;
+        };
+      };
+      
+      if (postgresError.fields) {
+        const fields = postgresError.fields;
+        if (fields.severity) console.error(`Severity: ${fields.severity}`);
+        if (fields.code) console.error(`Code: ${fields.code}`);
+        if (fields.detail) console.error(`Detail: ${fields.detail}`);
+        if (fields.hint) console.error(`Hint: ${fields.hint}`);
+        if (fields.where) console.error(`Where: ${fields.where}`);
+        if (fields.position) console.error(`Position: ${fields.position}`);
+        
+        let errorLine = "";
+        // Show the problematic SQL line if position is available
+        if (fields.position) {
+          const position = parseInt(fields.position) - 1; // PostgreSQL positions are 1-based
+          const lines = sqlContent.split('\n');
+          let charCount = 0;
+          let lineNumber = 1;
+          
+          for (const line of lines) {
+            if (position >= charCount && position < charCount + line.length) {
+              errorLine = `LINE ${lineNumber}: ${line}`;
+              console.error(errorLine);
+              break;
+            }
+            charCount += line.length + 1; // +1 for newline
+            lineNumber++;
+          }
+        }
+        
+        console.error(`=== End SQL Error ===\n`);
+        
+        // Include line information in the thrown error
+        const errorMsg = errorLine 
+          ? `SQL execution failed in ${fileName}: ${sqlError.message}\n${errorLine}`
+          : `SQL execution failed in ${fileName}: ${sqlError.message}`;
+        throw new Error(errorMsg);
+      }
+    }
+    
+    throw sqlError;
+  }
+}
+
 
 
 async function executeSqlFile(client: Client, folderName: string, fileName: string, versionName: string): Promise<void> {
@@ -247,7 +316,7 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
     }
     
     // Execute the SQL content
-    await client.queryObject(sqlContent);
+    await executeSQL(client, sqlContent, fileName);
     
     // Insert versionName in _versions table after successful execution
     const insertVersionQuery = `
@@ -266,14 +335,13 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
       console.error(`Warning: Failed to rollback transaction for ${fileName}:`, rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
     }
     
-    // Re-throw the original error with proper context
+    // Re-throw the original error - preserve detailed SQL error information
     if (error instanceof Deno.errors.NotFound) {
       throw new Error(`Migration file not found: ${filePath}`);
-    } else if (error instanceof Error) {
-      throw new Error(`Failed to execute migration ${fileName}: ${error.message}`);
-    } else {
-      throw new Error(`Failed to execute migration ${fileName}: ${String(error)}`);
     }
+    
+    // Don't wrap SQL execution errors - they already have detailed info
+    throw error;
   }
 }
 
@@ -294,7 +362,7 @@ async function executeFunctionFile(client: Client, folderName: string, fileName:
     }
     
     // Execute the SQL content
-    await client.queryObject(sqlContent);
+    await executeSQL(client, sqlContent, fileName);
     
     // Commit transaction
     await client.queryObject("COMMIT");
@@ -307,14 +375,13 @@ async function executeFunctionFile(client: Client, folderName: string, fileName:
       console.error(`Warning: Failed to rollback transaction for ${fileName}:`, rollbackError instanceof Error ? rollbackError.message : String(rollbackError));
     }
     
-    // Re-throw the original error with proper context
+    // Re-throw the original error - preserve detailed SQL error information
     if (error instanceof Deno.errors.NotFound) {
       throw new Error(`Function file not found: ${filePath}`);
-    } else if (error instanceof Error) {
-      throw new Error(`Failed to execute function ${fileName}: ${error.message}`);
-    } else {
-      throw new Error(`Failed to execute function ${fileName}: ${String(error)}`);
     }
+    
+    // Don't wrap SQL execution errors - they already have detailed info
+    throw error;
   }
 }
 
