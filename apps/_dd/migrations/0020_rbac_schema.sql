@@ -2,9 +2,6 @@
 -- RBAC SYSTEM - DDL (Tables, Indexes, Constraints)
 -- =====================================================
 
--- =====================================================
--- CORE TABLES
--- =====================================================
 
 -- Permissions: Basic permissions in the system
 CREATE TABLE permissions (
@@ -87,59 +84,6 @@ CREATE TABLE permission_hierarchy (
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
 COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
 COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
-
--- =====================================================
--- CYCLE DETECTION FOR PERMISSION HIERARCHY
--- =====================================================
-
--- Function to detect cycles in permission hierarchy and enforce depth limit of 11
-CREATE OR REPLACE FUNCTION check_permission_hierarchy_cycle()
-RETURNS TRIGGER AS $$
-DECLARE
-    cycle_exists BOOLEAN;
-    max_depth INTEGER;
-BEGIN
-    -- Check if adding this edge would create a cycle or exceed depth limit
-    -- A cycle exists if the child can reach the parent through existing paths
-    WITH RECURSIVE hierarchy_path AS (
-        -- Start from the proposed child
-        SELECT child_permission_id AS permission_id, 1 AS depth
-        FROM permission_hierarchy
-        WHERE parent_permission_id = NEW.child_permission_id
-        
-        UNION ALL
-        
-        -- Recursively follow the hierarchy
-        SELECT ph.child_permission_id, hp.depth + 1
-        FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
-        WHERE hp.depth < 11  -- Stop at depth 11
-    )
-    SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
-        COALESCE(MAX(depth), 0)
-    INTO cycle_exists, max_depth
-    FROM hierarchy_path;
-    
-    IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %', 
-            NEW.parent_permission_id, NEW.child_permission_id;
-    END IF;
-    
-    IF max_depth >= 11 THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be %', 
-            max_depth + 1;
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply trigger BEFORE INSERT OR UPDATE
-CREATE TRIGGER prevent_permission_hierarchy_cycle
-    BEFORE INSERT OR UPDATE ON permission_hierarchy
-    FOR EACH ROW
-    EXECUTE FUNCTION check_permission_hierarchy_cycle();
 
 -- =====================================================
 -- TRIGGERS FOR updated_at AUTOMATION
