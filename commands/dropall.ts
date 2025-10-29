@@ -16,6 +16,7 @@ export async function dropallCommand(databaseUrl: string): Promise<void> {
   console.warn("• All sequences");
   console.warn("• All types");
   console.warn("• All other database objects in the public schema");
+  console.warn("• All user-owned schemas/namespaces (except 'public')");
   console.warn("");
   console.warn("THIS OPERATION CANNOT BE UNDONE!");
   console.warn("=".repeat(50));
@@ -94,6 +95,9 @@ async function dropAllObjects(client: Client): Promise<void> {
   
   // 6. Drop any remaining objects
   await dropRemainingObjects(client);
+  
+  // 7. Drop custom schemas/namespaces (except 'public' and 'auth')
+  await dropCustomSchemas(client);
 }
 
 async function dropViews(client: Client): Promise<void> {
@@ -302,5 +306,38 @@ async function dropRemainingObjects(client: Client): Promise<void> {
     }
   } catch (error) {
     console.error("Warning: Could not check for aggregates:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function dropCustomSchemas(client: Client): Promise<void> {
+  const query = `
+    SELECT n.nspname as schema_name, u.usename as owner
+    FROM pg_namespace n
+    JOIN pg_user u ON n.nspowner = u.usesysid
+    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public')
+    AND n.nspname NOT LIKE 'pg_%'
+    AND u.usename = current_user
+    ORDER BY n.nspname;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.log("No user-owned schemas found to drop");
+    return;
+  }
+  
+  console.log(`Found ${result.rows.length} user-owned schema(s) to drop:`);
+  
+  for (const row of result.rows) {
+    const { schema_name, owner } = row as { schema_name: string; owner: string };
+    console.log(`  Dropping schema: ${schema_name} (owned by: ${owner})`);
+    
+    try {
+      await client.queryObject(`DROP SCHEMA IF EXISTS "${schema_name}" CASCADE`);
+      console.log(`  Dropped schema: ${schema_name}`);
+    } catch (error) {
+      console.error(`  Failed to drop schema ${schema_name}:`, error instanceof Error ? error.message : String(error));
+    }
   }
 }

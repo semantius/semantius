@@ -168,8 +168,7 @@ COMMENT ON FUNCTION rbac.add_permission_implies IS
 -- 3. OAuth scope restrictions (if scopes are set)
 CREATE OR REPLACE FUNCTION rbac.user_has_permission(
     p_external_id TEXT,
-    p_resource TEXT,
-    p_action TEXT
+    p_permission_name TEXT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -180,27 +179,26 @@ BEGIN
     -- Using recursive CTE to follow the hierarchy
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
         JOIN role_permissions rp ON r.role_id = rp.role_id
         JOIN permissions p ON rp.permission_id = p.permission_id
         WHERE u.external_id = p_external_id
-          AND u.is_active = TRUE
-          AND r.is_active = TRUE
+          AND u.is_disabled = FALSE
         
         UNION
         
         -- Add implied permissions (children in hierarchy)
-        SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM permission_tree pt
         JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
         JOIN permissions p ON ph.child_permission_id = p.permission_id
     )
     SELECT EXISTS (
         SELECT 1 FROM permission_tree
-        WHERE resource = p_resource AND action = p_action
+        WHERE permission_name = p_permission_name
     ) INTO v_has_permission;
     
     -- If user doesn't have the permission, return false immediately
@@ -221,32 +219,31 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+            SELECT DISTINCT p.permission_id, p.permission_name
             FROM permissions p
             WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
             
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+            SELECT DISTINCT p.permission_id, p.permission_name
             FROM permission_tree pt
             JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
             JOIN permissions p ON ph.child_permission_id = p.permission_id
         )
         SELECT 1 FROM permission_tree
-        WHERE resource = p_resource AND action = p_action
+        WHERE permission_name = p_permission_name
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
-'Checks if user has permission, considering hierarchy and OAuth scopes.';
+'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
 
 -- Check if current request user has permission
 -- Uses session variables set by set_request_context
 CREATE OR REPLACE FUNCTION rbac.current_user_has_permission(
-    p_resource TEXT,
-    p_action TEXT
+    p_permission_name TEXT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -258,23 +255,22 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    RETURN rbac.user_has_permission(v_external_id, p_resource, p_action);
+    RETURN rbac.user_has_permission(v_external_id, p_permission_name);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.current_user_has_permission IS 
-'Checks if current request user has permission. Uses session context.';
+'Checks if current request user has permission by name. Uses session context.';
 
 -- Require permission or raise exception
 -- Use this in application functions to enforce permissions
 CREATE OR REPLACE FUNCTION rbac.require_permission(
-    p_resource TEXT,
-    p_action TEXT
+    p_permission_name TEXT
 )
 RETURNS void AS $$
 BEGIN
-    IF NOT rbac.current_user_has_permission(p_resource, p_action) THEN
-        RAISE EXCEPTION 'Permission denied: %.% required', p_resource, p_action
+    IF NOT rbac.current_user_has_permission(p_permission_name) THEN
+        RAISE EXCEPTION 'Permission denied: % required', p_permission_name
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
@@ -292,35 +288,32 @@ CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
     p_external_id TEXT
 )
 RETURNS TABLE (
-    permission_name TEXT,
-    resource TEXT,
-    action TEXT
+    permission_name TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions
-        SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
         JOIN role_permissions rp ON r.role_id = rp.role_id
         JOIN permissions p ON rp.permission_id = p.permission_id
         WHERE u.external_id = p_external_id
-          AND u.is_active = TRUE
-          AND r.is_active = TRUE
+          AND u.is_disabled = FALSE
         
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT p.permission_id, p.permission_name, p.resource, p.action
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM permission_tree pt
         JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
         JOIN permissions p ON ph.child_permission_id = p.permission_id
     )
-    SELECT DISTINCT pt.permission_name, pt.resource, pt.action
+    SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
-    ORDER BY pt.resource, pt.action;
+    ORDER BY pt.permission_name;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 

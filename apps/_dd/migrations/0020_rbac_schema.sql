@@ -1,27 +1,24 @@
 -- =====================================================
 -- RBAC SYSTEM - DDL (Tables, Indexes, Constraints)
 -- =====================================================
-
+-- NOTE: This file requires common_schema.sql to be executed first
 
 -- Permissions: Basic permissions in the system
 CREATE TABLE permissions (
     permission_id SERIAL PRIMARY KEY,
     permission_name TEXT UNIQUE NOT NULL,
-    resource TEXT NOT NULL,
-    action TEXT NOT NULL,
     description TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_resource_action UNIQUE (resource, action)
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-COMMENT ON TABLE permissions IS 'System permissions defining resource-action pairs';
+COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (
     role_id SERIAL PRIMARY KEY,
     role_name TEXT UNIQUE NOT NULL,
     description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -34,7 +31,7 @@ CREATE TABLE users (
     user_id SERIAL PRIMARY KEY,
     external_id TEXT UNIQUE NOT NULL,
     email TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_disabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ
@@ -89,29 +86,22 @@ COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission 
 -- TRIGGERS FOR updated_at AUTOMATION
 -- =====================================================
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+CREATE TRIGGER update_permissions_updated_at
+    BEFORE UPDATE ON permissions
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
 
 CREATE TRIGGER update_roles_updated_at
     BEFORE UPDATE ON roles
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
 
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
 
 -- =====================================================
 -- INDEXES - Permissions
 -- =====================================================
 
-CREATE INDEX idx_permissions_resource ON permissions(resource);
-CREATE INDEX idx_permissions_action ON permissions(action);
-CREATE INDEX idx_permissions_resource_action ON permissions(resource, action);
 CREATE INDEX idx_permissions_name ON permissions(permission_name);
 
 -- =====================================================
@@ -129,8 +119,8 @@ CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 
 CREATE INDEX idx_users_external_id ON users(external_id);
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = TRUE;
-CREATE INDEX idx_users_inactive ON users(is_active) WHERE is_active = FALSE;
+CREATE INDEX idx_users_enabled ON users(is_disabled) WHERE is_disabled = FALSE;
+CREATE INDEX idx_users_disabled ON users(is_disabled) WHERE is_disabled = TRUE;
 
 -- =====================================================
 -- INDEXES - User Roles
