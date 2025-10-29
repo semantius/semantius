@@ -31,16 +31,6 @@ CREATE TABLE roles (
 
 COMMENT ON TABLE roles IS 'Groups of permissions that can be assigned to users';
 
--- Role-Permission mapping
-CREATE TABLE role_permissions (
-    role_id INTEGER NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
-    granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by INTEGER REFERENCES users(user_id),
-    PRIMARY KEY (role_id, permission_id)
-);
-
-COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
 
 -- Users: External users from JWT
 CREATE TABLE users (
@@ -50,8 +40,7 @@ CREATE TABLE users (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    last_seen TIMESTAMPTZ,
-    CONSTRAINT valid_email CHECK (email IS NULL OR email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+    last_seen TIMESTAMPTZ
 );
 
 COMMENT ON TABLE users IS 'External users synchronized from JWT tokens';
@@ -63,12 +52,23 @@ CREATE TABLE user_roles (
     role_id INTEGER NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     assigned_by INTEGER REFERENCES users(user_id),
-    expires_at TIMESTAMPTZ,
     PRIMARY KEY (user_id, role_id)
 );
 
 COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
-COMMENT ON COLUMN user_roles.expires_at IS 'Optional expiration timestamp for temporary role assignments';
+
+
+-- Role-Permission mapping
+CREATE TABLE role_permissions (
+    role_id INTEGER NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    granted_by INTEGER REFERENCES users(user_id),
+    PRIMARY KEY (role_id, permission_id)
+);
+
+COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
+
 
 -- =====================================================
 -- PERMISSION HIERARCHY
@@ -92,13 +92,14 @@ COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission 
 -- CYCLE DETECTION FOR PERMISSION HIERARCHY
 -- =====================================================
 
--- Function to detect cycles in permission hierarchy
+-- Function to detect cycles in permission hierarchy and enforce depth limit of 11
 CREATE OR REPLACE FUNCTION check_permission_hierarchy_cycle()
 RETURNS TRIGGER AS $$
 DECLARE
     cycle_exists BOOLEAN;
+    max_depth INTEGER;
 BEGIN
-    -- Check if adding this edge would create a cycle
+    -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the child can reach the parent through existing paths
     WITH RECURSIVE hierarchy_path AS (
         -- Start from the proposed child
@@ -112,17 +113,22 @@ BEGIN
         SELECT ph.child_permission_id, hp.depth + 1
         FROM permission_hierarchy ph
         INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
-        WHERE hp.depth < 100  -- Prevent infinite loops (max depth safety)
+        WHERE hp.depth < 11  -- Stop at depth 11
     )
-    SELECT EXISTS (
-        SELECT 1 
-        FROM hierarchy_path 
-        WHERE permission_id = NEW.parent_permission_id
-    ) INTO cycle_exists;
+    SELECT 
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
+        COALESCE(MAX(depth), 0)
+    INTO cycle_exists, max_depth
+    FROM hierarchy_path;
     
     IF cycle_exists THEN
         RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %', 
             NEW.parent_permission_id, NEW.child_permission_id;
+    END IF;
+    
+    IF max_depth >= 11 THEN
+        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be %', 
+            max_depth + 1;
     END IF;
     
     RETURN NEW;
@@ -180,6 +186,7 @@ CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 CREATE INDEX idx_users_external_id ON users(external_id);
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_users_inactive ON users(is_active) WHERE is_active = FALSE;
 
 -- =====================================================
 -- INDEXES - User Roles
@@ -187,11 +194,7 @@ CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = TRUE;
 
 CREATE INDEX idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX idx_user_roles_role ON user_roles(role_id);
-CREATE INDEX idx_user_roles_expires ON user_roles(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
--- Composite index for active user role checks
-CREATE INDEX idx_user_roles_user_active ON user_roles(user_id, role_id) 
-WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP;
 
 -- =====================================================
 -- INDEXES - Permission Hierarchy

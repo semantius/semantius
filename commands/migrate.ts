@@ -168,9 +168,6 @@ async function migrateApp(appName: string, databaseUrl: string, folderName: stri
     
     // Ensure _versions table exists
     await ensure_versions(client);
-
-    // Execute functions for this app
-    await executeFunctions(appName, folderName, client);
     
     // Execute migrations for this app
     await executeMigrations(appName, folderName, client);   
@@ -382,32 +379,6 @@ async function executeFunctionFile(client: Client, folderName: string, fileName:
     
     // Don't wrap SQL execution errors - they already have detailed info
     throw error;
-  }
-}
-
-async function executeFunctions(appName: string, folderName: string, client: Client): Promise<void> {
-  console.info(`Getting function files for app: ${appName}`);
-  
-  // Get all function files for this app
-  const functionFiles = await getSqlFiles(folderName, "functions");
-  
-  if (functionFiles.length === 0) {
-    console.info(`No function files found for ${appName}`);
-    return;
-  }
-  
-  console.info(`Found ${functionFiles.length} function file(s) for ${appName}:`);
-  
-  // Loop over the list and execute each function file
-  for (const functionFile of functionFiles) {
-    console.info(`  ${functionFile}`);
-    
-    console.info(`  Executing function: ${functionFile}`);
-    
-    // Execute the SQL file
-    await executeFunctionFile(client, folderName, functionFile);
-    
-    console.info(`  Function ${functionFile} completed`);
   }
 }
 
