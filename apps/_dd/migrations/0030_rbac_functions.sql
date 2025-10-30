@@ -27,27 +27,27 @@ BEGIN
     -- A cycle exists if the child can reach the parent through existing paths
     WITH RECURSIVE hierarchy_path AS (
         -- Start from the proposed child
-        SELECT child_permission_id AS permission_id, 1 AS depth
+        SELECT child_permission_name AS permission_name, 1 AS depth
         FROM permission_hierarchy
-        WHERE parent_permission_id = NEW.child_permission_id
+        WHERE parent_permission_name = NEW.child_permission_name
         
         UNION ALL
         
         -- Recursively follow the hierarchy
-        SELECT ph.child_permission_id, hp.depth + 1
+        SELECT ph.child_permission_name, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
+        INNER JOIN hierarchy_path hp ON ph.parent_permission_name = hp.permission_name
         WHERE hp.depth < 11  -- Stop at depth 11
     )
     SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_name = NEW.parent_permission_name),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
     
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %', 
-            NEW.parent_permission_id, NEW.child_permission_id;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission "%" cannot be both ancestor and descendant of permission "%"', 
+            NEW.parent_permission_name, NEW.child_permission_name;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -131,33 +131,6 @@ COMMENT ON FUNCTION rbac.set_request_context IS
 'Sets request context from JWT. Call at start of each request. Context is transaction-scoped.';
 
 -- =====================================================
--- PERMISSION HIERARCHY
--- =====================================================
-
--- Add a permission hierarchy relationship
--- Example: customer.manage implies customer.read
-CREATE OR REPLACE FUNCTION rbac.add_permission_implies(
-    p_parent_permission TEXT,
-    p_child_permission TEXT
-)
-RETURNS void AS $$
-BEGIN
-    INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id)
-    SELECT 
-        pp.permission_id,
-        cp.permission_id
-    FROM permissions pp
-    CROSS JOIN permissions cp
-    WHERE pp.permission_name = p_parent_permission
-      AND cp.permission_name = p_child_permission
-    ON CONFLICT (parent_permission_id, child_permission_id) DO NOTHING;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION rbac.add_permission_implies IS 
-'Defines permission hierarchy. Parent permission implies child permission.';
-
--- =====================================================
 -- PERMISSION CHECKING
 -- =====================================================
 
@@ -179,7 +152,7 @@ BEGIN
     -- Using recursive CTE to follow the hierarchy
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT p.permission_name
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
@@ -191,10 +164,9 @@ BEGIN
         UNION
         
         -- Add implied permissions (children in hierarchy)
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT ph.child_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-        JOIN permissions p ON ph.child_permission_id = p.permission_id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
     )
     SELECT EXISTS (
         SELECT 1 FROM permission_tree
@@ -219,17 +191,16 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.permission_id, p.permission_name
+            SELECT DISTINCT p.permission_name
             FROM permissions p
             WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
             
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT p.permission_id, p.permission_name
+            SELECT DISTINCT ph.child_permission_name
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-            JOIN permissions p ON ph.child_permission_id = p.permission_id
+            JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
         )
         SELECT 1 FROM permission_tree
         WHERE permission_name = p_permission_name
@@ -242,7 +213,7 @@ COMMENT ON FUNCTION rbac.user_has_permission IS
 
 -- Check if current request user has permission
 -- Uses session variables set by set_request_context
-CREATE OR REPLACE FUNCTION rbac.current_user_has_permission(
+CREATE OR REPLACE FUNCTION rbac.has_permission(
     p_permission_name TEXT
 )
 RETURNS BOOLEAN AS $$
@@ -259,7 +230,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
-COMMENT ON FUNCTION rbac.current_user_has_permission IS 
+COMMENT ON FUNCTION rbac.has_permission IS 
 'Checks if current request user has permission by name. Uses session context.';
 
 -- Require permission or raise exception
@@ -269,7 +240,7 @@ CREATE OR REPLACE FUNCTION rbac.require_permission(
 )
 RETURNS void AS $$
 BEGIN
-    IF NOT rbac.current_user_has_permission(p_permission_name) THEN
+    IF NOT rbac.has_permission(p_permission_name) THEN
         RAISE EXCEPTION 'Permission denied: % required', p_permission_name
             USING ERRCODE = 'insufficient_privilege';
     END IF;
@@ -294,7 +265,7 @@ BEGIN
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT p.permission_name
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
@@ -306,10 +277,9 @@ BEGIN
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT ph.child_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-        JOIN permissions p ON ph.child_permission_id = p.permission_id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
@@ -349,56 +319,3 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
-
--- =====================================================
--- ROLE MANAGEMENT
--- =====================================================
-
--- Grant a role to a user
-CREATE OR REPLACE FUNCTION rbac.grant_role_to_user(
-    p_external_id TEXT,
-    p_role_name TEXT,
-    p_granted_by_external_id TEXT
-)
-RETURNS void AS $$
-DECLARE
-    v_granted_by_user_id INTEGER;
-BEGIN
-    -- Get the user_id of the person granting the role
-    SELECT user_id INTO v_granted_by_user_id
-    FROM users
-    WHERE external_id = p_granted_by_external_id;
-    
-    INSERT INTO user_roles (user_id, role_id, assigned_by)
-    SELECT u.user_id, r.role_id, v_granted_by_user_id
-    FROM users u
-    CROSS JOIN roles r
-    WHERE u.external_id = p_external_id
-      AND r.role_name = p_role_name
-    ON CONFLICT (user_id, role_id) DO UPDATE
-    SET assigned_by = EXCLUDED.assigned_by,
-        assigned_at = CURRENT_TIMESTAMP;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION rbac.grant_role_to_user IS 
-'Assigns a role to a user.';
-
--- Revoke a role from a user
-CREATE OR REPLACE FUNCTION rbac.revoke_role_from_user(
-    p_external_id TEXT,
-    p_role_name TEXT
-)
-RETURNS void AS $$
-BEGIN
-    DELETE FROM user_roles ur
-    USING users u, roles r
-    WHERE ur.user_id = u.user_id
-      AND ur.role_id = r.role_id
-      AND u.external_id = p_external_id
-      AND r.role_name = p_role_name;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION rbac.revoke_role_from_user IS 
-'Removes a role from a user.';
