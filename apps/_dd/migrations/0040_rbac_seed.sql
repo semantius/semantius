@@ -1,8 +1,7 @@
 -- =====================================================
--- Migration: V002__seed_rbac_permissions_and_roles.sql
 -- Description: Seeds initial permissions, roles, and their relationships
 -- =====================================================
--- Dependencies: V001__create_rbac_schema.sql
+
 
 -- =====================================================
 -- SEED PERMISSIONS
@@ -15,10 +14,10 @@ INSERT INTO permissions (permission_id, permission_name, description) VALUES
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
 -- =====================================================
--- user:manage implies user:read
+-- user:manage (ID=2) implies user:read (ID=1)
 
-INSERT INTO permission_hierarchy (parent_permission_name, child_permission_name) VALUES
-    ('user:manage', 'user:read');
+INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VALUES
+    (2, 1);
 
 -- =====================================================
 -- SEED ROLES

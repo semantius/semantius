@@ -23,31 +23,40 @@ DECLARE
     cycle_exists BOOLEAN;
     max_depth INTEGER;
 BEGIN
+    -- Validate that both parent and child permissions exist (redundant with FK but explicit)
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.parent_permission_id) THEN
+        RAISE EXCEPTION 'Parent permission with ID % does not exist', NEW.parent_permission_id;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.child_permission_id) THEN
+        RAISE EXCEPTION 'Child permission with ID % does not exist', NEW.child_permission_id;
+    END IF;
+    
     -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the child can reach the parent through existing paths
     WITH RECURSIVE hierarchy_path AS (
         -- Start from the proposed child
-        SELECT child_permission_name AS permission_name, 1 AS depth
+        SELECT child_permission_id AS permission_id, 1 AS depth
         FROM permission_hierarchy
-        WHERE parent_permission_name = NEW.child_permission_name
+        WHERE parent_permission_id = NEW.child_permission_id
         
         UNION ALL
         
         -- Recursively follow the hierarchy
-        SELECT ph.child_permission_name, hp.depth + 1
+        SELECT ph.child_permission_id, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.parent_permission_name = hp.permission_name
+        INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
         WHERE hp.depth < 11  -- Stop at depth 11
     )
     SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_name = NEW.parent_permission_name),
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
     
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission "%" cannot be both ancestor and descendant of permission "%"', 
-            NEW.parent_permission_name, NEW.child_permission_name;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission ID % cannot be both ancestor and descendant of permission ID %', 
+            NEW.parent_permission_id, NEW.child_permission_id;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -82,6 +91,11 @@ RETURNS INTEGER AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
+    -- Validate external_id is not empty
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RAISE EXCEPTION 'external_id cannot be null or empty';
+    END IF;
+    
     INSERT INTO users (external_id, email, last_seen)
     VALUES (p_external_id, p_email, CURRENT_TIMESTAMP)
     ON CONFLICT (external_id) DO UPDATE
@@ -112,6 +126,11 @@ RETURNS void AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
+    -- Validate external_id is not empty
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RAISE EXCEPTION 'external_id cannot be null or empty';
+    END IF;
+    
     -- Ensure user exists and update last_seen
     v_user_id := rbac.upsert_user_from_jwt(p_external_id, p_email);
     
@@ -147,12 +166,32 @@ RETURNS BOOLEAN AS $$
 DECLARE
     v_oauth_scopes TEXT;
     v_has_permission BOOLEAN;
+    v_permission_id INTEGER;
 BEGIN
+    -- Validate inputs
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RETURN FALSE;
+    END IF;
+    
+    IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Get the permission_id for the requested permission
+    SELECT permission_id INTO v_permission_id
+    FROM permissions
+    WHERE permission_name = p_permission_name;
+    
+    -- If permission doesn't exist, return false
+    IF v_permission_id IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    
     -- Check if user has the permission (including hierarchy)
     -- Using recursive CTE to follow the hierarchy
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.permission_name
+        SELECT DISTINCT p.permission_id
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
@@ -164,13 +203,13 @@ BEGIN
         UNION
         
         -- Add implied permissions (children in hierarchy)
-        SELECT DISTINCT ph.child_permission_name
+        SELECT DISTINCT ph.child_permission_id
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
     )
     SELECT EXISTS (
         SELECT 1 FROM permission_tree
-        WHERE permission_name = p_permission_name
+        WHERE permission_id = v_permission_id
     ) INTO v_has_permission;
     
     -- If user doesn't have the permission, return false immediately
@@ -191,19 +230,19 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.permission_name
+            SELECT DISTINCT p.permission_id
             FROM permissions p
             WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
             
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT ph.child_permission_name
+            SELECT DISTINCT ph.child_permission_id
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
+            JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
         )
         SELECT 1 FROM permission_tree
-        WHERE permission_name = p_permission_name
+        WHERE permission_id = v_permission_id
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
@@ -220,6 +259,11 @@ RETURNS BOOLEAN AS $$
 DECLARE
     v_external_id TEXT;
 BEGIN
+    -- Validate permission_name
+    IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
+        RETURN FALSE;
+    END IF;
+    
     v_external_id := current_setting('app.current_external_id', true);
     
     IF v_external_id IS NULL THEN
@@ -262,10 +306,15 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 BEGIN
+    -- Validate external_id
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RETURN;
+    END IF;
+    
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions
-        SELECT DISTINCT p.permission_name
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM users u
         JOIN user_roles ur ON u.user_id = ur.user_id
         JOIN roles r ON ur.role_id = r.role_id
@@ -277,9 +326,10 @@ BEGIN
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT ph.child_permission_name
+        SELECT DISTINCT p.permission_id, p.permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_name = ph.parent_permission_name
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
+        JOIN permissions p ON ph.child_permission_id = p.permission_id
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
@@ -301,6 +351,15 @@ RETURNS TABLE (
     reason TEXT
 ) AS $$
 BEGIN
+    -- Validate inputs
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RAISE EXCEPTION 'external_id cannot be null or empty';
+    END IF;
+    
+    IF p_requested_scopes IS NULL OR trim(p_requested_scopes) = '' THEN
+        RETURN;
+    END IF;
+    
     RETURN QUERY
     WITH user_perms AS (
         SELECT permission_name FROM rbac.get_user_permissions(p_external_id)

@@ -1,7 +1,6 @@
 -- =====================================================
 -- RBAC SYSTEM - DDL (Tables, Indexes, Constraints)
 -- =====================================================
--- NOTE: This file requires common_schema.sql to be executed first
 
 -- =====================================================
 -- MODULES
@@ -91,16 +90,16 @@ COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    parent_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE,
-    child_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE,
+    parent_permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+    child_permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (parent_permission_name, child_permission_name),
-    CONSTRAINT no_self_reference CHECK (parent_permission_name != child_permission_name)
+    PRIMARY KEY (parent_permission_id, child_permission_id),
+    CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id)
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
-COMMENT ON COLUMN permission_hierarchy.parent_permission_name IS 'Parent permission that implies child permissions';
-COMMENT ON COLUMN permission_hierarchy.child_permission_name IS 'Child permission implied by parent';
+COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
+COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
 
 -- =====================================================
 -- TRIGGERS FOR updated_at AUTOMATION
@@ -166,5 +165,5 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_parent ON permission_hierarchy(parent_permission_name);
-CREATE INDEX idx_permission_hierarchy_child ON permission_hierarchy(child_permission_name);
+CREATE INDEX idx_permission_hierarchy_parent ON permission_hierarchy(parent_permission_id);
+CREATE INDEX idx_permission_hierarchy_child ON permission_hierarchy(child_permission_id);
