@@ -9,7 +9,9 @@
 
 INSERT INTO permissions (permission_id, permission_name, description) VALUES
     (1, 'user:read', 'Permission to read user information'),
-    (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)');
+    (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)'),
+    (3, 'public:read', 'Permission to read public information'),
+    (4, 'admin:manage', 'Permission to manage administrative functions');
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
@@ -31,11 +33,16 @@ INSERT INTO roles (role_id, role_name, description) VALUES
 -- SEED ROLE-PERMISSION MAPPINGS
 -- =====================================================
 
--- User role gets user:read permission
-INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1);
+-- User role gets user:read and public:read permissions
+INSERT INTO role_permissions (role_id, permission_id) VALUES 
+    (1, 1),
+    (1, 3);
 
--- Administrator role gets user:manage permission
-INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 2);
+-- Administrator role gets user:manage, public:read, and admin:manage permissions
+INSERT INTO role_permissions (role_id, permission_id) VALUES 
+    (2, 2),
+    (2, 3),
+    (2, 4);
 
 -- =====================================================
 -- RESET SEQUENCES (Reserve IDs < 10000 for internal use)
