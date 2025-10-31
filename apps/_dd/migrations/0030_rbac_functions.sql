@@ -333,6 +333,91 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
 
+-- Check if user has any of the specified permissions (OR logic)
+-- Uses cached permissions for optimal performance
+CREATE OR REPLACE FUNCTION rbac.has_any_permission(
+    VARIADIC p_permission_names TEXT[]
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_cached_permissions TEXT;
+    v_permission TEXT;
+    v_oauth_scopes TEXT;
+    v_external_id TEXT;
+    v_has_base_permission BOOLEAN := FALSE;
+BEGIN
+    -- Validate input
+    IF p_permission_names IS NULL OR array_length(p_permission_names, 1) IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Try cached permissions first (optimization)
+    v_cached_permissions := current_setting('app.user_permissions', true);
+    
+    IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
+        -- Check if any permission exists in cache
+        FOREACH v_permission IN ARRAY p_permission_names
+        LOOP
+            IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0 THEN
+                v_has_base_permission := TRUE;
+                EXIT; -- Found one, stop checking
+            END IF;
+        END LOOP;
+        
+        IF NOT v_has_base_permission THEN
+            RETURN FALSE;
+        END IF;
+        
+        -- Check OAuth scopes if present
+        v_oauth_scopes := current_setting('app.oauth_scopes', true);
+        
+        IF v_oauth_scopes IS NULL OR v_oauth_scopes = '' THEN
+            RETURN TRUE;
+        END IF;
+        
+        -- Verify at least one permission is in OAuth scopes
+        FOREACH v_permission IN ARRAY p_permission_names
+        LOOP
+            IF position(',' || v_permission || ',' IN ',' || v_oauth_scopes || ',') > 0 THEN
+                RETURN TRUE;
+            END IF;
+        END LOOP;
+        
+        RETURN FALSE;
+    END IF;
+    
+    -- Fallback to individual checks
+    FOREACH v_permission IN ARRAY p_permission_names
+    LOOP
+        IF rbac.has_permission(v_permission) THEN
+            RETURN TRUE;
+        END IF;
+    END LOOP;
+    
+    RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.has_any_permission IS 
+'Returns true if current user has at least one of the specified permissions. Uses cached permissions for optimal performance.';
+
+-- Require any of the specified permissions or raise exception
+-- Use this when multiple permissions could authorize an action (OR logic)
+CREATE OR REPLACE FUNCTION rbac.require_any_permission(
+    VARIADIC p_permission_names TEXT[]
+)
+RETURNS void AS $$
+BEGIN
+    IF NOT rbac.has_any_permission(VARIADIC p_permission_names) THEN
+        RAISE EXCEPTION 'Permission denied: one of (%) required', array_to_string(p_permission_names, ', ')
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.require_any_permission IS 
+'Raises exception if current user lacks all specified permissions. Use for OR-based access control.';
+
 -- =====================================================
 -- PERMISSION QUERIES
 -- =====================================================
