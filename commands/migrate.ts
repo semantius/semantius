@@ -26,11 +26,11 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
     console.info("Global migration lock acquired");
 
     try {
-      // If no apps provided or empty, default to just "_dd"
-      const appsToProcess = (!apps || apps.trim() === "") ? "_dd" : apps;
+      // If no apps provided or empty, default to just "_core"
+      const appsToProcess = (!apps || apps.trim() === "") ? "_core" : apps;
       
-      // Add _dd prefix to the entire string if it doesn't start with "_dd," and it's not just "_dd"
-      const processedAppsString = (appsToProcess === "_dd" || appsToProcess.startsWith("_dd,")) ? appsToProcess : `_dd,${appsToProcess}`;
+      // Add _core prefix to the entire string if it doesn't start with "_core," and it's not just "_core"
+      const processedAppsString = (appsToProcess === "_core" || appsToProcess.startsWith("_core,")) ? appsToProcess : `_core,${appsToProcess}`;
       console.info(`Processing apps parameter: ${appsToProcess}`);
       console.info(`Processed parameter: ${processedAppsString}`);
       

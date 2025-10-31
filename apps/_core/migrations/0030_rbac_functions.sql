@@ -502,3 +502,16 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
+
+
+CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM permissions WHERE permission_name = p_permission_name
+    );
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.validate_permission_exists IS 
+'Validates that a permission exists in the permissions table.';
