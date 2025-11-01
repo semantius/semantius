@@ -7,12 +7,15 @@
     "@std/flags": "https://deno.land/std@0.208.0/flags/mod.ts",
     "@std/dotenv": "https://deno.land/std@0.208.0/dotenv/mod.ts",
     "@postgres": "https://deno.land/x/postgres@v0.17.0/mod.ts",
-    "@std/fmt/colors": "jsr:@std/fmt/colors"
+    "@std/fmt/colors": "jsr:@std/fmt/colors",
+    "@std/fs/walk": "https://deno.land/std@0.208.0/fs/walk.ts",
+    "@std/path": "https://deno.land/std@0.208.0/path/mod.ts"
   },
   "tasks": {
     "start": "deno run --allow-read --allow-write --allow-env cli.ts",
     "init": "deno run --allow-read --allow-write --allow-env cli.ts init",
     "build": "deno run --allow-read --allow-write --allow-env cli.ts build",
+    "connect": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts connect",
     "test": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts test",
     "lint": "deno run --allow-read --allow-write --allow-env cli.ts lint",
     "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",

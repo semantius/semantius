@@ -317,7 +317,7 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
     
     // Insert versionName in _versions table after successful execution
     const insertVersionQuery = `
-      INSERT INTO _versions (name) VALUES ($1)
+      INSERT INTO public._versions (name) VALUES ($1)
     `;
     await client.queryObject(insertVersionQuery, [versionName]);
     

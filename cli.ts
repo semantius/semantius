@@ -5,7 +5,8 @@ import { load } from "@std/dotenv";
 import { formatProject } from "./commands/format.ts";
 import { initProject } from "./commands/init.ts";
 import { migrateCommand } from "./commands/migrate.ts";
-import { testDatabaseConnection } from "./commands/test.ts";
+import { connectDatabaseConnection } from "./commands/connect.ts";
+import { testCommand } from "./commands/test.ts";
 import { dropallCommand } from "./commands/dropall.ts";
 import { red, yellow } from "@std/fmt/colors";
 
@@ -27,6 +28,7 @@ interface CliArgs {
   config?: string;
   output?: string;
   apps?: string;
+  tap?: boolean;
   _: string[];
 }
 
@@ -67,7 +69,8 @@ function showHelp(): void {
 Semantius CLI v${VERSION}
 
 USAGE:
-    deno task start [OPTIONS] [COMMAND]
+    deno task [COMMAND] [OPTIONS]
+    deno task start [COMMAND] [OPTIONS]
 
 OPTIONS:
     -h, --help       Show this help message
@@ -80,20 +83,21 @@ OPTIONS:
 COMMANDS:
     init             Initialize a new project
     build            Build the project
-    test             Test database connection
+    connect          Test database connection
+    test             Run test command with optional --tap flag
     lint             Run linter
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
 
 EXAMPLES:
-    deno task start init
-    deno task start build --output ./dist
-    deno task start test --verbose
-    deno task start migrate --apps app1,app2,app3 --verbose
-    deno task start migrate --apps nwind,_ddtest
-    deno task start dropall --verbose
-    deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
+    deno task init
+    deno task build --output ./dist
+    deno task connect --verbose
+    deno task test --tap
+    deno task migrate --apps app1,app2,app3 --verbose
+    deno task migrate --apps nwind,_ddtest
+    deno task dropall --verbose    
   `);
 }
 
@@ -162,7 +166,7 @@ async function lintProject(): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    boolean: ["help", "version", "verbose"],
+    boolean: ["help", "version", "verbose", "tap"],
     string: ["config", "output", "apps"],
     alias: {
       h: "help",
@@ -200,8 +204,12 @@ async function main(): Promise<void> {
       await buildProject(args.output);
       break;
       
+    case "connect":
+      await connectDatabaseConnection(databaseUrl!);
+      break;
+      
     case "test":
-      await testDatabaseConnection(databaseUrl!);
+      await testCommand(databaseUrl!, args.tap);
       break;
       
     case "lint":

@@ -1,97 +1,240 @@
 /**
  * Test command implementation
- * Tests database connection using provided DATABASE_URL
+ * execute pgTAP tests from tests/ directory
  */
 
-import { Client } from "@postgres";
 
-export async function testDatabaseConnection(databaseUrl: string): Promise<void> {
-  console.log("🧪 Testing database connection...");
-  
-  try {
-    console.log("🔍 Found DATABASE_URL in environment");
+import { Client } from "@postgres";
+import { walk } from "@std/fs/walk";
+import { basename } from "@std/path";
+
+
+interface TestResult {
+  filename: string;
+  content: string;
+  passed: boolean;
+  planned: number;
+  executed: number;
+  errors: string[];
+}
+
+interface TapReporter {
+  start(): void;
+  test(result: TestResult): void;
+  finish(results: TestResult[]): void;
+}
+
+class DefaultReporter implements TapReporter {
+  private totalTests = 0;
+  private totalPassed = 0;
+  private totalFailed = 0;
+
+  start(): void {
+    console.log("TAP version 13");
+  }
+
+  test(result: TestResult): void {
+    const lines = result.content.split('\n').filter(line => line.trim());
+    let testNum = 0;
     
-    // Parse the connection string to validate format
-    let parsedUrl: URL;
+    for (const line of lines) {
+      if (line.startsWith('1..')) {
+        console.log(line);
+      } else if (line.match(/^(not )?ok \d+/)) {
+        testNum++;
+        console.log(line);
+        if (line.startsWith('ok')) {
+          this.totalPassed++;
+        } else {
+          this.totalFailed++;
+        }
+      } else if (line.startsWith('#')) {
+        console.log(line);
+      }
+    }
+    this.totalTests += result.executed;
+  }
+
+  finish(results: TestResult[]): void {
+    console.log(`\n# Tests: ${this.totalTests}`);
+    console.log(`# Passed: ${this.totalPassed}`);
+    console.log(`# Failed: ${this.totalFailed}`);
+    
+    const overallResult = this.totalFailed === 0 ? "PASS" : "FAIL";
+    console.log(`# Result: ${overallResult}`);
+    
+    if (this.totalFailed > 0) {
+      Deno.exit(1);
+    }
+  }
+}
+
+class TapSpecReporter implements TapReporter {
+  private totalTests = 0;
+  private totalPassed = 0;
+  private totalFailed = 0;
+  private currentTest = 0;
+
+  start(): void {
+    console.log("\n");
+  }
+
+  test(result: TestResult): void {
+    const lines = result.content.split('\n').filter(line => line.trim());
+    let planned = 0;
+    
+    console.log(`\n  ${basename(result.filename)}`);
+    
+    for (const line of lines) {
+      if (line.startsWith('1..')) {
+        planned = parseInt(line.substring(3));
+      } else if (line.match(/^(not )?ok \d+/)) {
+        this.currentTest++;
+        const parts = line.split(' - ');
+        const testName = parts[1] || `test ${this.currentTest}`;
+        
+        if (line.startsWith('ok')) {
+          console.log(`    ✓ ${testName}`);
+          this.totalPassed++;
+        } else {
+          console.log(`    ✗ ${testName}`);
+          this.totalFailed++;
+        }
+      }
+    }
+    this.totalTests += planned;
+  }
+
+  finish(results: TestResult[]): void {
+    console.log(`\n\n  ${this.totalPassed} passing`);
+    if (this.totalFailed > 0) {
+      console.log(`  ${this.totalFailed} failing`);
+    }
+    
+    if (this.totalFailed > 0) {
+      Deno.exit(1);
+    }
+  }
+}
+
+class PgTest {
+  private client: Client;
+  private reporter: TapReporter;
+
+  constructor(connectionString: string, reporter: TapReporter) {
+    this.client = new Client(connectionString);
+    this.reporter = reporter;
+  }
+
+  async connect(): Promise<void> {
+    await this.client.connect();
+    // Set search path to include pgtap and public schemas
+    await this.client.queryArray("SET search_path TO pgtap, public;");
+  }
+
+  async disconnect(): Promise<void> {
+    await this.client.end();
+  }
+
+  async runTest(filePath: string): Promise<TestResult> {
     try {
-      parsedUrl = new URL(databaseUrl);
+      const content = await Deno.readTextFile(filePath);
+      const result = await this.client.queryArray(content);
+      
+      // Extract TAP output from the result
+      const tapOutput = result.rows.map(row => row[0]).join('\n');
+      
+      const planned = this.extractPlannedTests(tapOutput);
+      const executed = this.countExecutedTests(tapOutput);
+      const passedCount = this.countPassedTests(tapOutput);
+      const passed = passedCount === planned && executed === planned;
+      
+      return {
+        filename: filePath,
+        content: tapOutput,
+        passed,
+        planned,
+        executed,
+        errors: []
+      };
     } catch (error) {
-      console.error("❌ Invalid DATABASE_URL format:", error instanceof Error ? error.message : String(error));
-      console.log("💡 Expected format: postgresql://username:password@host:port/database");
-      Deno.exit(1);
+      // When there's an error, we can't determine the planned count from the file
+      // so we return planned: 0, executed: 0 to indicate failure
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        filename: filePath,
+        content: `# Failed to execute test: ${errorMessage}`,
+        passed: false,
+        planned: 0,
+        executed: 0,
+        errors: [errorMessage]
+      };
+    }
+  }
+
+  private extractPlannedTests(output: string): number {
+    const planMatch = output.match(/1\.\.(\d+)/);
+    return planMatch ? parseInt(planMatch[1]) : 0;
+  }
+
+  private countExecutedTests(output: string): number {
+    const testLines = output.split('\n').filter(line => 
+      line.match(/^(not )?ok \d+/)
+    );
+    return testLines.length;
+  }
+
+  private countPassedTests(output: string): number {
+    const testLines = output.split('\n').filter(line => 
+      line.match(/^ok \d+/)
+    );
+    return testLines.length;
+  }
+
+  private isTestPassed(output: string): boolean {
+    const planned = this.extractPlannedTests(output);
+    const executed = this.countExecutedTests(output);
+    const passed = this.countPassedTests(output);
+    return planned > 0 && executed === planned && passed === planned;
+  }
+
+  async runTests(testDir: string): Promise<TestResult[]> {
+    const results: TestResult[] = [];
+    
+    this.reporter.start();
+    
+    for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
+      const result = await this.runTest(entry.path);
+      results.push(result);
+      this.reporter.test(result);
     }
     
-    if (parsedUrl.protocol !== "postgresql:") {
-      console.error("❌ DATABASE_URL must use postgresql:// protocol");
-      console.log(`🔍 Found protocol: ${parsedUrl.protocol}`);
-      Deno.exit(1);
-    }
+    this.reporter.finish(results);
+    return results;
+  }
+}
+
+
+
+export async function testCommand(databaseUrl: string, tapFlag?: boolean): Promise<void> {
+  console.log("Running test command...");
+  
+  // Use plain TAP reporter when --tap flag is provided, otherwise use pretty formatted reporter
+  const reporter = tapFlag ? new DefaultReporter() : new TapSpecReporter();
+  const pgTest = new PgTest(databaseUrl, reporter);
+
+  try {
+    await pgTest.connect();
+    console.log(`Connected to PostgreSQL at ${databaseUrl.replace(/\/\/[^@]+@/, '//***:***@')}`);
     
-    console.log(`🔗 Connecting to: ${parsedUrl.hostname}:${parsedUrl.port || 5432}`);
-    console.log(`📂 Database: ${parsedUrl.pathname.slice(1)}`);
-    console.log(`👤 User: ${parsedUrl.username}`);
+    const _results = await pgTest.runTests("./apps/test/tests");
     
-    // Test the actual PostgreSQL connection
-    await testPostgreSQLConnection(databaseUrl);
-    
-    console.log("✅ Database connection test passed!");
-    console.log("🎉 Your PostgreSQL database is accessible and ready to use");
-    
+    await pgTest.disconnect();
+    console.log("Test command completed!");
   } catch (error) {
-    console.error("❌ Database connection test failed:", error instanceof Error ? error.message : String(error));
-    console.log("\n💡 Troubleshooting tips:");
-    console.log("  - Check if DATABASE_URL is correctly set in .env.local");
-    console.log("  - Verify database server is running and accessible");
-    console.log("  - Confirm username/password are correct");
-    console.log("  - Check if SSL settings are required");
+    console.error("Test command failed:", error instanceof Error ? error.message : String(error));
     Deno.exit(1);
   }
 }
 
-async function testPostgreSQLConnection(databaseUrl: string): Promise<void> {
-  console.log("⏳ Attempting PostgreSQL connection...");
-  
-  const client = new Client(databaseUrl);
-  
-  try {
-    // Connect to the database
-    await client.connect();
-    console.log("✅ PostgreSQL connection established");
-    
-    // Test a simple query to verify the connection works
-    const result = await client.queryObject("SELECT version() as version, current_database() as database, current_user as user");
-    
-    if (result.rows.length > 0) {
-      const row = result.rows[0] as { version: string; database: string; user: string };
-      console.log("✅ Database query successful");
-      console.log(`📊 PostgreSQL Version: ${row.version.split(' ')[0]} ${row.version.split(' ')[1]}`);
-      console.log(`📂 Connected Database: ${row.database}`);
-      console.log(`👤 Connected User: ${row.user}`);
-    }
-    
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes("authentication failed")) {
-        throw new Error("Authentication failed. Check your username and password in DATABASE_URL.");
-      } else if (error.message.includes("database") && error.message.includes("does not exist")) {
-        throw new Error("Database does not exist. Check the database name in DATABASE_URL.");
-      } else if (error.message.includes("Connection refused")) {
-        throw new Error("Connection refused. Database server may not be running or network issues.");
-      } else if (error.message.includes("SSL")) {
-        throw new Error("SSL connection error. Check SSL configuration in DATABASE_URL.");
-      } else {
-        throw new Error(`PostgreSQL connection failed: ${error.message}`);
-      }
-    } else {
-      throw new Error(`PostgreSQL connection failed: ${String(error)}`);
-    }
-  } finally {
-    // Always close the connection
-    try {
-      await client.end();
-      console.log("🔐 Connection closed properly");
-    } catch (_closeError) {
-      console.warn("⚠️  Warning: Could not close connection properly");
-    }
-  }
-}
+
