@@ -703,6 +703,17 @@ DECLARE
     v_claim TEXT;
     v_claim_value TEXT;
 BEGIN
+    -- Return raw JWT settings BEFORE initialization
+    RETURN QUERY SELECT 
+        'jwt_raw'::TEXT,
+        'request.jwt.claim.sub'::TEXT,
+        current_setting('request.jwt.claim.sub', true);
+    
+    RETURN QUERY SELECT 
+        'jwt_raw'::TEXT,
+        'request.jwt.claims'::TEXT,
+        current_setting('request.jwt.claims', true);
+    
     -- Initialize context (will throw error if no JWT)
     PERFORM rbac.ensure_context_initialized();
     
