@@ -1,5 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS pgtap;
 SET LOCAL search_path TO pgtap;
+GRANT USAGE ON SCHEMA pgtap TO authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgtap TO authenticated;
 
 -- This file defines pgTAP, a collection of functions for TAP-based unit
 -- testing. It is distributed under the revised FreeBSD license.

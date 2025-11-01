@@ -97,7 +97,7 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Get current user's external_id from JWT
 -- Works with both Neon and Supabase JWT formats
 -- Automatically normalizes Supabase format to Neon format for future calls
-CREATE OR REPLACE FUNCTION rbac.user_id()
+CREATE OR REPLACE FUNCTION rbac.uid()
 RETURNS TEXT AS $$
 DECLARE
     sub_value TEXT;
@@ -149,7 +149,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
-COMMENT ON FUNCTION rbac.user_id IS 
+COMMENT ON FUNCTION rbac.uid IS 
 'Returns current user external_id from JWT. Auto-detects Neon/Supabase format.';
 
 -- =====================================================
@@ -209,7 +209,7 @@ BEGIN
     END IF;
     
     -- Get current user from JWT
-    v_external_id := rbac.user_id();
+    v_external_id := rbac.uid();
     
     -- Get email from JWT if available
     v_email := current_setting('request.jwt.claim.email', true);
@@ -251,7 +251,7 @@ DECLARE
     v_permissions TEXT;
 BEGIN
     -- Use provided external_id or detect from JWT
-    v_external_id := COALESCE(p_external_id, rbac.user_id());
+    v_external_id := COALESCE(p_external_id, rbac.uid());
     
     -- Validate external_id is not empty
     IF v_external_id IS NULL OR trim(v_external_id) = '' THEN
@@ -658,7 +658,7 @@ COMMENT ON FUNCTION rbac.validate_permission_exists IS
 -- =====================================================
 
 -- Get current user's internal database ID
-CREATE OR REPLACE FUNCTION rbac.current_user_id()
+CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS INTEGER AS $$
 BEGIN
     -- Ensure context is initialized
@@ -668,23 +668,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
-COMMENT ON FUNCTION rbac.current_user_id IS 
+COMMENT ON FUNCTION rbac.user_id IS 
 'Returns internal user_id for current user. Auto-initializes if needed.';
-
--- Get current user's external_id
-CREATE OR REPLACE FUNCTION rbac.current_external_id()
-RETURNS TEXT AS $$
-BEGIN
-    -- Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-    
-    RETURN current_setting('app.current_external_id', true);
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
-
-COMMENT ON FUNCTION rbac.current_external_id IS 
-'Returns external_id for current user. Auto-initializes if needed.';
-
 
 -- =====================================================
 -- DEBUGGING AND INTROSPECTION
@@ -746,7 +731,7 @@ BEGIN
         'oauth_scopes'::TEXT,
         current_setting('app.oauth_scopes', true);
     
-    -- Return common JWT claims (already normalized by rbac.user_id())
+    -- Return common JWT claims (already normalized by rbac.uid())
     v_jwt_claims := ARRAY[
         'sub',
         'email',

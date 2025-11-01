@@ -5,22 +5,33 @@
 -- This will create actual tables and fields when executed
 -- =====================================================
 
--- =====================================================
--- PREREQUISITE: Ensure modules exist
--- =====================================================
--- If you don't have modules table yet, create a simple one:
--- CREATE TABLE IF NOT EXISTS modules (
---     module_id SERIAL PRIMARY KEY,
---     module_name TEXT NOT NULL UNIQUE,
---     description TEXT
--- );
-
 -- Insert sample modules if they don't exist
 INSERT INTO modules (module_id, module_name, description) VALUES
     (1, 'CRM', 'Customer Relationship Management'),
     (2, 'HR', 'Human Resources'),
     (3, 'Inventory', 'Inventory Management')
 ON CONFLICT (module_id) DO NOTHING;
+
+-- =====================================================
+-- RBAC SEED DATA
+-- =====================================================
+-- Add test users and custom roles (MUST come before dynamic tables!)
+
+-- Add custom permissions for sales module
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('sales:read', 'Permission to read sales information', 1),
+    ('sales:manage', 'Permission to manage sales (includes read, create, update, delete)', 1);
+
+-- Add custom role "Sales User" for CRM module
+INSERT INTO roles (role_name, description, module_id) VALUES
+    ('Sales User', 'Sales role with access to CRM module', 1);
+
+-- Add Sales User role permissions
+INSERT INTO role_permissions (role_id, permission_id) 
+SELECT r.role_id, p.permission_id
+FROM roles r, permissions p
+WHERE r.role_name = 'Sales User' 
+  AND p.permission_name IN ('sales:read', 'sales:manage');
 
 -- =====================================================
 -- SEED DYNAMIC TABLES
@@ -36,7 +47,7 @@ VALUES (
     'Customer information and contact details',
     1, -- CRM module
     'public:read',
-    'user:manage',
+    'sales:manage',
     'customer_id',
     'customer_name'
 );
@@ -61,8 +72,8 @@ VALUES (
     'Products',
     'Product catalog and inventory',
     3, -- Inventory module
-    'public:read',
-    'user:manage',
+    'sales:read',
+    'sales:manage',
     'product_id',
     'product_name'
 );
@@ -135,6 +146,44 @@ VALUES
     ('Tool Basic', 'TL-003', 'Basic tool for everyday use', 19.99, 0, 'Tools', TRUE);
 
 -- =====================================================
+-- SEED TEST USERS
+-- =====================================================
+
+-- Add test users with fixed IDs for testing
+INSERT INTO users (user_id, external_id, email) VALUES
+    (1001, 'user1', 'user@test.com'),
+    (1002, 'user2', 'sales@test.com'),
+    (1003, 'user3', 'admin@test.com');
+
+-- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated IDs
+SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
+
+-- =====================================================
+-- SEED USER-ROLE MAPPINGS
+-- =====================================================
+
+-- All three users are members of the "User" role
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.user_id, r.role_id
+FROM users u, roles r
+WHERE u.external_id IN ('user1', 'user2', 'user3')
+  AND r.role_name = 'User';
+
+-- user3 is also a member of the "Administrator" role
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.user_id, r.role_id
+FROM users u, roles r
+WHERE u.external_id = 'user3'
+  AND r.role_name = 'Administrator';
+
+-- user2 (sales@test.com) is also a member of the "Sales User" role
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.user_id, r.role_id
+FROM users u, roles r
+WHERE u.external_id = 'user2'
+  AND r.role_name = 'Sales User';
+
+-- =====================================================
 -- VERIFICATION QUERIES
 -- =====================================================
 -- Run these to verify the system is working
@@ -153,6 +202,13 @@ VALUES
 -- SELECT * FROM customers;
 -- SELECT * FROM employees;
 -- SELECT * FROM products;
+
+-- View test users and their roles
+-- SELECT u.external_id, u.email, r.role_name
+-- FROM users u
+-- JOIN user_roles ur ON u.user_id = ur.user_id
+-- JOIN roles r ON ur.role_id = r.role_id
+-- ORDER BY u.external_id, r.role_name;
 
 -- Test RLS policies (these will only work if proper permissions are set)
 -- SELECT * FROM customers; -- Should work with public:read

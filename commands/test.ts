@@ -83,7 +83,8 @@ class DefaultReporter implements TapReporter {
 }
 
 class TapSpecReporter implements TapReporter {
-  private totalTests = 0;
+  private totalPlanned = 0;
+  private totalExecuted = 0;
   private totalPassed = 0;
   private totalFailed = 0;
   private currentTest = 0;
@@ -104,12 +105,14 @@ class TapSpecReporter implements TapReporter {
     
     const lines = result.content.split('\n').filter(line => line.trim());
     let planned = 0;
+    let executed = 0;
     
     for (const line of lines) {
       if (line.startsWith('1..')) {
         planned = parseInt(line.substring(3));
       } else if (line.match(/^(not )?ok \d+/)) {
         this.currentTest++;
+        executed++;
         const parts = line.split(' - ');
         const testName = parts[1] || `test ${this.currentTest}`;
         
@@ -120,9 +123,29 @@ class TapSpecReporter implements TapReporter {
           console.log(`    ✗ ${testName}`);
           this.totalFailed++;
         }
+      } else if (line.startsWith('#')) {
+        // Filter out pgTAP internal messages and show clean diagnostic output
+        const isFailedTestMessage = line.toLowerCase().includes('failed test');
+        const isLooksLikeMessage = line.toLowerCase().includes('looks like you failed');
+        
+        if (!isFailedTestMessage && !isLooksLikeMessage) {
+          // Remove leading # and extra spaces, then display
+          const cleanLine = line.substring(1).trim();
+          if (cleanLine) {
+            console.log(`    ${cleanLine}`);
+          }
+        }
       }
     }
-    this.totalTests += planned;
+    
+    // Check for plan vs execution mismatch per file
+    if (planned > 0 && executed !== planned) {
+      console.log(`    ✗ Test plan mismatch: planned ${planned} tests but ran ${executed}`);
+      this.totalFailed++;
+    }
+    
+    this.totalPlanned += planned;
+    this.totalExecuted += executed;
   }
 
   finish(results: TestResult[]): void {
@@ -132,9 +155,16 @@ class TapSpecReporter implements TapReporter {
     if (this.totalFailed > 0) {
       console.log(`  ${this.totalFailed} failing`);
     }
+    
+    // Check for overall plan vs execution mismatch
+    if (this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned) {
+      console.log(`  Plan mismatch: planned ${this.totalPlanned} tests but ran ${this.totalExecuted}`);
+    }
+    
     console.log(`  Total execution time: ${totalExecutionMs} ms`);
     
-    if (this.totalFailed > 0) {
+    // Exit with failure if there are failed tests OR plan mismatches
+    if (this.totalFailed > 0 || (this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned)) {
       Deno.exit(1);
     }
   }

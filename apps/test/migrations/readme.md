@@ -5,6 +5,8 @@ We just added the folowing prefix
 ```sql
 CREATE SCHEMA IF NOT EXISTS pgtap;
 SET LOCAL search_path TO pgtap;
+GRANT USAGE ON SCHEMA pgtap TO authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgtap TO authenticated;
 ```
 
 # pgTAP https://pgtap.org/
