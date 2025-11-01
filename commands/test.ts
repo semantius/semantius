@@ -197,7 +197,7 @@ class PgTest {
     }
     
     // Set search path to include pgtap and public schemas
-    await this.client.queryArray("SET search_path TO pgtap, public;");
+    await this.client.queryArray("SET search_path TO public, pgtap;");
   }
 
   async disconnect(): Promise<void> {

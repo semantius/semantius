@@ -26,7 +26,7 @@ BEGIN
     
     -- Build CREATE TABLE statement
     v_create_sql := format(
-        'CREATE TABLE IF NOT EXISTS %I (
+        'CREATE TABLE IF NOT EXISTS public.%I (
             %I SERIAL PRIMARY KEY,
             %I TEXT NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
