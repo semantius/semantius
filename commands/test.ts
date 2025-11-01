@@ -16,6 +16,7 @@ interface TestResult {
   planned: number;
   executed: number;
   errors: string[];
+  executionTimeMs: number;
 }
 
 interface TapReporter {
@@ -34,6 +35,15 @@ class DefaultReporter implements TapReporter {
   }
 
   test(result: TestResult): void {
+    // SQL execution errors indicate setup problems - abort immediately
+    if (result.errors.length > 0) {
+      console.log(`# FATAL: SQL execution failed for ${result.filename}`);
+      console.log(`# Error: ${result.errors[0]}`);
+      Deno.exit(1);
+    }
+    
+    console.log(`# ${basename(result.filename)}, ${result.executionTimeMs} ms`);
+    
     const lines = result.content.split('\n').filter(line => line.trim());
     let testNum = 0;
     
@@ -56,9 +66,12 @@ class DefaultReporter implements TapReporter {
   }
 
   finish(results: TestResult[]): void {
+    const totalExecutionMs = results.reduce((sum, result) => sum + result.executionTimeMs, 0);
+    
     console.log(`\n# Tests: ${this.totalTests}`);
     console.log(`# Passed: ${this.totalPassed}`);
     console.log(`# Failed: ${this.totalFailed}`);
+    console.log(`# Total execution time: ${totalExecutionMs} ms`);
     
     const overallResult = this.totalFailed === 0 ? "PASS" : "FAIL";
     console.log(`# Result: ${overallResult}`);
@@ -80,10 +93,17 @@ class TapSpecReporter implements TapReporter {
   }
 
   test(result: TestResult): void {
+    console.log(`\n  ${basename(result.filename)}, ${result.executionTimeMs} ms`);
+    
+    // SQL execution errors indicate setup problems - abort immediately  
+    if (result.errors.length > 0) {
+      console.error(`    ✗ FATAL: SQL execution failed`);
+      console.error(`    Error: ${result.errors[0]}`);
+      Deno.exit(1);
+    }
+    
     const lines = result.content.split('\n').filter(line => line.trim());
     let planned = 0;
-    
-    console.log(`\n  ${basename(result.filename)}`);
     
     for (const line of lines) {
       if (line.startsWith('1..')) {
@@ -106,10 +126,13 @@ class TapSpecReporter implements TapReporter {
   }
 
   finish(results: TestResult[]): void {
+    const totalExecutionMs = results.reduce((sum, result) => sum + result.executionTimeMs, 0);
+    
     console.log(`\n\n  ${this.totalPassed} passing`);
     if (this.totalFailed > 0) {
       console.log(`  ${this.totalFailed} failing`);
     }
+    console.log(`  Total execution time: ${totalExecutionMs} ms`);
     
     if (this.totalFailed > 0) {
       Deno.exit(1);
@@ -128,6 +151,21 @@ class PgTest {
 
   async connect(): Promise<void> {
     await this.client.connect();
+    
+    // Check if pgtap schema exists first
+    const schemaCheck = await this.client.queryObject(`
+      SELECT schema_name 
+      FROM information_schema.schemata 
+      WHERE schema_name = 'pgtap'
+    `);
+    
+    if (schemaCheck.rows.length === 0) {
+      console.error("FATAL: pgtap schema not found");
+      console.error("Run: deno task migrate test");
+      console.error("This will install the pgtap testing framework");
+      Deno.exit(1);
+    }
+    
     // Set search path to include pgtap and public schemas
     await this.client.queryArray("SET search_path TO pgtap, public;");
   }
@@ -137,9 +175,13 @@ class PgTest {
   }
 
   async runTest(filePath: string): Promise<TestResult> {
+    const startTime = performance.now();
+    
     try {
       const content = await Deno.readTextFile(filePath);
       const result = await this.client.queryArray(content);
+      
+      const executionTimeMs = Math.round(performance.now() - startTime);
       
       // Extract TAP output from the result
       const tapOutput = result.rows.map(row => row[0]).join('\n');
@@ -155,9 +197,12 @@ class PgTest {
         passed,
         planned,
         executed,
-        errors: []
+        errors: [],
+        executionTimeMs
       };
     } catch (error) {
+      const executionTimeMs = Math.round(performance.now() - startTime);
+      
       // When there's an error, we can't determine the planned count from the file
       // so we return planned: 0, executed: 0 to indicate failure
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -167,7 +212,8 @@ class PgTest {
         passed: false,
         planned: 0,
         executed: 0,
-        errors: [errorMessage]
+        errors: [errorMessage],
+        executionTimeMs
       };
     }
   }

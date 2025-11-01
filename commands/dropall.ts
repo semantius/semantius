@@ -16,7 +16,7 @@ export async function dropallCommand(databaseUrl: string): Promise<void> {
   console.warn("• All sequences");
   console.warn("• All types");
   console.warn("• All other database objects in the public schema");
-  console.warn("• All user-owned schemas/namespaces (except 'public')");
+  console.warn("• All user-owned schemas/namespaces (except 'public' and 'auth')");
   console.warn("");
   console.warn("THIS OPERATION CANNOT BE UNDONE!");
   console.warn("=".repeat(50));
@@ -313,9 +313,8 @@ async function dropCustomSchemas(client: Client): Promise<void> {
   const query = `
     SELECT n.nspname as schema_name, u.usename as owner
     FROM pg_namespace n
-    JOIN pg_user u ON n.nspowner = u.usesysid
-    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public')
-    AND n.nspname NOT LIKE 'pg_%'
+    JOIN pg_user u ON n.nspowner = u.usesysid    
+    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public', 'auth')    
     AND u.usename = current_user
     ORDER BY n.nspname;
   `;
