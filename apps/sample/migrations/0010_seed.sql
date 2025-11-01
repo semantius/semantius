@@ -71,43 +71,47 @@ VALUES (
 -- SEED DYNAMIC FIELDS
 -- =====================================================
 -- These will automatically add columns to the tables created above
--- Note: id_column and label_column are created automatically
+-- Note: id_column and label_column are created automatically by create_dd_table()
+-- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_id, field_name, label, data_type, is_pk, is_nullable, field_order)
+INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
 VALUES 
-    ((SELECT table_id FROM tables WHERE table_name = 'customers'), 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10),
-    ((SELECT table_id FROM tables WHERE table_name = 'customers'), 'phone', 'Phone Number', 'TEXT', FALSE, TRUE, 20),
-    ((SELECT table_id FROM tables WHERE table_name = 'customers'), 'company', 'Company Name', 'TEXT', FALSE, TRUE, 30),
-    ((SELECT table_id FROM tables WHERE table_name = 'customers'), 'status', 'Status', 'TEXT', FALSE, FALSE, 40),
-    ((SELECT table_id FROM tables WHERE table_name = 'customers'), 'total_orders', 'Total Orders', 'INTEGER', FALSE, FALSE, 50);
+    ('customers', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Customer primary email address'),
+    ('customers', 'phone', 'Phone Number', 'TEXT', FALSE, TRUE, 20, 'Customer contact phone number'),
+    ('customers', 'company', 'Company Name', 'TEXT', FALSE, TRUE, 30, 'Company or organization name'),
+    ('customers', 'status', 'Status', 'TEXT', FALSE, FALSE, 40, 'Customer account status (active, inactive, etc.)'),
+    ('customers', 'total_orders', 'Total Orders', 'INTEGER', FALSE, FALSE, 50, 'Total number of orders placed by customer');
 
 -- Add fields to employees table
-INSERT INTO fields (table_id, field_name, label, data_type, is_pk, is_nullable, field_order)
+INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
 VALUES 
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10),
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'department', 'Department', 'TEXT', FALSE, FALSE, 20),
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'position', 'Position', 'TEXT', FALSE, FALSE, 30),
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'hire_date', 'Hire Date', 'DATE', FALSE, FALSE, 40),
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'salary', 'Salary', 'NUMERIC', FALSE, TRUE, 50),
-    ((SELECT table_id FROM tables WHERE table_name = 'employees'), 'is_active', 'Active', 'BOOLEAN', FALSE, FALSE, 60);
+    ('employees', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Employee work email address'),
+    ('employees', 'department', 'Department', 'TEXT', FALSE, FALSE, 20, 'Department or division'),
+    ('employees', 'position', 'Position', 'TEXT', FALSE, FALSE, 30, 'Job title or position'),
+    ('employees', 'hire_date', 'Hire Date', 'DATE', FALSE, FALSE, 40, 'Date employee was hired'),
+    ('employees', 'salary', 'Salary', 'NUMERIC', FALSE, TRUE, 50, 'Annual salary amount'),
+    ('employees', 'is_active', 'Active', 'BOOLEAN', FALSE, FALSE, 60, 'Whether employee is currently active');
 
 -- Add fields to products table
-INSERT INTO fields (table_id, field_name, label, data_type, is_pk, is_nullable, field_order)
+INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
 VALUES 
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'sku', 'SKU', 'TEXT', FALSE, FALSE, 10),
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'description', 'Description', 'TEXT', FALSE, TRUE, 20),
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'price', 'Price', 'NUMERIC', FALSE, FALSE, 30),
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'quantity_in_stock', 'Quantity in Stock', 'INTEGER', FALSE, FALSE, 40),
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'category', 'Category', 'TEXT', FALSE, TRUE, 50),
-    ((SELECT table_id FROM tables WHERE table_name = 'products'), 'is_discontinued', 'Discontinued', 'BOOLEAN', FALSE, FALSE, 60);
+    ('products', 'sku', 'SKU', 'TEXT', FALSE, FALSE, 10, 'Stock keeping unit - unique product identifier'),
+    ('products', 'description', 'Description', 'TEXT', FALSE, TRUE, 20, 'Detailed product description'),
+    ('products', 'price', 'Price', 'NUMERIC', FALSE, FALSE, 30, 'Product price in base currency'),
+    ('products', 'quantity_in_stock', 'Quantity in Stock', 'INTEGER', FALSE, FALSE, 40, 'Current inventory quantity'),
+    ('products', 'category', 'Category', 'TEXT', FALSE, TRUE, 50, 'Product category or classification'),
+    ('products', 'is_discontinued', 'Discontinued', 'BOOLEAN', FALSE, FALSE, 60, 'Whether product is no longer available');
 
 -- =====================================================
 -- SEED SAMPLE DATA
 -- =====================================================
 -- Add some sample data to the dynamically created tables
+-- Note: Tables use the default id_column ('id') and label_column ('label')
+-- unless specified otherwise in the tables definition
 
 -- Sample customers
+-- Table: customers (id_column: customer_id, label_column: customer_name)
 INSERT INTO customers (customer_name, email, phone, company, status, total_orders)
 VALUES 
     ('John Smith', 'john.smith@example.com', '555-0101', 'Acme Corp', 'active', 15),
@@ -115,6 +119,7 @@ VALUES
     ('Bob Johnson', 'bob.johnson@example.com', '555-0103', 'Global Industries', 'inactive', 3);
 
 -- Sample employees
+-- Table: employees (id_column: employee_id, label_column: full_name)
 INSERT INTO employees (full_name, email, department, position, hire_date, salary, is_active)
 VALUES 
     ('Alice Williams', 'alice.williams@company.com', 'Engineering', 'Senior Developer', '2020-03-15', 95000, TRUE),
@@ -122,6 +127,7 @@ VALUES
     ('Diana Prince', 'diana.prince@company.com', 'HR', 'HR Manager', '2019-01-10', 80000, TRUE);
 
 -- Sample products
+-- Table: products (id_column: product_id, label_column: product_name)
 INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category, is_discontinued)
 VALUES 
     ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 'Widgets', FALSE),

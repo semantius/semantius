@@ -11,8 +11,7 @@
 -- Stores metadata about dynamically created tables
 
 CREATE TABLE IF NOT EXISTS tables (
-    table_id SERIAL PRIMARY KEY,
-    table_name TEXT NOT NULL UNIQUE,
+    table_name TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     description TEXT,
     module_id INTEGER REFERENCES modules(module_id) ON DELETE SET NULL,
@@ -35,7 +34,6 @@ CREATE TABLE IF NOT EXISTS tables (
 );
 
 CREATE INDEX idx_tables_module ON tables(module_id);
-CREATE INDEX idx_tables_table_name ON tables(table_name);
 
 COMMENT ON TABLE tables IS 
 'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
@@ -53,8 +51,7 @@ COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created 
 -- Stores metadata about fields in dynamically created tables
 
 CREATE TABLE IF NOT EXISTS fields (
-    field_id SERIAL PRIMARY KEY,
-    table_id INTEGER NOT NULL REFERENCES tables(table_id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL REFERENCES tables(table_name) ON DELETE CASCADE,
     field_name TEXT NOT NULL,
     label TEXT NOT NULL,
     description TEXT,
@@ -65,6 +62,8 @@ CREATE TABLE IF NOT EXISTS fields (
     field_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (table_name, field_name),
     
     -- Validate field_name follows PostgreSQL naming conventions
     CONSTRAINT valid_field_name CHECK (field_name ~ '^[a-z_][a-z0-9_]*$'),
@@ -77,17 +76,15 @@ CREATE TABLE IF NOT EXISTS fields (
             'BOOLEAN', 'DATE', 'TIMESTAMP', 'TIMESTAMPTZ',
             'TIME', 'TIMETZ', 'UUID', 'JSONB', 'JSON'
         )
-    ),
-    
-    -- Unique constraint: each table can only have one field with a given name
-    CONSTRAINT unique_field_per_table UNIQUE (table_id, field_name),
-    
-    -- Only one primary key per table
-    CONSTRAINT one_pk_per_table UNIQUE (table_id, is_pk) 
-        DEFERRABLE INITIALLY DEFERRED
+    )
 );
 
-CREATE INDEX idx_fields_table ON fields(table_id);
+-- Add this partial unique index:
+CREATE UNIQUE INDEX one_pk_per_table_idx
+ON fields (table_name)
+WHERE is_pk;-- Ensure only one primary key per table    
+
+CREATE INDEX idx_fields_table ON fields(table_name);
 CREATE INDEX idx_fields_name ON fields(field_name);
 CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 

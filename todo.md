@@ -1,9 +1,14 @@
+
+- check auth.uid() - wrap it ?  return all jwt ?
+- reset cache after DDL
+- tests, set jwt ? 
+- column security
+
+
+
 https://supabase.com/docs/guides/database/postgres/row-level-security
 https://neon.com/docs/guides/rls-tutorial
 
-- have _s namespace, create functions in _s 
-- rename _dd to _core
-- check auth.uid() - wrap it ?
 - define users, roles, permissions - compare starter
 - drizzle pgPolicy
 - see column level

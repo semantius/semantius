@@ -3,16 +3,21 @@
 -- =====================================================
 
 -- =====================================================
--- GRANT BYPASSRLS TO FUNCTION OWNER
+-- VERIFY BYPASSRLS ON FUNCTION OWNER
 -- =====================================================
--- This allows SECURITY DEFINER functions to bypass RLS and avoid recursion
--- Replace 'postgres' with your actual application database role if different
--- Note: This must be run by a superuser
+-- This check ensures SECURITY DEFINER functions can bypass RLS and avoid recursion
+-- On Supabase: The 'postgres' role automatically has BYPASSRLS - no ALTER ROLE needed
+-- On Neon: Roles created via Console/CLI/API inherit BYPASSRLS from 'neon_superuser' (projects after Aug 15, 2023)
+-- On self-hosted: You may need to run: ALTER ROLE your_role BYPASSRLS;
+-- Note: This verification will halt the script if BYPASSRLS is not available
 
-ALTER ROLE postgres BYPASSRLS;
+DO $$
+BEGIN
+  ASSERT (
+    SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user
+  ), 'Current role does not have BYPASSRLS privilege';
+END $$;
 
--- If you have a specific application role (e.g., 'app_user'), use that instead:
--- ALTER ROLE app_user BYPASSRLS;
 
 -- =====================================================
 -- ENABLE RLS ON ALL RBAC TABLES

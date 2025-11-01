@@ -78,11 +78,73 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
     EXECUTE FUNCTION rbac.check_permission_hierarchy_cycle();
 
 -- =====================================================
+-- USER DETECTION AND IDENTIFICATION
+-- =====================================================
+
+-- Get current user's external_id from JWT
+-- Works with both Neon and Supabase JWT formats
+-- Automatically normalizes Supabase format to Neon format for future calls
+CREATE OR REPLACE FUNCTION rbac.user_id()
+RETURNS TEXT AS $$
+DECLARE
+    sub_value TEXT;
+    supabase_claims jsonb;
+    claim_key TEXT;
+    claim_value TEXT;
+BEGIN
+    -- Step 1: Try Neon format (fastest path)
+    sub_value := current_setting('request.jwt.claim.sub', true);
+    
+    IF sub_value IS NOT NULL AND sub_value != '' THEN
+        RETURN sub_value;
+    END IF;
+    
+    -- Step 2: Fallback - Check if Supabase format exists
+    BEGIN
+        supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE EXCEPTION 'Authentication required: No valid JWT claims found';
+    END;
+    
+    IF supabase_claims IS NULL THEN
+        RAISE EXCEPTION 'Authentication required: No valid JWT claims found';
+    END IF;
+    
+    -- Step 3: Convert ALL Supabase JSON properties to Neon-style settings
+    -- This normalizes the format for future calls in this transaction
+    FOR claim_key, claim_value IN 
+        SELECT key, value::text 
+        FROM jsonb_each_text(supabase_claims)
+    LOOP
+        BEGIN
+            PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
+        EXCEPTION
+            WHEN OTHERS THEN
+                NULL; -- Skip if setting fails
+        END;
+    END LOOP;
+    
+    -- Step 4: Get sub from normalized Neon format
+    sub_value := current_setting('request.jwt.claim.sub', true);
+    
+    IF sub_value IS NULL OR sub_value = '' THEN
+        RAISE EXCEPTION 'Authentication required: JWT sub claim is missing';
+    END IF;
+    
+    RETURN sub_value;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.user_id IS 
+'Returns current user external_id from JWT. Auto-detects Neon/Supabase format.';
+
+-- =====================================================
 -- USER MANAGEMENT
 -- =====================================================
 
 -- Initialize or update user from JWT
--- Called at the start of each request to ensure user exists
+-- Called automatically when needed to ensure user exists
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
     p_email TEXT DEFAULT NULL
@@ -111,42 +173,94 @@ COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 'Creates or updates user record from JWT claims. Updates last_seen timestamp.';
 
 -- =====================================================
--- REQUEST CONTEXT
+-- REQUEST CONTEXT - LAZY INITIALIZATION
 -- =====================================================
 
--- Set request context from JWT claims
--- This must be called at the start of each request/transaction
--- Sets PostgreSQL session variables that are automatically cleared when transaction ends
--- OPTIMIZED: Loads all user permissions once and caches them for the transaction
-CREATE OR REPLACE FUNCTION rbac.set_request_context(
-    p_external_id TEXT,
-    p_email TEXT DEFAULT NULL,
-    p_oauth_scopes TEXT DEFAULT NULL
-)
+-- Initialize request context on first use (lazy initialization)
+-- Loads all user permissions once and caches them for the transaction
+-- This is called automatically by permission checking functions
+CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
+    v_external_id TEXT;
+    v_email TEXT;
     v_user_id INTEGER;
     v_permissions TEXT;
+    v_initialized TEXT;
 BEGIN
-    -- Validate external_id is not empty
-    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+    -- Check if already initialized in this transaction
+    v_initialized := current_setting('app.context_initialized', true);
+    
+    IF v_initialized = 'true' THEN
+        RETURN; -- Already initialized, skip
     END IF;
     
+    -- Get current user from JWT
+    v_external_id := rbac.user_id();
+    
+    -- Get email from JWT if available
+    v_email := current_setting('request.jwt.claim.email', true);
+    
     -- Ensure user exists and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(p_external_id, p_email);
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
     
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
     -- This expensive recursive CTE runs only once per request
     SELECT string_agg(permission_name, ',' ORDER BY permission_name)
     INTO v_permissions
-    FROM rbac.get_user_permissions(p_external_id);
+    FROM rbac.get_user_permissions(v_external_id);
     
     -- Set PostgreSQL session variables for the current transaction
     -- These are automatically cleared when the transaction ends
     PERFORM set_config('app.current_user_id', v_user_id::TEXT, false);
-    PERFORM set_config('app.current_external_id', p_external_id, false);
+    PERFORM set_config('app.current_external_id', v_external_id, false);
     PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), false);
+    PERFORM set_config('app.context_initialized', 'true', false);
+    
+    -- Note: OAuth scopes handled separately if needed
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
+'Lazy initialization of request context. Called automatically on first permission check.';
+
+-- Manual context initialization with OAuth scopes
+-- Use this for OAuth/API requests where scopes need to be validated
+CREATE OR REPLACE FUNCTION rbac.set_request_context(
+    p_external_id TEXT DEFAULT NULL,
+    p_email TEXT DEFAULT NULL,
+    p_oauth_scopes TEXT DEFAULT NULL
+)
+RETURNS void AS $$
+DECLARE
+    v_external_id TEXT;
+    v_user_id INTEGER;
+    v_permissions TEXT;
+BEGIN
+    -- Use provided external_id or detect from JWT
+    v_external_id := COALESCE(p_external_id, rbac.user_id());
+    
+    -- Validate external_id is not empty
+    IF v_external_id IS NULL OR trim(v_external_id) = '' THEN
+        RAISE EXCEPTION 'external_id cannot be null or empty';
+    END IF;
+    
+    -- Ensure user exists and update last_seen
+    v_user_id := rbac.upsert_user_from_jwt(
+        v_external_id, 
+        COALESCE(p_email, current_setting('request.jwt.claim.email', true))
+    );
+    
+    -- OPTIMIZATION: Load all user permissions once as comma-separated string
+    SELECT string_agg(permission_name, ',' ORDER BY permission_name)
+    INTO v_permissions
+    FROM rbac.get_user_permissions(v_external_id);
+    
+    -- Set PostgreSQL session variables for the current transaction
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, false);
+    PERFORM set_config('app.current_external_id', v_external_id, false);
+    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), false);
+    PERFORM set_config('app.context_initialized', 'true', false);
     
     -- Store OAuth2 scopes if present (for API requests)
     IF p_oauth_scopes IS NOT NULL THEN
@@ -156,7 +270,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.set_request_context IS 
-'Sets request context from JWT. Loads and caches all permissions. Call at start of each request.';
+'Manually sets request context. Optional - context auto-initializes if not called. Use for OAuth scope validation.';
 
 -- =====================================================
 -- PERMISSION CHECKING
@@ -260,7 +374,7 @@ COMMENT ON FUNCTION rbac.user_has_permission IS
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
 
 -- Check if current request user has permission
--- Uses session variables set by set_request_context
+-- AUTO-INITIALIZES context on first call (lazy initialization)
 -- OPTIMIZED: Uses cached permissions from session for ultra-fast lookups
 CREATE OR REPLACE FUNCTION rbac.has_permission(
     p_permission_name TEXT
@@ -276,14 +390,16 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- OPTIMIZATION: Try to get cached permissions first
+    -- LAZY INITIALIZATION: Ensure context is initialized
+    PERFORM rbac.ensure_context_initialized();
+    
+    -- OPTIMIZATION: Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
-    -- If we have cached permissions, use fast string search
+    -- Fast string search in comma-separated list
     -- This is 1000x faster than querying the database
     IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
         -- Check if permission exists in comma-separated list
-        -- Using position() for fast string matching
         IF position(',' || p_permission_name || ',' IN ',' || v_cached_permissions || ',') > 0 THEN
             -- Permission found in cache, now check OAuth scopes if present
             v_oauth_scopes := current_setting('app.oauth_scopes', true);
@@ -293,7 +409,7 @@ BEGIN
                 RETURN TRUE;
             END IF;
             
-            -- Check if permission is in OAuth scopes (also comma-separated)
+            -- Check if permission is in OAuth scopes
             RETURN position(',' || p_permission_name || ',' IN ',' || v_oauth_scopes || ',') > 0;
         ELSE
             -- Permission not in cache
@@ -301,20 +417,13 @@ BEGIN
         END IF;
     END IF;
     
-    -- FALLBACK: If permissions not cached, use full permission check
-    -- This should rarely happen if set_request_context is called properly
-    v_external_id := current_setting('app.current_external_id', true);
-    
-    IF v_external_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
-    
-    RETURN rbac.user_has_permission(v_external_id, p_permission_name);
+    -- Should never reach here after initialization, but safety fallback
+    RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.has_permission IS 
-'Checks if current user has permission. Uses cached permissions for optimal performance.';
+'Checks if current user has permission. Auto-initializes context and uses cached permissions.';
 
 -- Require permission or raise exception
 -- Use this in application functions to enforce permissions
@@ -343,7 +452,6 @@ DECLARE
     v_cached_permissions TEXT;
     v_permission TEXT;
     v_oauth_scopes TEXT;
-    v_external_id TEXT;
     v_has_base_permission BOOLEAN := FALSE;
 BEGIN
     -- Validate input
@@ -351,7 +459,10 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Try cached permissions first (optimization)
+    -- LAZY INITIALIZATION: Ensure context is initialized
+    PERFORM rbac.ensure_context_initialized();
+    
+    -- Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
     IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
@@ -386,20 +497,13 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Fallback to individual checks
-    FOREACH v_permission IN ARRAY p_permission_names
-    LOOP
-        IF rbac.has_permission(v_permission) THEN
-            RETURN TRUE;
-        END IF;
-    END LOOP;
-    
+    -- Should never reach here after initialization
     RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.has_any_permission IS 
-'Returns true if current user has at least one of the specified permissions. Uses cached permissions for optimal performance.';
+'Returns true if current user has at least one of the specified permissions.';
 
 -- Require any of the specified permissions or raise exception
 -- Use this when multiple permissions could authorize an action (OR logic)
@@ -416,7 +520,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
-'Raises exception if current user lacks all specified permissions. Use for OR-based access control.';
+'Raises exception if current user lacks all specified permissions.';
 
 -- =====================================================
 -- PERMISSION QUERIES
@@ -464,6 +568,26 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 COMMENT ON FUNCTION rbac.get_user_permissions IS 
 'Returns all effective permissions for a user, including implied permissions.';
 
+-- Get current user's permissions (uses lazy initialization)
+CREATE OR REPLACE FUNCTION rbac.get_current_user_permissions()
+RETURNS TABLE (
+    permission_name TEXT
+) AS $$
+BEGIN
+    -- Ensure context is initialized
+    PERFORM rbac.ensure_context_initialized();
+    
+    -- Return cached permissions as table
+    RETURN QUERY
+    SELECT unnest(string_to_array(current_setting('app.user_permissions', true), ','))::TEXT
+    WHERE current_setting('app.user_permissions', true) IS NOT NULL 
+      AND current_setting('app.user_permissions', true) != '';
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.get_current_user_permissions IS 
+'Returns all permissions for current user from cache. Auto-initializes if needed.';
+
 -- Validate OAuth scopes against user permissions
 CREATE OR REPLACE FUNCTION rbac.validate_oauth_scopes(
     p_external_id TEXT,
@@ -503,7 +627,7 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
 
-
+-- Validate that a permission exists
 CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -515,3 +639,35 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.validate_permission_exists IS 
 'Validates that a permission exists in the permissions table.';
+
+-- =====================================================
+-- HELPER FUNCTIONS
+-- =====================================================
+
+-- Get current user's internal database ID
+CREATE OR REPLACE FUNCTION rbac.current_user_id()
+RETURNS INTEGER AS $$
+BEGIN
+    -- Ensure context is initialized
+    PERFORM rbac.ensure_context_initialized();
+    
+    RETURN current_setting('app.current_user_id', true)::INTEGER;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.current_user_id IS 
+'Returns internal user_id for current user. Auto-initializes if needed.';
+
+-- Get current user's external_id
+CREATE OR REPLACE FUNCTION rbac.current_external_id()
+RETURNS TEXT AS $$
+BEGIN
+    -- Ensure context is initialized
+    PERFORM rbac.ensure_context_initialized();
+    
+    RETURN current_setting('app.current_external_id', true);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.current_external_id IS 
+'Returns external_id for current user. Auto-initializes if needed.';

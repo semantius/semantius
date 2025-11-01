@@ -114,10 +114,10 @@ BEGIN
     
     -- Insert field records for id and label columns
     -- Using INSERT with RETURNING to avoid recursive trigger issues
-    INSERT INTO fields (table_id, field_name, label, data_type, is_pk, is_nullable, field_order)
+    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order)
     VALUES 
-        (NEW.table_id, NEW.id_column, 'ID', 'INTEGER', TRUE, FALSE, 0),
-        (NEW.table_id, NEW.label_column, NEW.label, 'TEXT', FALSE, FALSE, 1);
+        (NEW.table_name, NEW.id_column, 'ID', 'INTEGER', TRUE, FALSE, 0),
+        (NEW.table_name, NEW.label_column, NEW.label, 'TEXT', FALSE, FALSE, 1);
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;
@@ -142,31 +142,21 @@ CREATE TRIGGER create_table_trigger
 CREATE OR REPLACE FUNCTION add_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_table_name TEXT;
     v_alter_sql TEXT;
     v_nullable_clause TEXT;
     v_default_clause TEXT;
 BEGIN
-    -- Get the table name from the tables table
-    SELECT table_name INTO v_table_name
-    FROM tables
-    WHERE table_id = NEW.table_id;
-    
-    IF v_table_name IS NULL THEN
-        RAISE EXCEPTION 'Table with ID % does not exist', NEW.table_id;
-    END IF;
-    
     -- Skip if this is the id or label column (already created by create_dd_table)
     IF NEW.field_name IN (
-        SELECT id_column FROM tables WHERE table_id = NEW.table_id
+        SELECT id_column FROM tables WHERE table_name = NEW.table_name
         UNION
-        SELECT label_column FROM tables WHERE table_id = NEW.table_id
+        SELECT label_column FROM tables WHERE table_name = NEW.table_name
     ) THEN
         -- Still add column comment if description provided
         IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
             EXECUTE format(
                 'COMMENT ON COLUMN %I.%I IS %L',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name,
                 NEW.description
             );
@@ -191,7 +181,7 @@ BEGIN
     -- Build ALTER TABLE statement
     v_alter_sql := format(
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
-        v_table_name,
+        NEW.table_name,
         NEW.field_name,
         NEW.data_type,
         v_nullable_clause,
@@ -205,7 +195,7 @@ BEGIN
     IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
         EXECUTE format(
             'COMMENT ON COLUMN %I.%I IS %L',
-            v_table_name,
+            NEW.table_name,
             NEW.field_name,
             NEW.description
         );
@@ -216,29 +206,29 @@ BEGIN
         -- Check if table already has a primary key
         IF EXISTS (
             SELECT 1 FROM fields 
-            WHERE table_id = NEW.table_id 
+            WHERE table_name = NEW.table_name
             AND is_pk = TRUE 
-            AND field_id <> NEW.field_id
+            AND field_name <> NEW.field_name
         ) THEN
-            RAISE EXCEPTION 'Table % already has a primary key', v_table_name;
+            RAISE EXCEPTION 'Table % already has a primary key', NEW.table_name;
         END IF;
         
         -- Add primary key constraint
         EXECUTE format(
             'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-            v_table_name,
-            v_table_name || '_pkey'
+            NEW.table_name,
+            NEW.table_name || '_pkey'
         );
         
         EXECUTE format(
             'ALTER TABLE %I ADD PRIMARY KEY (%I)',
-            v_table_name,
+            NEW.table_name,
             NEW.field_name
         );
     END IF;
     
     RAISE NOTICE 'Added column "%" to table "%" with type %',
-        NEW.field_name, v_table_name, NEW.data_type;
+        NEW.field_name, NEW.table_name, NEW.data_type;
     
     RETURN NEW;
 END;
@@ -260,12 +250,11 @@ CREATE TRIGGER add_field_trigger
 CREATE OR REPLACE FUNCTION update_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_table_name TEXT;
     v_alter_sql TEXT;
 BEGIN
     -- Prevent changing critical attributes
-    IF OLD.table_id <> NEW.table_id THEN
-        RAISE EXCEPTION 'Cannot change table_id of a field';
+    IF OLD.table_name <> NEW.table_name THEN
+        RAISE EXCEPTION 'Cannot change table_name of a field';
     END IF;
     
     IF OLD.field_name <> NEW.field_name THEN
@@ -276,24 +265,19 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
     
-    -- Get the table name
-    SELECT table_name INTO v_table_name
-    FROM tables
-    WHERE table_id = NEW.table_id;
-    
     -- Update column comment if description changed
     IF OLD.description IS DISTINCT FROM NEW.description THEN
         IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
             EXECUTE format(
                 'COMMENT ON COLUMN %I.%I IS %L',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name,
                 NEW.description
             );
         ELSE
             EXECUTE format(
                 'COMMENT ON COLUMN %I.%I IS NULL',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name
             );
         END IF;
@@ -303,13 +287,13 @@ BEGIN
     IF OLD.data_type <> NEW.data_type THEN
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
-            v_table_name,
+            NEW.table_name,
             NEW.field_name,
             NEW.data_type
         );
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" type to % in table "%"',
-            NEW.field_name, NEW.data_type, v_table_name;
+            NEW.field_name, NEW.data_type, NEW.table_name;
     END IF;
     
     -- Allow updating nullable constraint
@@ -317,19 +301,19 @@ BEGIN
         IF NEW.is_nullable THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name
             );
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, v_table_name;
+            NEW.field_name, NEW.is_nullable, NEW.table_name;
     END IF;
     
     -- Allow updating default value
@@ -337,20 +321,20 @@ BEGIN
         IF NEW.default_value IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                v_table_name,
+                NEW.table_name,
                 NEW.field_name,
                 NEW.default_value
             );
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" default value in table "%"',
-            NEW.field_name, v_table_name;
+            NEW.field_name, NEW.table_name;
     END IF;
     
     RETURN NEW;
@@ -373,15 +357,14 @@ CREATE TRIGGER update_field_trigger
 CREATE OR REPLACE FUNCTION delete_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_table_name TEXT;
     v_id_column TEXT;
     v_label_column TEXT;
 BEGIN
-    -- Get the table name and protected columns
-    SELECT table_name, id_column, label_column 
-    INTO v_table_name, v_id_column, v_label_column
+    -- Get the protected columns
+    SELECT id_column, label_column 
+    INTO v_id_column, v_label_column
     FROM tables
-    WHERE table_id = OLD.table_id;
+    WHERE table_name = OLD.table_name;
     
     -- Prevent deletion of id or label columns
     IF OLD.field_name = v_id_column OR OLD.field_name = v_label_column THEN
@@ -391,12 +374,12 @@ BEGIN
     -- Drop the column
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS %I',
-        v_table_name,
+        OLD.table_name,
         OLD.field_name
     );
     
     RAISE NOTICE 'Dropped column "%" from table "%"',
-        OLD.field_name, v_table_name;
+        OLD.field_name, OLD.table_name;
     
     RETURN OLD;
 END;
