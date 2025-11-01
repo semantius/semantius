@@ -1,7 +1,7 @@
 -- Test that should fail
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(10);
 
 select authenticate_as('user1', 'user@test.com');
 
@@ -39,7 +39,21 @@ SELECT is(
 SELECT is(
     rbac.has_permission('sales:read'),
     false,
-    'user1 should have sales:read permission'
+    'user1 should not have sales:read permission'
+);
+
+-- check that insert is blocked by RLS
+SELECT throws_ok(
+    $$
+    INSERT INTO products (
+        product_name, sku, description, price, quantity_in_stock, category, is_discontinued
+    )
+    VALUES 
+        ('XXX', 'WGT-001', 'Should fail', 29.99, 150, 'Widgets', FALSE);
+    $$,
+    '42501',
+    NULL,
+    'Insert should fail because of RLS policy'
 );
 
 select authenticate_as('user2', 'sales@test.com');
@@ -65,6 +79,12 @@ SELECT is(
     'user2 should have sales:read permission'
 );
 
+-- Test that user2 has sales:read permission
+SELECT is(
+    rbac.has_permission('sales:NOTEXISTANT'),
+    false,
+    'user2 should not have sales:read NOTEXISTANT'
+);
 
 SELECT * FROM finish();
 ROLLBACK;
