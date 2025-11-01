@@ -2,6 +2,7 @@
 - check auth.uid() - wrap it ?  return all jwt ?
 - reset cache after DDL
 - tests, set jwt ? 
+- id, label marker for fields
 - column security
 
 

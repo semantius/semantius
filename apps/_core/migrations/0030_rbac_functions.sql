@@ -5,6 +5,19 @@
 CREATE SCHEMA IF NOT EXISTS rbac;
 
 -- =====================================================
+-- GRANT PERMISSIONS
+-- =====================================================
+
+-- Allow authenticated users to use rbac schema and execute functions
+GRANT USAGE ON SCHEMA rbac TO authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac TO authenticated;
+
+-- Ensure future functions are automatically granted (THIS IS KEY!)
+ALTER DEFAULT PRIVILEGES IN SCHEMA rbac 
+    GRANT EXECUTE ON FUNCTIONS TO authenticated;
+
+
+-- =====================================================
 -- RBAC SYSTEM - PL/pgSQL FUNCTIONS
 -- =====================================================
 -- Run this AFTER creating schema and tables
@@ -671,3 +684,88 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.current_external_id IS 
 'Returns external_id for current user. Auto-initializes if needed.';
+
+
+-- =====================================================
+-- DEBUGGING AND INTROSPECTION
+-- =====================================================
+
+-- Get complete context information for current user
+CREATE OR REPLACE FUNCTION rbac.whoami()
+RETURNS TABLE (
+    context_type TEXT,
+    key TEXT,
+    value TEXT
+) AS $$
+DECLARE
+    v_initialized TEXT;
+    v_jwt_claims TEXT[];
+    v_claim TEXT;
+    v_claim_value TEXT;
+BEGIN
+    -- Initialize context (will throw error if no JWT)
+    PERFORM rbac.ensure_context_initialized();
+    
+    v_initialized := current_setting('app.context_initialized', true);
+    
+    -- Return initialization status
+    RETURN QUERY SELECT 
+        'status'::TEXT,
+        'context_initialized'::TEXT,
+        COALESCE(v_initialized, 'false')::TEXT;
+    
+    -- Return app context variables
+    RETURN QUERY SELECT 
+        'app'::TEXT,
+        'current_user_id'::TEXT,
+        current_setting('app.current_user_id', true);
+    
+    RETURN QUERY SELECT 
+        'app'::TEXT,
+        'current_external_id'::TEXT,
+        current_setting('app.current_external_id', true);
+    
+    RETURN QUERY SELECT 
+        'app'::TEXT,
+        'user_permissions'::TEXT,
+        current_setting('app.user_permissions', true);
+    
+    RETURN QUERY SELECT 
+        'app'::TEXT,
+        'oauth_scopes'::TEXT,
+        current_setting('app.oauth_scopes', true);
+    
+    -- Return common JWT claims (already normalized by rbac.user_id())
+    v_jwt_claims := ARRAY[
+        'sub',
+        'email',
+        'email_verified',
+        'name',
+        'given_name',
+        'family_name',
+        'picture',
+        'iss',
+        'aud',
+        'exp',
+        'iat',
+        'role'
+    ];
+    
+    FOREACH v_claim IN ARRAY v_jwt_claims
+    LOOP
+        v_claim_value := current_setting('request.jwt.claim.' || v_claim, true);
+        IF v_claim_value IS NOT NULL AND v_claim_value != '' THEN
+            RETURN QUERY SELECT 
+                'jwt'::TEXT,
+                v_claim::TEXT,
+                v_claim_value::TEXT;
+        END IF;
+    END LOOP;
+    
+    RETURN;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.whoami IS 
+'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
+
