@@ -45,10 +45,10 @@ SELECT bag_eq(
 -- Test as admin@test.com (has admin:manage permission)
 select authenticate_as('user3', 'admin@test.com');
 
--- admin@test.com should see 4 modules (_core, _public, CRM, HR, and Inventory)
+-- admin@test.com should see 4 modules (_core, _public, HR, and Inventory)
 -- _core has view_permission 'admin:manage'
 -- _public has view_permission 'user:read'
--- CRM (module 1001) has view_permission 'sales:read' (admin doesn't have this)
+-- CRM (module 1001) has view_permission 'sales:read' (admin doesn't have this, so won't see it)
 -- HR (module 1002) has view_permission 'user:read'
 -- Inventory (module 1003) has view_permission 'user:read'
 SELECT is(
