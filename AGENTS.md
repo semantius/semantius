@@ -122,7 +122,7 @@ deno task test
 2. **Set environment**: `export DENO_TLS_CA_STORE=system` (for GitHub Copilot agents)
 3. **Test connection**: `deno task connect` - if fails, STOP and inform user
 4. **Reset database**: `deno task dropall --confirm`
-5. **Deploy schema**: `deno task migrate test --verbose`
+5. **Deploy schema**: `deno task migrate --apps test --verbose`
 6. **Run tests**: `deno task test`
 7. **Verify ALL tests pass** before marking task complete
 
