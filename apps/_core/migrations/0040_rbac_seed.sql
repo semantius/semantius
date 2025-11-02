@@ -11,7 +11,7 @@ INSERT INTO permissions (permission_id, permission_name, description) VALUES
     (1, 'user:read', 'Permission to read user information'),
     (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)'),
     (3, 'public:read', 'Permission to read public information'),
-    (4, 'admin:manage', 'Permission to manage administrative functions');
+    (4, 'admin', 'Permission to manage administrative functions');
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
@@ -38,7 +38,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
     (1, 1),
     (1, 3);
 
--- Administrator role gets user:manage, public:read, and admin:manage permissions
+-- Administrator role gets user:manage, public:read, and admin permissions
 INSERT INTO role_permissions (role_id, permission_id) VALUES 
     (2, 2),
     (2, 3),
@@ -49,7 +49,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- =====================================================
 
 INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
-    (1, '_core', 'Core', 'admin:manage'),
+    (1, '_core', 'Core', 'admin'),
     (2, '_public', 'Public', 'user:read');
 
 -- =====================================================
