@@ -113,23 +113,23 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tables_select_policy ON tables
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('public:read'));
 
 CREATE POLICY tables_insert_policy ON tables
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK (rbac.has_permission('admin:manage'));
 
 CREATE POLICY tables_update_policy ON tables
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('admin:manage'))
     WITH CHECK (rbac.has_permission('admin:manage'));
 
 CREATE POLICY tables_delete_policy ON tables
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('admin:manage'));
 
 -- =====================================================
@@ -138,23 +138,23 @@ CREATE POLICY tables_delete_policy ON tables
 
 CREATE POLICY fields_select_policy ON fields
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('public:read'));
 
 CREATE POLICY fields_insert_policy ON fields
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK (rbac.has_permission('admin:manage'));
 
 CREATE POLICY fields_update_policy ON fields
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('admin:manage'))
     WITH CHECK (rbac.has_permission('admin:manage'));
 
 CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING (rbac.has_permission('admin:manage'));
 
 -- =====================================================

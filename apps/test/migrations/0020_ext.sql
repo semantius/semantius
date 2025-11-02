@@ -26,8 +26,8 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             end if;
 
             -- Set the role to authenticated
-            SET ROLE authenticated;
-            perform set_config('role', 'authenticated', true);
+            SET ROLE semantius_user;
+            perform set_config('role', 'semantius_user', true);
             
             -- Ensure pgtap schema is in search path for testing functions
             perform set_config('search_path', 'pgtap, public', true);
@@ -46,7 +46,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
         EXCEPTION
             -- revert back to original auth data
             WHEN OTHERS THEN
-                set local role authenticated;
+                set local role semantius_user;
                 if original_sub is not null then
                     set local "request.jwt.claim.sub" to original_sub;
                 end if;

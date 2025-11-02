@@ -66,7 +66,7 @@ BEGIN
     v_policy_sql := format(
         'CREATE POLICY %I_select_policy ON %I
             FOR SELECT
-            TO authenticated
+            TO semantius_user
             USING (rbac.has_permission(%L))',
         NEW.table_name,
         NEW.table_name,
@@ -78,7 +78,7 @@ BEGIN
     v_policy_sql := format(
         'CREATE POLICY %I_insert_policy ON %I
             FOR INSERT
-            TO authenticated
+            TO semantius_user
             WITH CHECK (rbac.has_permission(%L))',
         NEW.table_name,
         NEW.table_name,
@@ -90,7 +90,7 @@ BEGIN
     v_policy_sql := format(
         'CREATE POLICY %I_update_policy ON %I
             FOR UPDATE
-            TO authenticated
+            TO semantius_user
             USING (rbac.has_permission(%L))
             WITH CHECK (rbac.has_permission(%L))',
         NEW.table_name,
@@ -104,7 +104,7 @@ BEGIN
     v_policy_sql := format(
         'CREATE POLICY %I_delete_policy ON %I
             FOR DELETE
-            TO authenticated
+            TO semantius_user
             USING (rbac.has_permission(%L))',
         NEW.table_name,
         NEW.table_name,

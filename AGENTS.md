@@ -28,19 +28,12 @@ deno --version
 
 ### Required Environment Variables
 
-**DENO_TLS_CA_STORE**: MUST be set to `system` for Deno to use system certificates:
+**DENO_TLS_CA_STORE**: For GitHub Copilot agents, this MUST be set to `system` for Deno to use system certificates:
 ```bash
 export DENO_TLS_CA_STORE=system
 ```
 
 **Without this environment variable, Deno will fail to download dependencies with "client error (Connect)" errors.**
-
-All `deno task` commands must be prefixed with this variable:
-```bash
-DENO_TLS_CA_STORE=system deno task dropall --confirm
-DENO_TLS_CA_STORE=system deno task migrate test --verbose
-DENO_TLS_CA_STORE=system deno task test
-```
 
 ## Core Architecture
 
@@ -65,16 +58,15 @@ apps/
 
 **CRITICAL**: Always execute these commands in order for testing:
 
-1. **Reset database**: `DENO_TLS_CA_STORE=system deno task dropall --confirm`
-2. **Setup database**: `DENO_TLS_CA_STORE=system deno task migrate test --verbose`
-3. **Run tests**: `DENO_TLS_CA_STORE=system deno task test`
+1. **Reset database**: `deno task dropall --confirm`
+2. **Setup database**: `deno task migrate test --verbose`
+3. **Run tests**: `deno task test`
 
 **IMPORTANT**: 
 - Always run tests and show the complete output in your response
 - Tests MUST be executed for every change to validate functionality
 - Use the DATABASE_URL from the environment (never create your own database)
 - Never use `psql` directly - always use the Deno CLI commands
-- **Always prefix deno commands with `DENO_TLS_CA_STORE=system`**
 
 ## Key CLI Commands
 
@@ -100,7 +92,7 @@ apps/
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment
 - **NEVER use `psql` directly** - always use `deno task` commands
-- **ALWAYS set `DENO_TLS_CA_STORE=system`** - Required for Deno to use system certificates for HTTPS connections
+- **GitHub Copilot agents**: Ensure `DENO_TLS_CA_STORE=system` is set as environment variable for system certificates
 - Format: `postgresql://username:password@host:port/database`
 
 ## Testing Framework

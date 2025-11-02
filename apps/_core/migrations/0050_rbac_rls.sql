@@ -37,23 +37,23 @@ ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY modules_select_policy ON modules
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission(view_permission)));
 
 CREATE POLICY modules_insert_policy ON modules
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY modules_update_policy ON modules
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY modules_delete_policy ON modules
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
@@ -62,23 +62,23 @@ CREATE POLICY modules_delete_policy ON modules
 
 CREATE POLICY users_select_policy ON users
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('user:read')));
 
 CREATE POLICY users_insert_policy ON users
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('user:manage')));
 
 CREATE POLICY users_update_policy ON users
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('user:manage')))
     WITH CHECK ((select rbac.has_permission('user:manage')));
 
 CREATE POLICY users_delete_policy ON users
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('user:manage')));
 
 -- =====================================================
@@ -87,23 +87,23 @@ CREATE POLICY users_delete_policy ON users
 
 CREATE POLICY permissions_select_policy ON permissions
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permissions_insert_policy ON permissions
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permissions_update_policy ON permissions
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permissions_delete_policy ON permissions
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
@@ -112,23 +112,23 @@ CREATE POLICY permissions_delete_policy ON permissions
 
 CREATE POLICY roles_select_policy ON roles
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY roles_insert_policy ON roles
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY roles_update_policy ON roles
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY roles_delete_policy ON roles
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
@@ -137,23 +137,23 @@ CREATE POLICY roles_delete_policy ON roles
 
 CREATE POLICY user_roles_select_policy ON user_roles
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY user_roles_insert_policy ON user_roles
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY user_roles_update_policy ON user_roles
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY user_roles_delete_policy ON user_roles
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
@@ -162,23 +162,23 @@ CREATE POLICY user_roles_delete_policy ON user_roles
 
 CREATE POLICY role_permissions_select_policy ON role_permissions
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY role_permissions_insert_policy ON role_permissions
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY role_permissions_update_policy ON role_permissions
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY role_permissions_delete_policy ON role_permissions
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
@@ -187,40 +187,40 @@ CREATE POLICY role_permissions_delete_policy ON role_permissions
 
 CREATE POLICY permission_hierarchy_select_policy ON permission_hierarchy
     FOR SELECT
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permission_hierarchy_insert_policy ON permission_hierarchy
     FOR INSERT
-    TO authenticated
+    TO semantius_user
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permission_hierarchy_update_policy ON permission_hierarchy
     FOR UPDATE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')))
     WITH CHECK ((select rbac.has_permission('admin:manage')));
 
 CREATE POLICY permission_hierarchy_delete_policy ON permission_hierarchy
     FOR DELETE
-    TO authenticated
+    TO semantius_user
     USING ((select rbac.has_permission('admin:manage')));
 
 -- =====================================================
--- GRANT TABLE ACCESS TO AUTHENTICATED ROLE
+-- GRANT TABLE ACCESS TO semantius_user ROLE
 -- =====================================================
 -- Grant usage on public schema
-GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT USAGE ON SCHEMA public TO semantius_user;
 
 -- Grant table permissions (RLS policies will further restrict access)
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius_user;
 
 -- Grant sequence usage for auto-increment columns
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
 
 -- Ensure future tables also get these grants
 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT USAGE, SELECT ON SEQUENCES TO authenticated;
+    GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;

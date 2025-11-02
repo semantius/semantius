@@ -8,13 +8,13 @@ CREATE SCHEMA IF NOT EXISTS rbac;
 -- GRANT PERMISSIONS
 -- =====================================================
 
--- Allow authenticated users to use rbac schema and execute functions
-GRANT USAGE ON SCHEMA rbac TO authenticated;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac TO authenticated;
+-- Allow semantius_user users to use rbac schema and execute functions
+GRANT USAGE ON SCHEMA rbac TO semantius_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac TO semantius_user;
 
 -- Ensure future functions are automatically granted (THIS IS KEY!)
 ALTER DEFAULT PRIVILEGES IN SCHEMA rbac 
-    GRANT EXECUTE ON FUNCTIONS TO authenticated;
+    GRANT EXECUTE ON FUNCTIONS TO semantius_user;
 
 
 -- =====================================================
