@@ -1,0 +1,41 @@
+knowledge:
+  - "*.sql"
+  - "*.ts"
+  - "*.md"
+  - "deno.json"
+  - ".env.local"
+  - "cli.ts"
+
+# Enable agent to execute database operations
+execution:
+  database_operations: true
+  test_database: true
+  safe_environment: true
+
+context:
+  # Core database infrastructure
+  - path: "apps/_core/migrations/**"
+    description: "Core database schema, RBAC, and RLS definitions"
+  
+  # Test infrastructure
+  - path: "apps/test/**"
+    description: "pgTAP test framework and test files"
+  
+  # CLI commands
+  - path: "commands/**"
+    description: "Deno CLI command implementations"
+  
+  # Configuration files
+  - path: "deno.json"
+    description: "Deno configuration with import map and tasks"
+  
+  # Main CLI entry point
+  - path: "cli.ts"
+    description: "Main CLI entry point with shared utilities"
+
+ignore:
+  - "node_modules/**"
+  - "*.log"
+  - ".env"
+  - "dist/**"
+  - "build/**"

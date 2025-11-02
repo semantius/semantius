@@ -7,6 +7,9 @@
       "version": "latest"
     }
   },
+  "containerEnv": {
+    "DATABASE_URL": "${localEnv:DATABASE_URL}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [

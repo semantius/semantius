@@ -1,0 +1,31 @@
+excluded:
+  - ".git/**"
+  - "*.log"
+  - ".env"
+  - "node_modules/**"
+  - "dist/**"
+  - "build/**"
+  - "*.min.js"
+  - "*.map"
+
+included:
+  # Core project files
+  - "*.sql"
+  - "*.ts"
+  - "*.md"
+  - "deno.json"
+  - "cli.ts"
+  
+  # Configuration files
+  - ".env.local"
+  - "*.yml"
+  - "*.yaml"
+  - "*.json"
+
+# Prioritize these file types for context
+priority:
+  - "apps/_core/migrations/*.sql"
+  - "apps/test/tests/*.sql"
+  - "commands/*.ts"
+  - "cli.ts"
+  - "deno.json"
