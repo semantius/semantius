@@ -62,11 +62,22 @@ apps/
 2. **Setup database**: `deno task migrate test --verbose`
 3. **Run tests**: `deno task test`
 
-**IMPORTANT**: 
-- Always run tests and show the complete output in your response
+**MANDATORY TESTING REQUIREMENTS**: 
+- **ALWAYS run tests before completing any task or PR** - this is non-negotiable
 - Tests MUST be executed for every change to validate functionality
+- Show the complete test output in your response, including pass/fail status
+- If tests fail, investigate and fix the failures before marking the task complete
+- If database is not accessible, document the limitation and explain what tests should verify
 - Use the DATABASE_URL from the environment (never create your own database)
 - Never use `psql` directly - always use the Deno CLI commands
+
+**Testing Workflow Summary**:
+1. Install Deno if not present
+2. Set `export DENO_TLS_CA_STORE=system`
+3. Run `deno task dropall --confirm` to reset database
+4. Run `deno task migrate test --verbose` to deploy schema
+5. Run `deno task test` to execute all tests
+6. Verify all tests pass before completing the task
 
 ## Key CLI Commands
 
