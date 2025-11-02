@@ -5,10 +5,11 @@ A powerful command-line interface built with Deno for the Semantius Core project
 ## Prerequisites
 
 - [Deno](https://deno.land/) 1.37+ installed
-- Network access to the following domains for downloading dependencies:
+- Copilot coding agent needs the following domains to be the the custom allow list:
   - `deno.land` - Deno standard library and packages
   - `jsr.io` - JSR package registry
-  - `dl.deno.land` - Deno binary downloads
+  - `neon.tech` - Neon database
+  - `supabase.co` - Supabase database (fails currently, cloud tests only work with neon)
 - PostgreSQL database (connection provided via DATABASE_URL environment variable)
 
 ## Installation
@@ -20,21 +21,6 @@ git clone <repository-url>
 cd semantius-core
 ```
 
-## Network Requirements
-
-This project requires network access to the following domains:
-
-### Deno Dependencies
-- `deno.land` - Deno standard library modules (`@std/flags`, `@std/dotenv`, `@std/fs`, `@std/path`)
-- `deno.land/x` - Third-party Deno packages (e.g., `postgres@v0.17.0`)
-- `jsr.io` - JSR package registry (e.g., `@std/fmt/colors`)
-- `dl.deno.land` - Deno binary and update downloads
-
-### Database Access
-- Your PostgreSQL database host (e.g., `*.supabase.co:5432` for Supabase)
-- Must support SSL/TLS connections
-
-**Important**: If running in a restricted network environment (CI/CD, corporate firewall, etc.), ensure these domains are whitelisted to allow Deno to download dependencies and connect to the database.
 
 ## Usage
 
