@@ -9,7 +9,7 @@
 INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
     (1001, 'CRM', 'Customer Relationship Management', 'sales:read'),
     (1002, 'HR', 'Human Resources', 'user:read'),
-    (1003, 'Inventory', 'Inventory Management', 'user:read')
+    (1003, 'Inventory', 'Inventory Management', 'inventory:read')
 ON CONFLICT (module_id) DO NOTHING;
 
 -- Adjust the sequence counter to ensure next module starts after test modules

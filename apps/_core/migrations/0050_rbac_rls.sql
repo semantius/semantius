@@ -205,3 +205,22 @@ CREATE POLICY permission_hierarchy_delete_policy ON permission_hierarchy
     FOR DELETE
     TO authenticated
     USING ((select rbac.has_permission('admin:manage')));
+
+-- =====================================================
+-- GRANT TABLE ACCESS TO AUTHENTICATED ROLE
+-- =====================================================
+-- Grant usage on public schema
+GRANT USAGE ON SCHEMA public TO authenticated;
+
+-- Grant table permissions (RLS policies will further restrict access)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+
+-- Grant sequence usage for auto-increment columns
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- Ensure future tables also get these grants
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+    GRANT USAGE, SELECT ON SEQUENCES TO authenticated;

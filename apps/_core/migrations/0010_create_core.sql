@@ -2,6 +2,18 @@
 -- COMMON SCHEMA - Reusable Database Functions
 -- =====================================================
 
+-- Create the authenticated role if it doesn't exist (required for RLS policies)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+
+-- Grant the current user permission to set role to authenticated (required for testing)
+GRANT authenticated TO CURRENT_USER;
+
 -- Create the common schema
 CREATE SCHEMA IF NOT EXISTS common;
 

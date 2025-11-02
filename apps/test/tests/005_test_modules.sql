@@ -45,23 +45,23 @@ SELECT bag_eq(
 -- Test as admin@test.com (has admin:manage permission)
 select authenticate_as('user3', 'admin@test.com');
 
--- admin@test.com should see 4 modules (_core, _public, HR, and Inventory)
+-- admin@test.com should see 3 modules (_core, _public, and HR)
 -- _core has view_permission 'admin:manage'
 -- _public has view_permission 'user:read'
 -- CRM (module 1001) has view_permission 'sales:read' (admin doesn't have this, so won't see it)
 -- HR (module 1002) has view_permission 'user:read'
--- Inventory (module 1003) has view_permission 'user:read'
+-- Inventory (module 1003) has view_permission 'inventory:read' (admin doesn't have this, so won't see it)
 SELECT is(
     (SELECT COUNT(*)::integer FROM modules),
-    4,
-    'admin@test.com should see 4 modules (_core, _public, HR, and Inventory)'
+    3,
+    'admin@test.com should see 3 modules (_core, _public, and HR)'
 );
 
 -- Verify the specific modules visible to admin@test.com
 SELECT bag_eq(
     'SELECT module_name FROM modules ORDER BY module_name',
-    $$VALUES ('_core'), ('_public'), ('HR'), ('Inventory')$$,
-    'admin@test.com should see _core, _public, HR, and Inventory modules'
+    $$VALUES ('_core'), ('_public'), ('HR')$$,
+    'admin@test.com should see _core, _public, and HR modules'
 );
 
 SELECT * FROM finish();
