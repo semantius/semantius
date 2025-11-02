@@ -71,46 +71,62 @@ apps/
 
 ## Standard Development Workflow
 
-**CRITICAL**: Always execute these commands in order for testing:
+## ⚠️ MANDATORY TESTING REQUIREMENTS ⚠️
 
-**Step 0 - Verify Database Connection (MANDATORY FIRST STEP)**:
+**CRITICAL: Tests MUST ALWAYS be executed before finishing ANY issue, task, or PR**
+
+**NO EXCEPTIONS**: Every code change, bug fix, feature addition, or documentation update MUST be validated with the complete test sequence before the task can be considered complete.
+
+### Required Test Sequence (Execute in Exact Order)
+
+**Step 1 - Verify Database Connection**:
 ```bash
-# Check DATABASE_URL is set
-echo "DATABASE_URL: ${DATABASE_URL:0:30}..."
+# Test database connection - if this fails, STOP immediately
+deno task connect
+```
 
-# Test connection - if this fails, STOP and inform user
+**Step 2 - Reset Database**:
+```bash
+# Completely reset database to clean state
 deno task dropall --confirm
 ```
 
-**If database connection fails:**
-- STOP immediately and inform the user
-- Do NOT proceed with any testing or task completion
-- Wait for user to update DATABASE_URL
-- Resume workflow once connection is verified
+**Step 3 - Deploy Schema**:
+```bash
+# Deploy all migrations and test infrastructure
+deno task migrate test --verbose
+```
 
-**Step 1-3 - Standard Testing Workflow (only after connection verified)**:
-1. **Reset database**: `deno task dropall --confirm`
-2. **Setup database**: `deno task migrate test --verbose`
-3. **Run tests**: `deno task test`
+**Step 4 - Execute Tests**:
+```bash
+# Run complete test suite
+deno task test
+```
+
+### Testing Enforcement Rules
 
 **MANDATORY TESTING REQUIREMENTS**: 
-- **ALWAYS verify database connection FIRST before any testing** - this is step 0
-- **ALWAYS run tests before completing any task or PR** - this is non-negotiable
-- Tests MUST be executed for every change to validate functionality
-- Show the complete test output in your response, including pass/fail status
-- If tests fail, investigate and fix the failures before marking the task complete
-- If database is not accessible, STOP, inform user, and wait for connection string update
+- **ALWAYS run the complete test sequence before finishing ANY task** - this is absolutely non-negotiable
+- **ALWAYS verify database connection FIRST** using `deno task connect`
+- **ALWAYS show complete test output** in your response, including pass/fail status
+- **NEVER mark a task as complete** until all tests pass successfully
+- If database connection fails with `deno task connect`, **STOP immediately** and inform user
+- If any tests fail, **investigate and fix failures** before completing the task
+- If database is not accessible, **STOP, inform user, and wait** for connection string update
 - Use the DATABASE_URL from the environment (never create your own database)
 - Never use `psql` directly - always use the Deno CLI commands
 
-**Testing Workflow Summary**:
+### Complete Testing Workflow Summary
+
 1. **Install Deno** if not present
-2. **Set environment**: `export DENO_TLS_CA_STORE=system`
-3. **Verify database connection** - if fails, STOP and inform user
-4. Run `deno task dropall --confirm` to reset database
-5. Run `deno task migrate test --verbose` to deploy schema
-6. Run `deno task test` to execute all tests
-7. Verify all tests pass before completing the task
+2. **Set environment**: `export DENO_TLS_CA_STORE=system` (for GitHub Copilot agents)
+3. **Test connection**: `deno task connect` - if fails, STOP and inform user
+4. **Reset database**: `deno task dropall --confirm`
+5. **Deploy schema**: `deno task migrate test --verbose`
+6. **Run tests**: `deno task test`
+7. **Verify ALL tests pass** before marking task complete
+
+**Remember: Testing is not optional - it's a requirement for EVERY task completion**
 
 ## Key CLI Commands
 
