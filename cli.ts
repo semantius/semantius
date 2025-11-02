@@ -29,6 +29,7 @@ interface CliArgs {
   output?: string;
   apps?: string;
   tap?: boolean;
+  confirm?: boolean;
   _: string[];
 }
 
@@ -79,6 +80,7 @@ OPTIONS:
     --config <FILE>  Specify config file path
     --output <DIR>   Specify output directory
     --apps <APPS>    Comma-separated list of app names (for migrate command)
+    --confirm        Skip confirmation prompt (for dropall command)
 
 COMMANDS:
     init             Initialize a new project
@@ -97,7 +99,8 @@ EXAMPLES:
     deno task test --tap
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
-    deno task dropall --verbose    
+    deno task dropall --verbose
+    deno task dropall --confirm    
   `);
 }
 
@@ -166,7 +169,7 @@ async function lintProject(): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    boolean: ["help", "version", "verbose", "tap"],
+    boolean: ["help", "version", "verbose", "tap", "confirm"],
     string: ["config", "output", "apps"],
     alias: {
       h: "help",
@@ -228,7 +231,7 @@ async function main(): Promise<void> {
       break;
       
     case "dropall":
-      await dropallCommand(databaseUrl!);
+      await dropallCommand(databaseUrl!, args.confirm || false);
       break;
       
     default:

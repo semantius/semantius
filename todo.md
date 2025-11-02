@@ -1,9 +1,11 @@
 
-- check auth.uid() - wrap it ?  return all jwt ?
+
+- suche
 - reset cache after DDL
-- tests, set jwt ? 
 - id, label marker for fields
 - column security
+- view permission in module, hide views & tables 
+- agents.md, automated testing, neon ?
 
 
 

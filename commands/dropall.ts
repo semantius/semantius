@@ -6,7 +6,7 @@
 
 import { Client } from "@postgres";
 
-export async function dropallCommand(databaseUrl: string): Promise<void> {
+export async function dropallCommand(databaseUrl: string, confirm: boolean = false): Promise<void> {
   console.warn("WARNING: DROP ALL COMMAND");
   console.warn("=".repeat(50));
   console.warn("This command will permanently delete ALL objects in the database:");
@@ -22,12 +22,16 @@ export async function dropallCommand(databaseUrl: string): Promise<void> {
   console.warn("=".repeat(50));
   console.warn("");
   
-  // Prompt for confirmation
-  const confirmation = prompt("Type 'Y' to confirm you want to delete all data: ");
-  
-  if (confirmation !== 'Y') {
-    console.log("❌ Operation cancelled - confirmation not received");
-    return;
+  // Prompt for confirmation unless --confirm flag was provided
+  if (!confirm) {
+    const confirmation = prompt("Type 'Y' to confirm you want to delete all data: ");
+    
+    if (confirmation !== 'Y') {
+      console.log("❌ Operation cancelled - confirmation not received");
+      return;
+    }
+  } else {
+    console.log("⚠️ Confirmation skipped due to --confirm flag");
   }
   
   console.log("Starting dropall command...");
