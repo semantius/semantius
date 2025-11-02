@@ -32,13 +32,13 @@ ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- MODULES - public:read for SELECT, admin:manage for others
+-- MODULES - use view_permission column for SELECT, admin:manage for others
 -- =====================================================
 
 CREATE POLICY modules_select_policy ON modules
     FOR SELECT
     TO authenticated
-    USING ((select rbac.has_permission('public:read')));
+    USING ((select rbac.has_permission(view_permission)));
 
 CREATE POLICY modules_insert_policy ON modules
     FOR INSERT

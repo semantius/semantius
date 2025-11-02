@@ -6,11 +6,14 @@
 -- =====================================================
 
 -- Insert sample modules if they don't exist
-INSERT INTO modules (module_id, module_name, description) VALUES
-    (1, 'CRM', 'Customer Relationship Management'),
-    (2, 'HR', 'Human Resources'),
-    (3, 'Inventory', 'Inventory Management')
+INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
+    (1001, 'CRM', 'Customer Relationship Management', 'sales:read'),
+    (1002, 'HR', 'Human Resources', 'user:read'),
+    (1003, 'Inventory', 'Inventory Management', 'user:read')
 ON CONFLICT (module_id) DO NOTHING;
+
+-- Adjust the sequence counter to ensure next module starts after test modules
+SELECT setval('modules_module_id_seq', (SELECT MAX(module_id) FROM modules), true);
 
 -- =====================================================
 -- RBAC SEED DATA
@@ -19,12 +22,12 @@ ON CONFLICT (module_id) DO NOTHING;
 
 -- Add custom permissions for sales module
 INSERT INTO permissions (permission_name, description, module_id) VALUES
-    ('sales:read', 'Permission to read sales information', 1),
-    ('sales:manage', 'Permission to manage sales (includes read, create, update, delete)', 1);
+    ('sales:read', 'Permission to read sales information', 1001),
+    ('sales:manage', 'Permission to manage sales (includes read, create, update, delete)', 1001);
 
 -- Add custom role "Sales User" for CRM module
 INSERT INTO roles (role_name, description, module_id) VALUES
-    ('Sales User', 'Sales role with access to CRM module', 1);
+    ('Sales User', 'Sales role with access to CRM module', 1001);
 
 -- Add Sales User role permissions
 INSERT INTO role_permissions (role_id, permission_id) 
@@ -45,7 +48,7 @@ VALUES (
     'customers',
     'Customers',
     'Customer information and contact details',
-    1, -- CRM module
+    1001, -- CRM module
     'public:read',
     'sales:manage',
     'customer_id',
@@ -58,7 +61,7 @@ VALUES (
     'employees',
     'Employees',
     'Employee records and information',
-    2, -- HR module
+    1002, -- HR module
     'user:read',
     'admin:manage',
     'employee_id',
@@ -71,7 +74,7 @@ VALUES (
     'products',
     'Products',
     'Product catalog and inventory',
-    3, -- Inventory module
+    1003, -- Inventory module
     'sales:read',
     'sales:manage',
     'product_id',

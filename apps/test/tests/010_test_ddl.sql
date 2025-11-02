@@ -31,7 +31,7 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$
     INSERT INTO tables(table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column) 
-     VALUES ( 'table1', 'Table1', 'New test table', 1, 'public:read', 'sales:manage', 'customer_id', 'customer_name' );
+     VALUES ( 'table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'customer_id', 'customer_name' );
     $$,
     '42501',  -- insufficient_privilege (RLS violation)
     NULL,
@@ -44,7 +44,7 @@ select authenticate_as('user3', 'admin@test.com');
 
 -- Create "customers" table in CRM module
 INSERT INTO tables(table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column) 
-     VALUES ( 'table1', 'Table1', 'New test table', 1, 'public:read', 'sales:manage', 'customer_id', 'customer_name' );
+     VALUES ( 'table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'customer_id', 'customer_name' );
 
 SELECT has_table(
     'public',  
