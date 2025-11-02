@@ -1,7 +1,7 @@
 -- Test module visibility based on view_permission
 BEGIN;
 
-SELECT plan(2);
+SELECT plan(3);
 
 -- Test as user@test.com (has user:read permission)
 select authenticate_as('user1', 'user@test.com');
@@ -23,7 +23,15 @@ SELECT is(
     'sales@test.com should see 4 modules (_public, CRM, HR, and Inventory)'
 );
 
+-- Test as admin@test.com (has user:read permission)
+select authenticate_as('user3', 'admin@test.com');
 
+-- admin@test.com should see  all 5 modules (_public, _core, CRM, HR, and Inventory)
+SELECT is(
+    (SELECT COUNT(*)::integer FROM modules),
+    5,
+    'admin@test.com should see all 5 modules (_public, _core, CRM, HR, and Inventory)'
+);
 
 SELECT * FROM finish();
 ROLLBACK;
