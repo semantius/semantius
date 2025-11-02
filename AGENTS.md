@@ -38,6 +38,12 @@ apps/
 2. **Setup database**: `deno task migrate test --verbose`
 3. **Run tests**: `deno task test`
 
+**IMPORTANT**: 
+- Always run tests and show the complete output in your response
+- Tests MUST be executed for every change to validate functionality
+- Use the DATABASE_URL from the environment (never create your own database)
+- Never use `psql` directly - always use the Deno CLI commands
+
 ## Key CLI Commands
 
 - `migrate <app>`: Deploy migrations for specified app
@@ -59,7 +65,9 @@ apps/
 - Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`
 
 ### Environment
-- `DATABASE_URL` in `.env.local` file
+- `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
+- **NEVER create a new database** - always use the DATABASE_URL from the environment
+- **NEVER use `psql` directly** - always use `deno task` commands
 - Format: `postgresql://username:password@host:port/database`
 
 ## Testing Framework
