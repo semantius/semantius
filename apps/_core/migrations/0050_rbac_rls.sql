@@ -32,13 +32,13 @@ ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- MODULES - public:read for SELECT, admin:manage for others
+-- MODULES - use view_permission column for SELECT, admin:manage for others
 -- =====================================================
 
 CREATE POLICY modules_select_policy ON modules
     FOR SELECT
     TO authenticated
-    USING ((select rbac.has_permission('public:read')));
+    USING ((select rbac.has_permission(view_permission)));
 
 CREATE POLICY modules_insert_policy ON modules
     FOR INSERT
@@ -205,3 +205,22 @@ CREATE POLICY permission_hierarchy_delete_policy ON permission_hierarchy
     FOR DELETE
     TO authenticated
     USING ((select rbac.has_permission('admin:manage')));
+
+-- =====================================================
+-- GRANT TABLE ACCESS TO AUTHENTICATED ROLE
+-- =====================================================
+-- Grant usage on public schema
+GRANT USAGE ON SCHEMA public TO authenticated;
+
+-- Grant table permissions (RLS policies will further restrict access)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+
+-- Grant sequence usage for auto-increment columns
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- Ensure future tables also get these grants
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+    GRANT USAGE, SELECT ON SEQUENCES TO authenticated;

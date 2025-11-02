@@ -1,11 +1,13 @@
 {
-  "version": "4",
-  "specifiers": {
-    "jsr:@std/fmt@*": "1.0.8"
-  },
-  "jsr": {
-    "@std/fmt@1.0.8": {
-      "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "jsr:@std/fmt": "jsr:@std/fmt@1.0.8"
+    },
+    "jsr": {
+      "@std/fmt@1.0.8": {
+        "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
+      }
     }
   },
   "remote": {
@@ -155,13 +157,12 @@
     "https://deno.land/x/postgres@v0.17.0/query/oid.ts": "8c33e1325f34e4ca9f11a48b8066c8cfcace5f64bc1eb17ad7247af4936999e1",
     "https://deno.land/x/postgres@v0.17.0/query/query.ts": "edb473cbcfeff2ee1c631272afb25d079d06b66b5853f42492725b03ffa742b6",
     "https://deno.land/x/postgres@v0.17.0/query/transaction.ts": "8e75c3ce0aca97da7fe126e68f8e6c08d640e5c8d2016e62cee5c254bebe7fe8",
-    "https://deno.land/x/postgres@v0.17.0/query/types.ts": "a6dc8024867fe7ccb0ba4b4fa403ee5d474c7742174128c8e689c3b5e5eaa933",
     "https://deno.land/x/postgres@v0.17.0/utils/deferred.ts": "dd94f2a57355355c47812b061a51b55263f72d24e9cb3fdb474c7519f4d61083",
     "https://deno.land/x/postgres@v0.17.0/utils/utils.ts": "19c3527ddd5c6c4c49ae36397120274c7f41f9d3cbf479cb36065d23329e9f90"
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/fmt@*"
+      "jsr:@std/fmt"
     ]
   }
 }

@@ -45,8 +45,17 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
     (2, 4);
 
 -- =====================================================
+-- SEED MODULES
+-- =====================================================
+
+INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
+    (1, '_core', 'Core', 'admin:manage'),
+    (2, '_public', 'Public', 'user:read');
+
+-- =====================================================
 -- RESET SEQUENCES (Reserve IDs < 10000 for internal use)
 -- =====================================================
 
 SELECT setval('permissions_permission_id_seq', GREATEST(10000, (SELECT MAX(permission_id) + 1 FROM permissions)));
 SELECT setval('roles_role_id_seq', GREATEST(10000, (SELECT MAX(role_id) + 1 FROM roles)));
+SELECT setval('modules_module_id_seq', GREATEST(1000, (SELECT MAX(module_id) + 1 FROM modules)));

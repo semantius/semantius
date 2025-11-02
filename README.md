@@ -5,6 +5,11 @@ A powerful command-line interface built with Deno for the Semantius Core project
 ## Prerequisites
 
 - [Deno](https://deno.land/) 1.37+ installed
+- Network access to the following domains for downloading dependencies:
+  - `deno.land` - Deno standard library and packages
+  - `jsr.io` - JSR package registry
+  - `dl.deno.land` - Deno binary downloads
+- PostgreSQL database (connection provided via DATABASE_URL environment variable)
 
 ## Installation
 
@@ -14,6 +19,22 @@ Clone the repository and navigate to the project directory:
 git clone <repository-url>
 cd semantius-core
 ```
+
+## Network Requirements
+
+This project requires network access to the following domains:
+
+### Deno Dependencies
+- `deno.land` - Deno standard library modules (`@std/flags`, `@std/dotenv`, `@std/fs`, `@std/path`)
+- `deno.land/x` - Third-party Deno packages (e.g., `postgres@v0.17.0`)
+- `jsr.io` - JSR package registry (e.g., `@std/fmt/colors`)
+- `dl.deno.land` - Deno binary and update downloads
+
+### Database Access
+- Your PostgreSQL database host (e.g., `*.supabase.co:5432` for Supabase)
+- Must support SSL/TLS connections
+
+**Important**: If running in a restricted network environment (CI/CD, corporate firewall, etc.), ensure these domains are whitelisted to allow Deno to download dependencies and connect to the database.
 
 ## Usage
 
@@ -103,13 +124,25 @@ deno task start dropall --verbose
 
 ### Configuration
 
+**For local development:**
+
 Copy `.env.example` file to `.env.local` and add your PostgreSQL connection string:
 
 ```bash
 DATABASE_URL='postgresql://username:password@host:port/database?sslmode=require'
 ```
 
-Verify the connection with 
+**For CI/CD and automated environments:**
+
+The `DATABASE_URL` environment variable should be set in your environment. The CLI will automatically use it.
+
+**Database Connection Requirements:**
+
+For Supabase databases (e.g., `postgresql://postgres:password@db.xxxxx.supabase.co:5432/postgres`):
+- Network access to `*.supabase.co` domain on port 5432
+- SSL/TLS connection support
+
+Verify the connection with:
 
 ```bash
 deno task test

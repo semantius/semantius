@@ -11,6 +11,7 @@ CREATE TABLE modules (
     module_id SERIAL PRIMARY KEY,
     module_name TEXT UNIQUE NOT NULL,
     description TEXT,
+    view_permission TEXT DEFAULT 'user:read' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
