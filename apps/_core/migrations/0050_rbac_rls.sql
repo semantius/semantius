@@ -38,7 +38,7 @@ ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 CREATE POLICY modules_select_policy ON modules
     FOR SELECT
     TO semantius_user
-    USING ((select rbac.has_any_permission('admin', view_permission)));
+    USING ((select rbac.has_any_permission(VARIADIC ARRAY['admin', view_permission])));
 
 CREATE POLICY modules_insert_policy ON modules
     FOR INSERT
