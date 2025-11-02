@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS tables (
     description TEXT,
     module_id INTEGER REFERENCES modules(module_id) ON DELETE SET NULL,
     view_permission TEXT NOT NULL DEFAULT 'public:read',
-    edit_permission TEXT NOT NULL DEFAULT 'admin:manage',
+    edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
     label_column TEXT NOT NULL DEFAULT 'label',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -119,18 +119,18 @@ CREATE POLICY tables_select_policy ON tables
 CREATE POLICY tables_insert_policy ON tables
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin:manage'));
+    WITH CHECK (rbac.has_permission('admin'));
 
 CREATE POLICY tables_update_policy ON tables
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin:manage'))
-    WITH CHECK (rbac.has_permission('admin:manage'));
+    USING (rbac.has_permission('admin'))
+    WITH CHECK (rbac.has_permission('admin'));
 
 CREATE POLICY tables_delete_policy ON tables
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin:manage'));
+    USING (rbac.has_permission('admin'));
 
 -- =====================================================
 -- RLS POLICIES FOR FIELDS
@@ -144,18 +144,18 @@ CREATE POLICY fields_select_policy ON fields
 CREATE POLICY fields_insert_policy ON fields
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin:manage'));
+    WITH CHECK (rbac.has_permission('admin'));
 
 CREATE POLICY fields_update_policy ON fields
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin:manage'))
-    WITH CHECK (rbac.has_permission('admin:manage'));
+    USING (rbac.has_permission('admin'))
+    WITH CHECK (rbac.has_permission('admin'));
 
 CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin:manage'));
+    USING (rbac.has_permission('admin'));
 
 -- =====================================================
 -- UPDATE TIMESTAMP TRIGGERS

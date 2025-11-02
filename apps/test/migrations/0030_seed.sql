@@ -63,7 +63,7 @@ VALUES (
     'Employee records and information',
     1002, -- HR module
     'user:read',
-    'admin:manage',
+    'admin',
     'employee_id',
     'full_name'
 );

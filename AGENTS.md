@@ -28,6 +28,21 @@ deno --version
 
 ### Required Environment Variables
 
+**DATABASE_URL**: PostgreSQL connection string that MUST be verified before running tests:
+```bash
+# Check if DATABASE_URL is set and accessible
+echo "DATABASE_URL: ${DATABASE_URL:0:30}..."
+
+# Test database connection (this will fail if database is down or credentials are invalid)
+deno task dropall --confirm
+```
+
+**If database authentication fails:**
+1. **STOP immediately** - do not proceed with testing
+2. Inform the user that the database is not accessible
+3. Wait for the user to update the DATABASE_URL connection string
+4. Once updated, resume testing workflow
+
 **DENO_TLS_CA_STORE**: For GitHub Copilot agents, this MUST be set to `system` for Deno to use system certificates:
 ```bash
 export DENO_TLS_CA_STORE=system
@@ -58,15 +73,44 @@ apps/
 
 **CRITICAL**: Always execute these commands in order for testing:
 
+**Step 0 - Verify Database Connection (MANDATORY FIRST STEP)**:
+```bash
+# Check DATABASE_URL is set
+echo "DATABASE_URL: ${DATABASE_URL:0:30}..."
+
+# Test connection - if this fails, STOP and inform user
+deno task dropall --confirm
+```
+
+**If database connection fails:**
+- STOP immediately and inform the user
+- Do NOT proceed with any testing or task completion
+- Wait for user to update DATABASE_URL
+- Resume workflow once connection is verified
+
+**Step 1-3 - Standard Testing Workflow (only after connection verified)**:
 1. **Reset database**: `deno task dropall --confirm`
 2. **Setup database**: `deno task migrate test --verbose`
 3. **Run tests**: `deno task test`
 
-**IMPORTANT**: 
-- Always run tests and show the complete output in your response
+**MANDATORY TESTING REQUIREMENTS**: 
+- **ALWAYS verify database connection FIRST before any testing** - this is step 0
+- **ALWAYS run tests before completing any task or PR** - this is non-negotiable
 - Tests MUST be executed for every change to validate functionality
+- Show the complete test output in your response, including pass/fail status
+- If tests fail, investigate and fix the failures before marking the task complete
+- If database is not accessible, STOP, inform user, and wait for connection string update
 - Use the DATABASE_URL from the environment (never create your own database)
 - Never use `psql` directly - always use the Deno CLI commands
+
+**Testing Workflow Summary**:
+1. **Install Deno** if not present
+2. **Set environment**: `export DENO_TLS_CA_STORE=system`
+3. **Verify database connection** - if fails, STOP and inform user
+4. Run `deno task dropall --confirm` to reset database
+5. Run `deno task migrate test --verbose` to deploy schema
+6. Run `deno task test` to execute all tests
+7. Verify all tests pass before completing the task
 
 ## Key CLI Commands
 
