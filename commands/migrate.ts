@@ -141,7 +141,7 @@ async function ensure_versions(client: Client): Promise<void> {
   
   if (!exists) {   
     
-    // Create the _versions table
+    // Create the _versions table with RLS enabled
     const createTableQuery = `
       CREATE TABLE _versions (
         name TEXT PRIMARY KEY,
@@ -149,6 +149,8 @@ async function ensure_versions(client: Client): Promise<void> {
       );
       
       CREATE UNIQUE INDEX idx_versions_name ON _versions(name);
+      
+      ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
     `;
     
     await client.queryObject(createTableQuery);
