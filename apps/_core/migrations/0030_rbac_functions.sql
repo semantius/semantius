@@ -38,11 +38,11 @@ DECLARE
 BEGIN
     -- Validate that both parent and child permissions exist (redundant with FK but explicit)
     IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.parent_permission_id) THEN
-        RAISE EXCEPTION 'Parent permission with ID % does not exist', NEW.parent_permission_id;
+        RAISE EXCEPTION 'Parent permission with Id % does not exist', NEW.parent_permission_id;
     END IF;
     
     IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.child_permission_id) THEN
-        RAISE EXCEPTION 'Child permission with ID % does not exist', NEW.child_permission_id;
+        RAISE EXCEPTION 'Child permission with Id % does not exist', NEW.child_permission_id;
     END IF;
     
     -- Check if adding this edge would create a cycle or exceed depth limit
@@ -68,7 +68,7 @@ BEGIN
     FROM hierarchy_path;
     
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission ID % cannot be both ancestor and descendant of permission ID %', 
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission Id % cannot be both ancestor and descendant of permission Id %', 
             NEW.parent_permission_id, NEW.child_permission_id;
     END IF;
     
@@ -657,7 +657,7 @@ COMMENT ON FUNCTION rbac.validate_permission_exists IS
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Get current user's internal database ID
+-- Get current user's internal database Id
 CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS INTEGER AS $$
 BEGIN

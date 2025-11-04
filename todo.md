@@ -1,12 +1,18 @@
 
+- mcp test
+- core test
+- hono template
+- hono oidc fake
+- mcp next
+- ui start from scratch
 
 - suche
 - reset cache after DDL
 - id, label marker for fields
 - column security
-- view permission in module, hide views & tables 
-- agents.md, automated testing, neon ?
+- view permission in tables 
 
+- mcp no ddl, query 
 
 
 https://supabase.com/docs/guides/database/postgres/row-level-security

@@ -152,13 +152,13 @@ VALUES
 -- SEED TEST USERS
 -- =====================================================
 
--- Add test users with fixed IDs for testing
+-- Add test users with fixed Ids for testing
 INSERT INTO users (user_id, external_id, email) VALUES
     (1001, 'user1', 'user@test.com'),
     (1002, 'user2', 'sales@test.com'),
     (1003, 'user3', 'admin@test.com');
 
--- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated IDs
+-- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
 SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
 
 -- =====================================================

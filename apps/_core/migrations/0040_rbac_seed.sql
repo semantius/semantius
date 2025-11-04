@@ -16,7 +16,7 @@ INSERT INTO permissions (permission_id, permission_name, description) VALUES
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
 -- =====================================================
--- user:manage (ID=2) implies user:read (ID=1)
+-- user:manage (Id=2) implies user:read (Id=1)
 
 INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VALUES
     (2, 1);
@@ -53,7 +53,7 @@ INSERT INTO modules (module_id, module_name, description, view_permission) VALUE
     (2, '_public', 'Public', 'user:read');
 
 -- =====================================================
--- RESET SEQUENCES (Reserve IDs < 10000 for internal use)
+-- RESET SEQUENCES (Reserve Ids < 10000 for internal use)
 -- =====================================================
 
 SELECT setval('permissions_permission_id_seq', GREATEST(10000, (SELECT MAX(permission_id) + 1 FROM permissions)));

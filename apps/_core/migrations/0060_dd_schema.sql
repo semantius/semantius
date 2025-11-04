@@ -196,21 +196,21 @@ VALUES
     ('tables', 'table_name', 'Table Name', 'Physical table name in database', 'TEXT', TRUE, FALSE, 0, 'id', TRUE),
     ('tables', 'label', 'Label', 'Human-readable display name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('tables', 'description', 'Description', 'Detailed description of the table', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
-    ('tables', 'module_id', 'Module ID', 'Module this table belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
+    ('tables', 'module_id', 'Module Id', 'Module this table belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
     ('tables', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'TEXT', FALSE, FALSE, 40, NULL, TRUE),
     ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'TEXT', FALSE, FALSE, 50, NULL, TRUE),
-    ('tables', 'id_column', 'ID Column', 'Name of primary key column', 'TEXT', FALSE, FALSE, 60, NULL, TRUE),
+    ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'TEXT', FALSE, FALSE, 60, NULL, TRUE),
     ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'TEXT', FALSE, FALSE, 70, NULL, TRUE),
     ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMP', FALSE, FALSE, 80, NULL, TRUE),
     ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMP', FALSE, FALSE, 90, NULL, TRUE);
 
 -- Insert fields metadata for fields table
 -- Note: fields table has a composite primary key (table_name, field_name)
--- Both are marked with ctype='id' to indicate they are part of the composite key
+-- Both are marked with ctype='ckey' to indicate they are part of the composite key
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'TEXT', FALSE, FALSE, 0, 'id', TRUE),
-    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'TEXT', FALSE, FALSE, 10, 'id', TRUE),
+    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'TEXT', FALSE, FALSE, 0, 'ckey', TRUE),
+    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'TEXT', FALSE, FALSE, 10, 'ckey', TRUE),
     ('fields', 'label', 'Label', 'Human-readable display name for the field', 'TEXT', FALSE, FALSE, 20, 'label', TRUE),
     ('fields', 'description', 'Description', 'Detailed description of the field', 'TEXT', FALSE, TRUE, 30, NULL, TRUE),
     ('fields', 'data_type', 'Data Type', 'PostgreSQL data type for the column', 'TEXT', FALSE, FALSE, 40, NULL, TRUE),
@@ -226,8 +226,8 @@ VALUES
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('users', 'user_id', 'User ID', 'Internal user identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
-    ('users', 'external_id', 'External ID', 'External identifier from authentication provider', 'TEXT', FALSE, FALSE, 10, NULL, TRUE),
+    ('users', 'user_id', 'User Id', 'Internal user identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'TEXT', FALSE, FALSE, 10, NULL, TRUE),
     ('users', 'email', 'Email', 'User email address', 'TEXT', FALSE, TRUE, 20, 'label', TRUE),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'BOOLEAN', FALSE, TRUE, 30, NULL, TRUE),
     ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMPTZ', FALSE, FALSE, 40, NULL, TRUE),
@@ -237,7 +237,7 @@ VALUES
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('modules', 'module_id', 'Module ID', 'Internal module identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('modules', 'module_id', 'Module Id', 'Internal module identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('modules', 'description', 'Description', 'Description of the module', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'TEXT', FALSE, FALSE, 30, NULL, TRUE),
@@ -247,19 +247,19 @@ VALUES
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('roles', 'role_id', 'Role ID', 'Internal role identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('roles', 'role_id', 'Role Id', 'Internal role identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('roles', 'description', 'Description', 'Description of the role', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
-    ('roles', 'module_id', 'Module ID', 'Module this role belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
+    ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
     ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMPTZ', FALSE, FALSE, 40, NULL, TRUE),
     ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMPTZ', FALSE, FALSE, 50, NULL, TRUE);
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('permissions', 'permission_id', 'Permission ID', 'Internal permission identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('permissions', 'permission_id', 'Permission Id', 'Internal permission identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('permissions', 'description', 'Description', 'Description of the permission', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
-    ('permissions', 'module_id', 'Module ID', 'Module this permission belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
+    ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
     ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMPTZ', FALSE, FALSE, 40, NULL, TRUE),
     ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMPTZ', FALSE, FALSE, 50, NULL, TRUE);

@@ -1,6 +1,4 @@
-Neon does not support pgtap extension. So we extracted pgtap.sql from pgTAP 1.3.5
-
-We just added the folowing prefix 
+Extracted pgtap.sql from pgTAP 1.3.5 and just added the folowing prefix 
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS pgtap;
