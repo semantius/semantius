@@ -183,12 +183,12 @@ CREATE TRIGGER update_fields_updated_at
 -- Insert tables metadata for core tables
 INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES 
-    ('tables', 'Tables', 'Metadata for dynamically created tables', 1, 'public:read', 'admin', 'table_name', 'label'),
-    ('fields', 'Fields', 'Metadata for fields in dynamically created tables', 1, 'public:read', 'admin', 'table_name', 'label'),
-    ('users', 'Users', 'External users synchronized from JWT tokens', 1, 'user:read', 'user:manage', 'user_id', 'email'),
-    ('modules', 'Modules', 'Logical modules that group related roles and permissions', 1, 'admin', 'admin', 'module_id', 'module_name'),
-    ('roles', 'Roles', 'Groups of permissions that can be assigned to users', 1, 'admin', 'admin', 'role_id', 'role_name'),
-    ('permissions', 'Permissions', 'System permissions that can be assigned to roles', 1, 'admin', 'admin', 'permission_id', 'permission_name');
+    ('tables', 'Tables', 'Metadata for dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
+    ('fields', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
+    ('users', 'Users', 'External users synchronized from JWT tokens', (SELECT module_id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'user_id', 'email'),
+    ('modules', 'Modules', 'Logical modules that group related roles and permissions', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'module_id', 'module_name'),
+    ('roles', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'role_id', 'role_name'),
+    ('permissions', 'Permissions', 'System permissions that can be assigned to roles', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_id', 'permission_name');
 
 -- Insert fields metadata for tables table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
@@ -205,6 +205,8 @@ VALUES
     ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMP', FALSE, FALSE, 90, NULL, TRUE);
 
 -- Insert fields metadata for fields table
+-- Note: fields table has a composite primary key (table_name, field_name)
+-- Both are marked with ctype='id' to indicate they are part of the composite key
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
     ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'TEXT', FALSE, FALSE, 0, 'id', TRUE),
