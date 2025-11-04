@@ -114,10 +114,10 @@ BEGIN
     
     -- Insert field records for id and label columns
     -- Using INSERT with RETURNING to avoid recursive trigger issues
-    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order)
+    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, ctype)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'ID', 'INTEGER', TRUE, FALSE, 0),
-        (NEW.table_name, NEW.label_column, NEW.label, 'TEXT', FALSE, FALSE, 1);
+        (NEW.table_name, NEW.id_column, 'ID', 'INTEGER', TRUE, FALSE, 0, 'id'),
+        (NEW.table_name, NEW.label_column, NEW.label, 'TEXT', FALSE, FALSE, 1, 'label');
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;

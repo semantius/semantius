@@ -207,6 +207,17 @@ CREATE POLICY permission_hierarchy_delete_policy ON permission_hierarchy
     USING ((select rbac.has_permission('admin')));
 
 -- =====================================================
+-- _VERSIONS - admin can query, deny insert/update/delete
+-- =====================================================
+
+CREATE POLICY versions_select_policy ON _versions
+    FOR SELECT
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')));
+
+-- No INSERT, UPDATE, or DELETE policies - these operations are denied to all semantius_user roles
+
+-- =====================================================
 -- GRANT TABLE ACCESS TO semantius_user ROLE
 -- =====================================================
 -- Grant usage on public schema
