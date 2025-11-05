@@ -3,7 +3,7 @@ BEGIN;
 
 SELECT plan(10);
 
-select authenticate_as('user1', 'user@test.com');
+select authenticate_as('user1');
 
 -- Test that will pass
 SELECT has_table('public', 'users', 'Users table should exist');
@@ -56,7 +56,7 @@ SELECT throws_ok(
     'Insert should fail because of RLS policy'
 );
 
-select authenticate_as('user2', 'sales@test.com');
+select authenticate_as('user2');
 
 -- Test rbac.uid() returns user2
 SELECT is(

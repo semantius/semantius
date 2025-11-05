@@ -4,7 +4,7 @@ BEGIN;
 SELECT plan(3);
 
 -- Test as user@test.com (has user:read permission)
-select authenticate_as('user1', 'user@test.com');
+select authenticate_as('user1');
 
 -- user@test.com should see 3 modules (_public, HR, and Inventory)
 SELECT is(
@@ -14,7 +14,7 @@ SELECT is(
 );
 
 -- Test as sales@test.com (has user:read and sales:read permissions)
-select authenticate_as('user2', 'sales@test.com');
+select authenticate_as('user2');
 
 -- sales@test.com should see 4 modules (_public, CRM, HR, and Inventory)
 SELECT is(
@@ -24,7 +24,7 @@ SELECT is(
 );
 
 -- Test as admin@test.com (has user:read permission)
-select authenticate_as('user3', 'admin@test.com');
+select authenticate_as('user3');
 
 -- admin@test.com should see  all 5 modules (_public, _core, CRM, HR, and Inventory)
 SELECT is(

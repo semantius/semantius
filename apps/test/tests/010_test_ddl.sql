@@ -3,7 +3,7 @@ BEGIN;
 
 SELECT plan(8);
 
-select authenticate_as('user1', 'user@test.com');
+select authenticate_as('user1');
 
 -- Test rbac.user_id() returns 1001
 SELECT is(
@@ -40,7 +40,7 @@ SELECT throws_ok(
 
 
 -- admin should be able to create the table and add columns
-select authenticate_as('user3', 'admin@test.com');
+select authenticate_as('user3');
 
 -- Create "customers" table in CRM module
 INSERT INTO tables(table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column) 
@@ -60,7 +60,7 @@ SELECT pgtap.hasnt_column(
     'column test1 should not exist in public.table1'
 );
 
-select authenticate_as('user1', 'user@test.com');
+select authenticate_as('user1');
 
 SELECT throws_ok(
     $$
@@ -73,7 +73,7 @@ SELECT throws_ok(
 );
 
 -- admin should be able to create the table and add columns
-select authenticate_as('user3', 'admin@test.com');
+select authenticate_as('user3');
 
 INSERT INTO fields(table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
 VALUES ('table1', 'field1', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Customer primary email address');
