@@ -7,14 +7,14 @@
 SET LOCAL search_path TO pgtap;
 
 CREATE OR REPLACE FUNCTION authenticate_as (
-    external_id TEXT,
-    email TEXT
+    external_id TEXT
 )
     RETURNS void
     AS $$
         DECLARE
                 original_sub text;
                 original_email text;
+                user_email text;
         BEGIN
             -- Store original JWT claims in case we need to revert
             original_sub := current_setting('request.jwt.claim.sub', true);
@@ -23,6 +23,13 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             -- Validate parameters
             if external_id is null OR trim(external_id) = '' then
                 RAISE EXCEPTION 'external_id cannot be null or empty';
+            end if;
+
+            -- Look up the email for this external_id
+            SELECT email INTO user_email FROM users WHERE users.external_id = authenticate_as.external_id;
+            
+            if user_email is null then
+                RAISE EXCEPTION 'User with external_id "%" not found', external_id;
             end if;
 
             -- Set the role to authenticated
@@ -34,7 +41,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             
             -- Set JWT claims in the format expected by rbac functions
             perform set_config('request.jwt.claim.sub', external_id, true);
-            perform set_config('request.jwt.claim.email', email, true);
+            perform set_config('request.jwt.claim.email', user_email, true);
 
             -- Clear all app context variables set by ensure_context_initialized
             PERFORM set_config('app.current_user_id', NULL, false);

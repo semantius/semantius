@@ -8,7 +8,7 @@ SELECT plan(8);
 -- =====================================================
 
 -- Test as user1 (non-admin, has public:read)
-SELECT authenticate_as('user1', 'user@test.com');
+SELECT authenticate_as('user1');
 
 -- Test that user1 can read fields
 SELECT ok(
@@ -79,7 +79,7 @@ SELECT is(
 -- =====================================================
 
 -- Switch to user3 (admin)
-SELECT authenticate_as('user3', 'admin@test.com');
+SELECT authenticate_as('user3');
 
 -- Test that user3 can query _versions
 SELECT ok(
