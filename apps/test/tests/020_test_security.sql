@@ -14,20 +14,27 @@ SELECT is(
         SELECT string_agg(schemaname || '.' || tablename, ', ' ORDER BY schemaname, tablename)
         FROM (
             SELECT DISTINCT
-                pt.schemaname,
-                pt.tablename
-            FROM pg_tables pt
-            WHERE pt.schemaname IN ('public', 'rbac')
-            AND NOT EXISTS (
-                SELECT 1
-                FROM pg_policies pp
-                WHERE pp.schemaname = pt.schemaname
-                AND pp.tablename = pt.tablename
+                n.nspname AS schemaname,
+                c.relname AS tablename
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname IN ('public', 'rbac')
+            AND c.relkind = 'r'  -- regular tables only
+            AND (
+                -- RLS is not enabled on the table
+                NOT c.relrowsecurity
+                -- OR no RLS policies exist for the table
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM pg_policies pp
+                    WHERE pp.schemaname = n.nspname
+                    AND pp.tablename = c.relname
+                )
             )
         ) AS tables_without_rls
     ),
     NULL::text,
-    'All tables in public and rbac schemas should have RLS policies'
+    'All tables in public and rbac schemas should have RLS enabled with policies'
 );
 
 -- =====================================================
