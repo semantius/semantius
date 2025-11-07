@@ -3,10 +3,11 @@
 -- 1. get_userinfo() creates/updates user records
 -- 2. After get_userinfo(), RLS policies work in read-only mode
 -- 3. The new read-only function rbac.get_user_by_external_id() works correctly
+-- 4. RLS policies fail with error when user doesn't exist
 
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(10);
 
 -- =====================================================
 -- TEST 1: Test read-only operations with existing users
@@ -78,6 +79,41 @@ SELECT is(
     rbac.get_user_by_external_id('does_not_exist'),
     NULL::integer,
     'rbac.get_user_by_external_id should return NULL for non-existent user'
+);
+
+-- =====================================================
+-- TEST 4: Verify RLS fails with error when user doesn't exist
+-- =====================================================
+
+-- Set up JWT for a non-existent user
+SET ROLE semantius_user;
+SELECT set_config('request.jwt.claim.sub', 'nonexistent_user_12345', true);
+SELECT set_config('request.jwt.claim.email', 'nonexistent@test.com', true);
+
+-- Clear context to force re-initialization
+SELECT set_config('app.current_user_id', NULL, false);
+SELECT set_config('app.current_external_id', NULL, false);
+SELECT set_config('app.user_permissions', NULL, false);
+SELECT set_config('app.context_initialized', NULL, false);
+
+-- Test that RLS operation fails with proper error when user doesn't exist
+SELECT throws_ok(
+    $$
+    SELECT rbac.has_permission('public:read');
+    $$,
+    '28000',
+    NULL,
+    'RLS should fail with error when user does not exist in database'
+);
+
+-- Test that querying RLS-protected table also fails
+SELECT throws_ok(
+    $$
+    SELECT COUNT(*) FROM products;
+    $$,
+    '28000',
+    NULL,
+    'Querying RLS-protected table should fail when user does not exist'
 );
 
 SELECT * FROM finish();

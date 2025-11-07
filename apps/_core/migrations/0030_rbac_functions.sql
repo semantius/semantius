@@ -266,7 +266,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
-'Read-only context initialization. Errors if user not found. Compatible with PostgREST GET requests.';
+'Lazy initialization of request context. Called automatically on first permission check.';
 
 -- Manual context initialization with OAuth scopes
 -- Use this for OAuth/API requests where scopes need to be validated
