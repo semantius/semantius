@@ -323,6 +323,9 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
     `;
     await client.queryObject(insertVersionQuery, [versionName]);
     
+    // Notify PostgREST to reload schema after migration
+    await client.queryObject("NOTIFY pgrst, 'reload schema'");
+    
     // Commit transaction
     await client.queryObject("COMMIT");
     
