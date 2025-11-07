@@ -156,8 +156,36 @@ COMMENT ON FUNCTION rbac.uid IS
 -- USER MANAGEMENT
 -- =====================================================
 
+-- Read-only function to get user_id by external_id
+-- Used by RLS policies in read-only transactions (e.g., PostgREST GET requests)
+-- Returns NULL if user doesn't exist
+CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
+    p_external_id TEXT
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_user_id INTEGER;
+BEGIN
+    -- Validate external_id is not empty
+    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+        RETURN NULL;
+    END IF;
+    
+    SELECT user_id INTO v_user_id
+    FROM users
+    WHERE external_id = p_external_id
+      AND is_disabled = FALSE;
+    
+    RETURN v_user_id;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.get_user_by_external_id IS 
+'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Used by RLS policies.';
+
 -- Initialize or update user from JWT
--- Called automatically when needed to ensure user exists
+-- Called by get_userinfo() to create/update user and update last_seen
+-- NOT called by RLS policies (they use read-only lookup)
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
     p_email TEXT DEFAULT NULL
@@ -183,7 +211,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS 
-'Creates or updates user record from JWT claims. Updates last_seen timestamp.';
+'Creates or updates user record from JWT claims. Updates last_seen timestamp. Called by get_userinfo().';
 
 -- =====================================================
 -- REQUEST CONTEXT - LAZY INITIALIZATION
@@ -192,11 +220,11 @@ COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
+-- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
 CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
     v_external_id TEXT;
-    v_email TEXT;
     v_user_id INTEGER;
     v_permissions TEXT;
     v_initialized TEXT;
@@ -211,11 +239,14 @@ BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
     
-    -- Get email from JWT if available
-    v_email := current_setting('request.jwt.claim.email', true);
+    -- Read-only lookup: Get user_id without modifying database
+    v_user_id := rbac.get_user_by_external_id(v_external_id);
     
-    -- Ensure user exists and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
+    -- User must exist - client should have called get_userinfo() on first login
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'User not found: %. Client must call get_userinfo() on first login to create user record.', v_external_id
+            USING ERRCODE = 'invalid_authorization_specification';
+    END IF;
     
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
     -- This expensive recursive CTE runs only once per request
