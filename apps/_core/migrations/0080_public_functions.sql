@@ -12,7 +12,7 @@
 -- Get current authenticated user's information
 -- Returns the user record from the users table for the current JWT
 -- IMPORTANT: This function creates/updates the user record and updates last_seen
--- Clients MUST call this function after connecting to initialize their session
+-- Clients should call this function when they detect a new login to initialize the user
 CREATE OR REPLACE FUNCTION public.get_userinfo()
 RETURNS TABLE (
     user_id INTEGER,
@@ -53,7 +53,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION public.get_userinfo IS 
-'Returns current authenticated user info. Creates/updates user record and updates last_seen. Clients must call this after connecting to initialize session.';
+'Returns current authenticated user info. Creates/updates user record and updates last_seen. Call once when new login detected.';
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;

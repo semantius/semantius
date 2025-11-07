@@ -242,9 +242,9 @@ BEGIN
     -- Read-only lookup: Get user_id without modifying database
     v_user_id := rbac.get_user_by_external_id(v_external_id);
     
-    -- User must exist - client should call get_userinfo() first
+    -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'User not found: %. Call get_userinfo() to initialize user session.', v_external_id
+        RAISE EXCEPTION 'User not found: %. Client must call get_userinfo() on first login to create user record.', v_external_id
             USING ERRCODE = 'invalid_authorization_specification';
     END IF;
     
@@ -263,7 +263,7 @@ BEGIN
     
     -- Note: OAuth scopes handled separately if needed
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
 'Read-only context initialization. Errors if user not found. Compatible with PostgREST GET requests.';
