@@ -70,6 +70,12 @@ BEGIN
     FROM users u
     WHERE u.user_id = v_user_id;
     
+    -- Check if user was found
+    IF v_result IS NULL THEN
+        RAISE EXCEPTION 'User not found after upsert: user_id = %', v_user_id
+            USING ERRCODE = 'data_exception';
+    END IF;
+    
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

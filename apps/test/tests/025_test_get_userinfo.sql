@@ -131,7 +131,9 @@ SELECT is(
 
 -- Test that all timestamp fields are populated
 SELECT ok(
-    (SELECT public.get_userinfo()->>'created_at' IS NOT NULL AND public.get_userinfo()->>'updated_at' IS NOT NULL),
+    (WITH info AS (SELECT public.get_userinfo() as data)
+     SELECT (info.data->>'created_at') IS NOT NULL AND (info.data->>'updated_at') IS NOT NULL
+     FROM info),
     'get_userinfo() should return non-null timestamp fields'
 );
 
