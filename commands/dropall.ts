@@ -318,7 +318,7 @@ async function dropCustomSchemas(client: Client): Promise<void> {
     SELECT n.nspname as schema_name, u.usename as owner
     FROM pg_namespace n
     JOIN pg_user u ON n.nspowner = u.usesysid    
-    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public', 'auth')    
+    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public', 'auth', 'extensions')    
     AND u.usename = current_user
     ORDER BY n.nspname;
   `;

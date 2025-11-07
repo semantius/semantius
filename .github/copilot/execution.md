@@ -9,7 +9,7 @@
 
 ### After Any Database Changes
 1. **ALWAYS execute**: `deno task dropall --confirm`
-2. **ALWAYS execute**: `deno task migrate test --verbose`  
+2. **ALWAYS execute**: `deno task migrate --apps test --verbose`  
 3. **ALWAYS execute**: `deno task test`
 4. **VERIFY**: All tests pass before completing the task
 

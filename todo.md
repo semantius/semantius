@@ -1,6 +1,11 @@
 
-- mcp test
-- core test
+- test auth0 with supabase + ui
+- deploy fake oidc, check refresh response, add option to generate quick expire
+- mcp test verbose vs logging, sql - modify_schema tool, deploy
+
+
+- security audit Bypass RLS, set account limit, functions limits etc.
+
 - hono template
 - hono oidc fake
 - mcp next
