@@ -44,21 +44,21 @@ SELECT is(
 -- TEST 2: Verify get_userinfo works correctly
 -- =====================================================
 
--- Call get_userinfo and verify it returns data
+-- Call get_userinfo and verify it returns JSON
 SELECT ok(
-    (SELECT COUNT(*) FROM public.get_userinfo()) = 1,
+    (SELECT public.get_userinfo() IS NOT NULL),
     'get_userinfo() should return one record'
 );
 
 -- Verify the function returns correct data
 SELECT is(
-    (SELECT user_id FROM public.get_userinfo()),
+    (SELECT (public.get_userinfo()->>'user_id')::integer),
     1002::integer,
     'get_userinfo() should return user_id 1002 for user2'
 );
 
 SELECT is(
-    (SELECT external_id FROM public.get_userinfo()),
+    (SELECT public.get_userinfo()->>'external_id'),
     'user2',
     'get_userinfo() should return external_id user2'
 );
