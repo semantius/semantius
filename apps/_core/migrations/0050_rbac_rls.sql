@@ -246,6 +246,7 @@ CREATE OR REPLACE FUNCTION rbac.auto_assign_user_role()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Insert the user into role 1 (User) if not already assigned
+    -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     INSERT INTO user_roles (user_id, role_id)
     VALUES (NEW.user_id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
@@ -275,6 +276,7 @@ CREATE OR REPLACE FUNCTION rbac.prevent_user_role_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Check if attempting to delete role 1 (User role)
+    -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     IF OLD.role_id = 1 THEN
         RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
             USING ERRCODE = 'P0001';

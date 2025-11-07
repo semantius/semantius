@@ -8,7 +8,7 @@ SELECT plan(11);
 -- =====================================================
 
 -- Test 1: Create a new user and verify role 1 is auto-assigned
-SELECT authenticate_as('user3'); -- Use admin to have permission to insert users
+SELECT authenticate_as('user3'); -- user3 is the admin user with user:manage permission
 
 -- Insert a new test user
 INSERT INTO users (user_id, external_id, email) 
