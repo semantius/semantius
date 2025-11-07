@@ -235,3 +235,62 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
     GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+
+-- =====================================================
+-- TRIGGER: Auto-assign role 1 (User) to new users
+-- =====================================================
+-- When a new user is inserted, automatically assign them to role 1 (User role)
+-- This ensures all users have at least the basic User role
+
+CREATE OR REPLACE FUNCTION rbac.auto_assign_user_role()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Insert the user into role 1 (User) if not already assigned
+    INSERT INTO user_roles (user_id, role_id)
+    VALUES (NEW.user_id, 1)
+    ON CONFLICT (user_id, role_id) DO NOTHING;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.auto_assign_user_role IS 
+'Trigger function to automatically assign role 1 (User) to newly created users.';
+
+CREATE TRIGGER auto_assign_user_role_trigger
+    AFTER INSERT ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.auto_assign_user_role();
+
+COMMENT ON TRIGGER auto_assign_user_role_trigger ON users IS
+'Automatically assigns role 1 (User) to new users after insertion.';
+
+-- =====================================================
+-- TRIGGER: Prevent deletion of role 1 from any user
+-- =====================================================
+-- This ensures that no user can have their User role removed,
+-- maintaining the security principle that all users must have basic access
+
+CREATE OR REPLACE FUNCTION rbac.prevent_user_role_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check if attempting to delete role 1 (User role)
+    IF OLD.role_id = 1 THEN
+        RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
+            USING ERRCODE = 'P0001';
+    END IF;
+    
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
+'Trigger function to prevent deletion of role 1 (User) from any user.';
+
+CREATE TRIGGER prevent_user_role_deletion_trigger
+    BEFORE DELETE ON user_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.prevent_user_role_deletion();
+
+COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
+'Prevents deletion of role 1 (User) from any user in user_roles table.';

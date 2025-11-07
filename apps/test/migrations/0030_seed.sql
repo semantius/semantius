@@ -165,12 +165,8 @@ SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
 -- SEED USER-ROLE MAPPINGS
 -- =====================================================
 
--- All three users are members of the "User" role
-INSERT INTO user_roles (user_id, role_id)
-SELECT u.user_id, r.role_id
-FROM users u, roles r
-WHERE u.external_id IN ('user1', 'user2', 'user3')
-  AND r.role_name = 'User';
+-- Note: Role 1 (User) is now auto-assigned by trigger when users are inserted
+-- So we only need to add additional roles here
 
 -- user3 is also a member of the "Administrator" role
 INSERT INTO user_roles (user_id, role_id)
