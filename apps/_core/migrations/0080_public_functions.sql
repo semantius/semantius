@@ -32,6 +32,18 @@ BEGIN
     -- Create or update user record and update last_seen
     v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
     
+    -- Verify user was created/found successfully
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Failed to create or find user: external_id = %', v_external_id
+            USING ERRCODE = 'data_exception';
+    END IF;
+    
+    -- Verify user exists in users table
+    IF NOT EXISTS (SELECT 1 FROM users WHERE user_id = v_user_id) THEN
+        RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
+            USING ERRCODE = 'data_exception';
+    END IF;
+    
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
@@ -69,12 +81,6 @@ BEGIN
     INTO v_result
     FROM users u
     WHERE u.user_id = v_user_id;
-    
-    -- Check if user was found
-    IF v_result IS NULL THEN
-        RAISE EXCEPTION 'User not found after upsert: user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
-    END IF;
     
     RETURN v_result;
 END;
