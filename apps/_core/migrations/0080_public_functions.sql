@@ -82,6 +82,12 @@ BEGIN
     FROM users u
     WHERE u.user_id = v_user_id;
     
+    -- Final safety check (should never be NULL after previous validations)
+    IF v_result IS NULL THEN
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = %', v_user_id
+            USING ERRCODE = 'data_exception';
+    END IF;
+    
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
