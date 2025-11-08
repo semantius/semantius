@@ -72,31 +72,31 @@ SELECT is(
 
 -- Test fields array exists
 SELECT ok(
-    (SELECT jsonb_typeof(public.get_schema('customers')->'fields') = 'array'),
+    (SELECT jsonb_typeof((public.get_schema('customers')::jsonb)->'fields') = 'array'),
     'get_schema() should return fields as a JSON array'
 );
 
 -- Test fields array is not empty
 SELECT ok(
-    (SELECT jsonb_array_length(public.get_schema('customers')->'fields') > 0),
+    (SELECT jsonb_array_length((public.get_schema('customers')::jsonb)->'fields') > 0),
     'get_schema() should return non-empty fields array'
 );
 
 -- Test fields array contains customer_id field
 SELECT ok(
-    (SELECT public.get_schema('customers')->'fields' @> '[{"field_name": "customer_id"}]'::jsonb),
+    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "customer_id"}]'::jsonb),
     'get_schema() fields array should contain customer_id field'
 );
 
 -- Test fields array contains email field
 SELECT ok(
-    (SELECT public.get_schema('customers')->'fields' @> '[{"field_name": "email"}]'::jsonb),
+    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "email"}]'::jsonb),
     'get_schema() fields array should contain email field'
 );
 
 -- Test that a field has all expected properties
 SELECT ok(
-    (WITH schema AS (SELECT public.get_schema('customers') as data),
+    (WITH schema AS (SELECT public.get_schema('customers')::jsonb as data),
      first_field AS (SELECT data->'fields'->0 as field FROM schema)
      SELECT (field ? 'field_name') AND
             (field ? 'label') AND
