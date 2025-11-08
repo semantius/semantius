@@ -106,11 +106,11 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- Returns JSON with table metadata and an array of field records
 -- Raises an error when the table is not found
 CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
-RETURNS JSONB AS $$
+RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
-    v_fields_array JSONB;
-    v_result JSONB;
+    v_fields_array JSON;
+    v_result JSON;
 BEGIN
     -- Check if table exists in tables metadata
     SELECT * INTO v_table_record
@@ -124,8 +124,9 @@ BEGIN
     END IF;
     
     -- Build fields array with all field records
-    SELECT COALESCE(jsonb_agg(
-        jsonb_build_object(
+    -- Using json_agg to preserve insertion order
+    SELECT COALESCE(json_agg(
+        json_build_object(
             'field_name', f.field_name,
             'label', f.label,
             'description', f.description,
@@ -139,13 +140,15 @@ BEGIN
             'created_at', f.created_at,
             'updated_at', f.updated_at
         ) ORDER BY f.field_order
-    ), '[]'::jsonb)
+    ), '[]'::json)
     INTO v_fields_array
     FROM fields f
     WHERE f.table_name = p_table_name;
     
     -- Build the final JSON result with table info and fields array
-    v_result := jsonb_build_object(
+    -- Using json_build_object to preserve key insertion order
+    -- This ensures 'fields' appears at the end as desired
+    v_result := json_build_object(
         'table_name', v_table_record.table_name,
         'label', v_table_record.label,
         'description', v_table_record.description,
