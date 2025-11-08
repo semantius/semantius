@@ -97,3 +97,74 @@ COMMENT ON FUNCTION public.get_userinfo IS
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA
+-- =====================================================
+
+-- Get schema information for a table including all its fields
+-- Returns JSON with table metadata and an array of field records
+-- Raises an error when the table is not found
+CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_table_record RECORD;
+    v_fields_array JSONB;
+    v_result JSONB;
+BEGIN
+    -- Check if table exists in tables metadata
+    SELECT * INTO v_table_record
+    FROM tables
+    WHERE table_name = p_table_name;
+    
+    -- Raise error if table not found
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table';
+    END IF;
+    
+    -- Build fields array with all field records
+    SELECT COALESCE(jsonb_agg(
+        jsonb_build_object(
+            'field_name', f.field_name,
+            'label', f.label,
+            'description', f.description,
+            'data_type', f.data_type,
+            'is_pk', f.is_pk,
+            'is_nullable', f.is_nullable,
+            'default_value', f.default_value,
+            'field_order', f.field_order,
+            'ctype', f.ctype,
+            'is_core', f.is_core,
+            'created_at', f.created_at,
+            'updated_at', f.updated_at
+        ) ORDER BY f.field_order
+    ), '[]'::jsonb)
+    INTO v_fields_array
+    FROM fields f
+    WHERE f.table_name = p_table_name;
+    
+    -- Build the final JSON result with table info and fields array
+    v_result := jsonb_build_object(
+        'table_name', v_table_record.table_name,
+        'label', v_table_record.label,
+        'description', v_table_record.description,
+        'module_id', v_table_record.module_id,
+        'view_permission', v_table_record.view_permission,
+        'edit_permission', v_table_record.edit_permission,
+        'id_column', v_table_record.id_column,
+        'label_column', v_table_record.label_column,
+        'created_at', v_table_record.created_at,
+        'updated_at', v_table_record.updated_at,
+        'fields', v_fields_array
+    );
+    
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.get_schema IS 
+'Returns table schema as JSON including all table metadata and an array of field records. Raises an error if table not found.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
