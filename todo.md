@@ -1,6 +1,9 @@
-
-- test auth0 with supabase + ui
 - deploy fake oidc, check refresh response, add option to generate quick expire
+
+- schema form + grid    https://claude.ai/chat/906fdaed-32af-4598-8ef8-38c74c24c2e1
+- module icons, module in url
+- friendly messages instead of new row violates row-level security policy for table
+
 - mcp test verbose vs logging, sql - modify_schema tool, deploy
 
 

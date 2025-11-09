@@ -98,6 +98,22 @@ COMMENT ON FUNCTION public.get_userinfo IS
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 
+-- Overloaded version that accepts a version parameter but ignores it
+-- This provides API compatibility while internally calling the parameterless version
+CREATE OR REPLACE FUNCTION public.get_userinfo(version TEXT)
+RETURNS JSONB AS $$
+BEGIN
+    -- Ignore the version parameter and call the main implementation
+    RETURN public.get_userinfo();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.get_userinfo(TEXT) IS 
+'Overloaded version of get_userinfo that accepts a version parameter for API compatibility. Internally calls get_userinfo() without parameters.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_userinfo(TEXT) TO semantius_user;
+
 -- =====================================================
 -- GET SCHEMA
 -- =====================================================
@@ -171,3 +187,22 @@ COMMENT ON FUNCTION public.get_schema IS
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
+
+-- =====================================================
+-- PING
+-- =====================================================
+
+-- Simple ping function that returns the current timestamp
+-- Useful for testing connectivity and server time
+CREATE OR REPLACE FUNCTION public.ping()
+RETURNS TIMESTAMP WITH TIME ZONE AS $$
+BEGIN
+    RETURN NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.ping IS 
+'Returns the current server timestamp. Useful for testing connectivity and server time.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
