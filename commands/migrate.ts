@@ -132,6 +132,17 @@ export async function migrateCommand(apps: string, databaseUrl: string, scriptMo
   }
 }
 
+function getVersionsTableSql(): string {
+  return `CREATE TABLE IF NOT EXISTS _versions (
+  name TEXT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
+
+ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
+}
+
 async function ensure_versions(client: Client): Promise<void> {
   // Check if _versions table exists
   const checkTableQuery = `
@@ -147,17 +158,8 @@ async function ensure_versions(client: Client): Promise<void> {
   
   if (!exists) {   
     
-    // Create the _versions table with RLS enabled
-    const createTableQuery = `
-      CREATE TABLE _versions (
-        name TEXT PRIMARY KEY,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-      );
-      
-      CREATE UNIQUE INDEX idx_versions_name ON _versions(name);
-      
-      ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
-    `;
+    // Create the _versions table with RLS enabled using shared SQL
+    const createTableQuery = getVersionsTableSql();
     
     await client.queryObject(createTableQuery);
     console.info(`Created _versions table`);
@@ -462,14 +464,10 @@ async function generateMigrationScript(apps: string): Promise<void> {
   
   let scriptContent = "-- Generated migration script\n\n";
   
-  // First, create _versions table if it doesn't exist
+  // First, create _versions table if it doesn't exist using shared SQL
   scriptContent += "-- Ensure _versions table exists\n";
-  scriptContent += "CREATE TABLE IF NOT EXISTS _versions (\n";
-  scriptContent += "  name TEXT PRIMARY KEY,\n";
-  scriptContent += "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL\n";
-  scriptContent += ");\n\n";
-  scriptContent += "CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);\n\n";
-  scriptContent += "ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;\n\n";
+  scriptContent += getVersionsTableSql();
+  scriptContent += "\n\n";
   
   // Process each app
   for (const app of appList) {
