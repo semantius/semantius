@@ -36,6 +36,7 @@ deno task start [OPTIONS] [COMMAND]
 - `--config <FILE>`: Specify config file path
 - `--output <DIR>`: Specify output directory
 - `--apps <APPS>`: Comma-separated list of app names (for migrate command)
+- `--script`: Generate migrate.sql file instead of executing (for migrate command)
 
 ### Commands
 
@@ -65,6 +66,9 @@ deno task start test --verbose
 # Run migration on specific apps
 deno task start migrate --apps app1,app2,app3 --verbose
 deno task start migrate --apps nwind,_ddtest
+
+# Generate migration script without executing
+deno task start migrate --apps _core --script
 
 # Drop all database objects (DANGEROUS - use with caution!)
 deno task start dropall --verbose

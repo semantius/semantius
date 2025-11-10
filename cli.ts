@@ -226,11 +226,12 @@ async function main(): Promise<void> {
       await formatProject();
       break;
       
-    case "migrate":
+    case "migrate": {
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
       await migrateCommand(appsParam, databaseUrl!, args.script || false);
       break;
+    }
       
     case "dropall":
       await dropallCommand(databaseUrl!, args.confirm || false);
