@@ -206,3 +206,51 @@ COMMENT ON FUNCTION public.ping IS
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+
+-- =====================================================
+-- HAS PUBLIC READ
+-- =====================================================
+
+-- Function that returns comprehensive user access information
+-- Returns JSON with current user's role, role membership, and permission status
+CREATE OR REPLACE FUNCTION public.has_public_read()
+RETURNS JSONB AS $$
+DECLARE
+    v_current_role TEXT;
+    v_is_semantius_user BOOLEAN := FALSE;
+    v_has_public_read BOOLEAN := FALSE;
+BEGIN
+    -- Get the current PostgreSQL role
+    v_current_role := current_user;
+    
+    -- Check if current user is a member of semantius_user role
+    -- Using pg_has_role to check role membership
+    BEGIN
+        v_is_semantius_user := pg_has_role(current_user, 'semantius_user', 'member');
+    EXCEPTION WHEN OTHERS THEN
+        -- If role doesn't exist or any other error, default to false
+        v_is_semantius_user := FALSE;
+    END;
+    
+    -- Check if user has public:read permission via RBAC system
+    BEGIN
+        v_has_public_read := rbac.has_permission('public:read'::text);
+    EXCEPTION WHEN OTHERS THEN
+        -- If RBAC system fails, default to false
+        v_has_public_read := FALSE;
+    END;
+    
+    -- Return all information as JSON
+    RETURN jsonb_build_object(
+        'current_role', v_current_role,
+        'is_member_of_semantius_user', v_is_semantius_user,
+        'has_public_read_permission', v_has_public_read
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.has_public_read IS 
+'Returns current user access information: PostgreSQL role, semantius_user membership, and public:read permission status.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
