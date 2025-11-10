@@ -138,5 +138,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# Generated migration script
+# Generated SQL scripts
 migrate.sql
+dropall.sql
