@@ -30,6 +30,7 @@ interface CliArgs {
   apps?: string;
   tap?: boolean;
   confirm?: boolean;
+  script?: boolean;
   _: string[];
 }
 
@@ -81,6 +82,7 @@ OPTIONS:
     --output <DIR>   Specify output directory
     --apps <APPS>    Comma-separated list of app names (for migrate command)
     --confirm        Skip confirmation prompt (for dropall command)
+    --script         Generate migrate.sql file instead of executing (for migrate command)
 
 COMMANDS:
     init             Initialize a new project
@@ -169,7 +171,7 @@ async function lintProject(): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    boolean: ["help", "version", "verbose", "tap", "confirm"],
+    boolean: ["help", "version", "verbose", "tap", "confirm", "script"],
     string: ["config", "output", "apps"],
     alias: {
       h: "help",
@@ -224,11 +226,12 @@ async function main(): Promise<void> {
       await formatProject();
       break;
       
-    case "migrate":
+    case "migrate": {
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
-      await migrateCommand(appsParam, databaseUrl!);
+      await migrateCommand(appsParam, databaseUrl!, args.script || false);
       break;
+    }
       
     case "dropall":
       await dropallCommand(databaseUrl!, args.confirm || false);

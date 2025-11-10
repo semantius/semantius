@@ -5,8 +5,14 @@
 
 import { Client } from "@postgres";
 
-export async function migrateCommand(apps: string, databaseUrl: string): Promise<void> {
+export async function migrateCommand(apps: string, databaseUrl: string, scriptMode: boolean = false): Promise<void> {
   console.info("Starting migrate command...");
+  
+  // If in script mode, generate SQL file instead of executing
+  if (scriptMode) {
+    await generateMigrationScript(apps);
+    return;
+  }
   
   const client = new Client(databaseUrl);
   
@@ -126,6 +132,17 @@ export async function migrateCommand(apps: string, databaseUrl: string): Promise
   }
 }
 
+function getVersionsTableSql(): string {
+  return `CREATE TABLE IF NOT EXISTS _versions (
+  name TEXT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
+
+ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
+}
+
 async function ensure_versions(client: Client): Promise<void> {
   // Check if _versions table exists
   const checkTableQuery = `
@@ -141,17 +158,8 @@ async function ensure_versions(client: Client): Promise<void> {
   
   if (!exists) {   
     
-    // Create the _versions table with RLS enabled
-    const createTableQuery = `
-      CREATE TABLE _versions (
-        name TEXT PRIMARY KEY,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-      );
-      
-      CREATE UNIQUE INDEX idx_versions_name ON _versions(name);
-      
-      ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
-    `;
+    // Create the _versions table with RLS enabled using shared SQL
+    const createTableQuery = getVersionsTableSql();
     
     await client.queryObject(createTableQuery);
     console.info(`Created _versions table`);
@@ -430,4 +438,123 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
     
     console.info(`  Migration ${versionName} completed and recorded`);
   }
+}
+
+async function generateMigrationScript(apps: string): Promise<void> {
+  console.log("Generating migration script...");
+  
+  // If no apps provided or empty, default to just "_core"
+  const appsToProcess = (!apps || apps.trim() === "") ? "_core" : apps;
+  
+  // Add _core prefix to the entire string if it doesn't start with "_core," and it's not just "_core"
+  const processedAppsString = (appsToProcess === "_core" || appsToProcess.startsWith("_core,")) ? appsToProcess : `_core,${appsToProcess}`;
+  console.info(`Processing apps parameter: ${appsToProcess}`);
+  console.info(`Processed parameter: ${processedAppsString}`);
+  
+  // Split the comma-separated string and trim whitespace
+  const appList = processedAppsString.split(",").map(app => app.trim()).filter(app => app.length > 0);
+  
+  if (appList.length === 0) {
+    console.error("No valid app names found");
+    console.log("Provide comma-separated app names: app1,app2,app3");
+    Deno.exit(1);
+  }
+
+  console.info(`Found ${appList.length} app(s) to process`);
+  
+  let scriptContent = "-- Generated migration script\n\n";
+  
+  // First, create _versions table if it doesn't exist using shared SQL
+  scriptContent += "-- Ensure _versions table exists\n";
+  scriptContent += getVersionsTableSql();
+  scriptContent += "\n\n";
+  
+  // Process each app
+  for (const app of appList) {
+    const processedApp = app;
+    
+    console.log(`Processing: ${processedApp}`);
+    
+    // Check if folder exists in apps directory
+    const appPath = `./apps/${processedApp}`;
+    try {
+      const stat = await Deno.stat(appPath);
+      if (!stat.isDirectory) {
+        console.log(`Path exists but is not a directory: ${processedApp}`);
+        continue;
+      }
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        console.log(`Not found: ${processedApp}`);
+        continue;
+      }
+      throw error;
+    }
+    
+    // Get all migration files for this app
+    const migrationFiles = await getSqlFiles(processedApp, "migrations");
+    
+    if (migrationFiles.length === 0) {
+      console.info(`No migration files found for ${processedApp}`);
+      continue;
+    }
+    
+    console.info(`Found ${migrationFiles.length} migration file(s) for ${processedApp}`);
+    
+    // Process each migration file
+    for (const migrationFile of migrationFiles) {
+      const versionName = `${processedApp}.${migrationFile.replace(/\.sql$/, '')}`;
+      const filePath = `./apps/${processedApp}/migrations/${migrationFile}`;
+      
+      console.info(`  Adding ${versionName}`);
+      
+      try {
+        // Read the SQL file contents
+        const sqlContent = await Deno.readTextFile(filePath);
+        
+        if (!sqlContent.trim()) {
+          console.warn(`  Warning: Migration file ${migrationFile} is empty`);
+          continue;
+        }
+        
+        // Add a comment header
+        scriptContent += `-- Migration: ${versionName}\n`;
+        scriptContent += `BEGIN;\n\n`;
+        
+        // Add the SQL content
+        scriptContent += sqlContent;
+        
+        // Ensure there's a newline before the version insert
+        if (!sqlContent.endsWith('\n')) {
+          scriptContent += '\n';
+        }
+        scriptContent += '\n';
+        
+        // Add version record
+        scriptContent += `-- Record migration version\n`;
+        scriptContent += `INSERT INTO public._versions (name) VALUES ('${versionName}');\n\n`;
+        
+        // Commit transaction
+        scriptContent += `COMMIT;\n\n`;
+        
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          console.error(`Migration file not found: ${filePath}`);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+  
+  // Add NOTIFY at the end once
+  scriptContent += "-- Notify PostgREST to reload schema\n";
+  scriptContent += "NOTIFY pgrst, 'reload schema';\n";
+  
+  // Write to migrate.sql
+  const outputPath = "./migrate.sql";
+  await Deno.writeTextFile(outputPath, scriptContent);
+  
+  console.log(`\nMigration script generated: ${outputPath}`);
+  console.log("Script generation completed!");
 }
