@@ -6,7 +6,13 @@
 
 import { Client } from "@postgres";
 
-export async function dropallCommand(databaseUrl: string, confirm: boolean = false): Promise<void> {
+export async function dropallCommand(databaseUrl: string, confirm: boolean = false, scriptMode: boolean = false): Promise<void> {
+  // If in script mode, generate SQL file instead of executing
+  if (scriptMode) {
+    await generateDropallScript(databaseUrl);
+    return;
+  }
+  
   console.warn("WARNING: DROP ALL COMMAND");
   console.warn("=".repeat(50));
   console.warn("This command will permanently delete ALL objects in the database:");
@@ -75,6 +81,277 @@ export async function dropallCommand(databaseUrl: string, confirm: boolean = fal
       console.warn("Warning: Could not close database connection properly");
     }
   }
+}
+
+async function generateDropallScript(databaseUrl: string): Promise<void> {
+  console.log("Generating dropall script...");
+  
+  const client = new Client(databaseUrl);
+  
+  try {
+    // Connect to the database
+    await client.connect();
+    console.info("Database connection established for script generation");
+    
+    let scriptContent = "-- Generated dropall script\n";
+    scriptContent += "-- WARNING: This script will permanently delete ALL objects in the database\n";
+    scriptContent += "-- Execute with caution!\n\n";
+    
+    // Generate SQL for dropping all objects in dependency order
+    
+    // 1. Drop all views
+    scriptContent += await generateDropViewsSql(client);
+    
+    // 2. Drop all functions and procedures
+    scriptContent += await generateDropFunctionsSql(client);
+    
+    // 3. Drop all tables
+    scriptContent += await generateDropTablesSql(client);
+    
+    // 4. Drop all sequences
+    scriptContent += await generateDropSequencesSql(client);
+    
+    // 5. Drop all custom types
+    scriptContent += await generateDropTypesSql(client);
+    
+    // 6. Drop remaining objects
+    scriptContent += await generateDropRemainingObjectsSql(client);
+    
+    // 7. Drop custom schemas
+    scriptContent += await generateDropCustomSchemasSql(client);
+    
+    // Write to dropall.sql
+    const outputPath = "./dropall.sql";
+    await Deno.writeTextFile(outputPath, scriptContent);
+    
+    console.log(`\nDropall script generated: ${outputPath}`);
+    console.log("Script generation completed!");
+    
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Script generation failed:", error.message);
+    } else {
+      console.error("Script generation failed:", String(error));
+    }
+    Deno.exit(1);
+  } finally {
+    // Always close the connection
+    try {
+      await client.end();
+      console.info("Database connection closed");
+    } catch (_closeError) {
+      console.warn("Warning: Could not close database connection properly");
+    }
+  }
+}
+
+async function generateDropViewsSql(client: Client): Promise<string> {
+  const query = `
+    SELECT schemaname, viewname 
+    FROM pg_views 
+    WHERE schemaname = 'public'
+    ORDER BY viewname;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No views found in public schema");
+    return "-- No views found in public schema\n\n";
+  }
+  
+  console.info(`Found ${result.rows.length} view(s) to drop`);
+  
+  let sql = "-- Drop all views\n";
+  for (const row of result.rows) {
+    const { viewname } = row as { schemaname: string; viewname: string };
+    sql += `DROP VIEW IF EXISTS "${viewname}" CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
+}
+
+async function generateDropFunctionsSql(client: Client): Promise<string> {
+  const query = `
+    SELECT 
+      p.proname as function_name,
+      pg_get_function_identity_arguments(p.oid) as function_args
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+    ORDER BY p.proname;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No functions found in public schema");
+    return "-- No functions found in public schema\n\n";
+  }
+  
+  console.info(`Found ${result.rows.length} function(s) to drop`);
+  
+  let sql = "-- Drop all functions and procedures\n";
+  for (const row of result.rows) {
+    const { function_name, function_args } = row as { function_name: string; function_args: string };
+    sql += `DROP FUNCTION IF EXISTS "${function_name}"(${function_args}) CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
+}
+
+async function generateDropTablesSql(client: Client): Promise<string> {
+  const query = `
+    SELECT tablename 
+    FROM pg_tables 
+    WHERE schemaname = 'public'
+    ORDER BY tablename;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No tables found in public schema");
+    return "-- No tables found in public schema\n\n";
+  }
+  
+  console.info(`Found ${result.rows.length} table(s) to drop`);
+  
+  let sql = "-- Drop all tables\n";
+  for (const row of result.rows) {
+    const { tablename } = row as { tablename: string };
+    sql += `DROP TABLE IF EXISTS "${tablename}" CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
+}
+
+async function generateDropSequencesSql(client: Client): Promise<string> {
+  const query = `
+    SELECT sequencename 
+    FROM pg_sequences 
+    WHERE schemaname = 'public'
+    ORDER BY sequencename;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No sequences found in public schema");
+    return "-- No sequences found in public schema\n\n";
+  }
+  
+  console.info(`Found ${result.rows.length} sequence(s) to drop`);
+  
+  let sql = "-- Drop all sequences\n";
+  for (const row of result.rows) {
+    const { sequencename } = row as { sequencename: string };
+    sql += `DROP SEQUENCE IF EXISTS "${sequencename}" CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
+}
+
+async function generateDropTypesSql(client: Client): Promise<string> {
+  const query = `
+    SELECT t.typname 
+    FROM pg_type t
+    JOIN pg_namespace n ON t.typnamespace = n.oid
+    WHERE n.nspname = 'public'
+    AND t.typtype = 'c'
+    ORDER BY t.typname;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No custom types found in public schema");
+    return "-- No custom types found in public schema\n\n";
+  }
+  
+  console.info(`Found ${result.rows.length} custom type(s) to drop`);
+  
+  let sql = "-- Drop all custom types\n";
+  for (const row of result.rows) {
+    const { typname } = row as { typname: string };
+    sql += `DROP TYPE IF EXISTS "${typname}" CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
+}
+
+async function generateDropRemainingObjectsSql(client: Client): Promise<string> {
+  let sql = "";
+  
+  // Check for domains
+  const domainQuery = `SELECT domain_name FROM information_schema.domains WHERE domain_schema = 'public'`;
+  const domainResult = await client.queryObject(domainQuery);
+  
+  if (domainResult.rows.length > 0) {
+    console.info(`Found ${domainResult.rows.length} domain(s) to drop`);
+    sql += "-- Drop all domains\n";
+    for (const row of domainResult.rows) {
+      const { domain_name } = row as { domain_name: string };
+      sql += `DROP DOMAIN IF EXISTS "${domain_name}" CASCADE;\n`;
+    }
+    sql += "\n";
+  } else {
+    console.info("No domains found in public schema");
+    sql += "-- No domains found in public schema\n\n";
+  }
+  
+  // Check for aggregates
+  const aggregateQuery = `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname = 'public' AND p.prokind = 'a'`;
+  const aggregateResult = await client.queryObject(aggregateQuery);
+  
+  if (aggregateResult.rows.length > 0) {
+    console.info(`Found ${aggregateResult.rows.length} aggregate(s) to drop`);
+    sql += "-- Drop all aggregates\n";
+    for (const row of aggregateResult.rows) {
+      const { proname } = row as { proname: string };
+      sql += `DROP AGGREGATE IF EXISTS "${proname}" CASCADE;\n`;
+    }
+    sql += "\n";
+  } else {
+    console.info("No aggregates found in public schema");
+    sql += "-- No aggregates found in public schema\n\n";
+  }
+  
+  return sql;
+}
+
+async function generateDropCustomSchemasSql(client: Client): Promise<string> {
+  const query = `
+    SELECT n.nspname as schema_name, u.usename as owner
+    FROM pg_namespace n
+    JOIN pg_user u ON n.nspowner = u.usesysid    
+    WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public', 'auth', 'extensions')    
+    AND u.usename = current_user
+    ORDER BY n.nspname;
+  `;
+  
+  const result = await client.queryObject(query);
+  
+  if (result.rows.length === 0) {
+    console.info("No user-owned schemas found to drop");
+    return "-- No user-owned schemas found to drop\n";
+  }
+  
+  console.info(`Found ${result.rows.length} user-owned schema(s) to drop`);
+  
+  let sql = "-- Drop all user-owned schemas\n";
+  for (const row of result.rows) {
+    const { schema_name } = row as { schema_name: string; owner: string };
+    sql += `DROP SCHEMA IF EXISTS "${schema_name}" CASCADE;\n`;
+  }
+  sql += "\n";
+  
+  return sql;
 }
 
 async function dropAllObjects(client: Client): Promise<void> {

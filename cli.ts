@@ -82,7 +82,7 @@ OPTIONS:
     --output <DIR>   Specify output directory
     --apps <APPS>    Comma-separated list of app names (for migrate command)
     --confirm        Skip confirmation prompt (for dropall command)
-    --script         Generate migrate.sql file instead of executing (for migrate command)
+    --script         Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
 
 COMMANDS:
     init             Initialize a new project
@@ -101,8 +101,10 @@ EXAMPLES:
     deno task test --tap
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
+    deno task migrate --apps nwind --script
     deno task dropall --verbose
-    deno task dropall --confirm    
+    deno task dropall --confirm
+    deno task dropall --script    
   `);
 }
 
@@ -234,7 +236,7 @@ async function main(): Promise<void> {
     }
       
     case "dropall":
-      await dropallCommand(databaseUrl!, args.confirm || false);
+      await dropallCommand(databaseUrl!, args.confirm || false, args.script || false);
       break;
       
     default:
