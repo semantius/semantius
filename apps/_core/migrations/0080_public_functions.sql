@@ -114,6 +114,24 @@ COMMENT ON FUNCTION public.get_userinfo(TEXT) IS
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo(TEXT) TO semantius_user;
 
+
+-- Overloaded version that accepts a version parameter but ignores it
+-- This provides API compatibility while internally calling the parameterless version
+CREATE OR REPLACE FUNCTION public.get_userinfo2(version TEXT)
+RETURNS JSONB AS $$
+BEGIN
+    -- Ignore the version parameter and call the main implementation
+      RETURN NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.get_userinfo2(TEXT) IS 
+'Overloaded version of get_userinfo2 that accepts a version parameter for API compatibility. Internally calls get_userinfo2() without parameters.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_userinfo2(TEXT) TO semantius_user;
+
+
 -- =====================================================
 -- GET SCHEMA
 -- =====================================================
@@ -205,7 +223,7 @@ COMMENT ON FUNCTION public.ping IS
 'Returns the current server timestamp. Useful for testing connectivity and server time.';
 
 -- Grant execute permission to semantius_user role
-GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+-- GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
 
 -- =====================================================
 -- HAS PUBLIC READ
@@ -253,4 +271,4 @@ COMMENT ON FUNCTION public.has_public_read IS
 'Returns current user access information: PostgreSQL role, semantius_user membership, and public:read permission status.';
 
 -- Grant execute permission to semantius_user role
-GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
+-- GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
