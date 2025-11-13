@@ -37,11 +37,11 @@ DECLARE
     max_depth INTEGER;
 BEGIN
     -- Validate that both parent and child permissions exist (redundant with FK but explicit)
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.parent_permission_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.parent_permission_id) THEN
         RAISE EXCEPTION 'Parent permission with Id % does not exist', NEW.parent_permission_id;
     END IF;
     
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE permission_id = NEW.child_permission_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.child_permission_id) THEN
         RAISE EXCEPTION 'Child permission with Id % does not exist', NEW.child_permission_id;
     END IF;
     
@@ -171,7 +171,7 @@ BEGIN
         RETURN NULL;
     END IF;
     
-    SELECT user_id INTO v_user_id
+    SELECT id INTO v_user_id
     FROM users
     WHERE external_id = p_external_id
       AND is_disabled = FALSE;
@@ -204,7 +204,7 @@ BEGIN
     ON CONFLICT (external_id) DO UPDATE
     SET last_seen = CURRENT_TIMESTAMP,
         email = COALESCE(EXCLUDED.email, users.email)
-    RETURNING user_id INTO v_user_id;
+    RETURNING id INTO v_user_id;
     
     RETURN v_user_id;
 END;
@@ -345,7 +345,7 @@ BEGIN
     END IF;
     
     -- Get the permission_id for the requested permission
-    SELECT permission_id INTO v_permission_id
+    SELECT id INTO v_permission_id
     FROM permissions
     WHERE permission_name = p_permission_name;
     
@@ -358,12 +358,12 @@ BEGIN
     -- Using recursive CTE to follow the hierarchy
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.permission_id
+        SELECT DISTINCT p.id AS permission_id
         FROM users u
-        JOIN user_roles ur ON u.user_id = ur.user_id
-        JOIN roles r ON ur.role_id = r.role_id
-        JOIN role_permissions rp ON r.role_id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.permission_id
+        JOIN user_roles ur ON u.id = ur.user_id
+        JOIN roles r ON ur.role_id = r.id
+        JOIN role_permissions rp ON r.id = rp.role_id
+        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
@@ -397,7 +397,7 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.permission_id
+            SELECT DISTINCT p.id AS permission_id
             FROM permissions p
             WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
             
@@ -586,22 +586,22 @@ BEGIN
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT p.id AS permission_id, p.permission_name
         FROM users u
-        JOIN user_roles ur ON u.user_id = ur.user_id
-        JOIN roles r ON ur.role_id = r.role_id
-        JOIN role_permissions rp ON r.role_id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.permission_id
+        JOIN user_roles ur ON u.id = ur.user_id
+        JOIN roles r ON ur.role_id = r.id
+        JOIN role_permissions rp ON r.id = rp.role_id
+        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT p.permission_id, p.permission_name
+        SELECT DISTINCT p.id AS permission_id, p.permission_name
         FROM permission_tree pt
         JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-        JOIN permissions p ON ph.child_permission_id = p.permission_id
+        JOIN permissions p ON ph.child_permission_id = p.id
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt

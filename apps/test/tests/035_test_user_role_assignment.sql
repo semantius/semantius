@@ -11,12 +11,12 @@ SELECT plan(11);
 SELECT authenticate_as('user3'); -- user3 is the admin user with user:manage permission
 
 -- Insert a new test user
-INSERT INTO users (user_id, external_id, email) 
+INSERT INTO users (id, external_id, email) 
 VALUES (9001, 'testuser1', 'testuser1@test.com');
 
 -- Verify the user was created
 SELECT ok(
-    (SELECT COUNT(*) FROM users WHERE user_id = 9001) = 1,
+    (SELECT COUNT(*) FROM users WHERE id = 9001) = 1,
     'New user with user_id 9001 should be created'
 );
 
@@ -27,7 +27,7 @@ SELECT ok(
 );
 
 -- Test 2: Create another user and verify role 1 is auto-assigned
-INSERT INTO users (user_id, external_id, email) 
+INSERT INTO users (id, external_id, email) 
 VALUES (9002, 'testuser2', 'testuser2@test.com');
 
 SELECT ok(

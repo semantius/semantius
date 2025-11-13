@@ -12,9 +12,13 @@
 
 CREATE TABLE IF NOT EXISTS tables (
     table_name TEXT PRIMARY KEY,
-    label TEXT NOT NULL,
+    singular TEXT NOT NULL,
+    plural TEXT,  -- Nullable because trigger auto-sets it before constraint check
+    singular_label TEXT NOT NULL,
+    plural_label TEXT NOT NULL,
+    icon_url TEXT,
     description TEXT,
-    module_id INTEGER REFERENCES modules(module_id) ON DELETE SET NULL,
+    module_id INTEGER REFERENCES modules(id) ON DELETE SET NULL,
     view_permission TEXT NOT NULL DEFAULT 'public:read',
     edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
@@ -30,7 +34,10 @@ CREATE TABLE IF NOT EXISTS tables (
     CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
     
     -- Ensure id and label columns are different
-    CONSTRAINT different_columns CHECK (id_column <> label_column)
+    CONSTRAINT different_columns CHECK (id_column <> label_column),
+    
+    -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
+    CONSTRAINT plural_matches_table_name CHECK (plural = table_name)
 );
 
 CREATE INDEX idx_tables_module ON tables(module_id);
@@ -39,7 +46,11 @@ COMMENT ON TABLE tables IS
 'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
 
 COMMENT ON COLUMN tables.table_name IS 'Physical table name in database (lowercase, underscores only)';
-COMMENT ON COLUMN tables.label IS 'Human-readable display name';
+COMMENT ON COLUMN tables.singular IS 'Singular form of table name (e.g., customer for customers table)';
+COMMENT ON COLUMN tables.plural IS 'Plural form of table name, auto-assigned to table_name (e.g., customers)';
+COMMENT ON COLUMN tables.singular_label IS 'Human-readable singular label for UI/reports (e.g., Customer)';
+COMMENT ON COLUMN tables.plural_label IS 'Human-readable plural label for UI/reports (e.g., Customers)';
+COMMENT ON COLUMN tables.icon_url IS 'Optional URL or path to icon for this table';
 COMMENT ON COLUMN tables.view_permission IS 'Permission required to SELECT from this table';
 COMMENT ON COLUMN tables.edit_permission IS 'Permission required to INSERT/UPDATE/DELETE from this table';
 COMMENT ON COLUMN tables.id_column IS 'Name of primary key column (created automatically)';
@@ -160,6 +171,32 @@ CREATE POLICY fields_delete_policy ON fields
     USING (rbac.has_permission('admin'));
 
 -- =====================================================
+-- AUTO-SET PLURAL TRIGGER
+-- =====================================================
+-- Automatically sets plural to match table_name on INSERT/UPDATE
+-- This ensures plural always equals table_name and ignores user input
+
+CREATE OR REPLACE FUNCTION auto_set_plural()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Always set plural to table_name, ignoring any provided value
+    NEW.plural := NEW.table_name;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION auto_set_plural IS 
+'Trigger function that automatically sets plural column to match table_name, ignoring user input';
+
+CREATE TRIGGER auto_set_plural_trigger
+    BEFORE INSERT OR UPDATE ON tables
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_plural();
+
+COMMENT ON TRIGGER auto_set_plural_trigger ON tables IS
+'Automatically sets plural to match table_name on INSERT/UPDATE';
+
+-- =====================================================
 -- UPDATE TIMESTAMP TRIGGERS
 -- =====================================================
 -- Uses common.update_updated_at_column() from common schema
@@ -181,28 +218,32 @@ CREATE TRIGGER update_fields_updated_at
 -- These are marked with is_core=true to indicate they are system tables
 
 -- Insert tables metadata for core tables
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES 
-    ('tables', 'Tables', 'Metadata for dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
-    ('fields', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
-    ('users', 'Users', 'External users synchronized from JWT tokens', (SELECT module_id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'user_id', 'email'),
-    ('modules', 'Modules', 'Logical modules that group related roles and permissions', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'module_id', 'module_name'),
-    ('roles', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'role_id', 'role_name'),
-    ('permissions', 'Permissions', 'System permissions that can be assigned to roles', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_id', 'permission_name');
+    ('tables', 'table', 'tables', 'Table', 'Tables', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
+    ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name');
 
 -- Insert fields metadata for tables table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
     ('tables', 'table_name', 'Table Name', 'Physical table name in database', 'TEXT', TRUE, FALSE, 0, 'id', TRUE),
-    ('tables', 'label', 'Label', 'Human-readable display name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
-    ('tables', 'description', 'Description', 'Detailed description of the table', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
-    ('tables', 'module_id', 'Module Id', 'Module this table belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
-    ('tables', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'TEXT', FALSE, FALSE, 40, NULL, TRUE),
-    ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'TEXT', FALSE, FALSE, 50, NULL, TRUE),
-    ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'TEXT', FALSE, FALSE, 60, NULL, TRUE),
-    ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'TEXT', FALSE, FALSE, 70, NULL, TRUE),
-    ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMP', FALSE, FALSE, 80, NULL, TRUE),
-    ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMP', FALSE, FALSE, 90, NULL, TRUE);
+    ('tables', 'singular', 'Singular', 'Singular form of table name', 'TEXT', FALSE, FALSE, 10, NULL, TRUE),
+    ('tables', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'TEXT', FALSE, FALSE, 20, NULL, TRUE),
+    ('tables', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'TEXT', FALSE, FALSE, 30, 'label', TRUE),
+    ('tables', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'TEXT', FALSE, FALSE, 40, NULL, TRUE),
+    ('tables', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'TEXT', FALSE, TRUE, 50, NULL, TRUE),
+    ('tables', 'description', 'Description', 'Detailed description of the table', 'TEXT', FALSE, TRUE, 60, NULL, TRUE),
+    ('tables', 'module_id', 'Module Id', 'Module this table belongs to', 'INTEGER', FALSE, TRUE, 70, NULL, TRUE),
+    ('tables', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'TEXT', FALSE, FALSE, 80, NULL, TRUE),
+    ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'TEXT', FALSE, FALSE, 90, NULL, TRUE),
+    ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'TEXT', FALSE, FALSE, 100, NULL, TRUE),
+    ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'TEXT', FALSE, FALSE, 110, NULL, TRUE),
+    ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMP', FALSE, FALSE, 120, NULL, TRUE),
+    ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMP', FALSE, FALSE, 130, NULL, TRUE);
 
 -- Insert fields metadata for fields table
 -- Note: fields table has a composite primary key (table_name, field_name)
@@ -226,7 +267,7 @@ VALUES
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('users', 'user_id', 'User Id', 'Internal user identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('users', 'id', 'Id', 'Internal user identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'TEXT', FALSE, FALSE, 10, NULL, TRUE),
     ('users', 'email', 'Email', 'User email address', 'TEXT', FALSE, TRUE, 20, 'label', TRUE),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'BOOLEAN', FALSE, TRUE, 30, NULL, TRUE),
@@ -237,7 +278,7 @@ VALUES
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('modules', 'module_id', 'Module Id', 'Internal module identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('modules', 'id', 'Id', 'Internal module identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('modules', 'description', 'Description', 'Description of the module', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'TEXT', FALSE, FALSE, 30, NULL, TRUE),
@@ -247,7 +288,7 @@ VALUES
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('roles', 'role_id', 'Role Id', 'Internal role identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('roles', 'id', 'Id', 'Internal role identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('roles', 'description', 'Description', 'Description of the role', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),
@@ -257,7 +298,7 @@ VALUES
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
 VALUES 
-    ('permissions', 'permission_id', 'Permission Id', 'Internal permission identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
+    ('permissions', 'id', 'Id', 'Internal permission identifier', 'INTEGER', TRUE, FALSE, 0, 'id', TRUE),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('permissions', 'description', 'Description', 'Description of the permission', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'INTEGER', FALSE, TRUE, 30, NULL, TRUE),

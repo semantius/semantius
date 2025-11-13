@@ -117,7 +117,7 @@ BEGIN
     INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, ctype)
     VALUES 
         (NEW.table_name, NEW.id_column, 'Id', 'INTEGER', TRUE, FALSE, 0, 'id'),
-        (NEW.table_name, NEW.label_column, NEW.label, 'TEXT', FALSE, FALSE, 1, 'label');
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'TEXT', FALSE, FALSE, 1, 'label');
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;

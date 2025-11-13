@@ -6,14 +6,14 @@
 -- =====================================================
 
 -- Insert sample modules if they don't exist
-INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
+INSERT INTO modules (id, module_name, description, view_permission) VALUES
     (1001, 'CRM', 'Customer Relationship Management', 'sales:read'),
     (1002, 'HR', 'Human Resources', 'user:read'),
     (1003, 'Inventory', 'Inventory Management', DEFAULT)
-ON CONFLICT (module_id) DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- Adjust the sequence counter to ensure next module starts after test modules
-SELECT setval('modules_module_id_seq', (SELECT MAX(module_id) FROM modules), true);
+SELECT setval('modules_id_seq', (SELECT MAX(id) FROM modules), true);
 
 -- =====================================================
 -- RBAC SEED DATA
@@ -31,7 +31,7 @@ INSERT INTO roles (role_name, description, module_id) VALUES
 
 -- Add Sales User role permissions
 INSERT INTO role_permissions (role_id, permission_id) 
-SELECT r.role_id, p.permission_id
+SELECT r.id, p.id
 FROM roles r, permissions p
 WHERE r.role_name = 'Sales User' 
   AND p.permission_name IN ('sales:read', 'sales:manage');
@@ -42,42 +42,53 @@ WHERE r.role_name = 'Sales User'
 -- These will automatically create actual database tables
 -- with proper RLS policies
 
--- Create "customers" table in CRM module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- Test case a: Create "customers" table WITHOUT providing plural value
+-- The trigger should auto-set plural = 'customers' (matching table_name)
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'customers',
+    'customer',
+    'Customer',
     'Customers',
     'Customer information and contact details',
     1001, -- CRM module
     'public:read',
     'sales:manage',
-    'customer_id',
+    'id',
     'customer_name'
 );
 
--- Create "employees" table in HR module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- Test case b: Create "employees" table WITH a wrong plural value ('wrongplural')
+-- The trigger should ignore 'wrongplural' and auto-set plural = 'employees'
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employees',
+    'employee',
+    'wrongplural',  -- This value should be ignored by the trigger
+    'Employee',
     'Employees',
     'Employee records and information',
     1002, -- HR module
     'user:read',
     'admin',
-    'employee_id',
+    'id',
     'full_name'
 );
 
--- Create "products" table in Inventory module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- Test case c: Create "products" table with correct plural value
+-- The trigger should still enforce plural = 'products'
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'products',
+    'product',
+    'products',
+    'Product',
     'Products',
     'Product catalog and inventory',
     1003, -- Inventory module
     'sales:read',
     'sales:manage',
-    'product_id',
+    'id',
     'product_name'
 );
 
@@ -125,7 +136,7 @@ VALUES
 -- unless specified otherwise in the tables definition
 
 -- Sample customers
--- Table: customers (id_column: customer_id, label_column: customer_name)
+-- Table: customers (id_column: id, label_column: customer_name)
 INSERT INTO customers (customer_name, email, phone, company, status, total_orders)
 VALUES 
     ('John Smith', 'john.smith@example.com', '555-0101', 'Acme Corp', 'active', 15),
@@ -230,7 +241,7 @@ VALUES
     ('Søren Eriksen', 'soren.eriksen@example.com', '555-0200', 'Novo Nordisk', 'active', 19);
 
 -- Sample employees
--- Table: employees (id_column: employee_id, label_column: full_name)
+-- Table: employees (id_column: id, label_column: full_name)
 INSERT INTO employees (full_name, email, department, position, hire_date, salary, is_active)
 VALUES 
     ('Alice Williams', 'alice.williams@company.com', 'Engineering', 'Senior Developer', '2020-03-15', 95000, TRUE),
@@ -238,7 +249,7 @@ VALUES
     ('Diana Prince', 'diana.prince@company.com', 'HR', 'HR Manager', '2019-01-10', 80000, TRUE);
 
 -- Sample products
--- Table: products (id_column: product_id, label_column: product_name)
+-- Table: products (id_column: id, label_column: product_name)
 INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category, is_discontinued)
 VALUES 
     ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 'Widgets', FALSE),
@@ -250,13 +261,13 @@ VALUES
 -- =====================================================
 
 -- Add test users with fixed Ids for testing
-INSERT INTO users (user_id, external_id, email) VALUES
+INSERT INTO users (id, external_id, email) VALUES
     (1001, 'user1', 'user@test.com'),
     (1002, 'user2', 'sales@test.com'),
     (1003, 'user3', 'admin@test.com');
 
 -- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
-SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
+SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
 
 -- =====================================================
 -- SEED USER-ROLE MAPPINGS
@@ -267,14 +278,14 @@ SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
 
 -- user3 is also a member of the "Administrator" role
 INSERT INTO user_roles (user_id, role_id)
-SELECT u.user_id, r.role_id
+SELECT u.id, r.id
 FROM users u, roles r
 WHERE u.external_id = 'user3'
   AND r.role_name = 'Administrator';
 
 -- user2 (sales@test.com) is also a member of the "Sales User" role
 INSERT INTO user_roles (user_id, role_id)
-SELECT u.user_id, r.role_id
+SELECT u.id, r.id
 FROM users u, roles r
 WHERE u.external_id = 'user2'
   AND r.role_name = 'Sales User';

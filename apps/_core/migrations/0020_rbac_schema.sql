@@ -8,7 +8,7 @@
 
 -- Modules: Logical groupings for roles and permissions
 CREATE TABLE modules (
-    module_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     module_name TEXT UNIQUE NOT NULL,
     description TEXT,
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
@@ -24,10 +24,10 @@ COMMENT ON TABLE modules IS 'Logical modules that group related roles and permis
 
 -- Permissions: Basic permissions in the system
 CREATE TABLE permissions (
-    permission_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     permission_name TEXT UNIQUE NOT NULL,
     description TEXT,
-    module_id INTEGER REFERENCES modules(module_id) ON DELETE CASCADE,
+    module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -37,10 +37,10 @@ COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for l
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (
-    role_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     role_name TEXT UNIQUE NOT NULL,
     description TEXT,
-    module_id INTEGER REFERENCES modules(module_id) ON DELETE CASCADE,
+    module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -50,7 +50,7 @@ COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical
 
 -- Users: External users from JWT
 CREATE TABLE users (
-    user_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     external_id TEXT UNIQUE NOT NULL,
     email TEXT,
     is_disabled BOOLEAN DEFAULT FALSE,
@@ -64,10 +64,10 @@ COMMENT ON COLUMN users.external_id IS 'External identifier from authentication 
 
 -- User-Role mapping
 CREATE TABLE user_roles (
-    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    role_id INTEGER NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    assigned_by INTEGER REFERENCES users(user_id),
+    assigned_by INTEGER REFERENCES users(id),
     PRIMARY KEY (user_id, role_id)
 );
 
@@ -75,10 +75,10 @@ COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
-    role_id INTEGER NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by INTEGER REFERENCES users(user_id),
+    granted_by INTEGER REFERENCES users(id),
     PRIMARY KEY (role_id, permission_id)
 );
 
@@ -91,8 +91,8 @@ COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    parent_permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
-    child_permission_id INTEGER NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+    parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (parent_permission_id, child_permission_id),
     CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id)

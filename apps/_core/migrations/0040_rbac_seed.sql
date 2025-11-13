@@ -7,7 +7,7 @@
 -- SEED PERMISSIONS
 -- =====================================================
 
-INSERT INTO permissions (permission_id, permission_name, description) VALUES
+INSERT INTO permissions (id, permission_name, description) VALUES
     (1, 'user:read', 'Permission to read user information'),
     (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)'),
     (3, 'public:read', 'Permission to read public information'),
@@ -25,7 +25,7 @@ INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VAL
 -- SEED ROLES
 -- =====================================================
 
-INSERT INTO roles (role_id, role_name, description) VALUES
+INSERT INTO roles (id, role_name, description) VALUES
     (1, 'User', 'Standard user role with read-only access to user information'),
     (2, 'Administrator', 'Administrator role with full user management capabilities');
 
@@ -48,7 +48,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- SEED MODULES
 -- =====================================================
 
-INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
+INSERT INTO modules (id, module_name, description, view_permission) VALUES
     (1, '_core', 'Core', 'admin'),
     (2, '_public', 'Public', 'user:read');
 
@@ -56,6 +56,6 @@ INSERT INTO modules (module_id, module_name, description, view_permission) VALUE
 -- RESET SEQUENCES (Reserve Ids < 10000 for internal use)
 -- =====================================================
 
-SELECT setval('permissions_permission_id_seq', GREATEST(10000, (SELECT MAX(permission_id) + 1 FROM permissions)));
-SELECT setval('roles_role_id_seq', GREATEST(10000, (SELECT MAX(role_id) + 1 FROM roles)));
-SELECT setval('modules_module_id_seq', GREATEST(1000, (SELECT MAX(module_id) + 1 FROM modules)));
+SELECT setval('permissions_id_seq', GREATEST(10000, (SELECT MAX(id) + 1 FROM permissions)));
+SELECT setval('roles_id_seq', GREATEST(10000, (SELECT MAX(id) + 1 FROM roles)));
+SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)));
