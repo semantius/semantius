@@ -133,7 +133,9 @@ export async function migrateCommand(apps: string, databaseUrl: string, scriptMo
 }
 
 function getVersionsTableSql(): string {
-  return `CREATE TABLE IF NOT EXISTS common._migration_history (
+  return `CREATE SCHEMA IF NOT EXISTS common;
+
+CREATE TABLE IF NOT EXISTS common._migration_history (
   name TEXT PRIMARY KEY,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );

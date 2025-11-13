@@ -223,17 +223,33 @@ CREATE POLICY migration_history_select_policy ON common._migration_history
 -- Grant usage on public schema
 GRANT USAGE ON SCHEMA public TO semantius_user;
 
+-- Grant usage on common schema
+GRANT USAGE ON SCHEMA common TO semantius_user;
+
 -- Grant table permissions (RLS policies will further restrict access)
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius_user;
 
+-- Grant table permissions for common schema (RLS policies will further restrict access)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA common TO semantius_user;
+
 -- Grant sequence usage for auto-increment columns
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
+
+-- Grant sequence usage for common schema
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA common TO semantius_user;
 
 -- Ensure future tables also get these grants
 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+    GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+
+-- Ensure future tables in common schema also get these grants
+ALTER DEFAULT PRIVILEGES IN SCHEMA common 
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA common 
     GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
 
 -- =====================================================
