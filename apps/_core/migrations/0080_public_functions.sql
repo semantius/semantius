@@ -39,7 +39,7 @@ BEGIN
     END IF;
     
     -- Verify user exists in users table
-    IF NOT EXISTS (SELECT 1 FROM users WHERE user_id = v_user_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
         RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
             USING ERRCODE = 'data_exception';
     END IF;
@@ -47,7 +47,7 @@ BEGIN
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
-            'role_id', r.role_id,
+            'role_id', r.id,
             'role_name', r.role_name,
             'description', r.description,
             'module_id', r.module_id,
@@ -56,7 +56,7 @@ BEGIN
     ), '[]'::jsonb)
     INTO v_roles
     FROM user_roles ur
-    JOIN roles r ON ur.role_id = r.role_id
+    JOIN roles r ON ur.role_id = r.id
     WHERE ur.user_id = v_user_id;
     
     -- Build permissions array (all effective permissions including inherited)
@@ -68,7 +68,7 @@ BEGIN
     
     -- Build the final JSON result
     SELECT jsonb_build_object(
-        'user_id', u.user_id,
+        'user_id', u.id,
         'external_id', u.external_id,
         'email', u.email,
         'is_disabled', u.is_disabled,
@@ -80,7 +80,7 @@ BEGIN
     )
     INTO v_result
     FROM users u
-    WHERE u.user_id = v_user_id;
+    WHERE u.id = v_user_id;
     
     -- Final safety check (should never be NULL after previous validations)
     IF v_result IS NULL THEN

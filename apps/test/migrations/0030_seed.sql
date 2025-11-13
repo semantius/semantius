@@ -6,14 +6,14 @@
 -- =====================================================
 
 -- Insert sample modules if they don't exist
-INSERT INTO modules (module_id, module_name, description, view_permission) VALUES
+INSERT INTO modules (id, module_name, description, view_permission) VALUES
     (1001, 'CRM', 'Customer Relationship Management', 'sales:read'),
     (1002, 'HR', 'Human Resources', 'user:read'),
     (1003, 'Inventory', 'Inventory Management', DEFAULT)
-ON CONFLICT (module_id) DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- Adjust the sequence counter to ensure next module starts after test modules
-SELECT setval('modules_module_id_seq', (SELECT MAX(module_id) FROM modules), true);
+SELECT setval('modules_id_seq', (SELECT MAX(id) FROM modules), true);
 
 -- =====================================================
 -- RBAC SEED DATA
@@ -31,7 +31,7 @@ INSERT INTO roles (role_name, description, module_id) VALUES
 
 -- Add Sales User role permissions
 INSERT INTO role_permissions (role_id, permission_id) 
-SELECT r.role_id, p.permission_id
+SELECT r.id, p.id
 FROM roles r, permissions p
 WHERE r.role_name = 'Sales User' 
   AND p.permission_name IN ('sales:read', 'sales:manage');
@@ -259,13 +259,13 @@ VALUES
 -- =====================================================
 
 -- Add test users with fixed Ids for testing
-INSERT INTO users (user_id, external_id, email) VALUES
+INSERT INTO users (id, external_id, email) VALUES
     (1001, 'user1', 'user@test.com'),
     (1002, 'user2', 'sales@test.com'),
     (1003, 'user3', 'admin@test.com');
 
 -- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
-SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
+SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
 
 -- =====================================================
 -- SEED USER-ROLE MAPPINGS
@@ -276,14 +276,14 @@ SELECT setval('users_user_id_seq', (SELECT MAX(user_id) FROM users), true);
 
 -- user3 is also a member of the "Administrator" role
 INSERT INTO user_roles (user_id, role_id)
-SELECT u.user_id, r.role_id
+SELECT u.id, r.id
 FROM users u, roles r
 WHERE u.external_id = 'user3'
   AND r.role_name = 'Administrator';
 
 -- user2 (sales@test.com) is also a member of the "Sales User" role
 INSERT INTO user_roles (user_id, role_id)
-SELECT u.user_id, r.role_id
+SELECT u.id, r.id
 FROM users u, roles r
 WHERE u.external_id = 'user2'
   AND r.role_name = 'Sales User';

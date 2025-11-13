@@ -248,7 +248,7 @@ BEGIN
     -- Insert the user into role 1 (User) if not already assigned
     -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     INSERT INTO user_roles (user_id, role_id)
-    VALUES (NEW.user_id, 1)
+    VALUES (NEW.id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
     
     RETURN NEW;

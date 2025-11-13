@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS tables (
     plural_label TEXT NOT NULL,
     icon_url TEXT,
     description TEXT,
-    module_id INTEGER REFERENCES modules(module_id) ON DELETE SET NULL,
+    module_id INTEGER REFERENCES modules(id) ON DELETE SET NULL,
     view_permission TEXT NOT NULL DEFAULT 'public:read',
     edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
@@ -194,12 +194,12 @@ CREATE TRIGGER update_fields_updated_at
 -- Insert tables metadata for core tables
 INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES 
-    ('tables', 'table', 'tables', 'Table', 'Tables', 'Metadata for dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT module_id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
-    ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT module_id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
-    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT module_id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name');
+    ('tables', 'table', 'tables', 'Table', 'Tables', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'label'),
+    ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name');
 
 -- Insert fields metadata for tables table
 INSERT INTO fields (table_name, field_name, label, description, data_type, is_pk, is_nullable, field_order, ctype, is_core)
