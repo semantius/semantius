@@ -103,10 +103,10 @@ SELECT ok(
     'get_schema() should return non-empty fields array'
 );
 
--- Test fields array contains customer_id field
+-- Test fields array contains id field
 SELECT ok(
-    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "customer_id"}]'::jsonb),
-    'get_schema() fields array should contain customer_id field'
+    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "id"}]'::jsonb),
+    'get_schema() fields array should contain id field'
 );
 
 -- Test fields array contains email field
