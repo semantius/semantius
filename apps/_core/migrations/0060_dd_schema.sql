@@ -13,7 +13,7 @@
 CREATE TABLE IF NOT EXISTS tables (
     table_name TEXT PRIMARY KEY,
     singular TEXT NOT NULL,
-    plural TEXT NOT NULL,
+    plural TEXT,  -- Nullable because trigger auto-sets it before constraint check
     singular_label TEXT NOT NULL,
     plural_label TEXT NOT NULL,
     icon_url TEXT,
@@ -169,6 +169,32 @@ CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
     TO semantius_user
     USING (rbac.has_permission('admin'));
+
+-- =====================================================
+-- AUTO-SET PLURAL TRIGGER
+-- =====================================================
+-- Automatically sets plural to match table_name on INSERT/UPDATE
+-- This ensures plural always equals table_name and ignores user input
+
+CREATE OR REPLACE FUNCTION auto_set_plural()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Always set plural to table_name, ignoring any provided value
+    NEW.plural := NEW.table_name;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION auto_set_plural IS 
+'Trigger function that automatically sets plural column to match table_name, ignoring user input';
+
+CREATE TRIGGER auto_set_plural_trigger
+    BEFORE INSERT OR UPDATE ON tables
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_plural();
+
+COMMENT ON TRIGGER auto_set_plural_trigger ON tables IS
+'Automatically sets plural to match table_name on INSERT/UPDATE';
 
 -- =====================================================
 -- UPDATE TIMESTAMP TRIGGERS

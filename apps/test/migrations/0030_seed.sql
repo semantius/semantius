@@ -42,12 +42,12 @@ WHERE r.role_name = 'Sales User'
 -- These will automatically create actual database tables
 -- with proper RLS policies
 
--- Create "customers" table in CRM module
-INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- Test case a: Create "customers" table WITHOUT providing plural value
+-- The trigger should auto-set plural = 'customers' (matching table_name)
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'customers',
     'customer',
-    'customers',
     'Customer',
     'Customers',
     'Customer information and contact details',
@@ -58,12 +58,13 @@ VALUES (
     'customer_name'
 );
 
--- Create "employees" table in HR module
+-- Test case b: Create "employees" table WITH a wrong plural value ('wrongplural')
+-- The trigger should ignore 'wrongplural' and auto-set plural = 'employees'
 INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employees',
     'employee',
-    'employees',
+    'wrongplural',  -- This value should be ignored by the trigger
     'Employee',
     'Employees',
     'Employee records and information',
@@ -74,7 +75,8 @@ VALUES (
     'full_name'
 );
 
--- Create "products" table in Inventory module
+-- Test case c: Create "products" table with correct plural value
+-- The trigger should still enforce plural = 'products'
 INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'products',
