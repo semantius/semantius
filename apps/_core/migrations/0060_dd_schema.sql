@@ -46,7 +46,7 @@ COMMENT ON TABLE tables IS
 'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
 
 COMMENT ON COLUMN tables.table_name IS 'Physical table name in database (lowercase, underscores only)';
-COMMENT ON COLUMN tables.singular IS 'Singular form of table name (e.g., customer)';
+COMMENT ON COLUMN tables.singular IS 'Singular form of table name (e.g., customer for customers table)';
 COMMENT ON COLUMN tables.plural IS 'Plural form of table name, auto-assigned to table_name (e.g., customers)';
 COMMENT ON COLUMN tables.singular_label IS 'Human-readable singular label for UI/reports (e.g., Customer)';
 COMMENT ON COLUMN tables.plural_label IS 'Human-readable plural label for UI/reports (e.g., Customers)';
