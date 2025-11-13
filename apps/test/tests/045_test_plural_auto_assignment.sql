@@ -1,7 +1,7 @@
 -- Test plural column auto-assignment
 BEGIN;
 
-SELECT plan(3);
+SELECT plan(4);
 
 -- =====================================================
 -- TEST: Verify plural matches table_name for all tables
@@ -29,6 +29,20 @@ SELECT is(
     (SELECT plural FROM tables WHERE table_name = 'products'),
     'products',
     'products table should have plural = "products" (correct value maintained)'
+);
+
+-- Test 4: UPDATE products table with wrong plural value
+-- The trigger should ignore the update and keep plural = 'products'
+SELECT authenticate_as('user3'); -- user3 is admin with permission to update
+
+UPDATE tables 
+SET plural = 'wrongupdatevalue'
+WHERE table_name = 'products';
+
+SELECT is(
+    (SELECT plural FROM tables WHERE table_name = 'products'),
+    'products',
+    'products table should still have plural = "products" after UPDATE with wrong value (ignored by trigger)'
 );
 
 SELECT * FROM finish();
