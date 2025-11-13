@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(15);
+SELECT plan(18);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -21,11 +21,32 @@ SELECT is(
     'get_schema() should return table_name "customers"'
 );
 
--- Test label
+-- Test singular
 SELECT is(
-    (SELECT public.get_schema('customers')->>'label'),
+    (SELECT public.get_schema('customers')->>'singular'),
+    'customer',
+    'get_schema() should return singular "customer"'
+);
+
+-- Test plural
+SELECT is(
+    (SELECT public.get_schema('customers')->>'plural'),
+    'customers',
+    'get_schema() should return plural "customers"'
+);
+
+-- Test singular_label
+SELECT is(
+    (SELECT public.get_schema('customers')->>'singular_label'),
+    'Customer',
+    'get_schema() should return singular_label "Customer"'
+);
+
+-- Test plural_label
+SELECT is(
+    (SELECT public.get_schema('customers')->>'plural_label'),
     'Customers',
-    'get_schema() should return label "Customers"'
+    'get_schema() should return plural_label "Customers"'
 );
 
 -- Test description
@@ -59,8 +80,8 @@ SELECT is(
 -- Test id_column
 SELECT is(
     (SELECT public.get_schema('customers')->>'id_column'),
-    'customer_id',
-    'get_schema() should return id_column "customer_id"'
+    'id',
+    'get_schema() should return id_column "id"'
 );
 
 -- Test label_column

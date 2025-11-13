@@ -43,41 +43,50 @@ WHERE r.role_name = 'Sales User'
 -- with proper RLS policies
 
 -- Create "customers" table in CRM module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'customers',
+    'customer',
+    'customers',
+    'Customer',
     'Customers',
     'Customer information and contact details',
     1001, -- CRM module
     'public:read',
     'sales:manage',
-    'customer_id',
+    'id',
     'customer_name'
 );
 
 -- Create "employees" table in HR module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employees',
+    'employee',
+    'employees',
+    'Employee',
     'Employees',
     'Employee records and information',
     1002, -- HR module
     'user:read',
     'admin',
-    'employee_id',
+    'id',
     'full_name'
 );
 
 -- Create "products" table in Inventory module
-INSERT INTO tables (table_name, label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'products',
+    'product',
+    'products',
+    'Product',
     'Products',
     'Product catalog and inventory',
     1003, -- Inventory module
     'sales:read',
     'sales:manage',
-    'product_id',
+    'id',
     'product_name'
 );
 
@@ -125,7 +134,7 @@ VALUES
 -- unless specified otherwise in the tables definition
 
 -- Sample customers
--- Table: customers (id_column: customer_id, label_column: customer_name)
+-- Table: customers (id_column: id, label_column: customer_name)
 INSERT INTO customers (customer_name, email, phone, company, status, total_orders)
 VALUES 
     ('John Smith', 'john.smith@example.com', '555-0101', 'Acme Corp', 'active', 15),
@@ -230,7 +239,7 @@ VALUES
     ('Søren Eriksen', 'soren.eriksen@example.com', '555-0200', 'Novo Nordisk', 'active', 19);
 
 -- Sample employees
--- Table: employees (id_column: employee_id, label_column: full_name)
+-- Table: employees (id_column: id, label_column: full_name)
 INSERT INTO employees (full_name, email, department, position, hire_date, salary, is_active)
 VALUES 
     ('Alice Williams', 'alice.williams@company.com', 'Engineering', 'Senior Developer', '2020-03-15', 95000, TRUE),
@@ -238,7 +247,7 @@ VALUES
     ('Diana Prince', 'diana.prince@company.com', 'HR', 'HR Manager', '2019-01-10', 80000, TRUE);
 
 -- Sample products
--- Table: products (id_column: product_id, label_column: product_name)
+-- Table: products (id_column: id, label_column: product_name)
 INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category, is_discontinued)
 VALUES 
     ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 'Widgets', FALSE),

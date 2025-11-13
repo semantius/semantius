@@ -151,7 +151,11 @@ BEGIN
     -- This ensures 'fields' appears at the end as desired
     v_result := json_build_object(
         'table_name', v_table_record.table_name,
-        'label', v_table_record.label,
+        'singular', v_table_record.singular,
+        'plural', v_table_record.plural,
+        'singular_label', v_table_record.singular_label,
+        'plural_label', v_table_record.plural_label,
+        'icon_url', v_table_record.icon_url,
         'description', v_table_record.description,
         'module_id', v_table_record.module_id,
         'view_permission', v_table_record.view_permission,
