@@ -1,4 +1,4 @@
--- Test RLS policies for fields table and _versions table
+-- Test RLS policies for fields table and _migration_history table
 BEGIN;
 
 SELECT plan(8);
@@ -64,55 +64,55 @@ END $$;
 SELECT ok(true, 'user1 cannot delete from fields table (verified data unchanged)');
 
 -- =====================================================
--- TEST _VERSIONS TABLE RLS - user1 (non-admin)
+-- TEST _MIGRATION_HISTORY TABLE RLS - user1 (non-admin)
 -- =====================================================
 
--- Test that user1 cannot query _versions
+-- Test that user1 cannot query _migration_history
 SELECT is(
-    (SELECT COUNT(*)::integer FROM _versions),
+    (SELECT COUNT(*)::integer FROM common._migration_history),
     0,
-    'user1 should not be able to read _versions table (RLS should return 0 rows)'
+    'user1 should not be able to read _migration_history table (RLS should return 0 rows)'
 );
 
 -- =====================================================
--- TEST _VERSIONS TABLE RLS - user3 (admin)
+-- TEST _MIGRATION_HISTORY TABLE RLS - user3 (admin)
 -- =====================================================
 
 -- Switch to user3 (admin)
 SELECT authenticate_as('user3');
 
--- Test that user3 can query _versions
+-- Test that user3 can query _migration_history
 SELECT ok(
-    (SELECT COUNT(*)::integer FROM _versions) > 0,
-    'user3 (admin) should be able to read _versions table'
+    (SELECT COUNT(*)::integer FROM common._migration_history) > 0,
+    'user3 (admin) should be able to read _migration_history table'
 );
 
--- Test that user3 cannot insert into _versions
+-- Test that user3 cannot insert into _migration_history
 SELECT throws_ok(
     $$
-    INSERT INTO _versions (name) VALUES ('test_version');
+    INSERT INTO common._migration_history (name) VALUES ('test_version');
     $$,
     '42501',
     NULL,
-    'user3 (admin) should not be able to insert into _versions table'
+    'user3 (admin) should not be able to insert into _migration_history table'
 );
 
--- Test that user3 cannot update _versions
+-- Test that user3 cannot update _migration_history
 -- Store the original name value
 DO $$
 DECLARE
     v_original_name TEXT;
 BEGIN
-    SELECT name INTO v_original_name FROM _versions WHERE name = '_core.0010_create_core';
+    SELECT name INTO v_original_name FROM common._migration_history WHERE name = '_core.0010_create_core';
     -- Try to update
-    UPDATE _versions SET name = 'modified_name' WHERE name = '_core.0010_create_core';
+    UPDATE common._migration_history SET name = 'modified_name' WHERE name = '_core.0010_create_core';
     -- Verify it wasn't changed
-    IF NOT EXISTS (SELECT 1 FROM _versions WHERE name = '_core.0010_create_core') THEN
+    IF NOT EXISTS (SELECT 1 FROM common._migration_history WHERE name = '_core.0010_create_core') THEN
         RAISE EXCEPTION 'Name was modified when it should not have been';
     END IF;
 END $$;
 
-SELECT ok(true, 'user3 (admin) cannot update _versions table (verified data unchanged)');
+SELECT ok(true, 'user3 (admin) cannot update _migration_history table (verified data unchanged)');
 
 SELECT * FROM finish();
 ROLLBACK;

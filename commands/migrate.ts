@@ -133,23 +133,23 @@ export async function migrateCommand(apps: string, databaseUrl: string, scriptMo
 }
 
 function getVersionsTableSql(): string {
-  return `CREATE TABLE IF NOT EXISTS _versions (
+  return `CREATE TABLE IF NOT EXISTS common._migration_history (
   name TEXT PRIMARY KEY,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_migration_history_name ON common._migration_history(name);
 
-ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
+ALTER TABLE common._migration_history ENABLE ROW LEVEL SECURITY;`;
 }
 
 async function ensure_versions(client: Client): Promise<void> {
-  // Check if _versions table exists
+  // Check if _migration_history table exists
   const checkTableQuery = `
     SELECT EXISTS (
       SELECT FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_name = '_versions'
+      WHERE table_schema = 'common' 
+      AND table_name = '_migration_history'
     );
   `;
   
@@ -158,11 +158,11 @@ async function ensure_versions(client: Client): Promise<void> {
   
   if (!exists) {   
     
-    // Create the _versions table with RLS enabled using shared SQL
+    // Create the _migration_history table with RLS enabled using shared SQL
     const createTableQuery = getVersionsTableSql();
     
     await client.queryObject(createTableQuery);
-    console.info(`Created _versions table`);
+    console.info(`Created common._migration_history table`);
   } 
 }
 
@@ -176,7 +176,7 @@ async function migrateApp(appName: string, databaseUrl: string, folderName: stri
     await client.connect();
     console.info(`Database connection established for ${appName}`);
     
-    // Ensure _versions table exists
+    // Ensure _migration_history table exists
     await ensure_versions(client);
     
     // Execute migrations for this app
@@ -325,9 +325,9 @@ async function executeSqlFile(client: Client, folderName: string, fileName: stri
     // Execute the SQL content
     await executeSQL(client, sqlContent, fileName);
     
-    // Insert versionName in _versions table after successful execution
+    // Insert versionName in _migration_history table after successful execution
     const insertVersionQuery = `
-      INSERT INTO public._versions (name) VALUES ($1)
+      INSERT INTO common._migration_history (name) VALUES ($1)
     `;
     await client.queryObject(insertVersionQuery, [versionName]);
     
@@ -415,10 +415,10 @@ async function executeMigrations(appName: string, folderName: string, client: Cl
     // versionName is file name WITHOUT .sql extension AND prefixed with appName + "."
     const versionName = `${appName}.${migrationFile.replace(/\.sql$/, '')}`;
     
-    // Check if this version already exists in _versions table
+    // Check if this version already exists in _migration_history table
     const checkVersionQuery = `
       SELECT EXISTS (
-        SELECT 1 FROM _versions 
+        SELECT 1 FROM common._migration_history 
         WHERE name = $1
       );
     `;
@@ -464,8 +464,8 @@ async function generateMigrationScript(apps: string): Promise<void> {
   
   let scriptContent = "-- Generated migration script\n\n";
   
-  // First, create _versions table if it doesn't exist using shared SQL
-  scriptContent += "-- Ensure _versions table exists\n";
+  // First, create _migration_history table if it doesn't exist using shared SQL
+  scriptContent += "-- Ensure _migration_history table exists\n";
   scriptContent += getVersionsTableSql();
   scriptContent += "\n\n";
   
@@ -532,7 +532,7 @@ async function generateMigrationScript(apps: string): Promise<void> {
         
         // Add version record
         scriptContent += `-- Record migration version\n`;
-        scriptContent += `INSERT INTO public._versions (name) VALUES ('${versionName}');\n\n`;
+        scriptContent += `INSERT INTO common._migration_history (name) VALUES ('${versionName}');\n\n`;
         
         // Commit transaction
         scriptContent += `COMMIT;\n\n`;
