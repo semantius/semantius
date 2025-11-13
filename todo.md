@@ -7,7 +7,7 @@
 - mcp test verbose vs logging, sql - modify_schema tool, deploy
 
 
-- security audit Bypass RLS, set account limit, functions limits etc.
+- security audit Bypass RLS, set account limit, functions limits etc. no security defined in public !
 
 - hono template
 - hono oidc fake

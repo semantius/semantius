@@ -95,8 +95,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Grant schema usage to postgres (database owner) for testing
-GRANT USAGE ON SCHEMA common TO postgres;
+-- Grant schema usage to current user (database owner) for testing
+GRANT USAGE ON SCHEMA common TO CURRENT_USER;
 
 -- Do NOT grant execute permissions to semantius_user role
 -- This prevents access via PostgREST /rpc/ endpoints

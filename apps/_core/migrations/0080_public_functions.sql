@@ -98,39 +98,6 @@ COMMENT ON FUNCTION public.get_userinfo IS
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 
--- Overloaded version that accepts a version parameter but ignores it
--- This provides API compatibility while internally calling the parameterless version
-CREATE OR REPLACE FUNCTION public.get_userinfo(version TEXT)
-RETURNS JSONB AS $$
-BEGIN
-    -- Ignore the version parameter and call the main implementation
-    RETURN public.get_userinfo();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION public.get_userinfo(TEXT) IS 
-'Overloaded version of get_userinfo that accepts a version parameter for API compatibility. Internally calls get_userinfo() without parameters.';
-
--- Grant execute permission to semantius_user role
-GRANT EXECUTE ON FUNCTION public.get_userinfo(TEXT) TO semantius_user;
-
-
--- Overloaded version that accepts a version parameter but ignores it
--- This provides API compatibility while internally calling the parameterless version
-CREATE OR REPLACE FUNCTION public.get_userinfo2(version TEXT)
-RETURNS JSONB AS $$
-BEGIN
-    -- Ignore the version parameter and call the main implementation
-      RETURN NOW();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION public.get_userinfo2(TEXT) IS 
-'Overloaded version of get_userinfo2 that accepts a version parameter for API compatibility. Internally calls get_userinfo2() without parameters.';
-
--- Grant execute permission to semantius_user role
-GRANT EXECUTE ON FUNCTION public.get_userinfo2(TEXT) TO semantius_user;
-
 
 -- =====================================================
 -- GET SCHEMA
@@ -210,20 +177,29 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- PING
 -- =====================================================
 
--- Simple ping function that returns the current timestamp
--- Useful for testing connectivity and server time
 CREATE OR REPLACE FUNCTION public.ping()
-RETURNS TIMESTAMP WITH TIME ZONE AS $$
+RETURNS TABLE(
+    server_time TIMESTAMP WITH TIME ZONE,
+    current_user_name TEXT,
+    current_role_name TEXT,
+    session_user_name TEXT
+) AS $$
 BEGIN
-    RETURN NOW();
+    RETURN QUERY SELECT 
+        NOW() as server_time,
+        current_user::TEXT as current_user_name,
+        current_role::TEXT as current_role_name,
+        session_user::TEXT as session_user_name;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION public.ping IS 
-'Returns the current server timestamp. Useful for testing connectivity and server time.';
+'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
 
 -- Grant execute permission to semantius_user role
--- GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+
+
 
 -- =====================================================
 -- HAS PUBLIC READ
