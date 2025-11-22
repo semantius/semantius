@@ -14,6 +14,8 @@ CREATE TABLE modules (
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
     logo_url TEXT,
     logo_color TEXT,
+    home_page TEXT DEFAULT '/' NOT NULL,
+    alias TEXT DEFAULT '' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
