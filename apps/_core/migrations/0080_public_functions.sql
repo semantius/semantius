@@ -67,7 +67,8 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions(v_external_id);
     
-    -- Build modules array (filtered by RLS - only modules user is allowed to view)
+    -- Build modules array (filtered by permissions - only modules user is allowed to view)
+    -- Note: We filter manually here since SECURITY DEFINER bypasses RLS
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
             'id', m.id,
@@ -81,7 +82,8 @@ BEGIN
         ) ORDER BY m.module_name
     ), '[]'::jsonb)
     INTO v_modules
-    FROM modules m;
+    FROM modules m
+    WHERE rbac.has_any_permission('admin', m.view_permission);
     
     -- Build the final JSON result
     SELECT jsonb_build_object(

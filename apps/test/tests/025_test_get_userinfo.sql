@@ -191,7 +191,10 @@ SELECT ok(
 
 -- Test _core module has logo_color
 SELECT is(
-    (SELECT (jsonb_array_elements(public.get_userinfo()->'modules')->>'logo_color') FROM jsonb_array_elements(public.get_userinfo()->'modules') WHERE jsonb_array_elements->>'module_name' = '_core' LIMIT 1),
+    (SELECT module->>'logo_color' 
+     FROM jsonb_array_elements(public.get_userinfo()->'modules') AS module
+     WHERE module->>'module_name' = '_core' 
+     LIMIT 1),
     '#e42528',
     '_core module should have logo_color set to #e42528'
 );
