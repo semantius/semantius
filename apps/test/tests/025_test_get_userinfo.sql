@@ -183,7 +183,7 @@ SELECT is(
     'user3 (admin) should see all 5 modules (_public, _core, CRM, HR, and Inventory)'
 );
 
--- Test _core module has logoUrl
+-- Test _core module has logo_url
 SELECT ok(
     (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_core"}]'::jsonb),
     'user3 (admin) should see _core module in modules array'
