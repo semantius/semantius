@@ -6,6 +6,45 @@
 -- =====================================================
 
 -- =====================================================
+-- GET USER MODULES (Helper function)
+-- =====================================================
+
+-- Get modules the current user has permission to view
+-- This function manually filters modules by permission since it may be
+-- called from a SECURITY DEFINER context where RLS is bypassed
+-- Used internally by get_userinfo()
+CREATE OR REPLACE FUNCTION public.get_user_modules()
+RETURNS JSONB AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT jsonb_agg(
+            jsonb_build_object(
+                'id', m.id,
+                'module_name', m.module_name,
+                'description', m.description,
+                'view_permission', m.view_permission,
+                'logo_url', m.logo_url,
+                'logo_color', m.logo_color,
+                'home_page', m.home_page,
+                'alias', m.alias,
+                'created_at', m.created_at,
+                'updated_at', m.updated_at
+            ) ORDER BY m.module_name
+        )
+        FROM modules m
+        WHERE rbac.has_any_permission('admin', m.view_permission)),
+        '[]'::jsonb
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION public.get_user_modules IS 
+'Returns modules array filtered by RLS. Used internally by get_userinfo().';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
+
+-- =====================================================
 -- GET USER INFO
 -- =====================================================
 
@@ -22,6 +61,7 @@ DECLARE
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
+    v_modules JSONB;
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
@@ -66,6 +106,9 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions(v_external_id);
     
+    -- Build modules array (filtered by permissions via helper function)
+    v_modules := public.get_user_modules();
+    
     -- Build the final JSON result
     SELECT jsonb_build_object(
         'user_id', u.id,
@@ -76,7 +119,8 @@ BEGIN
         'updated_at', u.updated_at,
         'last_seen', u.last_seen,
         'roles', v_roles,
-        'permissions', v_permissions
+        'permissions', v_permissions,
+        'modules', v_modules
     )
     INTO v_result
     FROM users u
@@ -93,7 +137,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION public.get_userinfo IS 
-'Returns current authenticated user info as JSON with nested roles and permissions. Creates/updates user record and updates last_seen. Call once when new login detected.';
+'Returns current authenticated user info as JSON with nested roles, permissions, and modules (filtered by RLS via helper function). Creates/updates user record and updates last_seen. Call once when new login detected.';
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;

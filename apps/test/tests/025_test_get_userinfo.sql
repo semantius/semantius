@@ -1,7 +1,7 @@
 -- Test public.get_userinfo() function
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(26);
 
 -- =====================================================
 -- TEST: get_userinfo() returns correct data for user1
@@ -147,6 +147,56 @@ SELECT ok(
 SELECT ok(
     (SELECT public.get_userinfo()->'permissions' @> '["admin"]'::jsonb),
     'get_userinfo() should show user3 has admin permission'
+);
+
+-- =====================================================
+-- TEST: get_userinfo() includes modules array
+-- =====================================================
+
+-- Test user1 modules array exists
+select authenticate_as('user1');
+SELECT ok(
+    (SELECT jsonb_typeof(public.get_userinfo()->'modules') = 'array'),
+    'get_userinfo() should return modules as a JSON array for user1'
+);
+
+-- Test user1 can see 3 modules (Public, HR, Inventory)
+SELECT is(
+    (SELECT jsonb_array_length(public.get_userinfo()->'modules')),
+    3,
+    'user1 should see 3 modules (_public, HR, and Inventory)'
+);
+
+-- Test user2 modules (should see 4 modules: Public, CRM, HR, Inventory)
+select authenticate_as('user2');
+SELECT is(
+    (SELECT jsonb_array_length(public.get_userinfo()->'modules')),
+    4,
+    'user2 should see 4 modules (_public, CRM, HR, and Inventory)'
+);
+
+-- Test user3 (admin) modules (should see all 5 modules)
+select authenticate_as('user3');
+SELECT is(
+    (SELECT jsonb_array_length(public.get_userinfo()->'modules')),
+    5,
+    'user3 (admin) should see all 5 modules (_public, _core, CRM, HR, and Inventory)'
+);
+
+-- Test _core module has logo_url
+SELECT ok(
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_core"}]'::jsonb),
+    'user3 (admin) should see _core module in modules array'
+);
+
+-- Test _core module has logo_color
+SELECT is(
+    (SELECT module->>'logo_color' 
+     FROM jsonb_array_elements(public.get_userinfo()->'modules') AS module
+     WHERE module->>'module_name' = '_core' 
+     LIMIT 1),
+    '#e42528',
+    '_core module should have logo_color set to #e42528'
 );
 
 SELECT * FROM finish();

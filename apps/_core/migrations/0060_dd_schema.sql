@@ -282,6 +282,10 @@ VALUES
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'TEXT', FALSE, FALSE, 10, 'label', TRUE),
     ('modules', 'description', 'Description', 'Description of the module', 'TEXT', FALSE, TRUE, 20, NULL, TRUE),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'TEXT', FALSE, FALSE, 30, NULL, TRUE),
+    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'TEXT', FALSE, TRUE, 35, NULL, TRUE),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'TEXT', FALSE, TRUE, 36, NULL, TRUE),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'TEXT', FALSE, FALSE, 37, NULL, TRUE),
+    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'TEXT', FALSE, FALSE, 38, NULL, TRUE),
     ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'TIMESTAMPTZ', FALSE, FALSE, 40, NULL, TRUE),
     ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'TIMESTAMPTZ', FALSE, FALSE, 50, NULL, TRUE);
 
