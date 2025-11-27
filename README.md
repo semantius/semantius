@@ -25,7 +25,7 @@ cd semantius-core
 ## Usage
 
 ```bash
-deno task start [OPTIONS] [COMMAND]
+deno task [OPTIONS] [COMMAND]
 ```
 
 ### Options
@@ -52,26 +52,26 @@ deno task start [OPTIONS] [COMMAND]
 
 ```bash
 # Show help
-deno task start --help
+deno task --help
 
 # Initialize project
-deno task start init
+deno task init
 
 # Build project with custom output directory
-deno task start build --output ./dist
+deno task build --output ./dist
 
 # Test database connection with verbose output
-deno task start test --verbose
+deno task test --verbose
 
 # Run migration on specific apps
-deno task start migrate --apps app1,app2,app3 --verbose
-deno task start migrate --apps nwind,_ddtest
+deno task migrate --apps app1,app2,app3 --verbose
+deno task migrate --apps nwind,_ddtest
 
 # Generate migration script without executing
-deno task start migrate --apps _core --script
+deno task migrate --apps _core --script
 
 # Drop all database objects (DANGEROUS - use with caution!)
-deno task start dropall --verbose
+deno task dropall --verbose
 
 # Run test directly with deno
 deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
@@ -104,7 +104,7 @@ The `dropall` command is a **DESTRUCTIVE** operation that will permanently delet
 deno task dropall
 
 # Or with verbose output
-deno task start dropall --verbose
+deno task dropall --verbose
 ```
 
 **Use this command only in development environments or when you specifically need to reset your database schema completely.**

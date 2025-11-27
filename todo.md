@@ -1,3 +1,5 @@
+
+
 - deploy fake oidc, check refresh response, add option to generate quick expire
 
 - schema form + grid    https://claude.ai/chat/906fdaed-32af-4598-8ef8-38c74c24c2e1
@@ -9,16 +11,23 @@
 
 - security audit Bypass RLS, set account limit, functions limits etc. no security defined in public !
 
-- hono template
-- hono oidc fake
 - mcp next
-- ui start from scratch
+
+- webhook receiver
+- modules route
+- i18n
+
+- master / detail poc
+- count in rest query 
+- parameterized query with url parameters a la redash
 
 - suche
 - reset cache after DDL
 - id, label marker for fields
 - column security
 - view permission in tables 
+- column permissions
+- audit log
 
 - mcp no ddl, query 
 
@@ -34,7 +43,7 @@ https://neon.com/docs/guides/rls-tutorial
 - NOTIFY pgrst, 'reload schema';
 
 
-TAP based testing
+[TAP based testing](https://github.com/changesets/changesets)
 
 
 Starlight site for docs, blog, marketing with pages cms
