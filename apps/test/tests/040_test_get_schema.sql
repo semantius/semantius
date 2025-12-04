@@ -120,8 +120,8 @@ SELECT ok(
     (WITH schema AS (SELECT public.get_schema('customers')::jsonb as data),
      first_field AS (SELECT data->'fields'->0 as field FROM schema)
      SELECT (field ? 'field_name') AND
-            (field ? 'label') AND
-            (field ? 'data_type') AND
+            (field ? 'title') AND
+            (field ? 'format') AND
             (field ? 'is_pk') AND
             (field ? 'is_nullable') AND
             (field ? 'field_order')
