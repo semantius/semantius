@@ -173,9 +173,9 @@ BEGIN
     SELECT COALESCE(json_agg(
         json_build_object(
             'field_name', f.field_name,
-            'label', f.label,
+            'title', f.title,
             'description', f.description,
-            'data_type', f.data_type,
+            'format', f.format,
             'is_pk', f.is_pk,
             'is_nullable', f.is_nullable,
             'default_value', f.default_value,

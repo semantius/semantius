@@ -6,6 +6,58 @@
 -- =====================================================
 
 -- =====================================================
+-- HELPER FUNCTION: MAP JSON SCHEMA FORMAT TO POSTGRESQL DATA TYPE
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION format_to_data_type(format_value TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    -- Map JSON Schema formats to PostgreSQL data types
+    -- Primitive types map directly, special formats map to appropriate SQL types
+    RETURN CASE LOWER(format_value)
+        -- JSON Schema primitive types
+        WHEN 'string' THEN 'TEXT'
+        WHEN 'number' THEN 'NUMERIC'
+        WHEN 'integer' THEN 'INTEGER'
+        WHEN 'boolean' THEN 'BOOLEAN'
+        WHEN 'object' THEN 'JSONB'
+        WHEN 'array' THEN 'JSONB'
+        WHEN 'null' THEN 'TEXT'
+        
+        -- JSON Schema string formats
+        WHEN 'email' THEN 'TEXT'
+        WHEN 'date' THEN 'DATE'
+        WHEN 'date-time' THEN 'TIMESTAMPTZ'
+        WHEN 'time' THEN 'TIME'
+        WHEN 'uri' THEN 'TEXT'
+        WHEN 'url' THEN 'TEXT'
+        WHEN 'uuid' THEN 'UUID'
+        WHEN 'ipv4' THEN 'INET'
+        WHEN 'ipv6' THEN 'INET'
+        WHEN 'hostname' THEN 'TEXT'
+        
+        -- Additional PostgreSQL-specific types
+        WHEN 'bigint' THEN 'BIGINT'
+        WHEN 'smallint' THEN 'SMALLINT'
+        WHEN 'decimal' THEN 'DECIMAL'
+        WHEN 'real' THEN 'REAL'
+        WHEN 'double precision' THEN 'DOUBLE PRECISION'
+        WHEN 'timestamp' THEN 'TIMESTAMP'
+        WHEN 'timestamptz' THEN 'TIMESTAMPTZ'
+        WHEN 'timetz' THEN 'TIMETZ'
+        WHEN 'json' THEN 'JSON'
+        WHEN 'jsonb' THEN 'JSONB'
+        
+        -- Default: assume it's already a PostgreSQL type (for backwards compatibility)
+        ELSE UPPER(format_value)
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION format_to_data_type IS 
+'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements';
+
+-- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
 -- =====================================================
 
@@ -114,10 +166,10 @@ BEGIN
     
     -- Insert field records for id and label columns
     -- Using INSERT with RETURNING to avoid recursive trigger issues
-    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, ctype)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, ctype)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'INTEGER', TRUE, FALSE, 0, 'id'),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'TEXT', FALSE, FALSE, 1, 'label');
+        (NEW.table_name, NEW.id_column, 'Id', 'integer', TRUE, FALSE, 0, 'id'),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'string', FALSE, FALSE, 1, 'label');
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;
@@ -179,11 +231,12 @@ BEGIN
     END IF;
     
     -- Build ALTER TABLE statement
+    -- Convert JSON Schema format to PostgreSQL data type
     v_alter_sql := format(
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
         NEW.table_name,
         NEW.field_name,
-        NEW.data_type,
+        format_to_data_type(NEW.format),
         v_nullable_clause,
         v_default_clause
     );
@@ -228,7 +281,7 @@ BEGIN
     END IF;
     
     RAISE NOTICE 'Added column "%" to table "%" with type %',
-        NEW.field_name, NEW.table_name, NEW.data_type;
+        NEW.field_name, NEW.table_name, format_to_data_type(NEW.format);
     
     RETURN NEW;
 END;
@@ -283,17 +336,17 @@ BEGIN
         END IF;
     END IF;
     
-    -- Allow updating data type
-    IF OLD.data_type <> NEW.data_type THEN
+    -- Allow updating format (data type)
+    IF OLD.format <> NEW.format THEN
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
             NEW.field_name,
-            NEW.data_type
+            format_to_data_type(NEW.format)
         );
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" type to % in table "%"',
-            NEW.field_name, NEW.data_type, NEW.table_name;
+            NEW.field_name, format_to_data_type(NEW.format), NEW.table_name;
     END IF;
     
     -- Allow updating nullable constraint

@@ -19,8 +19,8 @@ SELECT ok(
 -- Test that user1 cannot modify fields (insert)
 SELECT throws_ok(
     $$
-    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order)
-    VALUES ('tables', 'test_field', 'Test Field', 'TEXT', FALSE, TRUE, 999);
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order)
+    VALUES ('tables', 'test_field', 'Test Field', 'string', FALSE, TRUE, 999);
     $$,
     '42501',
     NULL,
@@ -28,17 +28,17 @@ SELECT throws_ok(
 );
 
 -- Test that user1 cannot modify fields (update)
--- Store the original label value
+-- Store the original title value
 DO $$ 
 DECLARE
-    v_original_label TEXT;
+    v_original_title TEXT;
 BEGIN
-    SELECT label INTO v_original_label FROM fields WHERE table_name = 'tables' AND field_name = 'table_name';
+    SELECT title INTO v_original_title FROM fields WHERE table_name = 'tables' AND field_name = 'table_name';
     -- Try to update
-    UPDATE fields SET label = 'Modified Label' WHERE table_name = 'tables' AND field_name = 'table_name';
+    UPDATE fields SET title = 'Modified Title' WHERE table_name = 'tables' AND field_name = 'table_name';
     -- Verify it wasn't changed
-    IF (SELECT label FROM fields WHERE table_name = 'tables' AND field_name = 'table_name') != v_original_label THEN
-        RAISE EXCEPTION 'Label was modified when it should not have been';
+    IF (SELECT title FROM fields WHERE table_name = 'tables' AND field_name = 'table_name') != v_original_title THEN
+        RAISE EXCEPTION 'Title was modified when it should not have been';
     END IF;
 END $$;
 
@@ -53,7 +53,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO v_count_before FROM fields WHERE table_name = 'tables';
     -- Try to delete
-    DELETE FROM fields WHERE table_name = 'tables' AND field_name = 'label';
+    DELETE FROM fields WHERE table_name = 'tables' AND field_name = 'title';
     SELECT COUNT(*) INTO v_count_after FROM fields WHERE table_name = 'tables';
     -- Verify count didn't change
     IF v_count_before != v_count_after THEN

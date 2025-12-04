@@ -100,33 +100,33 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, description)
 VALUES 
-    ('customers', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Customer primary email address'),
-    ('customers', 'phone', 'Phone Number', 'TEXT', FALSE, TRUE, 20, 'Customer contact phone number'),
-    ('customers', 'company', 'Company Name', 'TEXT', FALSE, TRUE, 30, 'Company or organization name'),
-    ('customers', 'status', 'Status', 'TEXT', FALSE, FALSE, 40, 'Customer account status (active, inactive, etc.)'),
-    ('customers', 'total_orders', 'Total Orders', 'INTEGER', FALSE, FALSE, 50, 'Total number of orders placed by customer');
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'Customer primary email address'),
+    ('customers', 'phone', 'Phone Number', 'string', FALSE, TRUE, 20, 'Customer contact phone number'),
+    ('customers', 'company', 'Company Name', 'string', FALSE, TRUE, 30, 'Company or organization name'),
+    ('customers', 'status', 'Status', 'string', FALSE, FALSE, 40, 'Customer account status (active, inactive, etc.)'),
+    ('customers', 'total_orders', 'Total Orders', 'integer', FALSE, FALSE, 50, 'Total number of orders placed by customer');
 
 -- Add fields to employees table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, description)
 VALUES 
-    ('employees', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Employee work email address'),
-    ('employees', 'department', 'Department', 'TEXT', FALSE, FALSE, 20, 'Department or division'),
-    ('employees', 'position', 'Position', 'TEXT', FALSE, FALSE, 30, 'Job title or position'),
-    ('employees', 'hire_date', 'Hire Date', 'DATE', FALSE, FALSE, 40, 'Date employee was hired'),
-    ('employees', 'salary', 'Salary', 'NUMERIC', FALSE, TRUE, 50, 'Annual salary amount'),
-    ('employees', 'is_active', 'Active', 'BOOLEAN', FALSE, FALSE, 60, 'Whether employee is currently active');
+    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'Employee work email address'),
+    ('employees', 'department', 'Department', 'string', FALSE, FALSE, 20, 'Department or division'),
+    ('employees', 'position', 'Position', 'string', FALSE, FALSE, 30, 'Job title or position'),
+    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'Date employee was hired'),
+    ('employees', 'salary', 'Salary', 'number', FALSE, TRUE, 50, 'Annual salary amount'),
+    ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'Whether employee is currently active');
 
 -- Add fields to products table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, description)
 VALUES 
-    ('products', 'sku', 'SKU', 'TEXT', FALSE, FALSE, 10, 'Stock keeping unit - unique product identifier'),
-    ('products', 'description', 'Description', 'TEXT', FALSE, TRUE, 20, 'Detailed product description'),
-    ('products', 'price', 'Price', 'NUMERIC', FALSE, FALSE, 30, 'Product price in base currency'),
-    ('products', 'quantity_in_stock', 'Quantity in Stock', 'INTEGER', FALSE, FALSE, 40, 'Current inventory quantity'),
-    ('products', 'category', 'Category', 'TEXT', FALSE, TRUE, 50, 'Product category or classification'),
-    ('products', 'is_discontinued', 'Discontinued', 'BOOLEAN', FALSE, FALSE, 60, 'Whether product is no longer available');
+    ('products', 'sku', 'SKU', 'string', FALSE, FALSE, 10, 'Stock keeping unit - unique product identifier'),
+    ('products', 'description', 'Description', 'string', FALSE, TRUE, 20, 'Detailed product description'),
+    ('products', 'price', 'Price', 'number', FALSE, FALSE, 30, 'Product price in base currency'),
+    ('products', 'quantity_in_stock', 'Quantity in Stock', 'integer', FALSE, FALSE, 40, 'Current inventory quantity'),
+    ('products', 'category', 'Category', 'string', FALSE, TRUE, 50, 'Product category or classification'),
+    ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'Whether product is no longer available');
 
 -- =====================================================
 -- SEED SAMPLE DATA
@@ -299,10 +299,9 @@ WHERE u.external_id = 'user2'
 -- SELECT table_name, label, view_permission, edit_permission FROM tables;
 
 -- View all fields for a specific table
--- SELECT f.field_name, f.label, f.data_type, f.is_pk, f.is_nullable
+-- SELECT f.field_name, f.title, f.format, f.is_pk, f.is_nullable
 -- FROM fields f
--- JOIN tables t ON f.table_id = t.table_id
--- WHERE t.table_name = 'customers'
+-- WHERE f.table_name = 'customers'
 -- ORDER BY f.field_order;
 
 -- View data from dynamically created tables
