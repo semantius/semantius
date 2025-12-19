@@ -168,6 +168,13 @@ BEGIN
             USING ERRCODE = 'undefined_table';
     END IF;
     
+    -- Check if user has view permission for this table
+    -- Raise same error to avoid leaking table existence
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table';
+    END IF;
+    
     -- Build fields array with all field records
     -- Using json_agg to preserve insertion order
     SELECT COALESCE(json_agg(

@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(20);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -139,6 +139,33 @@ SELECT throws_ok(
     '42P01',
     'Table "nonexistent_table" not found in tables metadata',
     'get_schema() should raise an error for non-existing table'
+);
+
+-- =====================================================
+-- TEST: get_schema() raises error when user lacks view permission
+-- =====================================================
+
+-- Test case: user2 has sales:read but NOT user:read
+-- (user2 has "User" role with public:read + user:read, and "Sales User" role with sales:read + sales:manage)
+-- Actually, all users have user:read through the User role.
+-- Let's test with products table which requires sales:read
+-- user1 only has the User role (public:read, user:read) but NOT sales:read
+
+select authenticate_as('user1');
+
+-- Verify user1 doesn't have sales:read permission
+SELECT ok(
+    NOT rbac.has_permission('sales:read'),
+    'user1 should not have sales:read permission'
+);
+
+-- Test that get_schema() raises "not found" error for products table (requires sales:read)
+-- This prevents leaking information about table existence
+SELECT throws_ok(
+    'SELECT public.get_schema(''products'')',
+    '42P01',
+    'Table "products" not found in tables metadata',
+    'get_schema() should raise "not found" error when user lacks view permission'
 );
 
 SELECT * FROM finish();
