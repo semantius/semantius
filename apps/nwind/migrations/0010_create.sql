@@ -27,7 +27,7 @@ DROP TABLE IF EXISTS employees;
 
 CREATE TABLE categories (
     category_id smallint NOT NULL PRIMARY KEY,
-    category_name character varying(15) NOT NULL DEFAULT '',
+    category_name text NOT NULL DEFAULT '',
     description text DEFAULT '',
     picture bytea
 );
@@ -49,16 +49,16 @@ CREATE TABLE customer_demographics (
 
 CREATE TABLE customers (
     customer_id bpchar NOT NULL PRIMARY KEY,
-    company_name character varying(40) NOT NULL DEFAULT '',
-    contact_name character varying(30) DEFAULT '',
-    contact_title character varying(30) DEFAULT '',
-    address character varying(60) DEFAULT '',
-    city character varying(15) DEFAULT '',
-    region character varying(15) DEFAULT '',
-    postal_code character varying(10) DEFAULT '',
-    country character varying(15) DEFAULT '',
-    phone character varying(24) DEFAULT '',
-    fax character varying(24) DEFAULT ''
+    company_name text NOT NULL DEFAULT '',
+    contact_name text DEFAULT '',
+    contact_title text DEFAULT '',
+    address text DEFAULT '',
+    city text DEFAULT '',
+    region text DEFAULT '',
+    postal_code text DEFAULT '',
+    country text DEFAULT '',
+    phone text DEFAULT '',
+    fax text DEFAULT ''
 );
 
 --
@@ -79,23 +79,23 @@ CREATE TABLE customer_customer_demo (
 
 CREATE TABLE employees (
     employee_id smallint NOT NULL PRIMARY KEY,
-    last_name character varying(20) NOT NULL DEFAULT '',
-    first_name character varying(10) NOT NULL DEFAULT '',
-    title character varying(30) DEFAULT '',
-    title_of_courtesy character varying(25) DEFAULT '',
+    last_name text NOT NULL DEFAULT '',
+    first_name text NOT NULL DEFAULT '',
+    title text DEFAULT '',
+    title_of_courtesy text DEFAULT '',
     birth_date date,
     hire_date date,
-    address character varying(60) DEFAULT '',
-    city character varying(15) DEFAULT '',
-    region character varying(15) DEFAULT '',
-    postal_code character varying(10) DEFAULT '',
-    country character varying(15) DEFAULT '',
-    home_phone character varying(24) DEFAULT '',
-    extension character varying(4) DEFAULT '',
+    address text DEFAULT '',
+    city text DEFAULT '',
+    region text DEFAULT '',
+    postal_code text DEFAULT '',
+    country text DEFAULT '',
+    home_phone text DEFAULT '',
+    extension text DEFAULT '',
     photo bytea,
     notes text DEFAULT '',
     reports_to smallint,
-    photo_path character varying(255) DEFAULT '',
+    photo_path text DEFAULT '',
 	FOREIGN KEY (reports_to) REFERENCES employees
 );
 
@@ -106,16 +106,16 @@ CREATE TABLE employees (
 
 CREATE TABLE suppliers (
     supplier_id smallint NOT NULL PRIMARY KEY,
-    company_name character varying(40) NOT NULL DEFAULT '',
-    contact_name character varying(30) DEFAULT '',
-    contact_title character varying(30) DEFAULT '',
-    address character varying(60) DEFAULT '',
-    city character varying(15) DEFAULT '',
-    region character varying(15) DEFAULT '',
-    postal_code character varying(10) DEFAULT '',
-    country character varying(15) DEFAULT '',
-    phone character varying(24) DEFAULT '',
-    fax character varying(24) DEFAULT '',
+    company_name text NOT NULL DEFAULT '',
+    contact_name text DEFAULT '',
+    contact_title text DEFAULT '',
+    address text DEFAULT '',
+    city text DEFAULT '',
+    region text DEFAULT '',
+    postal_code text DEFAULT '',
+    country text DEFAULT '',
+    phone text DEFAULT '',
+    fax text DEFAULT '',
     homepage text DEFAULT ''
 );
 
@@ -126,10 +126,10 @@ CREATE TABLE suppliers (
 
 CREATE TABLE products (
     product_id smallint NOT NULL PRIMARY KEY,
-    product_name character varying(40) NOT NULL DEFAULT '',
+    product_name text NOT NULL DEFAULT '',
     supplier_id smallint,
     category_id smallint,
-    quantity_per_unit character varying(20) DEFAULT '',
+    quantity_per_unit text DEFAULT '',
     unit_price real DEFAULT 0.0,
     units_in_stock smallint DEFAULT 0,
     units_on_order smallint DEFAULT 0,
@@ -156,8 +156,8 @@ CREATE TABLE region (
 
 CREATE TABLE shippers (
     shipper_id smallint NOT NULL PRIMARY KEY,
-    company_name character varying(40) NOT NULL DEFAULT '',
-    phone character varying(24) DEFAULT ''
+    company_name text NOT NULL DEFAULT '',
+    phone text DEFAULT ''
 );
 
 
@@ -174,12 +174,12 @@ CREATE TABLE orders (
     shipped_date date,
     ship_via smallint,
     freight real DEFAULT 0.0,
-    ship_name character varying(40) DEFAULT '',
-    ship_address character varying(60) DEFAULT '',
-    ship_city character varying(15) DEFAULT '',
-    ship_region character varying(15) DEFAULT '',
-    ship_postal_code character varying(10) DEFAULT '',
-    ship_country character varying(15) DEFAULT '',
+    ship_name text DEFAULT '',
+    ship_address text DEFAULT '',
+    ship_city text DEFAULT '',
+    ship_region text DEFAULT '',
+    ship_postal_code text DEFAULT '',
+    ship_country text DEFAULT '',
     FOREIGN KEY (customer_id) REFERENCES customers,
     FOREIGN KEY (employee_id) REFERENCES employees,
     FOREIGN KEY (ship_via) REFERENCES shippers
@@ -191,7 +191,7 @@ CREATE TABLE orders (
 --
 
 CREATE TABLE territories (
-    territory_id character varying(20) NOT NULL PRIMARY KEY,
+    territory_id text NOT NULL PRIMARY KEY,
     territory_description bpchar NOT NULL DEFAULT '',
     region_id smallint NOT NULL,
 	FOREIGN KEY (region_id) REFERENCES region
@@ -204,7 +204,7 @@ CREATE TABLE territories (
 
 CREATE TABLE employee_territories (
     employee_id smallint NOT NULL,
-    territory_id character varying(20) NOT NULL,
+    territory_id text NOT NULL,
     PRIMARY KEY (employee_id, territory_id),
     FOREIGN KEY (territory_id) REFERENCES territories,
     FOREIGN KEY (employee_id) REFERENCES employees
@@ -233,7 +233,7 @@ CREATE TABLE order_details (
 
 CREATE TABLE us_states (
     state_id smallint NOT NULL PRIMARY KEY,
-    state_name character varying(100) DEFAULT '',
-    state_abbr character varying(2) DEFAULT '',
-    state_region character varying(50) DEFAULT ''
+    state_name text DEFAULT '',
+    state_abbr text DEFAULT '',
+    state_region text DEFAULT ''
 );
