@@ -9,11 +9,11 @@
 -- Modules: Logical groupings for roles and permissions
 CREATE TABLE modules (
     id SERIAL PRIMARY KEY,
-    module_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    module_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
-    logo_url TEXT,
-    logo_color TEXT,
+    logo_url TEXT DEFAULT '',
+    logo_color TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     alias TEXT DEFAULT '' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -29,8 +29,8 @@ COMMENT ON TABLE modules IS 'Logical modules that group related roles and permis
 -- Permissions: Basic permissions in the system
 CREATE TABLE permissions (
     id SERIAL PRIMARY KEY,
-    permission_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    permission_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -42,8 +42,8 @@ COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for l
 -- Roles: Groups of permissions
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
-    role_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    role_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -55,8 +55,8 @@ COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical
 -- Users: External users from JWT
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    external_id TEXT UNIQUE NOT NULL,
-    email TEXT,
+    external_id TEXT UNIQUE NOT NULL DEFAULT '',
+    email TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -68,8 +68,8 @@ COMMENT ON COLUMN users.external_id IS 'External identifier from authentication 
 
 -- User-Role mapping
 CREATE TABLE user_roles (
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL DEFAULT 0 REFERENCES users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL DEFAULT 0 REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     assigned_by INTEGER REFERENCES users(id),
     PRIMARY KEY (user_id, role_id)
@@ -79,8 +79,8 @@ COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
-    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL DEFAULT 0 REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
     PRIMARY KEY (role_id, permission_id)
@@ -95,8 +95,8 @@ COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    parent_permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
+    child_permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (parent_permission_id, child_permission_id),
     CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id)

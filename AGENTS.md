@@ -148,6 +148,18 @@ deno task test
 - Plain text console output (no emoji prefixes)
 - Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`
 
+### Database Schema Standards
+**CRITICAL: Avoid NULL Values**
+- **ALWAYS provide DEFAULT values for all columns** to avoid NULL values out of the box
+- Use sensible defaults based on data type:
+  - **TEXT/VARCHAR**: `DEFAULT ''` (empty string)
+  - **INTEGER/SMALLINT/BIGINT**: `DEFAULT 0`
+  - **BOOLEAN**: `DEFAULT FALSE`
+  - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
+  - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
+- Exception: Foreign key columns and composite key components may use 0 as default
+- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
+
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment

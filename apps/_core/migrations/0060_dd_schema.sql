@@ -12,12 +12,12 @@
 
 CREATE TABLE IF NOT EXISTS tables (
     table_name TEXT PRIMARY KEY,
-    singular TEXT NOT NULL,
-    plural TEXT,  -- Nullable because trigger auto-sets it before constraint check
-    singular_label TEXT NOT NULL,
-    plural_label TEXT NOT NULL,
-    icon_url TEXT,
-    description TEXT,
+    singular TEXT NOT NULL DEFAULT '',
+    plural TEXT DEFAULT '',  -- Nullable because trigger auto-sets it before constraint check
+    singular_label TEXT NOT NULL DEFAULT '',
+    plural_label TEXT NOT NULL DEFAULT '',
+    icon_url TEXT DEFAULT '',
+    description TEXT DEFAULT '',
     module_id INTEGER REFERENCES modules(id) ON DELETE SET NULL,
     view_permission TEXT NOT NULL DEFAULT 'public:read',
     edit_permission TEXT NOT NULL DEFAULT 'admin',
@@ -62,16 +62,16 @@ COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created 
 -- Stores metadata about fields in dynamically created tables
 
 CREATE TABLE IF NOT EXISTS fields (
-    table_name TEXT NOT NULL REFERENCES tables(table_name) ON DELETE CASCADE,
-    field_name TEXT NOT NULL,
-    label TEXT NOT NULL,
-    description TEXT,
-    data_type TEXT NOT NULL,
+    table_name TEXT NOT NULL DEFAULT '' REFERENCES tables(table_name) ON DELETE CASCADE,
+    field_name TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
+    data_type TEXT NOT NULL DEFAULT 'TEXT',
     is_pk BOOLEAN NOT NULL DEFAULT FALSE,
     is_nullable BOOLEAN NOT NULL DEFAULT TRUE,
-    default_value TEXT,
+    default_value TEXT DEFAULT '',
     field_order INTEGER NOT NULL DEFAULT 0,
-    ctype TEXT,
+    ctype TEXT DEFAULT '',
     is_core BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
