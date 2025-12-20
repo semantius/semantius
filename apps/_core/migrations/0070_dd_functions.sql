@@ -28,7 +28,7 @@ BEGIN
     v_create_sql := format(
         'CREATE TABLE IF NOT EXISTS public.%I (
             %I SERIAL PRIMARY KEY,
-            %I TEXT NOT NULL,
+            %I TEXT NOT NULL DEFAULT '''',
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )',
@@ -171,9 +171,21 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
     
-    -- Build default clause
-    IF NEW.default_value IS NOT NULL THEN
+    -- Build default clause with sensible defaults based on data type
+    IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
         v_default_clause := format('DEFAULT %s', NEW.default_value);
+    ELSIF NOT NEW.is_nullable THEN
+        -- Provide sensible defaults for NOT NULL columns without explicit default
+        CASE NEW.data_type
+            WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
+            WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
+            WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
+            WHEN 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
+            WHEN 'TIMESTAMP', 'TIMESTAMPTZ' THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+            WHEN 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+            WHEN 'JSONB', 'JSON' THEN v_default_clause := 'DEFAULT ''{}''';
+            ELSE v_default_clause := '';
+        END CASE;
     ELSE
         v_default_clause := '';
     END IF;
