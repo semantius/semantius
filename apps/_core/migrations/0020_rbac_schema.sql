@@ -9,11 +9,11 @@
 -- Modules: Logical groupings for roles and permissions
 CREATE TABLE modules (
     id SERIAL PRIMARY KEY,
-    module_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    module_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
-    logo_url TEXT,
-    logo_color TEXT,
+    logo_url TEXT DEFAULT '',
+    logo_color TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     alias TEXT DEFAULT '' NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -29,8 +29,8 @@ COMMENT ON TABLE modules IS 'Logical modules that group related roles and permis
 -- Permissions: Basic permissions in the system
 CREATE TABLE permissions (
     id SERIAL PRIMARY KEY,
-    permission_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    permission_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -42,8 +42,8 @@ COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for l
 -- Roles: Groups of permissions
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
-    role_name TEXT UNIQUE NOT NULL,
-    description TEXT,
+    role_name TEXT UNIQUE NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -55,8 +55,8 @@ COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical
 -- Users: External users from JWT
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    external_id TEXT UNIQUE NOT NULL,
-    email TEXT,
+    external_id TEXT UNIQUE NOT NULL DEFAULT '',
+    email TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

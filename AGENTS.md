@@ -148,6 +148,26 @@ deno task test
 - Plain text console output (no emoji prefixes)
 - Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`
 
+### Database Schema Standards
+**CRITICAL: Avoid NULL Values**
+- **ALWAYS provide DEFAULT values for all columns** to avoid NULL values out of the box
+- Use sensible defaults based on data type:
+  - **TEXT**: `DEFAULT ''` (empty string)
+  - **INTEGER/SMALLINT/BIGINT**: `DEFAULT 0`
+  - **BOOLEAN**: `DEFAULT FALSE`
+  - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
+  - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
+- **Exceptions** (columns that should NOT have defaults):
+  - **Foreign key columns** that are part of composite primary keys or junction tables
+  - **Composite primary key components** in many-to-many relationship tables
+  - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
+- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause unless it's an exception
+
+**Data Type Guidelines**
+- **ALWAYS use TEXT** for string columns instead of VARCHAR or character varying
+- Only use VARCHAR/character varying if there is a specific business requirement for a length limit
+- TEXT has no performance penalty in PostgreSQL and provides more flexibility
+
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment
