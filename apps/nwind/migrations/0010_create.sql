@@ -66,8 +66,8 @@ CREATE TABLE customers (
 --
 
 CREATE TABLE customer_customer_demo (
-    customer_id bpchar NOT NULL DEFAULT '',
-    customer_type_id bpchar NOT NULL DEFAULT '',
+    customer_id bpchar NOT NULL,
+    customer_type_id bpchar NOT NULL,
     PRIMARY KEY (customer_id, customer_type_id),
     FOREIGN KEY (customer_type_id) REFERENCES customer_demographics,
     FOREIGN KEY (customer_id) REFERENCES customers
@@ -193,7 +193,7 @@ CREATE TABLE orders (
 CREATE TABLE territories (
     territory_id character varying(20) NOT NULL PRIMARY KEY,
     territory_description bpchar NOT NULL DEFAULT '',
-    region_id smallint NOT NULL DEFAULT 0,
+    region_id smallint NOT NULL,
 	FOREIGN KEY (region_id) REFERENCES region
 );
 
@@ -203,8 +203,8 @@ CREATE TABLE territories (
 --
 
 CREATE TABLE employee_territories (
-    employee_id smallint NOT NULL DEFAULT 0,
-    territory_id character varying(20) NOT NULL DEFAULT '',
+    employee_id smallint NOT NULL,
+    territory_id character varying(20) NOT NULL,
     PRIMARY KEY (employee_id, territory_id),
     FOREIGN KEY (territory_id) REFERENCES territories,
     FOREIGN KEY (employee_id) REFERENCES employees
@@ -216,8 +216,8 @@ CREATE TABLE employee_territories (
 --
 
 CREATE TABLE order_details (
-    order_id smallint NOT NULL DEFAULT 0,
-    product_id smallint NOT NULL DEFAULT 0,
+    order_id smallint NOT NULL,
+    product_id smallint NOT NULL,
     unit_price real NOT NULL DEFAULT 0.0,
     quantity smallint NOT NULL DEFAULT 0,
     discount real NOT NULL DEFAULT 0.0,

@@ -62,7 +62,7 @@ COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created 
 -- Stores metadata about fields in dynamically created tables
 
 CREATE TABLE IF NOT EXISTS fields (
-    table_name TEXT NOT NULL DEFAULT '' REFERENCES tables(table_name) ON DELETE CASCADE,
+    table_name TEXT NOT NULL REFERENCES tables(table_name) ON DELETE CASCADE,
     field_name TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',

@@ -157,8 +157,11 @@ deno task test
   - **BOOLEAN**: `DEFAULT FALSE`
   - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
   - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
-- Exception: Foreign key columns and composite key components may use 0 as default
-- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
+- **Exceptions** (columns that should NOT have defaults):
+  - **Foreign key columns** that are part of composite primary keys or junction tables
+  - **Composite primary key components** in many-to-many relationship tables
+  - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
+- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause unless it's an exception
 
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)

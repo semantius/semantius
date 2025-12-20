@@ -68,8 +68,8 @@ COMMENT ON COLUMN users.external_id IS 'External identifier from authentication 
 
 -- User-Role mapping
 CREATE TABLE user_roles (
-    user_id INTEGER NOT NULL DEFAULT 0 REFERENCES users(id) ON DELETE CASCADE,
-    role_id INTEGER NOT NULL DEFAULT 0 REFERENCES roles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     assigned_by INTEGER REFERENCES users(id),
     PRIMARY KEY (user_id, role_id)
@@ -79,8 +79,8 @@ COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
-    role_id INTEGER NOT NULL DEFAULT 0 REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
     PRIMARY KEY (role_id, permission_id)
@@ -95,8 +95,8 @@ COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    parent_permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
-    child_permission_id INTEGER NOT NULL DEFAULT 0 REFERENCES permissions(id) ON DELETE CASCADE,
+    parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (parent_permission_id, child_permission_id),
     CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id)
