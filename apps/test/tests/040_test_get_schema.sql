@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(24);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -10,123 +10,146 @@ select authenticate_as('user1');
 
 -- Test that get_schema() returns JSON for customers table
 SELECT ok(
-    (SELECT public.get_schema('customers') IS NOT NULL),
+    public.get_schema('customers') IS NOT NULL,
     'get_schema() should return a non-null JSON object for customers table'
 );
 
--- Test table_name
+-- Test $schema field
 SELECT is(
-    (SELECT public.get_schema('customers')->>'table_name'),
-    'customers',
-    'get_schema() should return table_name "customers"'
+    public.get_schema('customers')->>'$schema',
+    'https://example.com/meta/custom-vocabulary',
+    'get_schema() should return $schema field'
 );
 
--- Test singular
+-- Test $id field
 SELECT is(
-    (SELECT public.get_schema('customers')->>'singular'),
-    'customer',
-    'get_schema() should return singular "customer"'
+    public.get_schema('customers')->>'$id',
+    'https://example.com/schemas/customers.schema.json',
+    'get_schema() should return $id field with table name'
 );
 
--- Test plural
+-- Test type field
 SELECT is(
-    (SELECT public.get_schema('customers')->>'plural'),
-    'customers',
-    'get_schema() should return plural "customers"'
+    public.get_schema('customers')->>'type',
+    'object',
+    'get_schema() should return type "object"'
 );
 
--- Test singular_label
+-- Test title field
 SELECT is(
-    (SELECT public.get_schema('customers')->>'singular_label'),
+    public.get_schema('customers')->>'title',
     'Customer',
-    'get_schema() should return singular_label "Customer"'
+    'get_schema() should return title from singular_label'
 );
 
--- Test plural_label
+-- Test description field
 SELECT is(
-    (SELECT public.get_schema('customers')->>'plural_label'),
-    'Customers',
-    'get_schema() should return plural_label "Customers"'
-);
-
--- Test description
-SELECT is(
-    (SELECT public.get_schema('customers')->>'description'),
+    public.get_schema('customers')->>'description',
     'Customer information and contact details',
     'get_schema() should return correct description'
 );
 
--- Test module_id
+-- Test additionalProperties field
 SELECT is(
-    (SELECT (public.get_schema('customers')->>'module_id')::integer),
-    1001,
-    'get_schema() should return module_id 1001'
+    (public.get_schema('customers')->>'additionalProperties')::boolean,
+    false,
+    'get_schema() should return additionalProperties as false'
 );
 
--- Test view_permission
-SELECT is(
-    (SELECT public.get_schema('customers')->>'view_permission'),
-    'public:read',
-    'get_schema() should return view_permission "public:read"'
-);
-
--- Test edit_permission
-SELECT is(
-    (SELECT public.get_schema('customers')->>'edit_permission'),
-    'sales:manage',
-    'get_schema() should return edit_permission "sales:manage"'
-);
-
--- Test id_column
-SELECT is(
-    (SELECT public.get_schema('customers')->>'id_column'),
-    'id',
-    'get_schema() should return id_column "id"'
-);
-
--- Test label_column
-SELECT is(
-    (SELECT public.get_schema('customers')->>'label_column'),
-    'customer_name',
-    'get_schema() should return label_column "customer_name"'
-);
-
--- Test fields array exists
+-- Test table object exists
 SELECT ok(
-    (SELECT jsonb_typeof((public.get_schema('customers')::jsonb)->'fields') = 'array'),
-    'get_schema() should return fields as a JSON array'
+    jsonb_typeof((public.get_schema('customers')::jsonb)->'table') = 'object',
+    'get_schema() should return table as a JSON object'
 );
 
--- Test fields array is not empty
+-- Test table.table_name
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'table_name',
+    'customers',
+    'get_schema() table object should contain table_name "customers"'
+);
+
+-- Test table.singular
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'singular',
+    'customer',
+    'get_schema() table object should contain singular "customer"'
+);
+
+-- Test table.plural
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'plural',
+    'customers',
+    'get_schema() table object should contain plural "customers"'
+);
+
+-- Test table.singular_label
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'singular_label',
+    'Customer',
+    'get_schema() table object should contain singular_label "Customer"'
+);
+
+-- Test table.plural_label
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'plural_label',
+    'Customers',
+    'get_schema() table object should contain plural_label "Customers"'
+);
+
+-- Test table.description
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'description',
+    'Customer information and contact details',
+    'get_schema() table object should contain correct description'
+);
+
+-- Test properties object exists
 SELECT ok(
-    (SELECT jsonb_array_length((public.get_schema('customers')::jsonb)->'fields') > 0),
-    'get_schema() should return non-empty fields array'
+    jsonb_typeof((public.get_schema('customers')::jsonb)->'properties') = 'object',
+    'get_schema() should return properties as a JSON object'
 );
 
--- Test fields array contains id field
+-- Test properties object is not empty
 SELECT ok(
-    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "id"}]'::jsonb),
-    'get_schema() fields array should contain id field'
+    (SELECT count(*) > 0 FROM jsonb_object_keys((public.get_schema('customers')::jsonb)->'properties')),
+    'get_schema() should return non-empty properties object'
 );
 
--- Test fields array contains email field
+-- Test properties contains id field
 SELECT ok(
-    (SELECT (public.get_schema('customers')::jsonb)->'fields' @> '[{"field_name": "email"}]'::jsonb),
-    'get_schema() fields array should contain email field'
+    (public.get_schema('customers')::jsonb)->'properties' ? 'id',
+    'get_schema() properties should contain id property'
 );
 
--- Test that a field has all expected properties
+-- Test properties contains email field
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties' ? 'email',
+    'get_schema() properties should contain email property'
+);
+
+-- Test that a property has expected structure
 SELECT ok(
     (WITH schema AS (SELECT public.get_schema('customers')::jsonb as data),
-     first_field AS (SELECT data->'fields'->0 as field FROM schema)
-     SELECT (field ? 'field_name') AND
-            (field ? 'label') AND
-            (field ? 'data_type') AND
-            (field ? 'is_pk') AND
-            (field ? 'is_nullable') AND
-            (field ? 'field_order')
-     FROM first_field),
-    'get_schema() fields should have all expected properties'
+     id_property AS (SELECT data->'properties'->'id' as prop FROM schema)
+     SELECT (prop ? 'type') AND
+            (prop ? 'required') AND
+            (prop ? 'title') AND
+            (prop ? 'description')
+     FROM id_property),
+    'get_schema() properties should have all expected fields (type, required, title, description)'
+);
+
+-- Test required array exists
+SELECT ok(
+    jsonb_typeof((public.get_schema('customers')::jsonb)->'required') = 'array',
+    'get_schema() should return required as a JSON array'
+);
+
+-- Test required array contains id
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'required' @> '["id"]'::jsonb,
+    'get_schema() required array should contain id field'
 );
 
 -- =====================================================
@@ -145,11 +168,8 @@ SELECT throws_ok(
 -- TEST: get_schema() raises error when user lacks view permission
 -- =====================================================
 
--- Test case: user2 has sales:read but NOT user:read
--- (user2 has "User" role with public:read + user:read, and "Sales User" role with sales:read + sales:manage)
--- Actually, all users have user:read through the User role.
--- Let's test with products table which requires sales:read
--- user1 only has the User role (public:read, user:read) but NOT sales:read
+-- Test case: user1 has the User role (public:read, user:read) but NOT sales:read
+-- user1 should not be able to access products table which requires sales:read
 
 select authenticate_as('user1');
 

@@ -147,14 +147,15 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- GET SCHEMA
 -- =====================================================
 
--- Get schema information for a table including all its fields
--- Returns JSON with table metadata and an array of field records
+-- Get schema information for a table in extended JSON Schema format
+-- Returns JSON Schema with table metadata and properties
 -- Raises an error when the table is not found
 CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
-    v_fields_array JSON;
+    v_properties JSON;
+    v_required_fields JSON;
     v_result JSON;
 BEGIN
     -- Check if table exists in tables metadata
@@ -175,47 +176,80 @@ BEGIN
             USING ERRCODE = 'undefined_table';
     END IF;
     
-    -- Build fields array with all field records
-    -- Using json_agg to preserve insertion order
-    SELECT COALESCE(json_agg(
-        json_build_object(
-            'field_name', f.field_name,
-            'label', f.label,
-            'description', f.description,
-            'data_type', f.data_type,
-            'is_pk', f.is_pk,
-            'is_nullable', f.is_nullable,
-            'default_value', f.default_value,
-            'field_order', f.field_order,
-            'ctype', f.ctype,
-            'is_core', f.is_core,
-            'created_at', f.created_at,
-            'updated_at', f.updated_at
-        ) ORDER BY f.field_order
-    ), '[]'::json)
-    INTO v_fields_array
-    FROM fields f
-    WHERE f.table_name = p_table_name;
+    -- Build properties object from fields
+    -- Each field becomes a property with JSON Schema attributes
+    WITH ordered_fields AS (
+        SELECT 
+            field_name,
+            data_type,
+            is_nullable,
+            label,
+            description,
+            field_order
+        FROM fields
+        WHERE table_name = p_table_name
+        ORDER BY field_order
+    )
+    SELECT COALESCE(
+        json_object_agg(
+            field_name,
+            json_build_object(
+                'type', CASE 
+                    WHEN data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN 'integer'
+                    WHEN data_type IN ('NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') THEN 'number'
+                    WHEN data_type = 'BOOLEAN' THEN 'boolean'
+                    ELSE 'string'
+                END,
+                'required', NOT is_nullable,
+                'title', label,
+                'description', description
+            )
+        ),
+        '{}'::json
+    )
+    INTO v_properties
+    FROM ordered_fields;
     
-    -- Build the final JSON result with table info and fields array
-    -- Using json_build_object to preserve key insertion order
-    -- This ensures 'fields' appears at the end as desired
+    -- Build required fields array (fields where is_nullable = false)
+    WITH required_fields AS (
+        SELECT field_name, field_order
+        FROM fields
+        WHERE table_name = p_table_name
+          AND is_nullable = FALSE
+        ORDER BY field_order
+    )
+    SELECT COALESCE(
+        json_agg(field_name),
+        '[]'::json
+    )
+    INTO v_required_fields
+    FROM required_fields;
+    
+    -- Build the final JSON Schema result
     v_result := json_build_object(
-        'table_name', v_table_record.table_name,
-        'singular', v_table_record.singular,
-        'plural', v_table_record.plural,
-        'singular_label', v_table_record.singular_label,
-        'plural_label', v_table_record.plural_label,
-        'icon_url', v_table_record.icon_url,
+        '$schema', 'https://example.com/meta/custom-vocabulary',
+        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+        '$vocabulary', json_build_object(
+            'https://json-schema.org/draft/2020-12/vocab/core', true,
+            'https://json-schema.org/draft/2020-12/vocab/validation', true,
+            'https://example.com/vocab/custom-formats', true,
+            'https://example.com/vocab/custom-validation', true
+        ),
+        'title', v_table_record.singular_label,
         'description', v_table_record.description,
-        'module_id', v_table_record.module_id,
-        'view_permission', v_table_record.view_permission,
-        'edit_permission', v_table_record.edit_permission,
-        'id_column', v_table_record.id_column,
-        'label_column', v_table_record.label_column,
-        'created_at', v_table_record.created_at,
-        'updated_at', v_table_record.updated_at,
-        'fields', v_fields_array
+        'table', json_build_object(
+            'table_name', v_table_record.table_name,
+            'singular', v_table_record.singular,
+            'plural', v_table_record.plural,
+            'singular_label', v_table_record.singular_label,
+            'plural_label', v_table_record.plural_label,
+            'icon_url', v_table_record.icon_url,
+            'description', v_table_record.description
+        ),
+        'type', 'object',
+        'properties', v_properties,
+        'required', v_required_fields,
+        'additionalProperties', false
     );
     
     RETURN v_result;
@@ -223,7 +257,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema as JSON including all table metadata and an array of field records. Raises an error if table not found.';
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
