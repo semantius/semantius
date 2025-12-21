@@ -168,6 +168,12 @@ deno task test
 - Only use VARCHAR/character varying if there is a specific business requirement for a length limit
 - TEXT has no performance penalty in PostgreSQL and provides more flexibility
 
+**JSON Building Best Practices**
+- **ALWAYS use `row_to_json()` or `to_jsonb()`** when building JSON objects from table records to include all columns automatically
+- This approach is future-proof: new columns added to tables will automatically be included in JSON output
+- Avoid hardcoding column names in `json_build_object()` unless you specifically need to filter or transform columns
+- Example: Use `'table', row_to_json(v_table_record)` instead of explicitly listing each column
+
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment
