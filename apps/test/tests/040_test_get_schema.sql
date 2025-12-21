@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(31);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
