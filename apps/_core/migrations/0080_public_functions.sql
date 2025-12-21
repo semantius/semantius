@@ -237,15 +237,7 @@ BEGIN
         ),
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
-        'table', json_build_object(
-            'table_name', v_table_record.table_name,
-            'singular', v_table_record.singular,
-            'plural', v_table_record.plural,
-            'singular_label', v_table_record.singular_label,
-            'plural_label', v_table_record.plural_label,
-            'icon_url', v_table_record.icon_url,
-            'description', v_table_record.description
-        ),
+        'table', row_to_json(v_table_record),
         'type', 'object',
         'properties', v_properties,
         'required', v_required_fields,

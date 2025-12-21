@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(32);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -102,6 +102,53 @@ SELECT is(
     (public.get_schema('customers')::jsonb)->'table'->>'description',
     'Customer information and contact details',
     'get_schema() table object should contain correct description'
+);
+
+-- Test table.module_id
+SELECT is(
+    ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::INTEGER,
+    1001,
+    'get_schema() table object should contain module_id'
+);
+
+-- Test table.view_permission
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'view_permission',
+    'public:read',
+    'get_schema() table object should contain view_permission'
+);
+
+-- Test table.edit_permission
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'edit_permission',
+    'sales:manage',
+    'get_schema() table object should contain edit_permission'
+);
+
+-- Test table.id_column
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'id_column',
+    'id',
+    'get_schema() table object should contain id_column'
+);
+
+-- Test table.label_column
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'label_column',
+    'customer_name',
+    'get_schema() table object should contain label_column'
+);
+
+-- Test table.created_at exists (timestamp field)
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'table' ? 'created_at',
+    'get_schema() table object should contain created_at field'
+);
+
+-- Test table.updated_at exists (timestamp field)
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'table' ? 'updated_at',
+    'get_schema() table object should contain updated_at field'
 );
 
 -- Test properties object exists
