@@ -165,7 +165,7 @@ BEGIN
     
     -- Raise error if table not found
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+        RAISE EXCEPTION 'Table "%" not found in tables', p_table_name
             USING ERRCODE = 'undefined_table';
     END IF;
     
