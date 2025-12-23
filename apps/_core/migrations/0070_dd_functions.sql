@@ -25,26 +25,9 @@ BEGIN
         WHEN 'double' THEN 'DOUBLE PRECISION'
         WHEN 'number' THEN 'NUMERIC'
         
-        -- String formats
-        WHEN 'string' THEN 'TEXT'
-        WHEN 'text' THEN 'TEXT'
-        WHEN 'email' THEN 'TEXT'
-        WHEN 'url' THEN 'TEXT'
-        WHEN 'uri' THEN 'TEXT'
-        WHEN 'uri-reference' THEN 'TEXT'
-        WHEN 'uri-template' THEN 'TEXT'
-        WHEN 'hostname' THEN 'TEXT'
-        WHEN 'ipv4' THEN 'TEXT'
-        WHEN 'ipv6' THEN 'TEXT'
+        -- Special types (not TEXT)
         WHEN 'uuid' THEN 'UUID'
-        WHEN 'password' THEN 'TEXT'
-        WHEN 'byte' THEN 'TEXT'
         WHEN 'binary' THEN 'BYTEA'
-        WHEN 'regex' THEN 'TEXT'
-        WHEN 'json-pointer' THEN 'TEXT'
-        WHEN 'json-pointer-uri-fragment' THEN 'TEXT'
-        WHEN 'relative-json-pointer' THEN 'TEXT'
-        WHEN 'html' THEN 'TEXT'
         
         -- Date/Time formats
         WHEN 'date' THEN 'DATE'
@@ -60,7 +43,7 @@ BEGIN
         WHEN 'object' THEN 'JSONB'
         WHEN 'array' THEN 'JSONB'
         
-        -- Default case
+        -- Default case (handles all string-like formats: text, email, url, hostname, etc.)
         ELSE 'TEXT'
     END;
 END;
@@ -68,6 +51,31 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 COMMENT ON FUNCTION format_to_data_type IS 
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements.';
+
+-- =====================================================
+-- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
+-- =====================================================
+-- Maps format values to JSON Schema primitive types
+-- Used to avoid duplication in type and default value handling
+-- This function is closely related to format_to_data_type above
+
+CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN CASE 
+        WHEN p_format IN ('int32', 'int64', 'integer') THEN 'integer'
+        WHEN p_format IN ('float', 'double', 'number') THEN 'number'
+        WHEN p_format = 'boolean' THEN 'boolean'
+        WHEN p_format IN ('array') THEN 'array'
+        WHEN p_format IN ('object', 'json') THEN 'object'
+        WHEN p_format = 'null' THEN 'null'
+        ELSE 'string'
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION format_to_json_type IS 
+'Maps format values to JSON Schema primitive types for consistent type handling.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
