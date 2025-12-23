@@ -249,11 +249,13 @@ BEGIN
     FROM properties_with_defaults;
     
     -- Build required fields array (fields where is_nullable = false)
+    -- Exclude the id_column since it's auto-generated and not required for INSERT
     WITH required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
           AND is_nullable = FALSE
+          AND field_name != v_table_record.id_column
         ORDER BY field_order
     )
     SELECT COALESCE(
