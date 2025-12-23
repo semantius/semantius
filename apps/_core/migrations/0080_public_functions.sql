@@ -181,10 +181,13 @@ BEGIN
     WITH ordered_fields AS (
         SELECT 
             field_name,
-            data_type,
+            format,
             is_nullable,
-            label,
+            title,
             description,
+            default_value,
+            input_type,
+            width,
             field_order
         FROM fields
         WHERE table_name = p_table_name
@@ -195,15 +198,36 @@ BEGIN
             field_name,
             json_build_object(
                 'type', CASE 
-                    WHEN data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN 'integer'
-                    WHEN data_type IN ('NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') THEN 'number'
-                    WHEN data_type = 'BOOLEAN' THEN 'boolean'
+                    -- Map format to JSON Schema primitive type
+                    WHEN format IN ('int32', 'int64', 'integer') THEN 'integer'
+                    WHEN format IN ('float', 'double', 'number') THEN 'number'
+                    WHEN format = 'boolean' THEN 'boolean'
+                    WHEN format IN ('array') THEN 'array'
+                    WHEN format IN ('object', 'json') THEN 'object'
+                    WHEN format = 'null' THEN 'null'
                     ELSE 'string'
                 END,
-                'required', NOT is_nullable,
-                'title', label,
-                'description', description
-            )
+                'format', CASE 
+                    -- Only include format if it's not a primitive type
+                    WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text') 
+                    THEN format
+                    ELSE NULL
+                END,
+                'title', title,
+                'description', description,
+                'default', CASE 
+                    -- Convert default_value string to proper type for JSON Schema
+                    WHEN default_value IS NULL OR trim(default_value) = '' THEN NULL
+                    WHEN format IN ('int32', 'int64', 'integer') THEN (default_value::INTEGER)::json
+                    WHEN format IN ('float', 'double', 'number') THEN (default_value::NUMERIC)::json
+                    WHEN format = 'boolean' THEN (default_value::BOOLEAN)::json
+                    WHEN format IN ('object', 'json', 'array') THEN default_value::json
+                    ELSE to_json(default_value)
+                END,
+                'input_type', input_type,
+                'width', width
+            ) - 'format' -- Remove format key if it's NULL
+              - 'default' -- Remove default key if it's NULL
         ),
         '{}'::json
     )

@@ -100,33 +100,33 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
 VALUES 
-    ('customers', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Customer primary email address'),
-    ('customers', 'phone', 'Phone Number', 'TEXT', FALSE, TRUE, 20, 'Customer contact phone number'),
-    ('customers', 'company', 'Company Name', 'TEXT', FALSE, TRUE, 30, 'Company or organization name'),
-    ('customers', 'status', 'Status', 'TEXT', FALSE, FALSE, 40, 'Customer account status (active, inactive, etc.)'),
-    ('customers', 'total_orders', 'Total Orders', 'INTEGER', FALSE, FALSE, 50, 'Total number of orders placed by customer');
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address'),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 20, 'default', 'm', 'Customer contact phone number'),
+    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 30, 'default', 'm', 'Company or organization name'),
+    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)'),
+    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer');
 
 -- Add fields to employees table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
 VALUES 
-    ('employees', 'email', 'Email Address', 'TEXT', FALSE, FALSE, 10, 'Employee work email address'),
-    ('employees', 'department', 'Department', 'TEXT', FALSE, FALSE, 20, 'Department or division'),
-    ('employees', 'position', 'Position', 'TEXT', FALSE, FALSE, 30, 'Job title or position'),
-    ('employees', 'hire_date', 'Hire Date', 'DATE', FALSE, FALSE, 40, 'Date employee was hired'),
-    ('employees', 'salary', 'Salary', 'NUMERIC', FALSE, TRUE, 50, 'Annual salary amount'),
-    ('employees', 'is_active', 'Active', 'BOOLEAN', FALSE, FALSE, 60, 'Whether employee is currently active');
+    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address'),
+    ('employees', 'department', 'Department', 'text', FALSE, FALSE, 20, 'default', 'm', 'Department or division'),
+    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position'),
+    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'm', 'Date employee was hired'),
+    ('employees', 'salary', 'Salary', 'double', FALSE, TRUE, 50, 'default', 'm', 'Annual salary amount'),
+    ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active');
 
 -- Add fields to products table
-INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
 VALUES 
-    ('products', 'sku', 'SKU', 'TEXT', FALSE, FALSE, 10, 'Stock keeping unit - unique product identifier'),
-    ('products', 'description', 'Description', 'TEXT', FALSE, TRUE, 20, 'Detailed product description'),
-    ('products', 'price', 'Price', 'NUMERIC', FALSE, FALSE, 30, 'Product price in base currency'),
-    ('products', 'quantity_in_stock', 'Quantity in Stock', 'INTEGER', FALSE, FALSE, 40, 'Current inventory quantity'),
-    ('products', 'category', 'Category', 'TEXT', FALSE, TRUE, 50, 'Product category or classification'),
-    ('products', 'is_discontinued', 'Discontinued', 'BOOLEAN', FALSE, FALSE, 60, 'Whether product is no longer available');
+    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier'),
+    ('products', 'description', 'Description', 'text', FALSE, TRUE, 20, 'default', 'w', 'Detailed product description'),
+    ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency'),
+    ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity'),
+    ('products', 'category', 'Category', 'text', FALSE, TRUE, 50, 'default', 'm', 'Product category or classification'),
+    ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available');
 
 -- =====================================================
 -- SEED SAMPLE DATA
