@@ -214,7 +214,7 @@ BEGIN
             ) || 
             -- Add format field only if it's not a primitive type
             CASE 
-                WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text') 
+                WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text', 'int32', 'int64', 'float', 'double') 
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
             END ||
