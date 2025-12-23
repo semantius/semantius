@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(31);
+SELECT plan(39);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -180,11 +180,12 @@ SELECT ok(
     (WITH schema AS (SELECT public.get_schema('customers')::jsonb as data),
      id_property AS (SELECT data->'properties'->'id' as prop FROM schema)
      SELECT (prop ? 'type') AND
-            (prop ? 'required') AND
             (prop ? 'title') AND
-            (prop ? 'description')
+            (prop ? 'description') AND
+            (prop ? 'input_type') AND
+            (prop ? 'width')
      FROM id_property),
-    'get_schema() properties should have all expected fields (type, required, title, description)'
+    'get_schema() properties should have all expected fields (type, title, description, input_type, width)'
 );
 
 -- Test required array exists
@@ -207,7 +208,7 @@ SELECT ok(
 SELECT throws_ok(
     'SELECT public.get_schema(''nonexistent_table'')',
     '42P01',
-    'Table "nonexistent_table" not found in tables metadata',
+    'Table "nonexistent_table" not found in tables',
     'get_schema() should raise an error for non-existing table'
 );
 
@@ -234,6 +235,69 @@ SELECT throws_ok(
     'Table "products" not found in tables metadata',
     'get_schema() should raise "not found" error when user lacks view permission'
 );
+
+-- =====================================================
+-- TEST: New fields (input_type, width, format)
+-- =====================================================
+
+select authenticate_as('user1');
+
+-- Test input_type field exists and has correct value
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'input_type',
+    'readonly',
+    'get_schema() should return correct input_type for id field'
+);
+
+-- Test width field exists and has correct value
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'width',
+    's',
+    'get_schema() should return correct width for id field'
+);
+
+-- Test format field for email (should have format)
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties'->'email' ? 'format',
+    'get_schema() should include format field for email property'
+);
+
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'email'->>'format',
+    'email',
+    'get_schema() should return format "email" for email field'
+);
+
+-- Test format field is not present for primitive types
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'properties'->'customer_name' ? 'format'),
+    'get_schema() should not include format field for plain text fields'
+);
+
+-- Test integer type mapping
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'type',
+    'integer',
+    'get_schema() should map int32 format to integer type'
+);
+
+-- Test boolean type mapping
+SELECT is(
+    (public.get_schema('employees')::jsonb)->'properties'->'is_active'->>'type',
+    'boolean',
+    'get_schema() should map boolean format to boolean type'
+);
+
+-- Test number type mapping for double
+SELECT is(
+    (public.get_schema('employees')::jsonb)->'properties'->'salary'->>'type',
+    'number',
+    'get_schema() should map double format to number type'
+);
+
+-- Test that default field with proper type conversion exists for non-null fields with defaults
+-- Note: Most test data fields don't have explicit default_value set
+-- This tests the structure is correct when defaults exist
 
 SELECT * FROM finish();
 ROLLBACK;

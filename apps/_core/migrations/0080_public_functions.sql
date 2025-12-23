@@ -192,11 +192,11 @@ BEGIN
         FROM fields
         WHERE table_name = p_table_name
         ORDER BY field_order
-    )
-    SELECT COALESCE(
-        json_object_agg(
+    ),
+    properties_with_defaults AS (
+        SELECT 
             field_name,
-            json_build_object(
+            jsonb_build_object(
                 'type', CASE 
                     -- Map format to JSON Schema primitive type
                     WHEN format IN ('int32', 'int64', 'integer') THEN 'integer'
@@ -207,32 +207,37 @@ BEGIN
                     WHEN format = 'null' THEN 'null'
                     ELSE 'string'
                 END,
-                'format', CASE 
-                    -- Only include format if it's not a primitive type
-                    WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text') 
-                    THEN format
-                    ELSE NULL
-                END,
                 'title', title,
                 'description', description,
-                'default', CASE 
-                    -- Convert default_value string to proper type for JSON Schema
-                    WHEN default_value IS NULL OR trim(default_value) = '' THEN NULL
-                    WHEN format IN ('int32', 'int64', 'integer') THEN (default_value::INTEGER)::json
-                    WHEN format IN ('float', 'double', 'number') THEN (default_value::NUMERIC)::json
-                    WHEN format = 'boolean' THEN (default_value::BOOLEAN)::json
-                    WHEN format IN ('object', 'json', 'array') THEN default_value::json
-                    ELSE to_json(default_value)
-                END,
                 'input_type', input_type,
                 'width', width
-            ) - 'format' -- Remove format key if it's NULL
-              - 'default' -- Remove default key if it's NULL
-        ),
+            ) || 
+            -- Add format field only if it's not a primitive type
+            CASE 
+                WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text') 
+                THEN jsonb_build_object('format', format)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add default field separately to handle type conversion properly
+            CASE 
+                WHEN default_value IS NULL OR trim(default_value) = '' THEN '{}'::jsonb
+                WHEN format IN ('int32', 'int64', 'integer') THEN jsonb_build_object('default', (default_value::INTEGER))
+                WHEN format IN ('float', 'double', 'number') THEN jsonb_build_object('default', (default_value::NUMERIC))
+                WHEN format = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                WHEN format IN ('object', 'json', 'array') THEN jsonb_build_object('default', default_value::jsonb)
+                ELSE jsonb_build_object('default', default_value)
+            END AS property_value
+        FROM ordered_fields
+    )
+    SELECT COALESCE(
+        jsonb_object_agg(
+            field_name,
+            property_value
+        )::json,
         '{}'::json
     )
     INTO v_properties
-    FROM ordered_fields;
+    FROM properties_with_defaults;
     
     -- Build required fields array (fields where is_nullable = false)
     WITH required_fields AS (
