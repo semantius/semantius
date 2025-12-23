@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(73);
+SELECT plan(74);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -194,10 +194,16 @@ SELECT ok(
     'get_schema() should return required as a JSON array'
 );
 
--- Test required array contains id
+-- Test required array does NOT contain id (id is auto-generated, not required for INSERT)
 SELECT ok(
-    (public.get_schema('customers')::jsonb)->'required' @> '["id"]'::jsonb,
-    'get_schema() required array should contain id field'
+    NOT ((public.get_schema('customers')::jsonb)->'required' @> '["id"]'::jsonb),
+    'get_schema() required array should NOT contain id field (auto-generated)'
+);
+
+-- Test required array contains customer_name (label_column, which is required)
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'required' @> '["customer_name"]'::jsonb,
+    'get_schema() required array should contain customer_name field (label_column)'
 );
 
 -- =====================================================
