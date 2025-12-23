@@ -17,7 +17,7 @@ SELECT ok(
 -- Test $schema field
 SELECT is(
     public.get_schema('customers')->>'$schema',
-    'https://example.com/meta/custom-vocabulary',
+    'https://semantius.com/meta/sem-schema/v1',
     'get_schema() should return $schema field'
 );
 

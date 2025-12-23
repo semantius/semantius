@@ -146,6 +146,30 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- =====================================================
 -- GET SCHEMA
 -- =====================================================
+-- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
+-- =====================================================
+-- Maps format values to JSON Schema primitive types
+-- Used to avoid duplication in type and default value handling
+
+CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN CASE 
+        WHEN p_format IN ('int32', 'int64', 'integer') THEN 'integer'
+        WHEN p_format IN ('float', 'double', 'number') THEN 'number'
+        WHEN p_format = 'boolean' THEN 'boolean'
+        WHEN p_format IN ('array') THEN 'array'
+        WHEN p_format IN ('object', 'json') THEN 'object'
+        WHEN p_format = 'null' THEN 'null'
+        ELSE 'string'
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION format_to_json_type IS 
+'Maps format values to JSON Schema primitive types for consistent type handling.';
+
+-- =====================================================
 
 -- Get schema information for a table in extended JSON Schema format
 -- Returns JSON Schema with table metadata and properties
@@ -197,16 +221,7 @@ BEGIN
         SELECT 
             field_name,
             jsonb_build_object(
-                'type', CASE 
-                    -- Map format to JSON Schema primitive type
-                    WHEN format IN ('int32', 'int64', 'integer') THEN 'integer'
-                    WHEN format IN ('float', 'double', 'number') THEN 'number'
-                    WHEN format = 'boolean' THEN 'boolean'
-                    WHEN format IN ('array') THEN 'array'
-                    WHEN format IN ('object', 'json') THEN 'object'
-                    WHEN format = 'null' THEN 'null'
-                    ELSE 'string'
-                END,
+                'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
                 'inputType', input_type,
@@ -221,10 +236,10 @@ BEGIN
             -- Add default field separately to handle type conversion properly
             CASE 
                 WHEN default_value IS NULL OR trim(default_value) = '' THEN '{}'::jsonb
-                WHEN format IN ('int32', 'int64', 'integer') THEN jsonb_build_object('default', (default_value::INTEGER))
-                WHEN format IN ('float', 'double', 'number') THEN jsonb_build_object('default', (default_value::NUMERIC))
-                WHEN format = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                WHEN format IN ('object', 'json', 'array') THEN jsonb_build_object('default', default_value::jsonb)
+                WHEN format_to_json_type(format) = 'integer' THEN jsonb_build_object('default', (default_value::INTEGER))
+                WHEN format_to_json_type(format) = 'number' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                WHEN format_to_json_type(format) = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                WHEN format_to_json_type(format) IN ('object', 'array') THEN jsonb_build_object('default', default_value::jsonb)
                 -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                 ELSE jsonb_build_object('default', trim(both '''' from default_value))
             END AS property_value
@@ -257,14 +272,8 @@ BEGIN
     
     -- Build the final JSON Schema result
     v_result := json_build_object(
-        '$schema', 'https://example.com/meta/custom-vocabulary',
+        '$schema', 'https://semantius.com/meta/sem-schema/v1',
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-        '$vocabulary', json_build_object(
-            'https://json-schema.org/draft/2020-12/vocab/core', true,
-            'https://json-schema.org/draft/2020-12/vocab/validation', true,
-            'https://example.com/vocab/custom-formats', true,
-            'https://example.com/vocab/custom-validation', true
-        ),
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
         'table', row_to_json(v_table_record),
