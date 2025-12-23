@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(72);
+SELECT plan(73);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -534,6 +534,38 @@ SELECT throws_ok(
 SELECT lives_ok(
     'UPDATE fields SET title = ''Record ID'', description = ''Unique identifier'' WHERE table_name = ''customers'' AND field_name = ''id''',
     'Updating title and description of core field should succeed'
+);
+
+-- =====================================================
+-- TEST: Properties ordering by fieldOrder
+-- =====================================================
+
+select authenticate_as('user1');
+
+-- Test that properties keys are ordered by fieldOrder value
+-- Since JSON maintains insertion order but JSONB doesn't, we test by checking
+-- that each key appears before the next key in the text representation
+WITH schema_text AS (
+    SELECT public.get_schema('customers')::text AS schema_str
+),
+expected_order AS (
+    SELECT array_agg(field_name ORDER BY field_order) AS ordered_fields
+    FROM fields
+    WHERE table_name = 'customers'
+),
+key_positions AS (
+    SELECT 
+        field_name,
+        field_order,
+        position('"' || field_name || '":' IN (SELECT schema_str FROM schema_text)) AS key_position
+    FROM fields
+    WHERE table_name = 'customers'
+    ORDER BY field_order
+)
+SELECT is(
+    (SELECT array_agg(field_name ORDER BY key_position) FROM key_positions),
+    (SELECT ordered_fields FROM expected_order),
+    'get_schema() properties keys should be ordered by fieldOrder value (verified via text position)'
 );
 
 SELECT * FROM finish();
