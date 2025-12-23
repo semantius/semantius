@@ -197,7 +197,8 @@ BEGIN
     properties_with_defaults AS (
         SELECT 
             field_name,
-            jsonb_build_object(
+            field_order,
+            (jsonb_build_object(
                 'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
@@ -234,14 +235,14 @@ BEGIN
                 -- For string types without explicit default, add empty string default
                 WHEN format_to_json_type(format) = 'string' THEN jsonb_build_object('default', '')
                 ELSE '{}'::jsonb
-            END AS property_value
+            END)::json AS property_value
         FROM ordered_fields
     )
     SELECT COALESCE(
-        jsonb_object_agg(
+        json_object_agg(
             field_name,
-            property_value
-        )::json,
+            property_value ORDER BY field_order
+        ),
         '{}'::json
     )
     INTO v_properties
