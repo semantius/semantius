@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(74);
+SELECT plan(76);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -198,6 +198,18 @@ SELECT ok(
 SELECT ok(
     NOT ((public.get_schema('customers')::jsonb)->'required' @> '["id"]'::jsonb),
     'get_schema() required array should NOT contain id field (auto-generated)'
+);
+
+-- Test required array does NOT contain created_at (auto-maintained by triggers)
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'required' @> '["created_at"]'::jsonb),
+    'get_schema() required array should NOT contain created_at field (auto-maintained)'
+);
+
+-- Test required array does NOT contain updated_at (auto-maintained by triggers)
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'required' @> '["updated_at"]'::jsonb),
+    'get_schema() required array should NOT contain updated_at field (auto-maintained)'
 );
 
 -- Test required array contains customer_name (label_column, which is required)
@@ -419,8 +431,8 @@ SELECT is(
 -- Test created_at has correct inputMode
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'inputMode',
-    'readonly',
-    'get_schema() created_at should have inputMode readonly'
+    'disabled',
+    'get_schema() created_at should have inputMode disabled'
 );
 
 -- Test updated_at has correct type
@@ -440,8 +452,8 @@ SELECT is(
 -- Test updated_at has correct inputMode
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'inputMode',
-    'readonly',
-    'get_schema() updated_at should have inputMode readonly'
+    'disabled',
+    'get_schema() updated_at should have inputMode disabled'
 );
 
 -- =====================================================

@@ -263,8 +263,8 @@ VALUES
     ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'm', NULL, TRUE),
     ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE),
     ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'm', NULL, TRUE),
-    ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'readonly', 'm', NULL, TRUE),
-    ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'readonly', 'm', NULL, TRUE);
+    ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE),
+    ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for fields table
 -- Note: fields table has a composite primary key (table_name, field_name)
@@ -284,8 +284,8 @@ VALUES
     ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 87, 'default', 's', NULL, TRUE),
     ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, TRUE, 90, 'default', 'm', NULL, TRUE),
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 100, 'default', 's', NULL, TRUE),
-    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 110, 'readonly', 'm', NULL, TRUE),
-    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 120, 'readonly', 'm', NULL, TRUE);
+    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 110, 'disabled', 'm', NULL, TRUE),
+    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
@@ -294,8 +294,8 @@ VALUES
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'm', NULL, TRUE),
     ('users', 'email', 'Email', 'User email address', 'email', FALSE, TRUE, 20, 'default', 'm', 'label', TRUE),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
-    ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'readonly', 'm', NULL, TRUE),
-    ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'readonly', 'm', NULL, TRUE),
+    ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
+    ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE),
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'm', NULL, TRUE);
 
 -- Insert fields metadata for modules table
@@ -309,8 +309,8 @@ VALUES
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, TRUE, 36, 'default', 's', NULL, TRUE),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'm', NULL, TRUE),
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'm', NULL, TRUE),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'readonly', 'm', NULL, TRUE),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'readonly', 'm', NULL, TRUE);
+    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
+    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
@@ -319,8 +319,8 @@ VALUES
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
     ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
-    ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'readonly', 'm', NULL, TRUE),
-    ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'readonly', 'm', NULL, TRUE);
+    ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
+    ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
@@ -329,5 +329,5 @@ VALUES
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
     ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
-    ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'readonly', 'm', NULL, TRUE),
-    ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'readonly', 'm', NULL, TRUE);
+    ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
+    ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
