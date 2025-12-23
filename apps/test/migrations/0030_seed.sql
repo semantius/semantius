@@ -100,13 +100,13 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address'),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 20, 'default', 'm', 'Customer contact phone number'),
-    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 30, 'default', 'm', 'Company or organization name'),
-    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)'),
-    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer');
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', NULL),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 20, 'default', 'm', 'Customer contact phone number', NULL),
+    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 30, 'default', 'm', 'Company or organization name', NULL),
+    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active'''),
+    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0');
 
 -- Add fields to employees table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
@@ -119,14 +119,14 @@ VALUES
     ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active');
 
 -- Add fields to products table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value)
 VALUES 
-    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier'),
-    ('products', 'description', 'Description', 'text', FALSE, TRUE, 20, 'default', 'w', 'Detailed product description'),
-    ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency'),
-    ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity'),
-    ('products', 'category', 'Category', 'text', FALSE, TRUE, 50, 'default', 'm', 'Product category or classification'),
-    ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available');
+    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier', NULL),
+    ('products', 'description', 'Description', 'text', FALSE, TRUE, 20, 'default', 'w', 'Detailed product description', NULL),
+    ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency', '0.0'),
+    ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity', '0'),
+    ('products', 'category', 'Category', 'text', FALSE, TRUE, 50, 'default', 'm', 'Product category or classification', NULL),
+    ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE');
 
 -- =====================================================
 -- SEED SAMPLE DATA
@@ -139,16 +139,16 @@ VALUES
 -- Table: customers (id_column: id, label_column: customer_name)
 INSERT INTO customers (customer_name, email, phone, company, status, total_orders)
 VALUES 
-    ('John Smith', 'john.smith@example.com', '555-0101', 'Acme Corp', 'active', 15),
-    ('Jane Doe', 'jane.doe@example.com', '555-0102', 'Tech Solutions', 'active', 8),
-    ('Bob Johnson', 'bob.johnson@example.com', '555-0103', 'Global Industries', 'inactive', 3),
-    ('Müller Schmidt', 'mueller.schmidt@example.com', '555-0104', 'Deutsche Bank AG', 'active', 22),
-    ('François Dubois', 'francois.dubois@example.com', '555-0105', 'Société Générale', 'active', 18),
-    ('María García', 'maria.garcia@example.com', '555-0106', 'Banco Santander', 'active', 14),
-    ('José Rodríguez', 'jose.rodriguez@example.com', '555-0107', 'BBVA', 'active', 11),
-    ('André Lefèvre', 'andre.lefevre@example.com', '555-0108', 'BNP Paribas', 'active', 25),
-    ('Günther Weber', 'gunther.weber@example.com', '555-0109', 'Volkswagen AG', 'active', 9),
-    ('Björn Andersson', 'bjorn.andersson@example.com', '555-0110', 'Volvo Group', 'active', 16),
+    ('John Smith', 'john.smith@example.com', '+1-555-0101', 'Acme Corp', 'active', 15),
+    ('Jane Doe', 'jane.doe@example.com', '+1-555-0102', 'Tech Solutions', 'active', 8),
+    ('Bob Johnson', 'bob.johnson@example.com', '+1-555-0103', 'Global Industries', 'inactive', 3),
+    ('Müller Schmidt', 'mueller.schmidt@example.com', '+49-30-12345678', 'Deutsche Bank AG', 'active', 22),
+    ('François Dubois', 'francois.dubois@example.com', '+33-1-23456789', 'Société Générale', 'active', 18),
+    ('María García', 'maria.garcia@example.com', '+34-91-1234567', 'Banco Santander', 'active', 14),
+    ('José Rodríguez', 'jose.rodriguez@example.com', '+34-93-2345678', 'BBVA', 'active', 11),
+    ('André Lefèvre', 'andre.lefevre@example.com', '+33-1-34567890', 'BNP Paribas', 'active', 25),
+    ('Günther Weber', 'gunther.weber@example.com', '+49-89-23456789', 'Volkswagen AG', 'active', 9),
+    ('Björn Andersson', 'bjorn.andersson@example.com', '+46-8-12345678', 'Volvo Group', 'active', 16),
     ('Søren Hansen', 'soren.hansen@example.com', '555-0111', 'Maersk Line', 'active', 13),
     ('Jürgen Fischer', 'jurgen.fischer@example.com', '555-0112', 'Siemens AG', 'active', 20),
     ('Stéphane Martin', 'stephane.martin@example.com', '555-0113', 'Airbus SE', 'active', 7),
@@ -159,16 +159,16 @@ VALUES
     ('Åsa Bergström', 'asa.bergstrom@example.com', '555-0118', 'H&M', 'active', 8),
     ('René Dubois', 'rene.dubois@example.com', '555-0119', 'Total Energies', 'active', 17),
     ('Göran Johansson', 'goran.johansson@example.com', '555-0120', 'IKEA', 'active', 15),
-    ('Jörg Bauer', 'jorg.bauer@example.com', '555-0121', 'BMW Group', 'active', 23),
-    ('François Leroy', 'francois.leroy@example.com', '555-0122', 'Renault', 'active', 6),
-    ('Núria Sánchez', 'nuria.sanchez@example.com', '555-0123', 'CaixaBank', 'active', 14),
-    ('Øyvind Pedersen', 'oyvind.pedersen@example.com', '555-0124', 'Equinor ASA', 'active', 11),
-    ('Mário Silva', 'mario.silva@example.com', '555-0125', 'EDP Energias', 'active', 9),
-    ('João Santos', 'joao.santos@example.com', '555-0126', 'Galp Energia', 'active', 13),
-    ('Sébastien Moreau', 'sebastien.moreau@example.com', '555-0127', 'Michelin', 'active', 18),
-    ('Gérard Bernard', 'gerard.bernard@example.com', '555-0128', 'Danone', 'active', 16),
-    ('Ramón López', 'ramon.lopez@example.com', '555-0129', 'Iberdrola', 'active', 20),
-    ('Óscar González', 'oscar.gonzalez@example.com', '555-0130', 'Naturgy Energy', 'active', 7),
+    ('Jörg Bauer', 'jorg.bauer@example.com', '+49-89-34567890', 'BMW Group', 'active', 23),
+    ('François Leroy', 'francois.leroy@example.com', '+33-1-67890123', 'Renault', 'active', 6),
+    ('Núria Sánchez', 'nuria.sanchez@example.com', '+34-93-5678901', 'CaixaBank', 'active', 14),
+    ('Øyvind Pedersen', 'oyvind.pedersen@example.com', '+47-51-234567', 'Equinor ASA', 'active', 11),
+    ('Mário Silva', 'mario.silva@example.com', '+351-21-1234567', 'EDP Energias', 'active', 9),
+    ('João Santos', 'joao.santos@example.com', '+351-21-2345678', 'Galp Energia', 'active', 13),
+    ('Sébastien Moreau', 'sebastien.moreau@example.com', '+33-4-78901234', 'Michelin', 'active', 18),
+    ('Gérard Bernard', 'gerard.bernard@example.com', '+33-1-78901234', 'Danone', 'active', 16),
+    ('Ramón López', 'ramon.lopez@example.com', '+34-94-6789012', 'Iberdrola', 'active', 20),
+    ('Óscar González', 'oscar.gonzalez@example.com', '+34-93-6789012', 'Naturgy Energy', 'active', 7),
     ('Amélie Petit', 'amelie.petit@example.com', '555-0131', 'Carrefour', 'active', 12),
     ('Jérôme Roux', 'jerome.roux@example.com', '555-0132', 'Peugeot', 'active', 19),
     ('Andrés Díaz', 'andres.diaz@example.com', '555-0133', 'Inditex', 'active', 10),
@@ -199,16 +199,16 @@ VALUES
     ('Günther Köhler', 'gunther.kohler@example.com', '555-0158', 'Deutsche Post', 'active', 11),
     ('Émile Leclerc', 'emile.leclerc@example.com', '555-0159', 'E.Leclerc', 'active', 9),
     ('Gösta Magnusson', 'gosta.magnusson@example.com', '555-0160', 'SKF AB', 'active', 13),
-    ('María José Pérez', 'maria.perez@example.com', '555-0161', 'NH Hotel Group', 'active', 18),
-    ('José Antonio Díaz', 'jose.diaz@example.com', '555-0162', 'Mapfre', 'active', 16),
-    ('Håkon Berg', 'hakon.berg@example.com', '555-0163', 'DNB ASA', 'active', 20),
-    ('Björk Guðmundsdóttir', 'bjork.gudmundsdottir@example.com', '555-0164', 'Iceland Foods', 'inactive', 7),
-    ('Åse Kristiansen', 'ase.kristiansen@example.com', '555-0165', 'Statoil', 'active', 12),
-    ('Björn Ólafsson', 'bjorn.olafsson@example.com', '555-0166', 'WOW Air', 'inactive', 19),
-    ('Désirée Fournier', 'desiree.fournier@example.com', '555-0167', 'Auchan', 'active', 10),
-    ('René-Charles Mercier', 'rene.mercier@example.com', '555-0168', 'Decathlon', 'active', 21),
-    ('Noël Rousseau', 'noel.rousseau@example.com', '555-0169', 'Accor Hotels', 'active', 15),
-    ('José Ángel Núñez', 'jose.nunez@example.com', '555-0170', 'Grifols', 'active', 8),
+    ('María José Pérez', 'maria.perez@example.com', '+34-91-4567890', 'NH Hotel Group', 'active', 18),
+    ('José Antonio Díaz', 'jose.diaz@example.com', '+34-91-5678901', 'Mapfre', 'active', 16),
+    ('Håkon Berg', 'hakon.berg@example.com', '+47-22-123456', 'DNB ASA', 'active', 20),
+    ('Björk Guðmundsdóttir', 'bjork.gudmundsdottir@example.com', '+354-5-234567', 'Iceland Foods', 'inactive', 7),
+    ('Åse Kristiansen', 'ase.kristiansen@example.com', '+47-51-345678', 'Statoil', 'active', 12),
+    ('Björn Ólafsson', 'bjorn.olafsson@example.com', '+354-5-345678', 'WOW Air', 'inactive', 19),
+    ('Désirée Fournier', 'desiree.fournier@example.com', '+33-3-12345678', 'Auchan', 'active', 10),
+    ('René-Charles Mercier', 'rene.mercier@example.com', '+33-3-23456789', 'Decathlon', 'active', 21),
+    ('Noël Rousseau', 'noel.rousseau@example.com', '+33-1-90123456', 'Accor Hotels', 'active', 15),
+    ('José Ángel Núñez', 'jose.nunez@example.com', '+34-93-4567890', 'Grifols', 'active', 8),
     ('María Ángeles Vega', 'maria.vega@example.com', '555-0171', 'Técnicas Reunidas', 'active', 17),
     ('Rubén Gutiérrez', 'ruben.gutierrez@example.com', '555-0172', 'ArcelorMittal', 'active', 23),
     ('Jörgen Lundqvist', 'jorgen.lundqvist@example.com', '555-0173', 'Alfa Laval', 'active', 6),

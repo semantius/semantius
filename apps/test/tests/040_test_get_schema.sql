@@ -182,10 +182,10 @@ SELECT ok(
      SELECT (prop ? 'type') AND
             (prop ? 'title') AND
             (prop ? 'description') AND
-            (prop ? 'input_type') AND
+            (prop ? 'inputType') AND
             (prop ? 'width')
      FROM id_property),
-    'get_schema() properties should have all expected fields (type, title, description, input_type, width)'
+    'get_schema() properties should have all expected fields (type, title, description, inputType, width)'
 );
 
 -- Test required array exists
@@ -237,16 +237,16 @@ SELECT throws_ok(
 );
 
 -- =====================================================
--- TEST: New fields (input_type, width, format)
+-- TEST: New fields (inputType, width, format)
 -- =====================================================
 
 select authenticate_as('user1');
 
--- Test input_type field exists and has correct value
+-- Test inputType field exists and has correct value
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'input_type',
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'inputType',
     'readonly',
-    'get_schema() should return correct input_type for id field'
+    'get_schema() should return correct inputType for id field'
 );
 
 -- Test width field exists and has correct value

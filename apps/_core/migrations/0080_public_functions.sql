@@ -209,12 +209,12 @@ BEGIN
                 END,
                 'title', title,
                 'description', description,
-                'input_type', input_type,
+                'inputType', input_type,
                 'width', width
             ) || 
-            -- Add format field only if it's not a primitive type
+            -- Add format field whenever format value is not empty or default
             CASE 
-                WHEN format NOT IN ('string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text', 'int32', 'int64', 'float', 'double') 
+                WHEN format IS NOT NULL AND format != '' AND format != 'text'
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
             END ||
@@ -225,7 +225,8 @@ BEGIN
                 WHEN format IN ('float', 'double', 'number') THEN jsonb_build_object('default', (default_value::NUMERIC))
                 WHEN format = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
                 WHEN format IN ('object', 'json', 'array') THEN jsonb_build_object('default', default_value::jsonb)
-                ELSE jsonb_build_object('default', default_value)
+                -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                ELSE jsonb_build_object('default', trim(both '''' from default_value))
             END AS property_value
         FROM ordered_fields
     )
