@@ -184,12 +184,14 @@ BEGIN
     );
     EXECUTE v_policy_sql;
     
-    -- Insert field records for id and label columns
-    -- Using INSERT with RETURNING to avoid recursive trigger issues
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype)
+    -- Insert field records for id, label, created_at, and updated_at columns
+    -- All these are core fields that cannot be deleted or renamed (is_core = TRUE)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id'),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'readonly', 'm', 'timestamp', TRUE),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'readonly', 'm', 'timestamp', TRUE);
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;
@@ -354,6 +356,26 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
     
+    -- Prevent changing structural attributes of core fields
+    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
+    IF OLD.is_core THEN
+        IF OLD.format <> NEW.format THEN
+            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+        END IF;
+        
+        IF OLD.is_nullable <> NEW.is_nullable THEN
+            RAISE EXCEPTION 'Cannot change nullable constraint of core system field "%"', OLD.field_name;
+        END IF;
+        
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+        END IF;
+        
+        IF OLD.is_core <> NEW.is_core THEN
+            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
+        END IF;
+    END IF;
+    
     -- Update column comment if description changed
     IF OLD.description IS DISTINCT FROM NEW.description THEN
         IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
@@ -446,19 +468,10 @@ CREATE TRIGGER update_field_trigger
 
 CREATE OR REPLACE FUNCTION delete_dd_field()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_id_column TEXT;
-    v_label_column TEXT;
 BEGIN
-    -- Get the protected columns
-    SELECT id_column, label_column 
-    INTO v_id_column, v_label_column
-    FROM tables
-    WHERE table_name = OLD.table_name;
-    
-    -- Prevent deletion of id or label columns
-    IF OLD.field_name = v_id_column OR OLD.field_name = v_label_column THEN
-        RAISE EXCEPTION 'Cannot delete system columns (% or %)', v_id_column, v_label_column;
+    -- Prevent deletion of core fields (id, label, created_at, updated_at)
+    IF OLD.is_core THEN
+        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (id, label, created_at, updated_at) cannot be deleted.', OLD.field_name;
     END IF;
     
     -- Drop the column

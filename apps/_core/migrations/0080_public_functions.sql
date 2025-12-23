@@ -201,7 +201,7 @@ BEGIN
                 'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
-                'inputType', input_type,
+                'inputMode', input_type,
                 'width', width,
                 'fieldOrder', field_order
             ) || 

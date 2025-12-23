@@ -132,6 +132,7 @@ COMMENT ON COLUMN fields.default_value IS 'Default value for the field (as SQL e
 COMMENT ON COLUMN fields.field_order IS 'Display order for the field';
 COMMENT ON COLUMN fields.input_type IS 'Input type for UI rendering (default, required, readonly, disabled, hidden)';
 COMMENT ON COLUMN fields.width IS 'Display width for UI rendering (s=small, m=medium, w=wide)';
+COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
 
 -- =====================================================
 -- ENABLE RLS ON METADATA TABLES
