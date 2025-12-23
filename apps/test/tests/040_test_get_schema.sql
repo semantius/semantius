@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(62);
+SELECT plan(72);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -454,6 +454,86 @@ SELECT is(
     ((public.get_schema('customers')::jsonb)->'properties'->'phone'->>'fieldOrder')::INTEGER,
     30,
     'get_schema() should return fieldOrder 30 for phone field'
+);
+
+-- =====================================================
+-- TEST: is_core fields (id, label, created_at, updated_at)
+-- =====================================================
+
+-- Test that id field is marked as is_core
+SELECT is(
+    (SELECT is_core FROM fields WHERE table_name = 'customers' AND field_name = 'id'),
+    TRUE,
+    'id field should be marked as is_core = TRUE'
+);
+
+-- Test that customer_name (label) field is marked as is_core
+SELECT is(
+    (SELECT is_core FROM fields WHERE table_name = 'customers' AND field_name = 'customer_name'),
+    TRUE,
+    'customer_name (label) field should be marked as is_core = TRUE'
+);
+
+-- Test that created_at field is marked as is_core
+SELECT is(
+    (SELECT is_core FROM fields WHERE table_name = 'customers' AND field_name = 'created_at'),
+    TRUE,
+    'created_at field should be marked as is_core = TRUE'
+);
+
+-- Test that updated_at field is marked as is_core
+SELECT is(
+    (SELECT is_core FROM fields WHERE table_name = 'customers' AND field_name = 'updated_at'),
+    TRUE,
+    'updated_at field should be marked as is_core = TRUE'
+);
+
+-- Test that non-core fields (like email) are marked as is_core = FALSE
+SELECT is(
+    (SELECT is_core FROM fields WHERE table_name = 'customers' AND field_name = 'email'),
+    FALSE,
+    'email field should be marked as is_core = FALSE'
+);
+
+-- Switch to admin user for mutation tests
+select authenticate_as('user3');
+
+-- Test that attempting to delete a core field (created_at) raises an error
+SELECT throws_ok(
+    'DELETE FROM fields WHERE table_name = ''customers'' AND field_name = ''created_at''',
+    'P0001',
+    'Cannot delete core system field "created_at". Core fields (id, label, created_at, updated_at) cannot be deleted.',
+    'Deleting created_at field should raise an exception'
+);
+
+-- Test that attempting to delete a core field (id) raises an error
+SELECT throws_ok(
+    'DELETE FROM fields WHERE table_name = ''customers'' AND field_name = ''id''',
+    'P0001',
+    'Cannot delete core system field "id". Core fields (id, label, created_at, updated_at) cannot be deleted.',
+    'Deleting id field should raise an exception'
+);
+
+-- Test that attempting to change format of a core field raises an error
+SELECT throws_ok(
+    'UPDATE fields SET format = ''text'' WHERE table_name = ''customers'' AND field_name = ''created_at''',
+    'P0001',
+    'Cannot change format of core system field "created_at"',
+    'Changing format of created_at field should raise an exception'
+);
+
+-- Test that attempting to change nullable constraint of a core field raises an error
+SELECT throws_ok(
+    'UPDATE fields SET is_nullable = TRUE WHERE table_name = ''customers'' AND field_name = ''id''',
+    'P0001',
+    'Cannot change nullable constraint of core system field "id"',
+    'Changing nullable constraint of id field should raise an exception'
+);
+
+-- Test that metadata updates to core fields are allowed (title, description)
+SELECT lives_ok(
+    'UPDATE fields SET title = ''Record ID'', description = ''Unique identifier'' WHERE table_name = ''customers'' AND field_name = ''id''',
+    'Updating title and description of core field should succeed'
 );
 
 SELECT * FROM finish();
