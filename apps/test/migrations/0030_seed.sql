@@ -100,13 +100,13 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', NULL),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 20, 'default', 'm', 'Customer contact phone number', NULL),
-    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 30, 'default', 'm', 'Company or organization name', NULL),
-    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active'''),
-    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0');
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', NULL, NULL),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 20, 'default', 'm', 'Customer contact phone number', NULL, NULL),
+    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 30, 'default', 'm', 'Company or organization name', NULL, NULL),
+    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active''', '["active", "inactive", "pending", "suspended"]'::jsonb),
+    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0', NULL);
 
 -- Add fields to employees table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)

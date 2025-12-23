@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(39);
+SELECT plan(52);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -298,6 +298,87 @@ SELECT is(
 -- Test that default field with proper type conversion exists for non-null fields with defaults
 -- Note: Most test data fields don't have explicit default_value set
 -- This tests the structure is correct when defaults exist
+
+-- =====================================================
+-- TEST: New features - fieldOrder, enum, default empty strings
+-- =====================================================
+
+-- Test fieldOrder exists in all properties
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties'->'id' ? 'fieldOrder',
+    'get_schema() should include fieldOrder field in id property'
+);
+
+SELECT is(
+    ((public.get_schema('customers')::jsonb)->'properties'->'id'->>'fieldOrder')::INTEGER,
+    0,
+    'get_schema() should return correct fieldOrder for id field (0)'
+);
+
+SELECT is(
+    ((public.get_schema('customers')::jsonb)->'properties'->'email'->>'fieldOrder')::INTEGER,
+    10,
+    'get_schema() should return correct fieldOrder for email field (10)'
+);
+
+-- Test that int32 format does NOT appear in output (only type: integer)
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'properties'->'id' ? 'format'),
+    'get_schema() should NOT include format field for int32 (only type: integer)'
+);
+
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'properties'->'total_orders' ? 'format'),
+    'get_schema() should NOT include format field for int32 total_orders'
+);
+
+-- Test enum support for status field
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties'->'status' ? 'enum',
+    'get_schema() should include enum field for status property'
+);
+
+SELECT is(
+    jsonb_typeof((public.get_schema('customers')::jsonb)->'properties'->'status'->'enum'),
+    'array',
+    'get_schema() enum field should be an array'
+);
+
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties'->'status'->'enum' @> '["active"]'::jsonb,
+    'get_schema() enum array should contain "active"'
+);
+
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties'->'status'->'enum' @> '["inactive"]'::jsonb,
+    'get_schema() enum array should contain "inactive"'
+);
+
+-- Test default empty string for string fields
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'phone'->>'default',
+    '',
+    'get_schema() should return default empty string for phone field'
+);
+
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'customer_name'->>'default',
+    '',
+    'get_schema() should return default empty string for customer_name field'
+);
+
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'company'->>'default',
+    '',
+    'get_schema() should return default empty string for company field'
+);
+
+-- Test that status has both enum and default value
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'status'->>'default',
+    'active',
+    'get_schema() should return default "active" for status field'
+);
 
 SELECT * FROM finish();
 ROLLBACK;
