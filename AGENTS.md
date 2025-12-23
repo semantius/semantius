@@ -174,6 +174,17 @@ deno task test
 - Avoid hardcoding column names in `json_build_object()` unless you specifically need to filter or transform columns
 - Example: Use `'table', row_to_json(v_table_record)` instead of explicitly listing each column
 
+**Fields Table Structure**
+The `fields` table uses a JSON Schema-based format system:
+- **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text')
+  - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text'
+  - Specific formats: 'email', 'url', 'date', 'date-time', 'int32', 'int64', 'float', 'double', etc.
+- **input_type** column: UI rendering hint ('default', 'required', 'readonly', 'disabled', 'hidden')
+- **width** column: UI width hint ('s' = small, 'm' = medium, 'w' = wide)
+- **title** column: Human-readable field label (renamed from 'label')
+- **format_to_data_type()** function: Maps format values to PostgreSQL data types for CREATE/ALTER TABLE statements
+- When adding fields, use lowercase format values and appropriate input_type/width for UI rendering
+
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment

@@ -181,34 +181,55 @@ BEGIN
     WITH ordered_fields AS (
         SELECT 
             field_name,
-            data_type,
+            format,
             is_nullable,
-            label,
+            title,
             description,
+            default_value,
+            input_type,
+            width,
             field_order
         FROM fields
         WHERE table_name = p_table_name
         ORDER BY field_order
+    ),
+    properties_with_defaults AS (
+        SELECT 
+            field_name,
+            jsonb_build_object(
+                'type', format_to_json_type(format),
+                'title', title,
+                'description', description,
+                'inputType', input_type,
+                'width', width
+            ) || 
+            -- Add format field whenever format value is not empty or default
+            CASE 
+                WHEN format IS NOT NULL AND format != '' AND format != 'text'
+                THEN jsonb_build_object('format', format)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add default field separately to handle type conversion properly
+            CASE 
+                WHEN default_value IS NULL OR trim(default_value) = '' THEN '{}'::jsonb
+                WHEN format_to_json_type(format) = 'integer' THEN jsonb_build_object('default', (default_value::INTEGER))
+                WHEN format_to_json_type(format) = 'number' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                WHEN format_to_json_type(format) = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                WHEN format_to_json_type(format) IN ('object', 'array') THEN jsonb_build_object('default', default_value::jsonb)
+                -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                ELSE jsonb_build_object('default', trim(both '''' from default_value))
+            END AS property_value
+        FROM ordered_fields
     )
     SELECT COALESCE(
-        json_object_agg(
+        jsonb_object_agg(
             field_name,
-            json_build_object(
-                'type', CASE 
-                    WHEN data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN 'integer'
-                    WHEN data_type IN ('NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') THEN 'number'
-                    WHEN data_type = 'BOOLEAN' THEN 'boolean'
-                    ELSE 'string'
-                END,
-                'required', NOT is_nullable,
-                'title', label,
-                'description', description
-            )
-        ),
+            property_value
+        )::json,
         '{}'::json
     )
     INTO v_properties
-    FROM ordered_fields;
+    FROM properties_with_defaults;
     
     -- Build required fields array (fields where is_nullable = false)
     WITH required_fields AS (
@@ -227,14 +248,8 @@ BEGIN
     
     -- Build the final JSON Schema result
     v_result := json_build_object(
-        '$schema', 'https://example.com/meta/custom-vocabulary',
+        '$schema', 'https://semantius.com/meta/sem-schema/v1',
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-        '$vocabulary', json_build_object(
-            'https://json-schema.org/draft/2020-12/vocab/core', true,
-            'https://json-schema.org/draft/2020-12/vocab/validation', true,
-            'https://example.com/vocab/custom-formats', true,
-            'https://example.com/vocab/custom-validation', true
-        ),
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
         'table', row_to_json(v_table_record),

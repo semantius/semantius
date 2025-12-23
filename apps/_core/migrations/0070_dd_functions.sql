@@ -6,6 +6,78 @@
 -- =====================================================
 
 -- =====================================================
+-- FORMAT TO DATA TYPE MAPPING FUNCTION
+-- =====================================================
+-- Maps JSON Schema format values to PostgreSQL data types
+-- This function converts the format column value to an actual PostgreSQL type
+
+CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN CASE p_format
+        -- Integer formats
+        WHEN 'int32' THEN 'INTEGER'
+        WHEN 'int64' THEN 'BIGINT'
+        WHEN 'integer' THEN 'INTEGER'
+        
+        -- Number formats
+        WHEN 'float' THEN 'REAL'
+        WHEN 'double' THEN 'DOUBLE PRECISION'
+        WHEN 'number' THEN 'NUMERIC'
+        
+        -- Special types (not TEXT)
+        WHEN 'uuid' THEN 'UUID'
+        WHEN 'binary' THEN 'BYTEA'
+        
+        -- Date/Time formats
+        WHEN 'date' THEN 'DATE'
+        WHEN 'time' THEN 'TIME'
+        WHEN 'date-time' THEN 'TIMESTAMPTZ'
+        WHEN 'duration' THEN 'INTERVAL'
+        
+        -- Boolean format
+        WHEN 'boolean' THEN 'BOOLEAN'
+        
+        -- JSON formats
+        WHEN 'json' THEN 'JSONB'
+        WHEN 'object' THEN 'JSONB'
+        WHEN 'array' THEN 'JSONB'
+        
+        -- Default case (handles all string-like formats: text, email, url, hostname, etc.)
+        ELSE 'TEXT'
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION format_to_data_type IS 
+'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements.';
+
+-- =====================================================
+-- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
+-- =====================================================
+-- Maps format values to JSON Schema primitive types
+-- Used to avoid duplication in type and default value handling
+-- This function is closely related to format_to_data_type above
+
+CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN CASE 
+        WHEN p_format IN ('int32', 'int64', 'integer') THEN 'integer'
+        WHEN p_format IN ('float', 'double', 'number') THEN 'number'
+        WHEN p_format = 'boolean' THEN 'boolean'
+        WHEN p_format IN ('array') THEN 'array'
+        WHEN p_format IN ('object', 'json') THEN 'object'
+        WHEN p_format = 'null' THEN 'null'
+        ELSE 'string'
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION format_to_json_type IS 
+'Maps format values to JSON Schema primitive types for consistent type handling.';
+
+-- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
 -- =====================================================
 
@@ -114,10 +186,10 @@ BEGIN
     
     -- Insert field records for id and label columns
     -- Using INSERT with RETURNING to avoid recursive trigger issues
-    INSERT INTO fields (table_name, field_name, label, data_type, is_pk, is_nullable, field_order, ctype)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'INTEGER', TRUE, FALSE, 0, 'id'),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'TEXT', FALSE, FALSE, 1, 'label');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id'),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label');
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;
@@ -145,6 +217,7 @@ DECLARE
     v_alter_sql TEXT;
     v_nullable_clause TEXT;
     v_default_clause TEXT;
+    v_data_type TEXT;
 BEGIN
     -- Skip if this is the id or label column (already created by create_dd_table)
     IF NEW.field_name IN (
@@ -164,6 +237,9 @@ BEGIN
         RETURN NEW;
     END IF;
     
+    -- Convert format to PostgreSQL data type
+    v_data_type := format_to_data_type(NEW.format);
+    
     -- Build nullable clause
     IF NEW.is_nullable THEN
         v_nullable_clause := 'NULL';
@@ -176,7 +252,7 @@ BEGIN
         v_default_clause := format('DEFAULT %s', NEW.default_value);
     ELSIF NOT NEW.is_nullable THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
-        CASE NEW.data_type
+        CASE v_data_type
             WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
             WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
             WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
@@ -195,7 +271,7 @@ BEGIN
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
         NEW.table_name,
         NEW.field_name,
-        NEW.data_type,
+        v_data_type,
         v_nullable_clause,
         v_default_clause
     );
@@ -240,7 +316,7 @@ BEGIN
     END IF;
     
     RAISE NOTICE 'Added column "%" to table "%" with type %',
-        NEW.field_name, NEW.table_name, NEW.data_type;
+        NEW.field_name, NEW.table_name, v_data_type;
     
     RETURN NEW;
 END;
@@ -263,6 +339,7 @@ CREATE OR REPLACE FUNCTION update_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
     v_alter_sql TEXT;
+    v_new_data_type TEXT;
 BEGIN
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
@@ -295,17 +372,18 @@ BEGIN
         END IF;
     END IF;
     
-    -- Allow updating data type
-    IF OLD.data_type <> NEW.data_type THEN
+    -- Allow updating format (which changes data type)
+    IF OLD.format <> NEW.format THEN
+        v_new_data_type := format_to_data_type(NEW.format);
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
             NEW.field_name,
-            NEW.data_type
+            v_new_data_type
         );
         EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" type to % in table "%"',
-            NEW.field_name, NEW.data_type, NEW.table_name;
+        RAISE NOTICE 'Changed column "%" type to % (format: %) in table "%"',
+            NEW.field_name, v_new_data_type, NEW.format, NEW.table_name;
     END IF;
     
     -- Allow updating nullable constraint
