@@ -182,8 +182,17 @@ The `fields` table uses a JSON Schema-based format system:
 - **input_type** column: UI rendering hint ('default', 'required', 'readonly', 'disabled', 'hidden')
 - **width** column: UI width hint ('s' = small, 'm' = medium, 'w' = wide)
 - **title** column: Human-readable field label (renamed from 'label')
+- **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
 - **format_to_data_type()** function: Maps format values to PostgreSQL data types for CREATE/ALTER TABLE statements
+- **format_to_json_type()** function: Maps format values to JSON Schema primitive types (used by get_schema())
 - When adding fields, use lowercase format values and appropriate input_type/width for UI rendering
+
+**get_schema() Function Behavior**
+The `public.get_schema()` function returns JSON Schema with:
+- **fieldOrder**: Each property includes its field_order value for proper UI ordering
+- **format field**: Only included for string-based formats (email, url, date, etc.), NOT for type mappers (int32, float, double, etc.)
+- **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
+- **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
 
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
