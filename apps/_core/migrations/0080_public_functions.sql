@@ -188,7 +188,8 @@ BEGIN
             default_value,
             input_type,
             width,
-            field_order
+            field_order,
+            enum_values
         FROM fields
         WHERE table_name = p_table_name
         ORDER BY field_order
@@ -201,23 +202,38 @@ BEGIN
                 'title', title,
                 'description', description,
                 'inputType', input_type,
-                'width', width
+                'width', width,
+                'fieldOrder', field_order
             ) || 
-            -- Add format field whenever format value is not empty or default
+            -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc)
             CASE 
-                WHEN format IS NOT NULL AND format != '' AND format != 'text'
+                WHEN format IS NOT NULL 
+                     AND format != '' 
+                     AND format != 'text'
+                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null')
                 THEN jsonb_build_object('format', format)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add enum field if enum_values is present
+            CASE 
+                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
+                THEN jsonb_build_object('enum', enum_values)
                 ELSE '{}'::jsonb
             END ||
             -- Add default field separately to handle type conversion properly
             CASE 
-                WHEN default_value IS NULL OR trim(default_value) = '' THEN '{}'::jsonb
-                WHEN format_to_json_type(format) = 'integer' THEN jsonb_build_object('default', (default_value::INTEGER))
-                WHEN format_to_json_type(format) = 'number' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                WHEN format_to_json_type(format) = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                WHEN format_to_json_type(format) IN ('object', 'array') THEN jsonb_build_object('default', default_value::jsonb)
-                -- For strings, trim quotes if present (handles SQL literal strings like 'active')
-                ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
+                    CASE
+                        WHEN format_to_json_type(format) = 'integer' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN format_to_json_type(format) = 'number' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN format_to_json_type(format) = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN format_to_json_type(format) IN ('object', 'array') THEN jsonb_build_object('default', default_value::jsonb)
+                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                    END
+                -- For string types without explicit default, add empty string default
+                WHEN format_to_json_type(format) = 'string' THEN jsonb_build_object('default', '')
+                ELSE '{}'::jsonb
             END AS property_value
         FROM ordered_fields
     )
