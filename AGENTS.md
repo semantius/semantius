@@ -193,6 +193,11 @@ The `public.get_schema()` function returns JSON Schema with:
 - **format field**: Only included for string-based formats (email, url, date, etc.), NOT for type mappers (int32, float, double, etc.)
 - **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
+- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at) even if they have is_nullable=FALSE
+- **created_at and updated_at fields**: 
+  - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
+  - NOT included in the required array since they are auto-maintained by database triggers
+  - Should not be submitted in INSERT/UPDATE operations
 
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
