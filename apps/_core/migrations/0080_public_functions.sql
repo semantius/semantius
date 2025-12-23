@@ -192,6 +192,36 @@ BEGIN
             enum_values
         FROM fields
         WHERE table_name = p_table_name
+        
+        UNION ALL
+        
+        -- Add created_at and updated_at fields (these are automatically added to all tables)
+        SELECT 
+            'created_at' as field_name,
+            'date-time' as format,
+            FALSE as is_nullable,
+            'Created At' as title,
+            'Timestamp when the record was created' as description,
+            NULL as default_value,
+            'readonly' as input_type,
+            'm' as width,
+            999998 as field_order,
+            NULL as enum_values
+        
+        UNION ALL
+        
+        SELECT 
+            'updated_at' as field_name,
+            'date-time' as format,
+            FALSE as is_nullable,
+            'Updated At' as title,
+            'Timestamp when the record was last updated' as description,
+            NULL as default_value,
+            'readonly' as input_type,
+            'm' as width,
+            999999 as field_order,
+            NULL as enum_values
+        
         ORDER BY field_order
     ),
     properties_with_defaults AS (
@@ -201,7 +231,7 @@ BEGIN
                 'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
-                'inputType', input_type,
+                'inputMode', input_type,
                 'width', width,
                 'fieldOrder', field_order
             ) || 

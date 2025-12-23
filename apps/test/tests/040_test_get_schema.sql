@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(52);
+SELECT plan(62);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -182,10 +182,10 @@ SELECT ok(
      SELECT (prop ? 'type') AND
             (prop ? 'title') AND
             (prop ? 'description') AND
-            (prop ? 'inputType') AND
+            (prop ? 'inputMode') AND
             (prop ? 'width')
      FROM id_property),
-    'get_schema() properties should have all expected fields (type, title, description, inputType, width)'
+    'get_schema() properties should have all expected fields (type, title, description, inputMode, width)'
 );
 
 -- Test required array exists
@@ -242,11 +242,11 @@ SELECT throws_ok(
 
 select authenticate_as('user1');
 
--- Test inputType field exists and has correct value
+-- Test inputMode field exists and has correct value
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'inputType',
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'inputMode',
     'readonly',
-    'get_schema() should return correct inputType for id field'
+    'get_schema() should return correct inputMode for id field'
 );
 
 -- Test width field exists and has correct value
@@ -378,6 +378,82 @@ SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'status'->>'default',
     'active',
     'get_schema() should return default "active" for status field'
+);
+
+-- =====================================================
+-- TEST: created_at and updated_at fields in properties
+-- =====================================================
+
+-- Test that created_at field exists in properties
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties' ? 'created_at',
+    'get_schema() properties should contain created_at field'
+);
+
+-- Test that updated_at field exists in properties
+SELECT ok(
+    (public.get_schema('customers')::jsonb)->'properties' ? 'updated_at',
+    'get_schema() properties should contain updated_at field'
+);
+
+-- Test created_at has correct type
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'type',
+    'string',
+    'get_schema() created_at should have type string'
+);
+
+-- Test created_at has format date-time
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'format',
+    'date-time',
+    'get_schema() created_at should have format date-time'
+);
+
+-- Test created_at has correct inputMode
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'inputMode',
+    'readonly',
+    'get_schema() created_at should have inputMode readonly'
+);
+
+-- Test updated_at has correct type
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'type',
+    'string',
+    'get_schema() updated_at should have type string'
+);
+
+-- Test updated_at has format date-time
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'format',
+    'date-time',
+    'get_schema() updated_at should have format date-time'
+);
+
+-- Test updated_at has correct inputMode
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'inputMode',
+    'readonly',
+    'get_schema() updated_at should have inputMode readonly'
+);
+
+-- =====================================================
+-- TEST: company field has correct field order (20)
+-- =====================================================
+
+-- Test that company field has fieldOrder 20
+SELECT is(
+    ((public.get_schema('customers')::jsonb)->'properties'->'company'->>'fieldOrder')::INTEGER,
+    20,
+    'get_schema() should return fieldOrder 20 for company field'
+);
+
+-- Test that phone field has fieldOrder 30 (swapped with company)
+SELECT is(
+    ((public.get_schema('customers')::jsonb)->'properties'->'phone'->>'fieldOrder')::INTEGER,
+    30,
+    'get_schema() should return fieldOrder 30 for phone field'
 );
 
 SELECT * FROM finish();
