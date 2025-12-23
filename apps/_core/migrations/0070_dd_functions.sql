@@ -190,8 +190,8 @@ BEGIN
     VALUES 
         (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'readonly', 'm', 'timestamp', TRUE),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'readonly', 'm', 'timestamp', TRUE);
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', 'timestamp', TRUE),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', 'timestamp', TRUE);
     
     RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
         NEW.table_name, NEW.view_permission, NEW.edit_permission;
