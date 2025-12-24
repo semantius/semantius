@@ -31,10 +31,7 @@ CREATE TABLE IF NOT EXISTS tables (
     
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
-    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
-    
-    -- Ensure id and label columns are different
-    CONSTRAINT different_columns CHECK (id_column <> label_column),
+    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),     
     
     -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
     CONSTRAINT plural_matches_table_name CHECK (plural = table_name)
@@ -62,6 +59,7 @@ COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created 
 -- Stores metadata about fields in dynamically created tables
 
 CREATE TABLE IF NOT EXISTS fields (
+    id VARCHAR GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
     table_name TEXT NOT NULL REFERENCES tables(table_name) ON DELETE CASCADE,
     field_name TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
@@ -78,7 +76,8 @@ CREATE TABLE IF NOT EXISTS fields (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    PRIMARY KEY (table_name, field_name),
+    -- Unique constraint on table_name and field_name
+    CONSTRAINT fields_table_field_unique UNIQUE (table_name, field_name),
     
     -- Validate field_name follows PostgreSQL naming conventions
     CONSTRAINT valid_field_name CHECK (field_name ~ '^[a-z_][a-z0-9_]*$'),
@@ -242,7 +241,7 @@ CREATE TRIGGER update_fields_updated_at
 INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES 
     ('tables', 'table', 'tables', 'Table', 'Tables', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'title'),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title'),
     ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
@@ -267,25 +266,26 @@ VALUES
     ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for fields table
--- Note: fields table has a composite primary key (table_name, field_name)
--- Both are marked with ctype='ckey' to indicate they are part of the composite key
+-- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
+-- table_name and field_name have a unique constraint together
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
 VALUES 
-    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 0, 'default', 'm', 'ckey', TRUE),
-    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 10, 'default', 'm', 'ckey', TRUE),
-    ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 20, 'required', 'm', 'label', TRUE),
-    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, TRUE, 30, 'default', 'w', NULL, TRUE),
-    ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 40, 'default', 'm', NULL, TRUE),
-    ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 50, 'default', 's', NULL, TRUE),
-    ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE),
-    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, TRUE, 70, 'default', 'm', NULL, TRUE),
-    ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 80, 'default', 's', NULL, TRUE),
-    ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'text', FALSE, FALSE, 85, 'default', 'm', NULL, TRUE),
-    ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 87, 'default', 's', NULL, TRUE),
-    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, TRUE, 90, 'default', 'm', NULL, TRUE),
-    ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 100, 'default', 's', NULL, TRUE),
-    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 110, 'disabled', 'm', NULL, TRUE),
-    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE);
+    ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE),
+    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE),
+    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE),
+    ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE),
+    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, TRUE, 40, 'default', 'w', NULL, TRUE),
+    ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE),
+    ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE),
+    ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE),
+    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, TRUE, 80, 'default', 'm', NULL, TRUE),
+    ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE),
+    ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE),
+    ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 110, 'default', 's', NULL, TRUE),
+    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, TRUE, 120, 'default', 'm', NULL, TRUE),
+    ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE),
+    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE),
+    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
