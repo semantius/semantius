@@ -86,7 +86,7 @@ VALUES (
     'Products',
     'Product catalog and inventory',
     1003, -- Inventory module
-    'sales:read',
+    'user:read',
     'sales:manage',
     'id',
     'product_name'
