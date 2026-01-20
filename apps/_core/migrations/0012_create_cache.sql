@@ -1,9 +1,10 @@
 -- Create generic cache table for storing key-value pairs with expiration
 -- This eliminates the need for Redis and provides persistent caching across all function instances
 -- RLS is enabled without policies to prevent access via Data API, only direct SQL functions
+-- UNLOGGED table for better performance (truncated on crash, not replicated)
 
 
-CREATE TABLE IF NOT EXISTS common._cache (
+CREATE UNLOGGED TABLE IF NOT EXISTS common._cache (
     id BIGSERIAL PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
     value TEXT NOT NULL,
