@@ -1,104 +1,104 @@
--- Test webhook_receiver and webhook_receiver_log tables
+-- Test webhook_receivers and webhook_receiver_logs tables
 BEGIN;
 
 SELECT plan(19);
 
 -- =====================================================
--- TEST: webhook_receiver table exists and has correct structure
+-- TEST: webhook_receivers table exists and has correct structure
 -- =====================================================
 
--- Test 1: webhook_receiver table exists
+-- Test 1: webhook_receivers table exists
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receiver')),
-    'webhook_receiver table metadata should exist in tables'
+    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receivers')),
+    'webhook_receivers table metadata should exist in tables'
 );
 
--- Test 2: webhook_receiver table is created in database
+-- Test 2: webhook_receivers table is created in database
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_receiver')),
-    'webhook_receiver table should exist in database'
+    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_receivers')),
+    'webhook_receivers table should exist in database'
 );
 
--- Test 3: webhook_receiver has auth_type field
+-- Test 3: webhook_receivers has auth_type field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver' AND field_name = 'auth_type')),
-    'webhook_receiver should have auth_type field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type')),
+    'webhook_receivers should have auth_type field'
 );
 
 -- Test 4: auth_type has enum values
 SELECT ok(
-    (SELECT enum_values @> '["none", "hmac"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver' AND field_name = 'auth_type'),
+    (SELECT enum_values @> '["none", "hmac"]'::jsonb FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type'),
     'auth_type should have enum values: none, hmac'
 );
 
--- Test 5: webhook_receiver has signature field
+-- Test 5: webhook_receivers has signature field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver' AND field_name = 'signature')),
-    'webhook_receiver should have signature field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'signature')),
+    'webhook_receivers should have signature field'
 );
 
--- Test 6: webhook_receiver has jsonata field with json format
+-- Test 6: webhook_receivers has jsonata field with json format
 SELECT ok(
-    (SELECT format = 'json' FROM fields WHERE table_name = 'webhook_receiver' AND field_name = 'jsonata'),
-    'webhook_receiver jsonata field should have json format'
+    (SELECT format = 'json' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'jsonata'),
+    'webhook_receivers jsonata field should have json format'
 );
 
 -- =====================================================
--- TEST: webhook_receiver_log table exists and has correct structure
+-- TEST: webhook_receiver_logs table exists and has correct structure
 -- =====================================================
 
--- Test 7: webhook_receiver_log table exists
+-- Test 7: webhook_receiver_logs table exists
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receiver_log')),
-    'webhook_receiver_log table metadata should exist in tables'
+    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receiver_logs')),
+    'webhook_receiver_logs table metadata should exist in tables'
 );
 
--- Test 8: webhook_receiver_log table is created in database
+-- Test 8: webhook_receiver_logs table is created in database
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_receiver_log')),
-    'webhook_receiver_log table should exist in database'
+    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'webhook_receiver_logs')),
+    'webhook_receiver_logs table should exist in database'
 );
 
--- Test 9: webhook_receiver_log has webhook_receiver_id field
+-- Test 9: webhook_receiver_logs has webhook_receiver_id field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'webhook_receiver_id')),
-    'webhook_receiver_log should have webhook_receiver_id field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_receiver_id')),
+    'webhook_receiver_logs should have webhook_receiver_id field'
 );
 
--- Test 10: webhook_receiver_log has webhook_id field
+-- Test 10: webhook_receiver_logs has webhook_id field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'webhook_id')),
-    'webhook_receiver_log should have webhook_id field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id')),
+    'webhook_receiver_logs should have webhook_id field'
 );
 
--- Test 11: webhook_receiver_log has webhook_timestamp field
+-- Test 11: webhook_receiver_logs has webhook_timestamp field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'webhook_timestamp')),
-    'webhook_receiver_log should have webhook_timestamp field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_timestamp')),
+    'webhook_receiver_logs should have webhook_timestamp field'
 );
 
--- Test 12: webhook_receiver_log has received_timestamp field
+-- Test 12: webhook_receiver_logs has received_timestamp field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'received_timestamp')),
-    'webhook_receiver_log should have received_timestamp field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'received_timestamp')),
+    'webhook_receiver_logs should have received_timestamp field'
 );
 
--- Test 13: webhook_receiver_log has payload field with json format
+-- Test 13: webhook_receiver_logs has payload field with json format
 SELECT ok(
-    (SELECT format = 'json' FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'payload'),
-    'webhook_receiver_log payload field should have json format'
+    (SELECT format = 'json' FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'payload'),
+    'webhook_receiver_logs payload field should have json format'
 );
 
--- Test 14: webhook_receiver_log has result field with enum values
+-- Test 14: webhook_receiver_logs has result field with enum values
 SELECT ok(
-    (SELECT enum_values @> '["10", "20", "90"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'result'),
-    'webhook_receiver_log result field should have enum values: 10, 20, 90'
+    (SELECT enum_values @> '["10", "20", "90"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'result'),
+    'webhook_receiver_logs result field should have enum values: 10, 20, 90'
 );
 
--- Test 15: webhook_receiver_log has error_message field
+-- Test 15: webhook_receiver_logs has error_message field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_log' AND field_name = 'error_message')),
-    'webhook_receiver_log should have error_message field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'error_message')),
+    'webhook_receiver_logs should have error_message field'
 );
 
 -- =====================================================
@@ -109,8 +109,8 @@ SELECT ok(
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'fk_webhook_receiver_log_webhook_receiver_id' 
-        AND table_name = 'webhook_receiver_log'
+        WHERE constraint_name = 'fk_webhook_receiver_logs_webhook_receiver_id' 
+        AND table_name = 'webhook_receiver_logs'
         AND constraint_type = 'FOREIGN KEY'
     )),
     'Foreign key constraint should exist on webhook_receiver_id'
@@ -120,7 +120,7 @@ SELECT ok(
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_indexes 
-        WHERE indexname = 'idx_webhook_receiver_log_webhook_id'
+        WHERE indexname = 'idx_webhook_receiver_logs_webhook_id'
     )),
     'Index on webhook_id should exist'
 );
@@ -131,13 +131,13 @@ SELECT ok(
 
 -- Test 18: Sample webhook receivers exist
 SELECT ok(
-    (SELECT COUNT(*) >= 3 FROM webhook_receiver),
+    (SELECT COUNT(*) >= 3 FROM webhook_receivers),
     'At least 3 sample webhook receivers should exist'
 );
 
 -- Test 19: Sample webhook receiver logs exist
 SELECT ok(
-    (SELECT COUNT(*) >= 4 FROM webhook_receiver_log),
+    (SELECT COUNT(*) >= 4 FROM webhook_receiver_logs),
     'At least 4 sample webhook receiver logs should exist'
 );
 

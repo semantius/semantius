@@ -291,14 +291,14 @@ WHERE u.external_id = 'user2'
 -- =====================================================
 
 -- Sample webhook receivers
-INSERT INTO webhook_receiver (label, auth_type, signature, jsonata)
+INSERT INTO webhook_receivers (label, auth_type, signature, jsonata)
 VALUES 
     ('GitHub Webhook', 'hmac', 'sha256=your-secret-key', NULL),
     ('Stripe Webhook', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
     ('Simple Webhook', 'none', NULL, NULL);
 
 -- Sample webhook receiver logs
-INSERT INTO webhook_receiver_log (label, webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
+INSERT INTO webhook_receiver_logs (label, webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
 VALUES 
     ('GitHub Push Event', 1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, NULL),
     ('Stripe Payment Success', 2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, NULL),
