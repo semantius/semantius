@@ -100,22 +100,3 @@ ON webhook_receiver_log(webhook_id);
 
 COMMENT ON INDEX idx_webhook_receiver_log_webhook_id IS 
 'Index on webhook_id for efficient webhook log lookups';
-
--- =====================================================
--- SEED SAMPLE DATA
--- =====================================================
-
--- Sample webhook receivers
-INSERT INTO webhook_receiver (label, auth_type, signature, jsonata)
-VALUES 
-    ('GitHub Webhook', 'hmac', 'sha256=your-secret-key', NULL),
-    ('Stripe Webhook', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
-    ('Simple Webhook', 'none', NULL, NULL);
-
--- Sample webhook receiver logs
-INSERT INTO webhook_receiver_log (label, webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
-VALUES 
-    ('GitHub Push Event', 1, 'gh-evt-12345', '2024-01-15 10:30:00'::timestamptz, '2024-01-15 10:30:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, NULL),
-    ('Stripe Payment Success', 2, 'evt_1ABC123', '2024-01-15 11:00:00'::timestamptz, '2024-01-15 11:00:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, NULL),
-    ('Simple Webhook Test', 3, 'test-webhook-001', '2024-01-15 12:00:00'::timestamptz, '2024-01-15 12:00:01'::timestamptz, '{"message": "test"}'::jsonb, 10, NULL),
-    ('Failed Webhook', 1, 'gh-evt-67890', '2024-01-15 13:00:00'::timestamptz, '2024-01-15 13:00:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');

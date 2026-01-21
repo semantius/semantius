@@ -163,6 +163,13 @@ deno task test
   - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
 - When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause unless it's an exception
 
+**CRITICAL: Sample Data Placement**
+- **NEVER add sample/seed data to migrations in `apps/_core/migrations/`** - these are for schema and infrastructure only
+- **ALWAYS add sample/seed data to `apps/test/migrations/`** - this ensures test data is separate from production schema
+- Sample data must use **fixed, known values** for timestamps (e.g., `'2026-01-01 12:34:00'::timestamptz`)
+- **NEVER use CURRENT_TIMESTAMP or NOW()** in test/sample data - tests must be reproducible with consistent results
+- Example: Use `'2026-01-01 12:34:00'::timestamptz` instead of `CURRENT_TIMESTAMP`
+
 **Data Type Guidelines**
 - **ALWAYS use TEXT** for string columns instead of VARCHAR or character varying
 - Only use VARCHAR/character varying if there is a specific business requirement for a length limit
