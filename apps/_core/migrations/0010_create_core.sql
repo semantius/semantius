@@ -1,4 +1,12 @@
 -- =====================================================
+-- REQUIRED EXTENSIONS
+-- =====================================================
+-- Enable required extensions early so migration fails fast if unavailable
+
+-- Enable pgcrypto extension for cryptographic functions (HMAC, etc.)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- =====================================================
 -- COMMON SCHEMA - Reusable Database Functions
 -- =====================================================
 

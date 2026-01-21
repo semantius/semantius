@@ -55,10 +55,10 @@ SELECT ok(
     'auth_type should have enum values: none, hmac'
 );
 
--- Test 9: webhook_receivers has signature field
+-- Test 9: webhook_receivers has secret field
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'signature')),
-    'webhook_receivers should have signature field'
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'secret')),
+    'webhook_receivers should have secret field'
 );
 
 -- Test 10: webhook_receivers has jsonata field with json format

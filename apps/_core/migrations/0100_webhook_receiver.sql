@@ -40,7 +40,7 @@ VALUES
     ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 's', 'Target table for webhook data', '''''', NULL),
     ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '''''', NULL),
     ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none or hmac)', '''none''', '["none", "hmac"]'::jsonb),
-    ('webhook_receivers', 'signature', 'Signature', 'text', FALSE, TRUE, 40, 'default', 'm', 'Signature for webhook authentication', NULL, NULL),
+    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, TRUE, 40, 'default', 'm', 'Secret key for webhook authentication', NULL, NULL),
     ('webhook_receivers', 'jsonata', 'JSONata Expression', 'json', FALSE, TRUE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', NULL, NULL);
 
 -- =====================================================
