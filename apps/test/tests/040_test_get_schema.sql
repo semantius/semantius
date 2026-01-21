@@ -239,18 +239,18 @@ SELECT throws_ok(
 
 select authenticate_as('user1');
 
--- Verify user1 doesn't have sales:read permission
+-- Verify user1 doesn't have admin permission
 SELECT ok(
-    NOT rbac.has_permission('sales:read'),
-    'user1 should not have sales:read permission'
+    NOT rbac.has_permission('admin'),
+    'user1 should not have admin permission'
 );
 
--- Test that get_schema() raises "not found" error for products table (requires sales:read)
+-- Test that get_schema() raises "not found" error for webhook_receivers table (requires admin)
 -- This prevents leaking information about table existence
 SELECT throws_ok(
-    'SELECT public.get_schema(''products'')',
+    'SELECT public.get_schema(''webhook_receivers'')',
     '42P01',
-    'Table "products" not found in tables metadata',
+    'Table "webhook_receivers" not found in tables metadata',
     'get_schema() should raise "not found" error when user lacks view permission'
 );
 

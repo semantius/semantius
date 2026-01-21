@@ -28,11 +28,11 @@ SELECT is(
     'rbac.uid() should return user1'
 );
 
--- Test product count - RLS should prevent access, so count should be 0
+-- Test webhook_receivers count - RLS should prevent access (requires admin permission), so count should be 0
 SELECT is(
-    (SELECT COUNT(*)::integer FROM products),
+    (SELECT COUNT(*)::integer FROM webhook_receivers),
     0,
-    'Products table should contain 0 products'
+    'webhook_receivers table should contain 0 records (user1 lacks admin permission)'
 );
 
 -- Test that user1 has not sales:read permission
