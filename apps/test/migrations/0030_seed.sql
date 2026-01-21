@@ -290,12 +290,12 @@ WHERE u.external_id = 'user2'
 -- SEED WEBHOOK RECEIVER SAMPLE DATA
 -- =====================================================
 
--- Sample webhook receivers
-INSERT INTO webhook_receivers (label, auth_type, signature, jsonata)
+-- Sample webhook receivers (using products table)
+INSERT INTO webhook_receivers (label, table_name, description, auth_type, signature, jsonata)
 VALUES 
-    ('GitHub Webhook', 'hmac', 'sha256=your-secret-key', NULL),
-    ('Stripe Webhook', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
-    ('Simple Webhook', 'none', NULL, NULL);
+    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'sha256=your-secret-key', NULL),
+    ('Stripe Webhook', 'products', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
+    ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', NULL, NULL);
 
 -- Sample webhook receiver logs
 INSERT INTO webhook_receiver_logs (label, webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)

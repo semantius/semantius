@@ -37,9 +37,11 @@ VALUES (
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values)
 VALUES 
-    ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 10, 'default', 's', 'Type of authentication (none or hmac)', '''none''', '["none", "hmac"]'::jsonb),
-    ('webhook_receivers', 'signature', 'Signature', 'text', FALSE, TRUE, 20, 'default', 'm', 'Signature for webhook authentication', NULL, NULL),
-    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'json', FALSE, TRUE, 30, 'default', 'w', 'Optional JSONata expression to transform incoming data', NULL, NULL);
+    ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 's', 'Target table for webhook data', '''''', NULL),
+    ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '''''', NULL),
+    ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none or hmac)', '''none''', '["none", "hmac"]'::jsonb),
+    ('webhook_receivers', 'signature', 'Signature', 'text', FALSE, TRUE, 40, 'default', 'm', 'Signature for webhook authentication', NULL, NULL),
+    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'json', FALSE, TRUE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', NULL, NULL);
 
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
@@ -86,6 +88,13 @@ VALUES
 -- =====================================================
 -- The dynamic table system creates tables automatically, so we need to add
 -- the foreign key and index after the tables are created by triggers
+
+-- Add foreign key constraint for table_name
+ALTER TABLE webhook_receivers 
+ADD CONSTRAINT fk_webhook_receivers_table_name 
+FOREIGN KEY (table_name) 
+REFERENCES tables(table_name) 
+ON DELETE CASCADE;
 
 -- Add foreign key constraint for webhook_receiver_id
 ALTER TABLE webhook_receiver_logs 

@@ -149,6 +149,23 @@ deno task test
 - Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`
 
 ### Database Schema Standards
+**CRITICAL: Primary Key Conventions and EXCEPTIONS**
+- **STANDARD**: Most tables use an auto-incrementing INTEGER column named `id` as the primary key
+  - Examples: users, modules, roles, permissions, webhook_receivers, webhook_receiver_logs, etc.
+- **EXCEPTION 1**: The `tables` table uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
+  - When creating foreign keys to `tables`, reference `table_name`, not `id`
+  - Example: `FOREIGN KEY (table_name) REFERENCES tables(table_name)`
+- **EXCEPTION 2**: The `fields` table uses a GENERATED VARCHAR column as PRIMARY KEY
+  - Primary key: `id VARCHAR GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY`
+  - The `id` is auto-generated from `table_name.field_name`, not auto-incrementing
+  - There is also a UNIQUE constraint on `(table_name, field_name)`
+  - When referencing fields, use the generated `id` or the composite `(table_name, field_name)`
+- **EXCEPTION 3**: Junction tables use COMPOSITE PRIMARY KEYS (no `id` column)
+  - `user_roles`: `PRIMARY KEY (user_id, role_id)`
+  - `role_permissions`: `PRIMARY KEY (role_id, permission_id)`
+  - `permission_hierarchy`: `PRIMARY KEY (parent_permission_id, child_permission_id)`
+  - These tables do NOT have an `id` column - the composite key IS the primary key
+
 **CRITICAL: Avoid NULL Values**
 - **ALWAYS provide DEFAULT values for all columns** to avoid NULL values out of the box
 - Use sensible defaults based on data type:
@@ -163,9 +180,17 @@ deno task test
   - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
 - When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause unless it's an exception
 
-**CRITICAL: Sample Data Placement**
-- **NEVER add sample/seed data to migrations in `apps/_core/migrations/`** - these are for schema and infrastructure only
-- **ALWAYS add sample/seed data to `apps/test/migrations/`** - this ensures test data is separate from production schema
+**CRITICAL: Schema vs Sample Data Placement**
+- **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code
+  - Table definitions (INSERT INTO tables, fields)
+  - Functions, triggers, RLS policies
+  - Constraints, indexes, foreign keys
+  - NO sample/seed data records
+- **`apps/test/migrations/`**: Contains sample/seed DATA for testing
+  - INSERT statements with actual records for testing
+  - Test users, test modules, test data
+  - Sample webhook receivers, sample logs, etc.
+- **Key distinction**: Table DEFINITIONS go in `_core`, actual DATA RECORDS go in `test`
 - Sample data must use **fixed, known values** for timestamps (e.g., `'2026-01-01 12:34:00'::timestamptz`)
 - **NEVER use CURRENT_TIMESTAMP or NOW()** in test/sample data - tests must be reproducible with consistent results
 - Example: Use `'2026-01-01 12:34:00'::timestamptz` instead of `CURRENT_TIMESTAMP`
