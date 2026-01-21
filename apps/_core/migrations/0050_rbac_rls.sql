@@ -244,6 +244,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 CREATE OR REPLACE FUNCTION rbac.auto_assign_user_role()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_is_first_user BOOLEAN;
 BEGIN
     -- Insert the user into role 1 (User) if not already assigned
     -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
@@ -251,12 +253,27 @@ BEGIN
     VALUES (NEW.id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
     
+    -- Check if this is the first user (no other users have last_seen set)
+    -- If this is the first user, also assign Administrator role (role ID 2)
+    SELECT NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id != NEW.id 
+        AND last_seen IS NOT NULL
+    ) INTO v_is_first_user;
+    
+    IF v_is_first_user THEN
+        -- Assign Administrator role (role ID 2) to the first user
+        INSERT INTO user_roles (user_id, role_id)
+        VALUES (NEW.id, 2)
+        ON CONFLICT (user_id, role_id) DO NOTHING;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS 
-'Trigger function to automatically assign role 1 (User) to newly created users.';
+'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first user accessing the system.';
 
 CREATE TRIGGER auto_assign_user_role_trigger
     AFTER INSERT ON users
