@@ -261,10 +261,12 @@ VALUES
 -- =====================================================
 
 -- Add test users with fixed Ids for testing
-INSERT INTO users (id, external_id, email) VALUES
-    (1001, 'user1', 'user@test.com'),
-    (1002, 'user2', 'sales@test.com'),
-    (1003, 'user3', 'admin@test.com');
+-- user1 is created with last_seen to make them the first user accessing the system
+-- This will trigger automatic assignment of Administrator role (role 2)
+INSERT INTO users (id, external_id, email, last_seen) VALUES
+    (1001, 'user1', 'user@test.com', NULL),
+    (1002, 'user2', 'sales@test.com', NULL),
+    (1003, 'user3', 'admin@test.com', '2026-01-01 12:34:00'::timestamptz);
 
 -- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
 SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
@@ -274,14 +276,8 @@ SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
 -- =====================================================
 
 -- Note: Role 1 (User) is now auto-assigned by trigger when users are inserted
--- So we only need to add additional roles here
-
--- user3 is also a member of the "Administrator" role
-INSERT INTO user_roles (user_id, role_id)
-SELECT u.id, r.id
-FROM users u, roles r
-WHERE u.external_id = 'user3'
-  AND r.role_name = 'Administrator';
+-- Note: Role 2 (Administrator) is auto-assigned to first user with last_seen (user3)
+-- So we only need to add additional custom roles here
 
 -- user2 (sales@test.com) is also a member of the "Sales User" role
 INSERT INTO user_roles (user_id, role_id)
@@ -289,6 +285,25 @@ SELECT u.id, r.id
 FROM users u, roles r
 WHERE u.external_id = 'user2'
   AND r.role_name = 'Sales User';
+
+-- =====================================================
+-- SEED WEBHOOK RECEIVER SAMPLE DATA
+-- =====================================================
+
+-- Sample webhook receivers
+INSERT INTO webhook_receivers (label, auth_type, signature, jsonata)
+VALUES 
+    ('GitHub Webhook', 'hmac', 'sha256=your-secret-key', NULL),
+    ('Stripe Webhook', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
+    ('Simple Webhook', 'none', NULL, NULL);
+
+-- Sample webhook receiver logs
+INSERT INTO webhook_receiver_logs (label, webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
+VALUES 
+    ('GitHub Push Event', 1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, NULL),
+    ('Stripe Payment Success', 2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, NULL),
+    ('Simple Webhook Test', 3, 'test-webhook-001', '2026-01-01 12:36:00'::timestamptz, '2026-01-01 12:36:01'::timestamptz, '{"message": "test"}'::jsonb, 10, NULL),
+    ('Failed Webhook', 1, 'gh-evt-67890', '2026-01-01 12:37:00'::timestamptz, '2026-01-01 12:37:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');
 
 -- =====================================================
 -- VERIFICATION QUERIES
