@@ -294,6 +294,7 @@ VALUES
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'm', NULL, TRUE),
     ('users', 'email', 'Email', 'User email address', 'email', FALSE, TRUE, 20, 'default', 'm', 'label', TRUE),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
+    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, TRUE, 35, 'default', 'w', NULL, TRUE),
     ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE),
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'm', NULL, TRUE);
@@ -309,6 +310,7 @@ VALUES
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, TRUE, 36, 'default', 's', NULL, TRUE),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'm', NULL, TRUE),
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'm', NULL, TRUE),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, TRUE, 39, 'default', 'w', NULL, TRUE),
     ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
 
