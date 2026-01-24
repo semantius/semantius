@@ -16,6 +16,7 @@ CREATE TABLE modules (
     logo_color TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     alias TEXT DEFAULT '' NOT NULL,
+    settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -58,6 +59,7 @@ CREATE TABLE users (
     external_id TEXT UNIQUE NOT NULL DEFAULT '',
     email TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
+    settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ
