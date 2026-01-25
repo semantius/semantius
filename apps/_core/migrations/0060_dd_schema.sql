@@ -257,8 +257,8 @@ VALUES
     ('tables', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'm', NULL, TRUE),
     ('tables', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE),
     ('tables', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'text', FALSE, FALSE, 40, 'default', 'm', NULL, TRUE),
-    ('tables', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, TRUE, 50, 'default', 'w', NULL, TRUE),
-    ('tables', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, TRUE, 60, 'default', 'w', NULL, TRUE),
+    ('tables', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE),
+    ('tables', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE),
     ('tables', 'module_id', 'Module Id', 'Module this table belongs to', 'int32', FALSE, TRUE, 70, 'default', 's', NULL, TRUE),
     ('tables', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE),
     ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'm', NULL, TRUE),
@@ -277,15 +277,15 @@ VALUES
     ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE),
     ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE),
     ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE),
-    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, TRUE, 40, 'default', 'w', NULL, TRUE),
+    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE),
     ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE),
     ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE),
     ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE),
-    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, TRUE, 80, 'default', 'm', NULL, TRUE),
+    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE),
     ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE),
     ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE),
     ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 110, 'default', 's', NULL, TRUE),
-    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, TRUE, 120, 'default', 'm', NULL, TRUE),
+    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE),
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE),
     ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE),
     ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE);
@@ -295,9 +295,9 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, i
 VALUES 
     ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'm', NULL, TRUE),
-    ('users', 'email', 'Email', 'User email address', 'email', FALSE, TRUE, 20, 'default', 'm', 'label', TRUE),
-    ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
-    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, TRUE, 35, 'default', 'w', NULL, TRUE),
+    ('users', 'email', 'Email', 'User email address', 'email', FALSE, FALSE, 20, 'default', 'm', 'label', TRUE),
+    ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, FALSE, 30, 'default', 's', NULL, TRUE),
+    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE),
     ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE),
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'm', NULL, TRUE);
@@ -307,13 +307,13 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, i
 VALUES 
     ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
-    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
+    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'm', NULL, TRUE),
-    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, TRUE, 35, 'default', 'w', NULL, TRUE),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, TRUE, 36, 'default', 's', NULL, TRUE),
+    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, FALSE, 36, 'default', 's', NULL, TRUE),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'm', NULL, TRUE),
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'm', NULL, TRUE),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, TRUE, 39, 'default', 'w', NULL, TRUE),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 39, 'default', 'w', NULL, TRUE),
     ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
 
@@ -322,7 +322,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, i
 VALUES 
     ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
-    ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
+    ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
     ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
@@ -332,7 +332,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, i
 VALUES 
     ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
-    ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
+    ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
     ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);

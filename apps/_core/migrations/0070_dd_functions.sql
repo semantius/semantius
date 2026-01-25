@@ -269,16 +269,20 @@ BEGIN
         v_default_clause := format('DEFAULT %s', NEW.default_value);
     ELSIF NOT NEW.is_nullable THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
-        CASE v_data_type
-            WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
-            WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
-            WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
-            WHEN 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
-            WHEN 'TIMESTAMP', 'TIMESTAMPTZ' THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-            WHEN 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-            WHEN 'JSONB', 'JSON' THEN v_default_clause := 'DEFAULT ''{}''';
-            ELSE v_default_clause := '';
-        END CASE;
+        -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
+        IF v_data_type IN ('JSONB', 'JSON') THEN
+            v_default_clause := 'DEFAULT ''{}''::jsonb';
+        ELSE
+            CASE v_data_type
+                WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
+                WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
+                WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
+                WHEN 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
+                WHEN 'TIMESTAMP', 'TIMESTAMPTZ' THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                WHEN 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                ELSE v_default_clause := '';
+            END CASE;
+        END IF;
     ELSE
         v_default_clause := '';
     END IF;

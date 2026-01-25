@@ -166,19 +166,21 @@ deno task test
   - `permission_hierarchy`: `PRIMARY KEY (parent_permission_id, child_permission_id)`
   - These tables do NOT have an `id` column - the composite key IS the primary key
 
-**CRITICAL: Avoid NULL Values**
-- **ALWAYS provide DEFAULT values for all columns** to avoid NULL values out of the box
-- Use sensible defaults based on data type:
-  - **TEXT**: `DEFAULT ''` (empty string)
+**CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
+- **ABSOLUTELY NO NULL VALUES ALLOWED** unless explicitly instructed otherwise
+- **ALWAYS set is_nullable=FALSE** for all columns unless there's a specific business requirement for NULL
+- **ALWAYS provide DEFAULT values for all columns** to avoid NULL values:
+  - **TEXT/VARCHAR**: `DEFAULT ''` (empty string) - NEVER use NULL for text fields
   - **INTEGER/SMALLINT/BIGINT**: `DEFAULT 0`
   - **BOOLEAN**: `DEFAULT FALSE`
   - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
   - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
-- **Exceptions** (columns that should NOT have defaults):
+- **The ONLY exceptions** (columns that should NOT have defaults):
   - **Foreign key columns** that are part of composite primary keys or junction tables
   - **Composite primary key components** in many-to-many relationship tables
   - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
-- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause unless it's an exception
+- **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead
+- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause and is_nullable=FALSE unless it's an exception
 
 **CRITICAL: Schema vs Sample Data Placement**
 - **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code

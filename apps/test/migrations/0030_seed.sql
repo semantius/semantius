@@ -102,30 +102,30 @@ VALUES (
 -- Add fields to customers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', NULL, NULL),
-    ('customers', 'company', 'Company Name', 'text', FALSE, TRUE, 20, 'default', 'm', 'Company or organization name', NULL, NULL),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, TRUE, 30, 'default', 'm', 'Customer contact phone number', NULL, NULL),
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', '''''', NULL),
+    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'm', 'Company or organization name', '''''', NULL),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'm', 'Customer contact phone number', '''''', NULL),
     ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active''', '["active", "inactive", "pending", "suspended"]'::jsonb),
     ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0', NULL);
 
 -- Add fields to employees table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value)
 VALUES 
-    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address'),
-    ('employees', 'department', 'Department', 'text', FALSE, FALSE, 20, 'default', 'm', 'Department or division'),
-    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position'),
-    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'm', 'Date employee was hired'),
-    ('employees', 'salary', 'Salary', 'double', FALSE, TRUE, 50, 'default', 'm', 'Annual salary amount'),
-    ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active');
+    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address', ''''''),
+    ('employees', 'department', 'Department', 'text', FALSE, FALSE, 20, 'default', 'm', 'Department or division', ''''''),
+    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position', ''''''),
+    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'm', 'Date employee was hired', 'CURRENT_DATE'),
+    ('employees', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'm', 'Annual salary amount', '0.0'),
+    ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active', 'TRUE');
 
 -- Add fields to products table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value)
 VALUES 
-    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier', NULL),
-    ('products', 'description', 'Description', 'text', FALSE, TRUE, 20, 'default', 'w', 'Detailed product description', NULL),
+    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier', ''''''),
+    ('products', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', ''''''),
     ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency', '0.0'),
     ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity', '0'),
-    ('products', 'category', 'Category', 'text', FALSE, TRUE, 50, 'default', 'm', 'Product category or classification', NULL),
+    ('products', 'category', 'Category', 'text', FALSE, FALSE, 50, 'default', 'm', 'Product category or classification', ''''''),
     ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE');
 
 -- =====================================================
@@ -291,19 +291,19 @@ WHERE u.external_id = 'user2'
 -- =====================================================
 
 -- Sample webhook receivers (using products table)
-INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, jsonata)
+INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, header_name, header_value)
 VALUES 
-    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'your-secret-key', NULL),
-    ('Stripe Webhook', 'products', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
-    ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', NULL, NULL);
+    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'your-secret-key', '', ''),
+    ('Stripe Webhook', 'products', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '', ''),
+    ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', '', '', '');
 
 -- Sample webhook receiver logs
 -- Note: webhook_id is the label column, so it's not listed separately
 INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
 VALUES 
-    (1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, NULL),
-    (2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, NULL),
-    (3, 'test-webhook-001', '2026-01-01 12:36:00'::timestamptz, '2026-01-01 12:36:01'::timestamptz, '{"message": "test"}'::jsonb, 10, NULL),
+    (1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, ''),
+    (2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, ''),
+    (3, 'test-webhook-001', '2026-01-01 12:36:00'::timestamptz, '2026-01-01 12:36:01'::timestamptz, '{"message": "test"}'::jsonb, 10, ''),
     (1, 'gh-evt-67890', '2026-01-01 12:37:00'::timestamptz, '2026-01-01 12:37:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');
 
 -- =====================================================
