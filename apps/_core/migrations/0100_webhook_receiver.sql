@@ -75,15 +75,15 @@ VALUES (
 );
 
 -- Add fields to webhook_receiver_logs table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, ctype)
 VALUES 
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'int32', FALSE, FALSE, 10, 'default', 's', 'Reference to webhook receiver configuration', NULL, NULL),
-    ('webhook_receiver_logs', 'webhook_id', 'Webhook ID', 'text', FALSE, FALSE, 20, 'default', 'm', 'External webhook identifier', NULL, NULL),
-    ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, TRUE, 30, 'default', 'm', 'Timestamp from webhook source', NULL, NULL),
-    ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL),
-    ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, TRUE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL),
-    ('webhook_receiver_logs', 'result', 'Result', 'int32', FALSE, FALSE, 60, 'default', 's', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb),
-    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, TRUE, 70, 'default', 'w', 'Error message if processing failed', NULL, NULL);
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'int32', FALSE, FALSE, 10, 'default', 's', 'Reference to webhook receiver configuration', NULL, NULL, NULL),
+    ('webhook_receiver_logs', 'webhook_id', 'Webhook ID', 'text', FALSE, FALSE, 20, 'default', 'm', 'External webhook identifier', NULL, NULL, 'label'),
+    ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, TRUE, 30, 'default', 'm', 'Timestamp from webhook source', NULL, NULL, NULL),
+    ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL),
+    ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, TRUE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL),
+    ('webhook_receiver_logs', 'result', 'Result', 'int32', FALSE, FALSE, 60, 'default', 's', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL),
+    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, TRUE, 70, 'default', 'w', 'Error message if processing failed', NULL, NULL, NULL);
 
 -- =====================================================
 -- ADD FOREIGN KEY AND INDEX
