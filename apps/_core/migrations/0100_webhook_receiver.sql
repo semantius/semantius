@@ -43,7 +43,7 @@ VALUES
     ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'm', 'Secret for webhook authentication', '''''', NULL),
     ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, FALSE, 45, 'default', 'm', 'Custom header name for authentication', '''''', NULL),
     ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, FALSE, 46, 'default', 'm', 'Expected value for custom header authentication', '''''', NULL),
-    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'json', FALSE, FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', NULL, NULL);
+    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '''''', NULL);
 
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
