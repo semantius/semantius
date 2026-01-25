@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(17);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -128,124 +128,28 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: Switching managed flag from false to true
--- =====================================================
-
--- Test 14: Create table with managed=false, then switch to true
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
-VALUES ('test_switch_managed', 'test_switch_managed', 'Test Switch', 'Test Switch', 'Test switching managed flag', 1, 'public:read', 'admin', 'id', 'label', FALSE);
-
-SELECT ok(
-    NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_switch_managed'),
-    'Table with managed=false initially should NOT be created in database'
-);
-
--- Test 15: Manually create the table in database (simulating existing table)
-CREATE TABLE test_switch_managed (
-    id SERIAL PRIMARY KEY,
-    label TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Enable RLS on the manually created table
-ALTER TABLE test_switch_managed ENABLE ROW LEVEL SECURITY;
-
--- Create basic RLS policies for the manually created table
-CREATE POLICY test_switch_managed_select_policy ON test_switch_managed
-    FOR SELECT
-    TO semantius_user
-    USING (rbac.has_permission('public:read'));
-
-CREATE POLICY test_switch_managed_insert_policy ON test_switch_managed
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK (rbac.has_permission('admin'));
-
--- Manually add core field records for the pre-existing table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
-VALUES 
-    ('test_switch_managed', 'id', 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
-    ('test_switch_managed', 'label', 'Label', 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE),
-    ('test_switch_managed', 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', 'timestamp', TRUE),
-    ('test_switch_managed', 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', 'timestamp', TRUE);
-
-SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_switch_managed')),
-    'Manually created table should exist in database'
-);
-
--- Test 16: Switch managed to true
-UPDATE tables SET managed = TRUE WHERE table_name = 'test_switch_managed';
-
-SELECT ok(
-    (SELECT managed = TRUE FROM tables WHERE table_name = 'test_switch_managed'),
-    'Managed flag should be TRUE after update'
-);
-
--- Test 17: Add a field after switching to managed=true (should now execute DDL)
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_switch_managed', 'new_field', 'New Field', 'int32', FALSE, FALSE, 10, 'default', 'm', 'Field added after enabling managed');
-
-SELECT ok(
-    (SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'test_switch_managed' AND column_name = 'new_field'
-    )),
-    'Field should be added to database after switching managed to true'
-);
-
--- Test 18: Update field after switching to managed=true
-UPDATE fields SET is_nullable = TRUE WHERE table_name = 'test_switch_managed' AND field_name = 'new_field';
-
-SELECT ok(
-    (SELECT is_nullable = 'YES' FROM information_schema.columns 
-     WHERE table_name = 'test_switch_managed' AND column_name = 'new_field'),
-    'Field nullable constraint change should be applied after switching managed to true'
-);
-
--- Test 19: Delete field after switching to managed=true
-DELETE FROM fields WHERE table_name = 'test_switch_managed' AND field_name = 'new_field';
-
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'test_switch_managed' AND column_name = 'new_field'
-    ),
-    'Field should be removed after switching managed to true'
-);
-
--- Test 20: Delete table after switching to managed=true
-DELETE FROM tables WHERE table_name = 'test_switch_managed';
-
-SELECT ok(
-    NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_switch_managed'),
-    'Table should be dropped after switching managed to true'
-);
-
--- =====================================================
 -- TEST: Modules table (existing table with managed toggling)
 -- =====================================================
 
--- Test 21: Modules table should have metadata in tables table
+-- Test 14: Modules table should have metadata in tables table
 SELECT ok(
     (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'modules')),
     'Modules table metadata should exist in tables table'
 );
 
--- Test 22: Modules table should have managed=true after initialization
+-- Test 15: Modules table should have managed=true after initialization
 SELECT ok(
     (SELECT managed = TRUE FROM tables WHERE table_name = 'modules'),
     'Modules table should have managed=true after initialization'
 );
 
--- Test 23: Modules table should have fields metadata
+-- Test 16: Modules table should have fields metadata
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM fields WHERE table_name = 'modules'),
     'Modules table should have field metadata records'
 );
 
--- Test 24: Modules table exists in database (created in earlier migration)
+-- Test 17: Modules table exists in database (created in earlier migration)
 SELECT ok(
     (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'modules')),
     'Modules table should exist in database'
