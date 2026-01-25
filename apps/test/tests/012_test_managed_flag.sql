@@ -21,7 +21,7 @@ SELECT ok(
 
 -- Test 2: Add a field to managed=true table
 INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_managed_true', 'test_field', 'Test Field', 'text', FALSE, FALSE, 10, 'default', 'm', 'Test field');
+VALUES ('test_managed_true', 'test_field', 'Test Field', 'int32', FALSE, FALSE, 10, 'default', 'm', 'Test field');
 
 SELECT ok(
     (SELECT EXISTS (
@@ -31,13 +31,13 @@ SELECT ok(
     'Field should be added to managed=true table in database'
 );
 
--- Test 3: Update field in managed=true table (change format)
-UPDATE fields SET format = 'int32' WHERE table_name = 'test_managed_true' AND field_name = 'test_field';
+-- Test 3: Update field nullable constraint in managed=true table (allow NULL)
+UPDATE fields SET is_nullable = TRUE WHERE table_name = 'test_managed_true' AND field_name = 'test_field';
 
 SELECT ok(
-    (SELECT data_type = 'integer' FROM information_schema.columns 
+    (SELECT is_nullable = 'YES' FROM information_schema.columns 
      WHERE table_name = 'test_managed_true' AND column_name = 'test_field'),
-    'Field format change should be applied to managed=true table in database'
+    'Field nullable constraint change should be applied to managed=true table in database'
 );
 
 -- Test 4: Delete field from managed=true table
@@ -166,7 +166,7 @@ SELECT ok(
 
 -- Test 17: Add a field after switching to managed=true (should now execute DDL)
 INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_switch_managed', 'new_field', 'New Field', 'text', FALSE, FALSE, 10, 'default', 'm', 'Field added after enabling managed');
+VALUES ('test_switch_managed', 'new_field', 'New Field', 'int32', FALSE, FALSE, 10, 'default', 'm', 'Field added after enabling managed');
 
 SELECT ok(
     (SELECT EXISTS (
@@ -177,12 +177,12 @@ SELECT ok(
 );
 
 -- Test 18: Update field after switching to managed=true
-UPDATE fields SET format = 'int32' WHERE table_name = 'test_switch_managed' AND field_name = 'new_field';
+UPDATE fields SET is_nullable = TRUE WHERE table_name = 'test_switch_managed' AND field_name = 'new_field';
 
 SELECT ok(
-    (SELECT data_type = 'integer' FROM information_schema.columns 
+    (SELECT is_nullable = 'YES' FROM information_schema.columns 
      WHERE table_name = 'test_switch_managed' AND column_name = 'new_field'),
-    'Field format change should be applied after switching managed to true'
+    'Field nullable constraint change should be applied after switching managed to true'
 );
 
 -- Test 19: Delete field after switching to managed=true

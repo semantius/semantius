@@ -75,10 +75,10 @@ VALUES (
 );
 
 -- Add fields to webhook_receiver_logs table
+-- Note: webhook_id is the label_column and is automatically created by the create_dd_table trigger
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, ctype)
 VALUES 
     ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'int32', FALSE, FALSE, 10, 'default', 's', 'Reference to webhook receiver configuration', NULL, NULL, NULL),
-    ('webhook_receiver_logs', 'webhook_id', 'Webhook ID', 'text', FALSE, FALSE, 20, 'default', 'm', 'External webhook identifier', NULL, NULL, 'label'),
     ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, TRUE, 30, 'default', 'm', 'Timestamp from webhook source', NULL, NULL, NULL),
     ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL),
     ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, TRUE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL),
