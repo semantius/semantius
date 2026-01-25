@@ -302,21 +302,6 @@ VALUES
     ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE),
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'm', NULL, TRUE);
 
--- Insert fields metadata for modules table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
-VALUES 
-    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
-    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
-    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'm', NULL, TRUE),
-    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, TRUE, 35, 'default', 'w', NULL, TRUE),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, TRUE, 36, 'default', 's', NULL, TRUE),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'm', NULL, TRUE),
-    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'm', NULL, TRUE),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, TRUE, 39, 'default', 'w', NULL, TRUE),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
-
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
 VALUES 
@@ -353,6 +338,23 @@ INSERT INTO tables (table_name, singular, singular_label, plural_label, descript
 SELECT 'modules', 'module', 'Module', 'Modules', 'Logical modules that group related roles and permissions', 
        (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name', FALSE
 WHERE NOT EXISTS (SELECT 1 FROM tables WHERE table_name = 'modules');
+
+-- Insert fields metadata for modules table (columns already exist in physical table)
+-- The add_dd_field trigger will skip DDL execution since managed=false
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
+VALUES 
+    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
+    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'm', 'label', TRUE),
+    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, TRUE, 20, 'default', 'w', NULL, TRUE),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'm', NULL, TRUE),
+    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, TRUE, 35, 'default', 'w', NULL, TRUE),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, TRUE, 36, 'default', 's', NULL, TRUE),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'm', NULL, TRUE),
+    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'm', NULL, TRUE),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, TRUE, 39, 'default', 'w', NULL, TRUE),
+    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
+    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE)
+ON CONFLICT (table_name, field_name) DO NOTHING;
 
 -- Now toggle managed to true so future metadata changes will execute DDL
 UPDATE tables SET managed = TRUE WHERE table_name = 'modules';
