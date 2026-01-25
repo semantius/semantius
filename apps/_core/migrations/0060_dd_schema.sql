@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tables (
     edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
     label_column TEXT NOT NULL DEFAULT 'label',
+    managed BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -52,6 +53,7 @@ COMMENT ON COLUMN tables.view_permission IS 'Permission required to SELECT from 
 COMMENT ON COLUMN tables.edit_permission IS 'Permission required to INSERT/UPDATE/DELETE from this table';
 COMMENT ON COLUMN tables.id_column IS 'Name of primary key column (created automatically)';
 COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created automatically)';
+COMMENT ON COLUMN tables.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -262,6 +264,7 @@ VALUES
     ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'm', NULL, TRUE),
     ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE),
     ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'm', NULL, TRUE),
+    ('tables', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 's', NULL, TRUE),
     ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE),
     ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE);
 
@@ -333,3 +336,23 @@ VALUES
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE),
     ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE),
     ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE);
+
+-- =====================================================
+-- MODULES TABLE METADATA
+-- =====================================================
+-- The modules table was created early in 0020_rbac_schema.sql without matching
+-- tables and fields records. We now add the metadata records with managed=false
+-- since the table already exists. After creating the records, we toggle managed
+-- to true so future changes to the metadata will execute DDL.
+
+-- Insert modules table metadata with managed=false (table already exists)
+UPDATE tables SET managed = FALSE WHERE table_name = 'modules';
+
+-- If the update didn't work (no rows), insert the record
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
+SELECT 'modules', 'module', 'Module', 'Modules', 'Logical modules that group related roles and permissions', 
+       (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name', FALSE
+WHERE NOT EXISTS (SELECT 1 FROM tables WHERE table_name = 'modules');
+
+-- Now toggle managed to true so future metadata changes will execute DDL
+UPDATE tables SET managed = TRUE WHERE table_name = 'modules';

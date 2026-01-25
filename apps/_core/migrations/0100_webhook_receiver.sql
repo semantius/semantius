@@ -39,8 +39,10 @@ INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, f
 VALUES 
     ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 's', 'Target table for webhook data', '''''', NULL),
     ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '''''', NULL),
-    ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none or hmac)', '''none''', '["none", "hmac"]'::jsonb),
+    ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none, hmac, or custom header)', '''none''', '["none", "hmac", "header"]'::jsonb),
     ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, TRUE, 40, 'default', 'm', 'Secret for webhook authentication', NULL, NULL),
+    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, TRUE, 45, 'default', 'm', 'Custom header name for authentication', NULL, NULL),
+    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, TRUE, 46, 'default', 'm', 'Expected value for custom header authentication', NULL, NULL),
     ('webhook_receivers', 'jsonata', 'JSONata Expression', 'json', FALSE, TRUE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', NULL, NULL);
 
 -- =====================================================
@@ -69,7 +71,7 @@ VALUES (
     'admin',
     'admin',
     'id',
-    'label'
+    'webhook_id'
 );
 
 -- Add fields to webhook_receiver_logs table
