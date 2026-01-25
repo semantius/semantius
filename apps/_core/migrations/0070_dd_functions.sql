@@ -87,6 +87,12 @@ DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
 BEGIN
+    -- Skip DDL execution if table is not managed
+    IF NOT NEW.managed THEN
+        RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
+        RETURN NEW;
+    END IF;
+    
     -- Validate that view and edit permissions exist
     IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
         RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
@@ -220,7 +226,16 @@ DECLARE
     v_nullable_clause TEXT;
     v_default_clause TEXT;
     v_data_type TEXT;
+    v_is_managed BOOLEAN;
 BEGIN
+    -- Check if the parent table is managed
+    SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
+    
+    IF NOT v_is_managed THEN
+        RAISE NOTICE 'Skipping field addition for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+    
     -- Skip if this is the id or label column (already created by create_dd_table)
     IF NEW.field_name IN (
         SELECT id_column FROM tables WHERE table_name = NEW.table_name
@@ -342,7 +357,11 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_alter_sql TEXT;
     v_new_data_type TEXT;
+    v_is_managed BOOLEAN;
 BEGIN
+    -- Check if the parent table is managed
+    SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
+    
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
         RAISE EXCEPTION 'Cannot change table_name of a field';
@@ -374,6 +393,30 @@ BEGIN
         IF OLD.is_core <> NEW.is_core THEN
             RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
+    END IF;
+    
+    -- Skip DDL operations if table is not managed (but allow metadata updates like description)
+    IF NOT v_is_managed THEN
+        -- Still allow updating column comments even if not managed
+        IF OLD.description IS DISTINCT FROM NEW.description THEN
+            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS %L',
+                    NEW.table_name,
+                    NEW.field_name,
+                    NEW.description
+                );
+            ELSE
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            END IF;
+        END IF;
+        
+        RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
+        RETURN NEW;
     END IF;
     
     -- Update column comment if description changed
@@ -468,10 +511,30 @@ CREATE TRIGGER update_field_trigger
 
 CREATE OR REPLACE FUNCTION delete_dd_field()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_is_managed BOOLEAN;
+    v_table_exists BOOLEAN;
 BEGIN
-    -- Prevent deletion of core fields (id, label, created_at, updated_at)
+    -- Check if the parent table still exists in tables table
+    -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
+    SELECT EXISTS(SELECT 1 FROM tables WHERE table_name = OLD.table_name) INTO v_table_exists;
+    
+    IF NOT v_table_exists THEN
+        -- Table is being deleted, allow cascade deletion of all fields including core fields
+        RETURN OLD;
+    END IF;
+    
+    -- Prevent deletion of core fields (id, label, created_at, updated_at) for standalone field deletions
     IF OLD.is_core THEN
         RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (id, label, created_at, updated_at) cannot be deleted.', OLD.field_name;
+    END IF;
+    
+    -- Check if the parent table is managed
+    SELECT managed INTO v_is_managed FROM tables WHERE table_name = OLD.table_name;
+    
+    IF NOT v_is_managed THEN
+        RAISE NOTICE 'Skipping field deletion for "%.%" (table managed=false)', OLD.table_name, OLD.field_name;
+        RETURN OLD;
     END IF;
     
     -- Drop the column
@@ -504,6 +567,12 @@ CREATE TRIGGER delete_field_trigger
 CREATE OR REPLACE FUNCTION delete_dd_table()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Skip DDL execution if table is not managed
+    IF NOT OLD.managed THEN
+        RAISE NOTICE 'Skipping table deletion for "%" (managed=false)', OLD.table_name;
+        RETURN OLD;
+    END IF;
+    
     -- Drop the table (CASCADE will drop all dependent objects)
     EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', OLD.table_name);
     
