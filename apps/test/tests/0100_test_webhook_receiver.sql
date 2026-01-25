@@ -73,10 +73,10 @@ SELECT ok(
     'webhook_receivers should have header_value field'
 );
 
--- Test 12: webhook_receivers has jsonata field with json format
+-- Test 12: webhook_receivers has jsonata field with jsonata format
 SELECT ok(
-    (SELECT format = 'json' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'jsonata'),
-    'webhook_receivers jsonata field should have json format'
+    (SELECT format = 'jsonata' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'jsonata'),
+    'webhook_receivers jsonata field should have jsonata format'
 );
 
 -- =====================================================
