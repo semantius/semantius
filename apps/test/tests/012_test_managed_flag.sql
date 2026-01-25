@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(13);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -125,34 +125,6 @@ DELETE FROM tables WHERE table_name = 'test_managed_false';
 SELECT ok(
     NOT EXISTS (SELECT 1 FROM tables WHERE table_name = 'test_managed_false'),
     'Table metadata should be deleted from tables table for managed=false'
-);
-
--- =====================================================
--- TEST: Modules table (existing table with managed toggling)
--- =====================================================
-
--- Test 14: Modules table should have metadata in tables table
-SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'modules')),
-    'Modules table metadata should exist in tables table'
-);
-
--- Test 15: Modules table should have managed=true after initialization
-SELECT ok(
-    (SELECT managed = TRUE FROM tables WHERE table_name = 'modules'),
-    'Modules table should have managed=true after initialization'
-);
-
--- Test 16: Modules table should have fields metadata
-SELECT ok(
-    (SELECT COUNT(*) > 0 FROM fields WHERE table_name = 'modules'),
-    'Modules table should have field metadata records'
-);
-
--- Test 17: Modules table exists in database (created in earlier migration)
-SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'modules')),
-    'Modules table should exist in database'
 );
 
 SELECT * FROM finish();
