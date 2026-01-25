@@ -151,6 +151,25 @@ CREATE TABLE test_switch_managed (
 -- Enable RLS on the manually created table
 ALTER TABLE test_switch_managed ENABLE ROW LEVEL SECURITY;
 
+-- Create basic RLS policies for the manually created table
+CREATE POLICY test_switch_managed_select_policy ON test_switch_managed
+    FOR SELECT
+    TO semantius_user
+    USING (rbac.has_permission('public:read'));
+
+CREATE POLICY test_switch_managed_insert_policy ON test_switch_managed
+    FOR INSERT
+    TO semantius_user
+    WITH CHECK (rbac.has_permission('admin'));
+
+-- Manually add core field records for the pre-existing table
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core)
+VALUES 
+    ('test_switch_managed', 'id', 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE),
+    ('test_switch_managed', 'label', 'Label', 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE),
+    ('test_switch_managed', 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', 'timestamp', TRUE),
+    ('test_switch_managed', 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', 'timestamp', TRUE);
+
 SELECT ok(
     (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_switch_managed')),
     'Manually created table should exist in database'

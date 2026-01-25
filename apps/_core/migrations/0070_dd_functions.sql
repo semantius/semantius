@@ -513,8 +513,18 @@ CREATE OR REPLACE FUNCTION delete_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
     v_is_managed BOOLEAN;
+    v_table_exists BOOLEAN;
 BEGIN
-    -- Prevent deletion of core fields (id, label, created_at, updated_at)
+    -- Check if the parent table still exists in tables table
+    -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
+    SELECT EXISTS(SELECT 1 FROM tables WHERE table_name = OLD.table_name) INTO v_table_exists;
+    
+    IF NOT v_table_exists THEN
+        -- Table is being deleted, allow cascade deletion of all fields including core fields
+        RETURN OLD;
+    END IF;
+    
+    -- Prevent deletion of core fields (id, label, created_at, updated_at) for standalone field deletions
     IF OLD.is_core THEN
         RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (id, label, created_at, updated_at) cannot be deleted.', OLD.field_name;
     END IF;
