@@ -293,7 +293,7 @@ WHERE u.external_id = 'user2'
 -- Sample webhook receivers (using products table)
 INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, jsonata)
 VALUES 
-    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'sha256=your-secret-key', NULL),
+    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'your-secret-key', NULL),
     ('Stripe Webhook', 'products', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '{"event_type": "$event.type", "object_id": "$data.object.id"}'::jsonb),
     ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', NULL, NULL);
 
