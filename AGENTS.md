@@ -50,6 +50,17 @@ export DENO_TLS_CA_STORE=system
 
 **Without this environment variable, Deno will fail to download dependencies with "client error (Connect)" errors.**
 
+### Database Access Restrictions
+
+**CRITICAL: psql is NOT available in this environment**
+
+- **NEVER use psql commands** - they will fail because psql is not installed
+- **NEVER attempt to run SQL directly via psql** - use Deno CLI commands only
+- All database interactions MUST go through the Deno CLI (`deno task` commands)
+- For testing SQL queries, use `deno task test` with pgTAP test files
+- For database connections, use `deno task connect` (but this only validates connectivity)
+- To execute SQL, add it to migration files or test files and run through the CLI
+
 ## Core Architecture
 
 ### Database-First Design
@@ -114,7 +125,8 @@ deno task test
 - If any tests fail, **investigate and fix failures** before completing the task
 - If database is not accessible, **STOP, inform user, and wait** for connection string update
 - Use the DATABASE_URL from the environment (never create your own database)
-- Never use `psql` directly - always use the Deno CLI commands
+- **NEVER use `psql` directly** - psql is not installed in this environment
+- **ALWAYS use Deno CLI commands** - all database operations must go through `deno task` commands
 
 ### Complete Testing Workflow Summary
 

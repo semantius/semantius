@@ -1,13 +1,17 @@
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@std/fmt@1.0.8": "jsr:@std/fmt@1.0.8"
-    },
-    "jsr": {
-      "@std/fmt@1.0.8": {
-        "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
-      }
+  "version": "5",
+  "specifiers": {
+    "jsr:@std/fmt@1.0.8": "1.0.8",
+    "npm:postgres@*": "3.4.8"
+  },
+  "jsr": {
+    "@std/fmt@1.0.8": {
+      "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
+    }
+  },
+  "npm": {
+    "postgres@3.4.8": {
+      "integrity": "sha512-d+JFcLM17njZaOLkv6SCev7uoLaBtfK86vMUXhW1Z4glPWh4jozno9APvW/XKFJ3CCxVoC7OL38BqRydtu5nGg=="
     }
   },
   "remote": {

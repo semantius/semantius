@@ -37,13 +37,13 @@ VALUES (
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values)
 VALUES 
-    ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 's', 'Target table for webhook data', '''''', NULL),
-    ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '''''', NULL),
-    ('webhook_receivers', 'auth_type', 'Authentication Type', 'text', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none, hmac, or custom header)', '''none''', '["none", "hmac", "header"]'::jsonb),
-    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'm', 'Secret for webhook authentication', '''''', NULL),
-    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, FALSE, 45, 'default', 'm', 'Custom header name for authentication', '''''', NULL),
-    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, FALSE, 46, 'default', 'm', 'Expected value for custom header authentication', '''''', NULL),
-    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '''''', NULL);
+    ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 's', 'Target table for webhook data', '', NULL),
+    ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL),
+    ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, FALSE, 30, 'default', 's', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb),
+    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'm', 'Secret for webhook authentication', '', NULL),
+    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, FALSE, 45, 'default', 'm', 'Custom header name for authentication', '', NULL),
+    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, FALSE, 46, 'default', 'm', 'Expected value for custom header authentication', '', NULL),
+    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '', NULL);
 
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
@@ -82,8 +82,8 @@ VALUES
     ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, FALSE, 30, 'default', 'm', 'Timestamp from webhook source', NULL, NULL, NULL),
     ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL),
     ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, FALSE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL),
-    ('webhook_receiver_logs', 'result', 'Result', 'int32', FALSE, FALSE, 60, 'default', 's', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL),
-    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, FALSE, 70, 'default', 'w', 'Error message if processing failed', '''''', NULL, NULL);
+    ('webhook_receiver_logs', 'result', 'Result', 'enum', FALSE, FALSE, 60, 'default', 's', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL),
+    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, FALSE, 70, 'default', 'w', 'Error message if processing failed', '', NULL, NULL);
 
 -- =====================================================
 -- ADD FOREIGN KEY AND INDEX

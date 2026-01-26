@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS fields (
     CONSTRAINT valid_format CHECK (
         format IN (
             -- Custom SemSchema formats
-            'json', 'html', 'text', 'code', 'jsonata', 'reference',
+            'json', 'html', 'text', 'code', 'jsonata', 'reference', 'enum',
             -- Standard JSON Schema formats
             'date', 'time', 'date-time', 'duration',
             'uri', 'uri-reference', 'uri-template', 'url',

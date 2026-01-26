@@ -18,6 +18,9 @@ DECLARE
     v_is_managed BOOLEAN;
     v_table_exists BOOLEAN;
 BEGIN
+    -- Suppress IF NOT EXISTS/IF EXISTS notices
+    SET LOCAL client_min_messages = WARNING;
+    
     -- Check if the table actually exists in the database
     SELECT EXISTS (
         SELECT 1 FROM information_schema.tables 
@@ -25,7 +28,7 @@ BEGIN
     ) INTO v_table_exists;
     
     IF NOT v_table_exists THEN
-        RAISE NOTICE 'Skipping search vector update for "%" (table does not exist)', p_table_name;
+
         RETURN;
     END IF;
     
@@ -71,7 +74,7 @@ BEGIN
             p_table_name
         );
         
-        RAISE NOTICE 'Removed search_vector column and index from table "%" (no searchable fields)', p_table_name;
+
         RETURN;
     END IF;
     
@@ -128,9 +131,7 @@ BEGIN
         p_table_name || '_search_vector_idx',
         p_table_name
     );
-    
-    RAISE NOTICE 'Updated search_vector column and GIN index for table "%" with % searchable field(s)',
-        p_table_name, array_length(v_searchable_fields, 1);
+
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -158,8 +159,7 @@ BEGIN
     UPDATE tables 
     SET searchable = v_has_searchable_fields
     WHERE table_name = p_table_name;
-    
-    RAISE NOTICE 'Updated searchable flag for table "%" to %', p_table_name, v_has_searchable_fields;
+
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -241,9 +241,7 @@ BEGIN
         
         -- Override any manual change with the computed value
         NEW.searchable := v_computed_searchable;
-        
-        RAISE NOTICE 'Recomputed searchable flag for table "%" to % (manual change was overridden)', 
-            NEW.table_name, v_computed_searchable;
+
     END IF;
     
     RETURN NEW;

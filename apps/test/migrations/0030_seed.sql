@@ -134,10 +134,10 @@ VALUES (
 -- Add fields to customers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, searchable)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', '''''', NULL, TRUE),
-    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'm', 'Company or organization name', '''''', NULL, TRUE),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'm', 'Customer contact phone number', '''''', NULL, TRUE),
-    ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active''', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE),
+    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Customer primary email address', '', NULL, TRUE),
+    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'm', 'Company or organization name', '', NULL, TRUE),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'm', 'Customer contact phone number', '', NULL, TRUE),
+    ('customers', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE),
     ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0', NULL, FALSE);
 
 -- Add reference field from customers to regions (not required, default restrict mode)
@@ -148,8 +148,8 @@ VALUES
 -- Add fields to employees table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
 VALUES 
-    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address', '''''', TRUE),
-    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position', '''''', TRUE),
+    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address', '', TRUE),
+    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position', '', TRUE),
     ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'm', 'Date employee was hired', 'CURRENT_DATE', FALSE),
     ('employees', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'm', 'Annual salary amount', '0.0', FALSE),
     ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active', 'TRUE', FALSE);
@@ -162,24 +162,24 @@ VALUES
 -- Add fields to products table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
 VALUES 
-    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier', '''''', TRUE),
-    ('products', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '''''', TRUE),
+    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'm', 'Stock keeping unit - unique product identifier', '', TRUE),
+    ('products', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE),
     ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency', '0.0', FALSE),
     ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity', '0', FALSE),
-    ('products', 'category', 'Category', 'text', FALSE, FALSE, 50, 'default', 'm', 'Product category or classification', '''''', TRUE),
+    ('products', 'category', 'Category', 'text', FALSE, FALSE, 50, 'default', 'm', 'Product category or classification', '', TRUE),
     ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE', FALSE);
 
 -- Add fields to regions table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
 VALUES 
-    ('regions', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the region', '''''', TRUE),
-    ('regions', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '''''', TRUE);
+    ('regions', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the region', '', TRUE),
+    ('regions', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '', TRUE);
 
 -- Add fields to departments table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
 VALUES 
-    ('departments', 'code', 'Department Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the department', '''''', TRUE),
-    ('departments', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the department', '''''', TRUE),
+    ('departments', 'code', 'Department Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the department', '', TRUE),
+    ('departments', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the department', '', TRUE),
     ('departments', 'budget', 'Annual Budget', 'double', FALSE, FALSE, 30, 'default', 'm', 'Annual budget allocation', '0.0', FALSE);
 
 -- =====================================================

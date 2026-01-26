@@ -79,6 +79,49 @@ COMMENT ON FUNCTION format_to_json_type IS
 'Maps format values to JSON Schema primitive types for consistent type handling.';
 
 -- =====================================================
+-- HELPER FUNCTION: QUOTE DEFAULT VALUE
+-- =====================================================
+-- Properly quotes default values based on data type
+-- Properly quotes default values based on data type for DDL statements
+
+CREATE OR REPLACE FUNCTION quote_default_value(p_default_value TEXT, p_data_type TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    -- If default value is NULL or empty, return as-is
+    IF p_default_value IS NULL OR trim(p_default_value) = '' THEN
+        RETURN p_default_value;
+    END IF;
+    
+    -- If it's a function call (contains parentheses) or cast (contains ::), return as-is
+    IF p_default_value ~ '\(|::' THEN
+        RETURN p_default_value;
+    END IF;
+    
+    -- If it's a numeric constant and data type is numeric, return as-is
+    IF p_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT', 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') 
+       AND p_default_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+        RETURN p_default_value;
+    END IF;
+    
+    -- If it's a boolean constant, return uppercase for consistency
+    IF p_data_type = 'BOOLEAN' AND p_default_value IN ('TRUE', 'FALSE', 'true', 'false', 't', 'f') THEN
+        RETURN UPPER(p_default_value);
+    END IF;
+    
+    -- For TEXT and string-like types, quote the value
+    IF p_data_type IN ('TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING') THEN
+        RETURN quote_literal(p_default_value);
+    END IF;
+    
+    -- Default: return as-is (for special types like UUID, JSONB, etc.)
+    RETURN p_default_value;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+COMMENT ON FUNCTION quote_default_value IS 
+'Properly quotes default values based on data type for use in DDL statements.';
+
+-- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
 -- =====================================================
 
@@ -201,9 +244,7 @@ BEGIN
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', 'timestamp', TRUE, FALSE),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', 'timestamp', TRUE, FALSE);
     
-    RAISE NOTICE 'Created table "%" with RLS policies using view permission "%" and edit permission "%"',
-        NEW.table_name, NEW.view_permission, NEW.edit_permission;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -234,6 +275,9 @@ DECLARE
     v_idx_name TEXT;
     v_on_delete TEXT;
 BEGIN
+    -- Suppress IF NOT EXISTS/IF EXISTS notices
+    SET LOCAL client_min_messages = WARNING;
+    
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
     
@@ -272,7 +316,7 @@ BEGIN
     
     -- Build default clause with sensible defaults based on data type
     IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
-        v_default_clause := format('DEFAULT %s', NEW.default_value);
+        v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
     ELSIF NOT NEW.is_nullable THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
         -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
@@ -384,13 +428,37 @@ BEGIN
             NEW.field_name
         );
         EXECUTE v_alter_sql;
-        
-        RAISE NOTICE 'Added foreign key "%" from %.% to %.% with ON DELETE %',
-            v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
     END IF;
     
-    RAISE NOTICE 'Added column "%" to table "%" with type %',
-        NEW.field_name, NEW.table_name, v_data_type;
+    -- If this is an enum field, add CHECK constraint for allowed values
+    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+        DECLARE
+            v_check_name TEXT;
+            v_enum_values_sql TEXT;
+        BEGIN
+            -- Generate CHECK constraint name
+            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+            
+            -- Build SQL array from JSONB array for IN clause
+            v_enum_values_sql := (
+                SELECT string_agg(quote_literal(value::text), ', ')
+                FROM jsonb_array_elements_text(NEW.enum_values) AS value
+            );
+            
+            -- Add CHECK constraint
+            v_alter_sql := format(
+                'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
+                NEW.table_name,
+                v_check_name,
+                NEW.field_name,
+                v_enum_values_sql
+            );
+            EXECUTE v_alter_sql;
+            
+            RAISE NOTICE 'Added CHECK constraint "%" for enum field "%.%"',
+                v_check_name, NEW.table_name, NEW.field_name;
+        END;
+    END IF;
     
     RETURN NEW;
 END;
@@ -545,7 +613,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                NEW.default_value
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -623,6 +691,52 @@ BEGIN
                 RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END IF;
+    END IF;
+    
+    -- Handle enum CHECK constraint changes
+    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
+        DECLARE
+            v_check_name TEXT;
+            v_enum_values_sql TEXT;
+        BEGIN
+            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+            
+            -- Check if enum_values changed or format changed
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+                
+                -- Drop existing CHECK constraint if it exists
+                IF OLD.format = 'enum' THEN
+                    EXECUTE format(
+                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                        NEW.table_name,
+                        v_check_name
+                    );
+                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
+                END IF;
+                
+                -- Add new CHECK constraint if format is now 'enum'
+                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                    -- Build SQL array from JSONB array for IN clause
+                    v_enum_values_sql := (
+                        SELECT string_agg(quote_literal(value::text), ', ')
+                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                    );
+                    
+                    -- Add CHECK constraint
+                    v_alter_sql := format(
+                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
+                        NEW.table_name,
+                        v_check_name,
+                        NEW.field_name,
+                        v_enum_values_sql
+                    );
+                    EXECUTE v_alter_sql;
+                    
+                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
+                        v_check_name, NEW.table_name, NEW.field_name;
+                END IF;
+            END IF;
+        END;
     END IF;
     
     RETURN NEW;
