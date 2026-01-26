@@ -1,7 +1,7 @@
 -- Test full-text search functionality
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(31);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -74,6 +74,35 @@ SELECT ok(
         WHERE table_name = 'test_search_table' AND column_name = 'search_vector'
     )),
     'search_vector column should still exist after adding searchable field'
+);
+
+-- =====================================================
+-- TEST: Newly added searchable field is immediately searchable
+-- =====================================================
+
+-- Insert a record with a unique value in the newly added description field
+INSERT INTO test_search_table (name, description) 
+VALUES ('Test Immediate', 'ImmediateSearchTest unique keyword');
+
+-- Immediately search for the unique keyword to verify field is searchable right away
+SELECT ok(
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'ImmediateSearchTest')) = 1,
+    'Newly added searchable field should be immediately searchable after INSERT'
+);
+
+-- Update the same record with another unique keyword
+UPDATE test_search_table SET description = 'UpdatedImmediately unique keyword' WHERE name = 'Test Immediate';
+
+-- Verify the updated value is immediately searchable
+SELECT ok(
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'UpdatedImmediately')) = 1,
+    'Updated value in newly added searchable field should be immediately searchable'
+);
+
+-- Verify old value is no longer found
+SELECT ok(
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'ImmediateSearchTest')) = 0,
+    'Old value should not be found after update'
 );
 
 -- Insert test data
