@@ -51,8 +51,8 @@ SELECT ok(
 -- TEST: Valid references can be inserted
 -- =====================================================
 
--- Switch to admin to insert test data
-select authenticate_as('user3');
+-- Switch to user2 (has sales:manage) to insert test customers
+select authenticate_as('user2');
 
 -- Test inserting a customer with a valid region_id
 SELECT lives_ok(
@@ -62,6 +62,9 @@ SELECT lives_ok(
     $$,
     'Should be able to insert customer with valid region_id'
 );
+
+-- Switch to admin for employee tests
+select authenticate_as('user3');
 
 -- Test inserting an employee with a valid department_id
 SELECT lives_ok(
@@ -76,6 +79,9 @@ SELECT lives_ok(
 -- TEST: Invalid references are rejected
 -- =====================================================
 
+-- Switch to user2 for customer tests
+select authenticate_as('user2');
+
 -- Test that inserting a customer with invalid region_id fails
 SELECT throws_ok(
     $$
@@ -86,6 +92,9 @@ SELECT throws_ok(
     NULL,
     'Should not be able to insert customer with invalid region_id'
 );
+
+-- Switch to admin for employee tests
+select authenticate_as('user3');
 
 -- Test that inserting an employee with invalid department_id fails
 SELECT throws_ok(
@@ -102,6 +111,9 @@ SELECT throws_ok(
 -- TEST: NULL values are allowed for nullable foreign keys
 -- =====================================================
 
+-- Switch to user2 for customer tests
+select authenticate_as('user2');
+
 -- Test inserting a customer with NULL region_id (region_id is nullable)
 SELECT lives_ok(
     $$
@@ -114,6 +126,9 @@ SELECT lives_ok(
 -- =====================================================
 -- TEST: NULL values are rejected for non-nullable foreign keys
 -- =====================================================
+
+-- Switch to admin for employee tests
+select authenticate_as('user3');
 
 -- Test that inserting an employee with NULL department_id fails (department_id is NOT NULL)
 SELECT throws_ok(
@@ -188,6 +203,9 @@ SELECT ok(
 -- TEST: Updating foreign key references
 -- =====================================================
 
+-- Switch to user2 for customer tests
+select authenticate_as('user2');
+
 -- Test updating a customer's region_id to another valid region
 SELECT lives_ok(
     $$
@@ -214,6 +232,9 @@ SELECT lives_ok(
 -- =====================================================
 -- TEST: Test ON DELETE SET NULL behavior (clear mode)
 -- =====================================================
+
+-- Switch to admin to create test table
+select authenticate_as('user3');
 
 -- Create a test table and field with reference_delete_mode = 'clear'
 INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
