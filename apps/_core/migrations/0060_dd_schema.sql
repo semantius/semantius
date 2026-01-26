@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS fields (
     is_core BOOLEAN NOT NULL DEFAULT FALSE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     enum_values JSONB DEFAULT NULL,
-    reference_table TEXT DEFAULT NULL,
+    reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS fields (
     
     -- Ensure reference_table is set when format is 'reference'
     CONSTRAINT reference_requires_table CHECK (
-        (format = 'reference' AND reference_table IS NOT NULL) OR (format != 'reference')
+        (format = 'reference' AND reference_table != '') OR (format != 'reference')
     )
 );
 
@@ -156,15 +156,29 @@ COMMENT ON COLUMN fields.width IS 'Display width for UI rendering: s (small), m 
 COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), or label (display field)';
 COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
 COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
-COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference tables.table_name when format is "reference".';
+COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference tables.table_name when format is "reference". Empty string means no reference.';
 COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
 
--- Add foreign key constraint from reference_table to tables.table_name
-ALTER TABLE fields 
-ADD CONSTRAINT fields_reference_table_fkey 
-FOREIGN KEY (reference_table) 
-REFERENCES tables(table_name) 
-ON DELETE RESTRICT;
+-- Create trigger function to validate reference_table when not empty
+-- We use a trigger instead of CHECK constraint to allow subqueries
+CREATE OR REPLACE FUNCTION validate_reference_table()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only validate if reference_table is not empty
+    IF NEW.reference_table != '' THEN
+        -- Check if the referenced table exists
+        IF NOT EXISTS (SELECT 1 FROM tables WHERE table_name = NEW.reference_table) THEN
+            RAISE EXCEPTION 'Referenced table "%" not found in tables', NEW.reference_table;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER validate_reference_table_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_reference_table();
 
 -- =====================================================
 -- ENABLE RLS ON METADATA TABLES
@@ -321,7 +335,7 @@ VALUES
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE, NULL),
     ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE, NULL),
     ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL),
-    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, TRUE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
+    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
     ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, '["restrict", "clear"]'::jsonb),
     ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE, NULL),
     ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE, NULL);

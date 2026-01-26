@@ -238,7 +238,7 @@ BEGIN
             END ||
             -- Add reference_table field if format is 'reference'
             CASE 
-                WHEN format = 'reference' AND reference_table IS NOT NULL
+                WHEN format = 'reference' AND reference_table != ''
                 THEN jsonb_build_object('referenceTable', reference_table, 'referenceDeleteMode', reference_delete_mode)
                 ELSE '{}'::jsonb
             END ||
