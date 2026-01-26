@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(76);
+SELECT plan(77);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -370,6 +370,12 @@ SELECT ok(
 SELECT ok(
     (public.get_schema('customers')::jsonb)->'properties'->'status'->'enum' @> '["inactive"]'::jsonb,
     'get_schema() enum array should contain "inactive"'
+);
+
+-- Test that enum fields do NOT include format property
+SELECT ok(
+    NOT ((public.get_schema('customers')::jsonb)->'properties'->'status' ? 'format'),
+    'get_schema() should NOT include format field for enum fields'
 );
 
 -- Test default empty string for string fields

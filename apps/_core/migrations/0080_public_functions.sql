@@ -221,12 +221,12 @@ BEGIN
             jsonb_build_object('isCore', is_core) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
-            -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc)
+            -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
             CASE 
                 WHEN format IS NOT NULL 
                      AND format != '' 
                      AND format != 'text'
-                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null')
+                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
             END ||
