@@ -210,28 +210,47 @@ deno task test
 
 **Fields Table Structure**
 The `fields` table uses a JSON Schema-based format system:
-- **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text')
+- **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text', 'reference')
   - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text'
   - Specific formats: 'email', 'url', 'date', 'date-time', 'int32', 'int64', 'float', 'double', etc.
+  - Foreign key format: 'reference' (mapped to INTEGER type for foreign key relationships)
 - **input_type** column: UI rendering hint ('default', 'required', 'readonly', 'disabled', 'hidden')
 - **width** column: UI width hint ('s' = small, 'm' = medium, 'w' = wide)
 - **title** column: Human-readable field label (renamed from 'label')
 - **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
+- **reference_table** column: Table name for foreign key relationships (required when format='reference')
+- **reference_delete_mode** column: ON DELETE behavior for foreign keys
+  - 'restrict' (default): ON DELETE RESTRICT - prevents deletion of referenced record
+  - 'clear': ON DELETE SET NULL - sets foreign key to NULL when referenced record is deleted
 - **format_to_data_type()** function: Maps format values to PostgreSQL data types for CREATE/ALTER TABLE statements
 - **format_to_json_type()** function: Maps format values to JSON Schema primitive types (used by get_schema())
 - When adding fields, use lowercase format values and appropriate input_type/width for UI rendering
+
+**Foreign Key Support**
+The system supports automatic foreign key creation and management:
+- Use format='reference' with reference_table set to create a foreign key
+- Foreign key fields are mapped to INTEGER type and reference the target table's id_column
+- Indexes are automatically created for foreign key columns (idx_<table>_<field>)
+- ON DELETE behavior is controlled by reference_delete_mode:
+  - 'restrict': Prevents deletion of referenced records (referential integrity)
+  - 'clear': Automatically sets foreign key to NULL when referenced record is deleted
+- Foreign key constraints are automatically created, updated, and dropped by DDL triggers
+- Example: `format='reference', reference_table='regions', reference_delete_mode='restrict'`
 
 **get_schema() Function Behavior**
 The `public.get_schema()` function returns JSON Schema with:
 - **fieldOrder**: Each property includes its field_order value for proper UI ordering
 - **format field**: Only included for string-based formats (email, url, date, etc.), NOT for type mappers (int32, float, double, etc.)
 - **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
+- **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
 - **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at) even if they have is_nullable=FALSE
 - **created_at and updated_at fields**: 
   - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
   - NOT included in the required array since they are auto-maintained by database triggers
   - Should not be submitted in INSERT/UPDATE operations
+- **table object**: The get_schema() output includes a 'table' object with ALL columns from the tables table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, label_column, managed, searchable, created_at, updated_at)
+- **properties object**: The get_schema() output includes a 'properties' object with ALL columns from the fields table as field properties
 
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)

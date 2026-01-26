@@ -19,6 +19,7 @@ BEGIN
         WHEN 'int32' THEN 'INTEGER'
         WHEN 'int64' THEN 'BIGINT'
         WHEN 'integer' THEN 'INTEGER'
+        WHEN 'reference' THEN 'INTEGER'  -- Foreign key references use INTEGER
         
         -- Number formats
         WHEN 'float' THEN 'REAL'
@@ -63,7 +64,7 @@ CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
 RETURNS TEXT AS $$
 BEGIN
     RETURN CASE 
-        WHEN p_format IN ('int32', 'int64', 'integer') THEN 'integer'
+        WHEN p_format IN ('int32', 'int64', 'integer', 'reference') THEN 'integer'
         WHEN p_format IN ('float', 'double', 'number') THEN 'number'
         WHEN p_format = 'boolean' THEN 'boolean'
         WHEN p_format IN ('array') THEN 'array'
@@ -228,6 +229,10 @@ DECLARE
     v_default_clause TEXT;
     v_data_type TEXT;
     v_is_managed BOOLEAN;
+    v_ref_id_column TEXT;
+    v_fk_name TEXT;
+    v_idx_name TEXT;
+    v_on_delete TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
@@ -337,6 +342,53 @@ BEGIN
         );
     END IF;
     
+    -- If this is a reference field, add foreign key constraint
+    IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
+        -- Get the id_column of the referenced table
+        SELECT id_column INTO v_ref_id_column
+        FROM tables
+        WHERE table_name = NEW.reference_table;
+        
+        IF v_ref_id_column IS NULL THEN
+            RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+        END IF;
+        
+        -- Determine ON DELETE behavior based on reference_delete_mode
+        IF NEW.reference_delete_mode = 'clear' THEN
+            v_on_delete := 'SET NULL';
+        ELSE
+            v_on_delete := 'RESTRICT';
+        END IF;
+        
+        -- Generate foreign key constraint name
+        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        
+        -- Add foreign key constraint
+        v_alter_sql := format(
+            'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+            NEW.table_name,
+            v_fk_name,
+            NEW.field_name,
+            NEW.reference_table,
+            v_ref_id_column,
+            v_on_delete
+        );
+        EXECUTE v_alter_sql;
+        
+        -- Create index for foreign key
+        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
+        v_alter_sql := format(
+            'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
+            v_idx_name,
+            NEW.table_name,
+            NEW.field_name
+        );
+        EXECUTE v_alter_sql;
+        
+        RAISE NOTICE 'Added foreign key "%" from %.% to %.% with ON DELETE %',
+            v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
+    END IF;
+    
     RAISE NOTICE 'Added column "%" to table "%" with type %',
         NEW.field_name, NEW.table_name, v_data_type;
     
@@ -363,6 +415,10 @@ DECLARE
     v_alter_sql TEXT;
     v_new_data_type TEXT;
     v_is_managed BOOLEAN;
+    v_ref_id_column TEXT;
+    v_fk_name TEXT;
+    v_idx_name TEXT;
+    v_on_delete TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
@@ -497,6 +553,78 @@ BEGIN
             NEW.field_name, NEW.table_name;
     END IF;
     
+    -- Handle foreign key reference changes
+    IF OLD.format = 'reference' OR NEW.format = 'reference' THEN
+        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
+        
+        -- Check if reference_table or reference_delete_mode changed
+        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR 
+           (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
+           (OLD.format <> NEW.format) THEN
+            
+            -- Drop existing foreign key constraint if it exists
+            IF OLD.format = 'reference' THEN
+                EXECUTE format(
+                    'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                    NEW.table_name,
+                    v_fk_name
+                );
+                RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
+            END IF;
+            
+            -- Add new foreign key constraint if format is now 'reference'
+            IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
+                -- Get the id_column of the referenced table
+                SELECT id_column INTO v_ref_id_column
+                FROM tables
+                WHERE table_name = NEW.reference_table;
+                
+                IF v_ref_id_column IS NULL THEN
+                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                END IF;
+                
+                -- Determine ON DELETE behavior
+                IF NEW.reference_delete_mode = 'clear' THEN
+                    v_on_delete := 'SET NULL';
+                ELSE
+                    v_on_delete := 'RESTRICT';
+                END IF;
+                
+                -- Add foreign key constraint
+                v_alter_sql := format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    NEW.table_name,
+                    v_fk_name,
+                    NEW.field_name,
+                    NEW.reference_table,
+                    v_ref_id_column,
+                    v_on_delete
+                );
+                EXECUTE v_alter_sql;
+                
+                -- Create index for foreign key if it doesn't exist
+                v_alter_sql := format(
+                    'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
+                    v_idx_name,
+                    NEW.table_name,
+                    NEW.field_name
+                );
+                EXECUTE v_alter_sql;
+                
+                RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
+                    v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
+            ELSIF NEW.format != 'reference' AND OLD.format = 'reference' THEN
+                -- Drop index if format changed from reference to something else
+                EXECUTE format(
+                    'DROP INDEX IF EXISTS %I',
+                    v_idx_name
+                );
+                RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END IF;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -519,6 +647,8 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_is_managed BOOLEAN;
     v_table_exists BOOLEAN;
+    v_fk_name TEXT;
+    v_idx_name TEXT;
 BEGIN
     -- Check if the parent table still exists in tables table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
@@ -540,6 +670,25 @@ BEGIN
     IF NOT v_is_managed THEN
         RAISE NOTICE 'Skipping field deletion for "%.%" (table managed=false)', OLD.table_name, OLD.field_name;
         RETURN OLD;
+    END IF;
+    
+    -- Drop foreign key constraint if this is a reference field
+    IF OLD.format = 'reference' THEN
+        v_fk_name := format('%s_%s_fkey', OLD.table_name, OLD.field_name);
+        EXECUTE format(
+            'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+            OLD.table_name,
+            v_fk_name
+        );
+        RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
+        
+        -- Drop index for foreign key
+        v_idx_name := format('idx_%s_%s', OLD.table_name, OLD.field_name);
+        EXECUTE format(
+            'DROP INDEX IF EXISTS %I',
+            v_idx_name
+        );
+        RAISE NOTICE 'Dropped index "%"', v_idx_name;
     END IF;
     
     -- Drop the column

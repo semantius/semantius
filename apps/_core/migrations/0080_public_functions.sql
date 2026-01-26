@@ -189,7 +189,9 @@ BEGIN
             input_type,
             width,
             field_order,
-            enum_values
+            enum_values,
+            reference_table,
+            reference_delete_mode
         FROM fields
         WHERE table_name = p_table_name
         ORDER BY field_order
@@ -219,6 +221,12 @@ BEGIN
             CASE 
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
                 THEN jsonb_build_object('enum', enum_values)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add reference_table field if format is 'reference'
+            CASE 
+                WHEN format = 'reference' AND reference_table IS NOT NULL
+                THEN jsonb_build_object('referenceTable', reference_table, 'referenceDeleteMode', reference_delete_mode)
                 ELSE '{}'::jsonb
             END ||
             -- Add default field separately to handle type conversion properly

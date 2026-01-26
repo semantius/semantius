@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS fields (
     CONSTRAINT valid_format CHECK (
         format IN (
             -- Custom SemSchema formats
-            'json', 'html', 'text', 'code', 'jsonata',
+            'json', 'html', 'text', 'code', 'jsonata', 'reference',
             -- Standard JSON Schema formats
             'date', 'time', 'date-time', 'duration',
             'uri', 'uri-reference', 'uri-template', 'url',
@@ -267,6 +267,7 @@ VALUES
     ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE),
     ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'm', NULL, TRUE, FALSE),
     ('tables', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 's', NULL, TRUE, FALSE),
+    ('tables', 'searchable', 'Searchable', 'Whether table is included in full-text search', 'boolean', FALSE, FALSE, 117, 'default', 's', NULL, TRUE, FALSE),
     ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE, FALSE),
     ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE, FALSE);
 
@@ -289,6 +290,10 @@ VALUES
     ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE),
     ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE),
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE),
+    ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE),
+    ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE),
+    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, TRUE, 138, 'default', 'm', NULL, TRUE, FALSE),
+    ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'text', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE),
     ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE),
     ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE);
 
