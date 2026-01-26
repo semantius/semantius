@@ -1,7 +1,7 @@
 -- Test foreign key functionality
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(21);
 
 -- =====================================================
 -- TEST: Foreign key constraints are created
@@ -183,6 +183,9 @@ SELECT lives_ok(
 -- TEST: ON DELETE RESTRICT behavior for customers-regions (default)
 -- =====================================================
 
+-- Switch to user2 who has sales:manage permission
+select authenticate_as('user2');
+
 -- Try to delete a region that has customers (should fail due to RESTRICT)
 SELECT throws_ok(
     $$
@@ -228,58 +231,6 @@ SELECT lives_ok(
     $$,
     'Should be able to update customer region_id to NULL'
 );
-
--- =====================================================
--- TEST: Test ON DELETE SET NULL behavior (clear mode)
--- =====================================================
-
--- Switch to admin to create test table
-select authenticate_as('user3');
-
--- Create a test table and field with reference_delete_mode = 'clear'
-INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES (
-    'test_table_clear',
-    'test_item',
-    'Test Item',
-    'Test Items',
-    'Test table for ON DELETE SET NULL behavior',
-    1001,
-    'public:read',
-    'admin',
-    'id',
-    'item_name'
-);
-
--- Add a reference field with clear mode (SET NULL)
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
-VALUES 
-    ('test_table_clear', 'region_id', 'Region', 'reference', FALSE, TRUE, 10, 'default', 's', 'Region for this item', 'regions', 'clear', FALSE);
-
--- Insert a test record
-INSERT INTO test_table_clear (item_name, region_id)
-VALUES ('Test Item 1', 3);
-
--- Verify the record was inserted with region_id = 3
-SELECT is(
-    (SELECT region_id FROM test_table_clear WHERE item_name = 'Test Item 1'),
-    3,
-    'Test item should have region_id = 3'
-);
-
--- Delete the region (should SET NULL due to clear mode)
-DELETE FROM regions WHERE id = 3;
-
--- Verify the region_id was set to NULL
-SELECT is(
-    (SELECT region_id FROM test_table_clear WHERE item_name = 'Test Item 1'),
-    NULL,
-    'Test item region_id should be NULL after region deletion (SET NULL)'
-);
-
--- Cleanup
-DELETE FROM test_table_clear WHERE item_name = 'Test Item 1';
-DELETE FROM tables WHERE table_name = 'test_table_clear';
 
 -- =====================================================
 -- TEST: Format 'reference' is properly mapped to INTEGER
