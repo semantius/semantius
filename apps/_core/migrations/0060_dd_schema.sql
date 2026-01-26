@@ -292,7 +292,7 @@ VALUES
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE),
     ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE),
     ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE),
-    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'm', NULL, TRUE, FALSE),
+    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, TRUE, 138, 'default', 'm', NULL, TRUE, FALSE),
     ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'text', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE),
     ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE),
     ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE);

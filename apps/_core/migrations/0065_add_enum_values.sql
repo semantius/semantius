@@ -14,10 +14,14 @@ COMMENT ON COLUMN fields.enum_values IS
 -- Add columns to support foreign key relationships
 
 -- Add reference_table column - references tables.table_name
-ALTER TABLE fields ADD COLUMN IF NOT EXISTS reference_table TEXT DEFAULT '';
+-- Use NULL instead of empty string as default to avoid foreign key constraint issues
+ALTER TABLE fields ADD COLUMN IF NOT EXISTS reference_table TEXT DEFAULT NULL;
 
 -- Add reference_delete_mode column - controls ON DELETE behavior
 ALTER TABLE fields ADD COLUMN IF NOT EXISTS reference_delete_mode TEXT NOT NULL DEFAULT 'restrict';
+
+-- Update any existing empty strings to NULL
+UPDATE fields SET reference_table = NULL WHERE reference_table = '';
 
 -- Add foreign key constraint from reference_table to tables.table_name
 -- ON DELETE depends on reference_delete_mode: 'restrict' -> RESTRICT, 'clear' -> SET NULL
@@ -59,7 +63,7 @@ BEGIN
     ) THEN
         ALTER TABLE fields
         ADD CONSTRAINT reference_requires_table CHECK (
-            (format = 'reference' AND reference_table != '') OR (format != 'reference')
+            (format = 'reference' AND reference_table IS NOT NULL) OR (format != 'reference')
         );
     END IF;
 END $$;
