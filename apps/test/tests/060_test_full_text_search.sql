@@ -1,7 +1,7 @@
 -- Test full-text search functionality
 BEGIN;
 
-SELECT plan(31);
+SELECT plan(33);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -209,11 +209,11 @@ INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, fi
 VALUES ('test_search_table', 'notes', 'Notes', 'text', FALSE, FALSE, 20, 'default', 'w', 'Additional notes', TRUE, '''''');
 
 -- Add notes to one record
-UPDATE test_search_table SET notes = 'Unique notes content here' WHERE name = 'Product Beta';
+UPDATE test_search_table SET notes = 'Notefield specific content here' WHERE name = 'Product Beta';
 
 -- Verify notes content is searchable
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'unique')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'Notefield')) = 1,
     'Newly added searchable field should be included in search'
 );
 

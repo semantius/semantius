@@ -691,9 +691,9 @@ BEGIN
         RAISE NOTICE 'Dropped index "%"', v_idx_name;
     END IF;
     
-    -- Drop the column
+    -- Drop the column (CASCADE to drop any dependent objects like generated columns)
     EXECUTE format(
-        'ALTER TABLE %I DROP COLUMN IF EXISTS %I',
+        'ALTER TABLE %I DROP COLUMN IF EXISTS %I CASCADE',
         OLD.table_name,
         OLD.field_name
     );

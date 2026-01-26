@@ -1,7 +1,7 @@
 -- Test that get_schema() includes all fields from tables and fields metadata
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(27);
 
 select authenticate_as('user1');
 
