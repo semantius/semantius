@@ -222,21 +222,25 @@ deno task test
 
 **Fields Table Structure**
 The `fields` table uses a JSON Schema-based format system:
-- **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text', 'reference')
+- **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text', 'reference', 'enum')
   - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text'
   - Specific formats: 'email', 'url', 'date', 'date-time', 'int32', 'int64', 'float', 'double', etc.
   - Foreign key format: 'reference' (mapped to INTEGER type for foreign key relationships)
-- **input_type** column: UI rendering hint ('default', 'required', 'readonly', 'disabled', 'hidden')
-- **width** column: UI width hint ('s' = small, 'm' = medium, 'w' = wide)
+  - Enum format: 'enum' (mapped to TEXT type with CHECK constraint for allowed values)
+- **input_type** column: UI rendering hint - ENUM with allowed values `['default', 'required', 'readonly', 'disabled', 'hidden']`
+- **width** column: UI width hint - ENUM with allowed values `['s', 'm', 'w']` (small, medium, wide)
+- **ctype** column: Special column type - ENUM with allowed values `['', 'id', 'label']` (empty string = normal field)
 - **title** column: Human-readable field label (renamed from 'label')
 - **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
+  - Required when format='enum' to define allowed values
+  - Automatically creates CHECK constraint on the target table column
 - **reference_table** column: Table name for foreign key relationships (required when format='reference')
-- **reference_delete_mode** column: ON DELETE behavior for foreign keys
+- **reference_delete_mode** column: ON DELETE behavior for foreign keys - ENUM with allowed values `['restrict', 'clear']`
   - 'restrict' (default): ON DELETE RESTRICT - prevents deletion of referenced record
   - 'clear': ON DELETE SET NULL - sets foreign key to NULL when referenced record is deleted
 - **format_to_data_type()** function: Maps format values to PostgreSQL data types for CREATE/ALTER TABLE statements
 - **format_to_json_type()** function: Maps format values to JSON Schema primitive types (used by get_schema())
-- When adding fields, use lowercase format values and appropriate input_type/width for UI rendering
+- When adding fields, use lowercase format values and appropriate input_type/width/ctype enum values
 
 **Foreign Key Support**
 The system supports automatic foreign key creation and management:
@@ -248,6 +252,19 @@ The system supports automatic foreign key creation and management:
   - 'clear': Automatically sets foreign key to NULL when referenced record is deleted
 - Foreign key constraints are automatically created, updated, and dropped by DDL triggers
 - Example: `format='reference', reference_table='regions', reference_delete_mode='restrict'`
+
+**CRITICAL: Full-Text Search and Searchable Flags - AUTO-COMPUTED**
+- **tables.searchable column is AUTO-COMPUTED** - NEVER manually set it in INSERT or UPDATE statements
+- **tables.searchable is TRUE** when ANY related field has searchable=TRUE
+- **tables.searchable is FALSE** when NO related fields have searchable=TRUE
+- Automatic triggers maintain this:
+  - `handle_field_searchable_change_trigger`: Updates tables.searchable when fields are added/updated/deleted
+  - `enforce_table_searchable_consistency_trigger`: Prevents manual overrides, always recomputes from fields
+- When inserting into the `tables` table, **NEVER include the searchable column** - it will be computed automatically
+- The searchable column in fields controls whether individual fields are included in full-text search
+- System automatically creates/drops `search_vector` column and GIN index based on searchable fields
+- Only text-based fields (format_to_json_type = 'string') can be searchable
+- Label fields (ctype='label') get highest search weight ('A'), descriptions get 'B', others get 'C'
 
 **get_schema() Function Behavior**
 The `public.get_schema()` function returns JSON Schema with:

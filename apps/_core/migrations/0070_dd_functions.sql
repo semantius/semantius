@@ -61,22 +61,25 @@ COMMENT ON FUNCTION format_to_data_type IS
 -- This function is closely related to format_to_data_type above
 
 CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
-RETURNS TEXT AS $$
+RETURNS JSONB AS $$
 BEGIN
     RETURN CASE 
-        WHEN p_format IN ('int32', 'int64', 'integer', 'reference') THEN 'integer'
-        WHEN p_format IN ('float', 'double', 'number') THEN 'number'
-        WHEN p_format = 'boolean' THEN 'boolean'
-        WHEN p_format IN ('array') THEN 'array'
-        WHEN p_format IN ('object', 'json') THEN 'object'
-        WHEN p_format = 'null' THEN 'null'
-        ELSE 'string'
+        -- Special case: json format can accept any type
+        WHEN p_format = 'json' THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
+        -- Single type mappings
+        WHEN p_format IN ('int32', 'int64', 'integer', 'reference') THEN to_jsonb('integer'::text)
+        WHEN p_format IN ('float', 'double', 'number') THEN to_jsonb('number'::text)
+        WHEN p_format = 'boolean' THEN to_jsonb('boolean'::text)
+        WHEN p_format IN ('array') THEN to_jsonb('array'::text)
+        WHEN p_format IN ('object') THEN to_jsonb('object'::text)
+        WHEN p_format = 'null' THEN to_jsonb('null'::text)
+        ELSE to_jsonb('string'::text)
     END;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 COMMENT ON FUNCTION format_to_json_type IS 
-'Maps format values to JSON Schema primitive types for consistent type handling.';
+'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
 
 -- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
@@ -241,9 +244,17 @@ BEGIN
     VALUES 
         (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE, FALSE),
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE, TRUE),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', 'timestamp', TRUE, FALSE),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', 'timestamp', TRUE, FALSE);
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', '', TRUE, FALSE),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', '', TRUE, FALSE);
     
+    -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
+    -- and update tables.searchable automatically. However, since we're in a nested trigger context,
+    -- we need to ensure the searchable flag gets set correctly after this trigger completes.
+    -- The solution is to update it directly here since the label field is always searchable.
+    UPDATE tables 
+    SET searchable = TRUE 
+    WHERE table_name = NEW.table_name 
+      AND EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND searchable = TRUE);
 
     RETURN NEW;
 END;

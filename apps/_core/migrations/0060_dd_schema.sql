@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS fields (
     ctype TEXT DEFAULT '',
     is_core BOOLEAN NOT NULL DEFAULT FALSE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
+    enum_values JSONB DEFAULT NULL,
+    reference_table TEXT DEFAULT NULL,
+    reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -110,6 +113,21 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Validate width
     CONSTRAINT valid_width CHECK (
         width IN ('s', 'm', 'w')
+    ),
+    
+    -- Validate ctype
+    CONSTRAINT valid_ctype CHECK (
+        ctype IN ('', 'id', 'label')
+    ),
+    
+    -- Validate reference_delete_mode
+    CONSTRAINT valid_reference_delete_mode CHECK (
+        reference_delete_mode IN ('restrict', 'clear')
+    ),
+    
+    -- Ensure reference_table is set when format is 'reference'
+    CONSTRAINT reference_requires_table CHECK (
+        (format = 'reference' AND reference_table IS NOT NULL) OR (format != 'reference')
     )
 );
 
@@ -133,9 +151,20 @@ COMMENT ON COLUMN fields.is_pk IS 'Whether this field is the primary key';
 COMMENT ON COLUMN fields.is_nullable IS 'Whether this field allows NULL values';
 COMMENT ON COLUMN fields.default_value IS 'Default value for the field (as SQL expression)';
 COMMENT ON COLUMN fields.field_order IS 'Display order for the field';
-COMMENT ON COLUMN fields.input_type IS 'Input type for UI rendering (default, required, readonly, disabled, hidden)';
-COMMENT ON COLUMN fields.width IS 'Display width for UI rendering (s=small, m=medium, w=wide)';
+COMMENT ON COLUMN fields.input_type IS 'Input type for UI rendering: default, required, readonly, disabled, or hidden';
+COMMENT ON COLUMN fields.width IS 'Display width for UI rendering: s (small), m (medium), or w (wide)';
+COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), or label (display field)';
 COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
+COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
+COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference tables.table_name when format is "reference".';
+COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
+
+-- Add foreign key constraint from reference_table to tables.table_name
+ALTER TABLE fields 
+ADD CONSTRAINT fields_reference_table_fkey 
+FOREIGN KEY (reference_table) 
+REFERENCES tables(table_name) 
+ON DELETE RESTRICT;
 
 -- =====================================================
 -- ENABLE RLS ON METADATA TABLES
@@ -274,28 +303,28 @@ VALUES
 -- Insert fields metadata for fields table
 -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
 -- table_name and field_name have a unique constraint together
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
 VALUES 
-    ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
-    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE),
-    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE, TRUE),
-    ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE),
-    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE),
-    ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE, FALSE),
-    ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE),
-    ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE),
-    ('fields', 'width', 'Width', 'Display width for UI rendering', 'text', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'text', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE),
-    ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE),
-    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, TRUE, 138, 'default', 'm', NULL, TRUE, FALSE),
-    ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'text', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE),
-    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE),
-    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE);
+    ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, NULL),
+    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE, NULL),
+    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE, TRUE, NULL),
+    ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE, NULL),
+    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL),
+    ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE, FALSE, NULL),
+    ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE, FALSE, NULL),
+    ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE, FALSE, NULL),
+    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE, NULL),
+    ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE, FALSE, NULL),
+    ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, '["default", "required", "readonly", "disabled", "hidden"]'::jsonb),
+    ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, '["s", "m", "w"]'::jsonb),
+    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, '["", "id", "label"]'::jsonb),
+    ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE, NULL),
+    ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE, NULL),
+    ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL),
+    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, TRUE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
+    ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, '["restrict", "clear"]'::jsonb),
+    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE, NULL),
+    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE, NULL);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
@@ -323,7 +352,15 @@ VALUES
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 39, 'default', 'w', NULL, TRUE, FALSE),
     ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE, FALSE),
     ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE, FALSE);
-
+-- =====================================================
+-- UPDATE SEARCHABLE FLAGS FOR CORE TABLES
+-- =====================================================
+UPDATE tables t
+SET searchable = EXISTS (
+    SELECT 1 FROM fields f 
+    WHERE f.table_name = t.table_name 
+      AND f.searchable = TRUE
+);
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
 VALUES 

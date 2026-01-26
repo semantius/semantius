@@ -1,7 +1,7 @@
 -- Test full-text search functionality
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(39);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -335,6 +335,54 @@ SELECT ok(
 SELECT ok(
     (SELECT COUNT(*) FROM fields WHERE table_name = 'products' AND searchable = TRUE) >= 3,
     'products table should have at least 3 searchable fields (sku, description, category)'
+);
+
+-- =====================================================
+-- TEST: Core tables have correct searchable flag
+-- =====================================================
+
+-- webhook_receivers should be searchable because label field is searchable
+SELECT ok(
+    (SELECT searchable FROM tables WHERE table_name = 'webhook_receivers'),
+    'webhook_receivers table should be searchable (label field is searchable)'
+);
+
+SELECT ok(
+    (SELECT searchable FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'label'),
+    'webhook_receivers label field should be searchable'
+);
+
+-- webhook_receiver_logs should be searchable because webhook_id (label) field is searchable
+SELECT ok(
+    (SELECT searchable FROM tables WHERE table_name = 'webhook_receiver_logs'),
+    'webhook_receiver_logs table should be searchable (webhook_id label field is searchable)'
+);
+
+SELECT ok(
+    (SELECT searchable FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id'),
+    'webhook_receiver_logs webhook_id field should be searchable'
+);
+
+-- Verify ALL tables with searchable fields have tables.searchable=TRUE
+SELECT is(
+    (SELECT table_name 
+     FROM tables t 
+     WHERE t.searchable = FALSE 
+       AND EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
+     LIMIT 1),
+    NULL,
+    'No table should have searchable=FALSE when it has searchable fields'
+);
+
+-- Verify ALL tables without searchable fields have tables.searchable=FALSE  
+SELECT ok(
+    NOT EXISTS (
+        SELECT t.table_name 
+        FROM tables t 
+        WHERE t.searchable = TRUE 
+          AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
+    ),
+    'No table should have searchable=TRUE when it has no searchable fields'
 );
 
 SELECT * FROM finish();

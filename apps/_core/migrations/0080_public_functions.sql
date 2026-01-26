@@ -191,7 +191,10 @@ BEGIN
             field_order,
             enum_values,
             reference_table,
-            reference_delete_mode
+            reference_delete_mode,
+            ctype,
+            is_core,
+            searchable
         FROM fields
         WHERE table_name = p_table_name
         ORDER BY field_order
@@ -208,6 +211,16 @@ BEGIN
                 'width', width,
                 'fieldOrder', field_order
             ) || 
+            -- Add ctype field if present
+            CASE 
+                WHEN ctype IS NOT NULL AND ctype != ''
+                THEN jsonb_build_object('ctype', ctype)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add isCore field
+            jsonb_build_object('isCore', is_core) ||
+            -- Add searchable field
+            jsonb_build_object('searchable', searchable) ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc)
             CASE 
                 WHEN format IS NOT NULL 
@@ -233,15 +246,15 @@ BEGIN
             CASE 
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
-                        WHEN format_to_json_type(format) = 'integer' THEN jsonb_build_object('default', (default_value::INTEGER))
-                        WHEN format_to_json_type(format) = 'number' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN format_to_json_type(format) = 'boolean' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN format_to_json_type(format) IN ('object', 'array') THEN jsonb_build_object('default', default_value::jsonb)
+                        WHEN format_to_json_type(format)::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN format_to_json_type(format)::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN format_to_json_type(format)::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN format_to_json_type(format)::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
                         -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                         ELSE jsonb_build_object('default', trim(both '''' from default_value))
                     END
                 -- For string types without explicit default, add empty string default
-                WHEN format_to_json_type(format) = 'string' THEN jsonb_build_object('default', '')
+                WHEN format_to_json_type(format)::text = '"string"' THEN jsonb_build_object('default', '')
                 ELSE '{}'::jsonb
             END)::json AS property_value
         FROM ordered_fields

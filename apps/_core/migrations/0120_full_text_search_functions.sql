@@ -52,7 +52,7 @@ BEGIN
     FROM fields f
     WHERE f.table_name = p_table_name
       AND f.searchable = TRUE
-      AND format_to_json_type(f.format) = 'string'  -- Only text-based fields
+      AND format_to_json_type(f.format)::text = '"string"'  -- Only text-based fields
       AND EXISTS (  -- Only include fields that actually exist as columns in the table
           SELECT 1 FROM information_schema.columns c
           WHERE c.table_schema = 'public'
@@ -97,7 +97,7 @@ BEGIN
         FROM fields f
         WHERE f.table_name = p_table_name
           AND f.searchable = TRUE
-          AND format_to_json_type(f.format) = 'string'
+          AND format_to_json_type(f.format)::text = '"string"'
           AND EXISTS (  -- Only include fields that actually exist as columns
               SELECT 1 FROM information_schema.columns c
               WHERE c.table_schema = 'public'
@@ -259,3 +259,14 @@ CREATE TRIGGER enforce_table_searchable_consistency_trigger
 
 COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON tables IS
 'Ensures tables.searchable is always consistent with related fields, preventing manual changes';
+
+-- =====================================================
+-- FINAL CONSISTENCY CHECK
+-- =====================================================
+-- Ensure all tables have correct searchable flags after all triggers are set up
+UPDATE tables t
+SET searchable = EXISTS (
+    SELECT 1 FROM fields f 
+    WHERE f.table_name = t.table_name 
+      AND f.searchable = TRUE
+);
