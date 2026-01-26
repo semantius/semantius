@@ -92,6 +92,38 @@ VALUES (
     'product_name'
 );
 
+-- Test case d: Create "regions" table for CRM module
+-- Customers will reference this table with ON DELETE default (restrict), not required
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+VALUES (
+    'regions',
+    'region',
+    'Region',
+    'Regions',
+    'Geographic regions for customer segmentation',
+    1001, -- CRM module
+    'public:read',
+    'sales:manage',
+    'id',
+    'region_name'
+);
+
+-- Test case e: Create "departments" table for HR module
+-- Employees will reference this table with ON DELETE restrict, required
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+VALUES (
+    'departments',
+    'department',
+    'Department',
+    'Departments',
+    'Organizational departments',
+    1002, -- HR module
+    'user:read',
+    'admin',
+    'id',
+    'department_name'
+);
+
 -- =====================================================
 -- SEED DYNAMIC FIELDS
 -- =====================================================
@@ -108,15 +140,24 @@ VALUES
     ('customers', 'status', 'Status', 'text', FALSE, FALSE, 40, 'default', 's', 'Customer account status (active, inactive, etc.)', '''active''', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE),
     ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 's', 'Total number of orders placed by customer', '0', NULL, FALSE);
 
+-- Add reference field from customers to regions (not required, default restrict mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+VALUES 
+    ('customers', 'region_id', 'Region', 'reference', FALSE, TRUE, 35, 'default', 's', 'Geographic region for this customer', 'regions', 'restrict', FALSE);
+
 -- Add fields to employees table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
 VALUES 
     ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'm', 'Employee work email address', '''''', TRUE),
-    ('employees', 'department', 'Department', 'text', FALSE, FALSE, 20, 'default', 'm', 'Department or division', '''''', TRUE),
     ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'm', 'Job title or position', '''''', TRUE),
     ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'm', 'Date employee was hired', 'CURRENT_DATE', FALSE),
     ('employees', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'm', 'Annual salary amount', '0.0', FALSE),
     ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether employee is currently active', 'TRUE', FALSE);
+
+-- Add reference field from employees to departments (required, restrict mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+VALUES 
+    ('employees', 'department_id', 'Department', 'reference', FALSE, FALSE, 20, 'required', 's', 'Department this employee belongs to', 'departments', 'restrict', FALSE);
 
 -- Add fields to products table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
@@ -128,6 +169,19 @@ VALUES
     ('products', 'category', 'Category', 'text', FALSE, FALSE, 50, 'default', 'm', 'Product category or classification', '''''', TRUE),
     ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE', FALSE);
 
+-- Add fields to regions table
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
+VALUES 
+    ('regions', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the region', '''''', TRUE),
+    ('regions', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '''''', TRUE);
+
+-- Add fields to departments table
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
+VALUES 
+    ('departments', 'code', 'Department Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the department', '''''', TRUE),
+    ('departments', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the department', '''''', TRUE),
+    ('departments', 'budget', 'Annual Budget', 'double', FALSE, FALSE, 30, 'default', 'm', 'Annual budget allocation', '0.0', FALSE);
+
 -- =====================================================
 -- SEED SAMPLE DATA
 -- =====================================================
@@ -135,18 +189,36 @@ VALUES
 -- Note: Tables use the default id_column ('id') and label_column ('label')
 -- unless specified otherwise in the tables definition
 
--- Sample customers
--- Table: customers (id_column: id, label_column: customer_name)
-INSERT INTO customers (customer_name, email, phone, company, status, total_orders)
+-- Sample regions (inserted BEFORE customers since customers reference regions)
+-- Table: regions (id_column: id, label_column: region_name)
+INSERT INTO regions (id, region_name, code, description)
 VALUES 
-    ('John Smith', 'john.smith@example.com', '+1-555-0101', 'Acme Corp', 'active', 15),
-    ('Jane Doe', 'jane.doe@example.com', '+1-555-0102', 'Tech Solutions', 'active', 8),
-    ('Bob Johnson', 'bob.johnson@example.com', '+1-555-0103', 'Global Industries', 'inactive', 3),
-    ('Müller Schmidt', 'mueller.schmidt@example.com', '+49-30-12345678', 'Deutsche Bank AG', 'active', 22),
-    ('François Dubois', 'francois.dubois@example.com', '+33-1-23456789', 'Société Générale', 'active', 18),
-    ('María García', 'maria.garcia@example.com', '+34-91-1234567', 'Banco Santander', 'active', 14),
-    ('José Rodríguez', 'jose.rodriguez@example.com', '+34-93-2345678', 'BBVA', 'active', 11),
-    ('André Lefèvre', 'andre.lefevre@example.com', '+33-1-34567890', 'BNP Paribas', 'active', 25),
+    (1, 'North America', 'NA', 'United States, Canada, and Mexico'),
+    (2, 'Europe', 'EU', 'European Union countries and associated states'),
+    (3, 'Asia Pacific', 'APAC', 'Asia and Pacific region'),
+    (4, 'Latin America', 'LATAM', 'Central and South America excluding Mexico');
+
+-- Sample departments (inserted BEFORE employees since employees reference departments)
+-- Table: departments (id_column: id, label_column: department_name)
+INSERT INTO departments (id, department_name, code, description, budget)
+VALUES 
+    (1, 'Engineering', 'ENG', 'Product development and engineering', 5000000.00),
+    (2, 'Sales', 'SALES', 'Sales and business development', 2000000.00),
+    (3, 'Human Resources', 'HR', 'Human resources and talent management', 800000.00),
+    (4, 'Marketing', 'MKT', 'Marketing and brand management', 1500000.00);
+
+-- Sample customers (now with region_id references)
+-- Table: customers (id_column: id, label_column: customer_name)
+INSERT INTO customers (customer_name, email, phone, company, status, total_orders, region_id)
+VALUES 
+    ('John Smith', 'john.smith@example.com', '+1-555-0101', 'Acme Corp', 'active', 15, 1),
+    ('Jane Doe', 'jane.doe@example.com', '+1-555-0102', 'Tech Solutions', 'active', 8, 1),
+    ('Bob Johnson', 'bob.johnson@example.com', '+1-555-0103', 'Global Industries', 'inactive', 3, 1),
+    ('Müller Schmidt', 'mueller.schmidt@example.com', '+49-30-12345678', 'Deutsche Bank AG', 'active', 22, 2),
+    ('François Dubois', 'francois.dubois@example.com', '+33-1-23456789', 'Société Générale', 'active', 18, 2),
+    ('María García', 'maria.garcia@example.com', '+34-91-1234567', 'Banco Santander', 'active', 14, 2),
+    ('José Rodríguez', 'jose.rodriguez@example.com', '+34-93-2345678', 'BBVA', 'active', 11, 2),
+    ('André Lefèvre', 'andre.lefevre@example.com', '+33-1-34567890', 'BNP Paribas', 'active', 25, 2),
     ('Günther Weber', 'gunther.weber@example.com', '+49-89-23456789', 'Volkswagen AG', 'active', 9),
     ('Björn Andersson', 'bjorn.andersson@example.com', '+46-8-12345678', 'Volvo Group', 'active', 16),
     ('Søren Hansen', 'soren.hansen@example.com', '+45-33-123456', 'Maersk Line', 'active', 13),
@@ -240,13 +312,15 @@ VALUES
     ('António Rodrigues', 'antonio.rodrigues@example.com', '+351-21-4567890', 'Millennium BCP', 'active', 12),
     ('Søren Eriksen', 'soren.eriksen@example.com', '+45-35-123456', 'Novo Nordisk', 'active', 19);
 
--- Sample employees
+-- Sample employees (now with department_id references)
 -- Table: employees (id_column: id, label_column: full_name)
-INSERT INTO employees (full_name, email, department, position, hire_date, salary, is_active)
+INSERT INTO employees (full_name, email, department_id, position, hire_date, salary, is_active)
 VALUES 
-    ('Alice Williams', 'alice.williams@company.com', 'Engineering', 'Senior Developer', '2020-03-15', 95000, TRUE),
-    ('Charlie Brown', 'charlie.brown@company.com', 'Sales', 'Account Manager', '2021-06-01', 75000, TRUE),
-    ('Diana Prince', 'diana.prince@company.com', 'HR', 'HR Manager', '2019-01-10', 80000, TRUE);
+    ('Alice Williams', 'alice.williams@company.com', 1, 'Senior Developer', '2020-03-15', 95000, TRUE),
+    ('Charlie Brown', 'charlie.brown@company.com', 2, 'Account Manager', '2021-06-01', 75000, TRUE),
+    ('Diana Prince', 'diana.prince@company.com', 3, 'HR Manager', '2019-01-10', 80000, TRUE),
+    ('Eve Anderson', 'eve.anderson@company.com', 1, 'Junior Developer', '2022-09-01', 65000, TRUE),
+    ('Frank Miller', 'frank.miller@company.com', 4, 'Marketing Manager', '2021-02-15', 85000, TRUE);
 
 -- Sample products
 -- Table: products (id_column: id, label_column: product_name)
