@@ -43,13 +43,19 @@ BEGIN
         RETURN;
     END IF;
     
-    -- Get all searchable text-based fields for this table
+    -- Get all searchable text-based fields for this table that actually exist as columns
     SELECT ARRAY_AGG(field_name ORDER BY field_order)
     INTO v_searchable_fields
-    FROM fields
-    WHERE table_name = p_table_name
-      AND searchable = TRUE
-      AND format_to_json_type(format) = 'string';  -- Only text-based fields
+    FROM fields f
+    WHERE f.table_name = p_table_name
+      AND f.searchable = TRUE
+      AND format_to_json_type(f.format) = 'string'  -- Only text-based fields
+      AND EXISTS (  -- Only include fields that actually exist as columns in the table
+          SELECT 1 FROM information_schema.columns c
+          WHERE c.table_schema = 'public'
+            AND c.table_name = p_table_name
+            AND c.column_name = f.field_name
+      );
     
     -- If no searchable fields, drop the search_vector column and index if they exist
     IF v_searchable_fields IS NULL OR array_length(v_searchable_fields, 1) IS NULL THEN
@@ -74,21 +80,27 @@ BEGIN
     v_search_expr := (
         SELECT string_agg(
             format('setweight(to_tsvector(''english'', coalesce(%I, '''')), ''%s'')',
-                field_name,
+                f.field_name,
                 CASE 
-                    WHEN ctype = 'label' THEN 'A'  -- Label fields get highest weight
-                    WHEN field_name IN ('title', 'name') THEN 'A'  -- Title/name fields
-                    WHEN field_name LIKE '%description%' THEN 'B'  -- Description fields
+                    WHEN f.ctype = 'label' THEN 'A'  -- Label fields get highest weight
+                    WHEN f.field_name IN ('title', 'name') THEN 'A'  -- Title/name fields
+                    WHEN f.field_name LIKE '%description%' THEN 'B'  -- Description fields
                     ELSE 'C'  -- Other searchable fields
                 END
             ),
             ' || '
-            ORDER BY field_order
+            ORDER BY f.field_order
         )
-        FROM fields
-        WHERE table_name = p_table_name
-          AND searchable = TRUE
-          AND format_to_json_type(format) = 'string'
+        FROM fields f
+        WHERE f.table_name = p_table_name
+          AND f.searchable = TRUE
+          AND format_to_json_type(f.format) = 'string'
+          AND EXISTS (  -- Only include fields that actually exist as columns
+              SELECT 1 FROM information_schema.columns c
+              WHERE c.table_schema = 'public'
+                AND c.table_name = p_table_name
+                AND c.column_name = f.field_name
+          )
     );
     
     -- Drop existing search_vector column if it exists
@@ -178,9 +190,8 @@ BEGIN
     END IF;
     
     -- Update search vector if searchable fields changed
-    -- IMPORTANT: Only update if this is not an INSERT operation where the column hasn't been created yet
-    -- For INSERT, we rely on a follow-up update or manual call after all fields are added
-    IF v_searchable_changed AND TG_OP != 'INSERT' THEN
+    -- The add_field_trigger runs alphabetically before this trigger, so the column already exists
+    IF v_searchable_changed THEN
         PERFORM update_search_vector_column(v_table_name_to_update);
     END IF;
     
@@ -197,7 +208,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION handle_field_searchable_change IS 
-'Trigger function that updates search_vector column and GIN index when searchable fields are updated or deleted. For INSERT operations, the search vector is not updated immediately to avoid referencing columns that don''t exist yet.';
+'Trigger function that updates search_vector column and GIN index when searchable fields are created, updated, or deleted. The add_field_trigger executes before this trigger (alphabetically), ensuring the physical column exists before we update the search_vector.';
 
 -- Apply trigger AFTER INSERT/UPDATE/DELETE on fields
 CREATE TRIGGER handle_field_searchable_change_trigger
