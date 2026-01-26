@@ -129,6 +129,16 @@ VALUES
     ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE', FALSE);
 
 -- =====================================================
+-- UPDATE SEARCH VECTORS FOR SEEDED TABLES
+-- =====================================================
+-- After all fields are added, update the search_vector columns
+-- This is necessary because the trigger skips search_vector updates on INSERT
+
+SELECT update_search_vector_column('customers');
+SELECT update_search_vector_column('employees');
+SELECT update_search_vector_column('products');
+
+-- =====================================================
 -- SEED SAMPLE DATA
 -- =====================================================
 -- Add some sample data to the dynamically created tables

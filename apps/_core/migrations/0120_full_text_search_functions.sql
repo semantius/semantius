@@ -16,9 +16,27 @@ DECLARE
     v_searchable_fields TEXT[];
     v_search_expr TEXT;
     v_is_managed BOOLEAN;
+    v_table_exists BOOLEAN;
 BEGIN
+    -- Check if the table actually exists in the database
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = p_table_name
+    ) INTO v_table_exists;
+    
+    IF NOT v_table_exists THEN
+        RAISE NOTICE 'Skipping search vector update for "%" (table does not exist)', p_table_name;
+        RETURN;
+    END IF;
+    
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM tables WHERE table_name = p_table_name;
+    
+    IF v_is_managed IS NULL THEN
+        -- Table metadata doesn't exist, likely being deleted
+        RAISE NOTICE 'Skipping search vector update for "%" (no metadata found)', p_table_name;
+        RETURN;
+    END IF;
     
     IF NOT v_is_managed THEN
         RAISE NOTICE 'Skipping search vector update for "%" (table managed=false)', p_table_name;
@@ -160,7 +178,9 @@ BEGIN
     END IF;
     
     -- Update search vector if searchable fields changed
-    IF v_searchable_changed THEN
+    -- IMPORTANT: Only update if this is not an INSERT operation where the column hasn't been created yet
+    -- For INSERT, we rely on a follow-up update or manual call after all fields are added
+    IF v_searchable_changed AND TG_OP != 'INSERT' THEN
         PERFORM update_search_vector_column(v_table_name_to_update);
     END IF;
     
@@ -177,7 +197,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION handle_field_searchable_change IS 
-'Trigger function that updates search_vector column and GIN index when searchable fields are created, updated, or deleted.';
+'Trigger function that updates search_vector column and GIN index when searchable fields are updated or deleted. For INSERT operations, the search vector is not updated immediately to avoid referencing columns that don''t exist yet.';
 
 -- Apply trigger AFTER INSERT/UPDATE/DELETE on fields
 CREATE TRIGGER handle_field_searchable_change_trigger
@@ -196,14 +216,23 @@ COMMENT ON TRIGGER handle_field_searchable_change_trigger ON fields IS
 
 CREATE OR REPLACE FUNCTION enforce_table_searchable_consistency()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_computed_searchable BOOLEAN;
 BEGIN
-    -- If searchable was changed, recompute it from fields
+    -- If searchable was changed, recompute it from fields and override the value
     IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
-        PERFORM update_table_searchable_flag(NEW.table_name);
-        -- Re-fetch the correct value
-        SELECT searchable INTO NEW.searchable 
-        FROM tables 
-        WHERE table_name = NEW.table_name;
+        -- Compute the correct value from fields
+        SELECT EXISTS (
+            SELECT 1 FROM fields 
+            WHERE table_name = NEW.table_name 
+              AND searchable = TRUE
+        ) INTO v_computed_searchable;
+        
+        -- Override any manual change with the computed value
+        NEW.searchable := v_computed_searchable;
+        
+        RAISE NOTICE 'Recomputed searchable flag for table "%" to % (manual change was overridden)', 
+            NEW.table_name, v_computed_searchable;
     END IF;
     
     RETURN NEW;
