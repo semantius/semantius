@@ -214,9 +214,9 @@ BEGIN
                 'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
-                'inputMode', input_type,
+                'input_mode', input_type,
                 'width', width,
-                'fieldOrder', field_order
+                'field_order', field_order
             ) || 
             -- Add ctype field if present
             CASE 
@@ -224,8 +224,8 @@ BEGIN
                 THEN jsonb_build_object('ctype', ctype)
                 ELSE '{}'::jsonb
             END ||
-            -- Add isCore field
-            jsonb_build_object('isCore', is_core) ||
+            -- Add is_core field
+            jsonb_build_object('is_core', is_core) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
@@ -247,10 +247,10 @@ BEGIN
             CASE 
                 WHEN format = 'reference' AND reference_table != ''
                 THEN jsonb_build_object(
-                    'referenceTable', reference_table, 
-                    'referenceDeleteMode', reference_delete_mode,
-                    'referenceTableIdColumn', reference_table_id_column,
-                    'referenceTableLabelColumn', reference_table_label_column
+                    'reference_table', reference_table, 
+                    'reference_delete_mode', reference_delete_mode,
+                    'reference_table_id_column', reference_table_id_column,
+                    'reference_table_label_column', reference_table_label_column
                 )
                 ELSE '{}'::jsonb
             END ||
