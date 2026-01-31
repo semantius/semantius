@@ -46,10 +46,10 @@ SELECT is(
 SELECT throws_ok(
     $$
     INSERT INTO products (
-        product_name, sku, description, price, quantity_in_stock, category, is_discontinued
+        product_name, sku, description, price, quantity_in_stock, category_id, is_discontinued
     )
     VALUES 
-        ('XXX', 'WGT-001', 'Should fail', 29.99, 150, 'Widgets', FALSE);
+        ('XXX', 'WGT-001', 'Should fail', 29.99, 150, 1, FALSE);
     $$,
     '42501',
     NULL,

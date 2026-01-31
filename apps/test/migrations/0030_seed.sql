@@ -108,6 +108,22 @@ VALUES (
     'region_name'
 );
 
+-- Test case f: Create "product_categories" table for Inventory module
+-- Products will reference this table with ON DELETE restrict, required
+INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+VALUES (
+    'product_categories',
+    'product_category',
+    'Product Category',
+    'Product Categories',
+    'Product categories for inventory classification',
+    1003, -- Inventory module
+    'user:read',
+    'sales:manage',
+    'id',
+    'category_name'
+);
+
 -- Test case e: Create "departments" table for HR module
 -- Employees will reference this table with ON DELETE restrict, required
 INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
@@ -166,8 +182,12 @@ VALUES
     ('products', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE),
     ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 's', 'Product price in base currency', '0.0', FALSE),
     ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 's', 'Current inventory quantity', '0', FALSE),
-    ('products', 'category', 'Category', 'text', FALSE, FALSE, 50, 'default', 'm', 'Product category or classification', '', TRUE),
     ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 's', 'Whether product is no longer available', 'FALSE', FALSE);
+
+-- Add reference field from products to product_categories (required, restrict mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+VALUES 
+    ('products', 'category_id', 'Category', 'reference', FALSE, FALSE, 50, 'required', 's', 'Product category classification', 'product_categories', 'restrict', FALSE);
 
 -- Add fields to regions table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
@@ -181,6 +201,12 @@ VALUES
     ('departments', 'code', 'Department Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the department', '', TRUE),
     ('departments', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the department', '', TRUE),
     ('departments', 'budget', 'Annual Budget', 'double', FALSE, FALSE, 30, 'default', 'm', 'Annual budget allocation', '0.0', FALSE);
+
+-- Add fields to product_categories table
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable)
+VALUES 
+    ('product_categories', 'code', 'Category Code', 'text', FALSE, FALSE, 10, 'required', 's', 'Short code for the category', '', TRUE),
+    ('product_categories', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the category', '', TRUE);
 
 -- =====================================================
 -- SEED SAMPLE DATA
@@ -206,6 +232,14 @@ VALUES
     (2, 'Sales', 'SALES', 'Sales and business development', 2000000.00),
     (3, 'Human Resources', 'HR', 'Human resources and talent management', 800000.00),
     (4, 'Marketing', 'MKT', 'Marketing and brand management', 1500000.00);
+
+-- Sample product_categories (inserted BEFORE products since products reference product_categories)
+-- Table: product_categories (id_column: id, label_column: category_name)
+INSERT INTO product_categories (id, category_name, code, description)
+VALUES 
+    (1, 'Widgets', 'WGT', 'Widget products and accessories'),
+    (2, 'Gadgets', 'GAD', 'Gadget devices and electronics'),
+    (3, 'Tools', 'TLS', 'Tools and equipment for various purposes');
 
 -- Sample customers (now with region_id references)
 -- Table: customers (id_column: id, label_column: customer_name)
@@ -324,11 +358,11 @@ VALUES
 
 -- Sample products
 -- Table: products (id_column: id, label_column: product_name)
-INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category, is_discontinued)
+INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category_id, is_discontinued)
 VALUES 
-    ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 'Widgets', FALSE),
-    ('Gadget Plus', 'GAD-002', 'Advanced gadget with premium features', 49.99, 75, 'Gadgets', FALSE),
-    ('Tool Basic', 'TL-003', 'Basic tool for everyday use', 19.99, 0, 'Tools', TRUE);
+    ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 1, FALSE),
+    ('Gadget Plus', 'GAD-002', 'Advanced gadget with premium features', 49.99, 75, 2, FALSE),
+    ('Tool Basic', 'TL-003', 'Basic tool for everyday use', 19.99, 0, 3, TRUE);
 
 -- =====================================================
 -- SEED TEST USERS
