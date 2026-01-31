@@ -180,24 +180,28 @@ BEGIN
     -- Each field becomes a property with JSON Schema attributes
     WITH ordered_fields AS (
         SELECT 
-            field_name,
-            format,
-            is_nullable,
-            title,
-            description,
-            default_value,
-            input_type,
-            width,
-            field_order,
-            enum_values,
-            reference_table,
-            reference_delete_mode,
-            ctype,
-            is_core,
-            searchable
-        FROM fields
-        WHERE table_name = p_table_name
-        ORDER BY field_order
+            f.field_name,
+            f.format,
+            f.is_nullable,
+            f.title,
+            f.description,
+            f.default_value,
+            f.input_type,
+            f.width,
+            f.field_order,
+            f.enum_values,
+            f.reference_table,
+            f.reference_delete_mode,
+            f.ctype,
+            f.is_core,
+            f.searchable,
+            -- Join with tables to get id_column and label_column when reference_table is set
+            COALESCE(t.id_column, '') AS reference_table_id_column,
+            COALESCE(t.label_column, '') AS reference_table_label_column
+        FROM fields f
+        LEFT JOIN tables t ON f.reference_table = t.table_name
+        WHERE f.table_name = p_table_name
+        ORDER BY f.field_order
     ),
     properties_with_defaults AS (
         SELECT 
@@ -239,7 +243,12 @@ BEGIN
             -- Add reference_table field if format is 'reference'
             CASE 
                 WHEN format = 'reference' AND reference_table != ''
-                THEN jsonb_build_object('referenceTable', reference_table, 'referenceDeleteMode', reference_delete_mode)
+                THEN jsonb_build_object(
+                    'referenceTable', reference_table, 
+                    'referenceDeleteMode', reference_delete_mode,
+                    'referenceTableIdColumn', reference_table_id_column,
+                    'referenceTableLabelColumn', reference_table_label_column
+                )
                 ELSE '{}'::jsonb
             END ||
             -- Add default field separately to handle type conversion properly
