@@ -196,6 +196,9 @@ BEGIN
             f.is_core,
             f.searchable,
             -- Join with tables to get id_column and label_column when reference_table is set
+            -- COALESCE to empty string is intentional: provides consistent output when referenced table
+            -- doesn't exist or is missing columns. These fields are only added to JSON output when
+            -- format='reference' and reference_table is not empty (see line ~245).
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column
         FROM fields f
