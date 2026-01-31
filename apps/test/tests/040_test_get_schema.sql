@@ -827,28 +827,28 @@ SELECT is(
     'get_schema(customers) region_id reference_delete_mode should be "restrict"'
 );
 
--- NEW: Test that region_id has reference_tableIdColumn
+-- NEW: Test that region_id has reference_table_id_column
 SELECT ok(
     (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_id_column'),
-    'get_schema(customers) region_id should include reference_tableIdColumn'
+    'get_schema(customers) region_id should include reference_table_id_column'
 );
 
 SELECT is(
     (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_id_column'),
     'id',
-    'get_schema(customers) region_id reference_tableIdColumn should be "id"'
+    'get_schema(customers) region_id reference_table_id_column should be "id"'
 );
 
--- NEW: Test that region_id has reference_tableLabelColumn
+-- NEW: Test that region_id has reference_table_label_column
 SELECT ok(
     (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_label_column'),
-    'get_schema(customers) region_id should include reference_tableLabelColumn'
+    'get_schema(customers) region_id should include reference_table_label_column'
 );
 
 SELECT is(
     (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_label_column'),
     'region_name',
-    'get_schema(customers) region_id reference_tableLabelColumn should be "region_name"'
+    'get_schema(customers) region_id reference_table_label_column should be "region_name"'
 );
 
 -- Test that department_id field in employees has reference_table and reference_delete_mode
@@ -863,44 +863,44 @@ SELECT is(
     'get_schema(employees) department_id reference_table should be "departments"'
 );
 
--- NEW: Test that department_id has reference_tableIdColumn
+-- NEW: Test that department_id has reference_table_id_column
 SELECT ok(
     (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_id_column'),
-    'get_schema(employees) department_id should include reference_tableIdColumn'
+    'get_schema(employees) department_id should include reference_table_id_column'
 );
 
 SELECT is(
     (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_id_column'),
     'id',
-    'get_schema(employees) department_id reference_tableIdColumn should be "id"'
+    'get_schema(employees) department_id reference_table_id_column should be "id"'
 );
 
--- NEW: Test that department_id has reference_tableLabelColumn
+-- NEW: Test that department_id has reference_table_label_column
 SELECT ok(
     (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_label_column'),
-    'get_schema(employees) department_id should include reference_tableLabelColumn'
+    'get_schema(employees) department_id should include reference_table_label_column'
 );
 
 SELECT is(
     (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_label_column'),
     'department_name',
-    'get_schema(employees) department_id reference_tableLabelColumn should be "department_name"'
+    'get_schema(employees) department_id reference_table_label_column should be "department_name"'
 );
 
 -- =====================================================
 -- TEST: Fields without reference_table should have empty strings
 -- =====================================================
 
--- Test that a non-reference field (email) has empty string for reference_tableIdColumn and reference_tableLabelColumn
+-- Test that a non-reference field (email) has empty string for reference_table_id_column and reference_table_label_column
 -- Since email doesn't have format='reference', these properties should not be present at all
 SELECT ok(
     NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_id_column')),
-    'get_schema(customers) email (non-reference field) should NOT include reference_tableIdColumn'
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_id_column'
 );
 
 SELECT ok(
     NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_label_column')),
-    'get_schema(customers) email (non-reference field) should NOT include reference_tableLabelColumn'
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_label_column'
 );
 
 SELECT * FROM finish();
