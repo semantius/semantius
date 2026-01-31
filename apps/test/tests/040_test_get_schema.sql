@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(77);
+SELECT plan(108);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -182,10 +182,10 @@ SELECT ok(
      SELECT (prop ? 'type') AND
             (prop ? 'title') AND
             (prop ? 'description') AND
-            (prop ? 'inputMode') AND
+            (prop ? 'input_mode') AND
             (prop ? 'width')
      FROM id_property),
-    'get_schema() properties should have all expected fields (type, title, description, inputMode, width)'
+    'get_schema() properties should have all expected fields (type, title, description, input_mode, width)'
 );
 
 -- Test required array exists
@@ -260,11 +260,11 @@ SELECT throws_ok(
 
 select authenticate_as('user1');
 
--- Test inputMode field exists and has correct value
+-- Test input_mode field exists and has correct value
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'inputMode',
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'input_mode',
     'readonly',
-    'get_schema() should return correct inputMode for id field'
+    'get_schema() should return correct input_mode for id field'
 );
 
 -- Test width field exists and has correct value
@@ -318,25 +318,25 @@ SELECT is(
 -- This tests the structure is correct when defaults exist
 
 -- =====================================================
--- TEST: New features - fieldOrder, enum, default empty strings
+-- TEST: New features - field_order, enum, default empty strings
 -- =====================================================
 
--- Test fieldOrder exists in all properties
+-- Test field_order exists in all properties
 SELECT ok(
-    (public.get_schema('customers')::jsonb)->'properties'->'id' ? 'fieldOrder',
-    'get_schema() should include fieldOrder field in id property'
+    (public.get_schema('customers')::jsonb)->'properties'->'id' ? 'field_order',
+    'get_schema() should include field_order field in id property'
 );
 
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'properties'->'id'->>'fieldOrder')::INTEGER,
+    ((public.get_schema('customers')::jsonb)->'properties'->'id'->>'field_order')::INTEGER,
     0,
-    'get_schema() should return correct fieldOrder for id field (0)'
+    'get_schema() should return correct field_order for id field (0)'
 );
 
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'properties'->'email'->>'fieldOrder')::INTEGER,
+    ((public.get_schema('customers')::jsonb)->'properties'->'email'->>'field_order')::INTEGER,
     10,
-    'get_schema() should return correct fieldOrder for email field (10)'
+    'get_schema() should return correct field_order for email field (10)'
 );
 
 -- Test that int32 format does NOT appear in output (only type: integer)
@@ -434,11 +434,11 @@ SELECT is(
     'get_schema() created_at should have format date-time'
 );
 
--- Test created_at has correct inputMode
+-- Test created_at has correct input_mode
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'inputMode',
+    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'input_mode',
     'disabled',
-    'get_schema() created_at should have inputMode disabled'
+    'get_schema() created_at should have input_mode disabled'
 );
 
 -- Test updated_at has correct type
@@ -455,29 +455,29 @@ SELECT is(
     'get_schema() updated_at should have format date-time'
 );
 
--- Test updated_at has correct inputMode
+-- Test updated_at has correct input_mode
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'inputMode',
+    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'input_mode',
     'disabled',
-    'get_schema() updated_at should have inputMode disabled'
+    'get_schema() updated_at should have input_mode disabled'
 );
 
 -- =====================================================
 -- TEST: company field has correct field order (20)
 -- =====================================================
 
--- Test that company field has fieldOrder 20
+-- Test that company field has field_order 20
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'properties'->'company'->>'fieldOrder')::INTEGER,
+    ((public.get_schema('customers')::jsonb)->'properties'->'company'->>'field_order')::INTEGER,
     20,
-    'get_schema() should return fieldOrder 20 for company field'
+    'get_schema() should return field_order 20 for company field'
 );
 
--- Test that phone field has fieldOrder 30 (swapped with company)
+-- Test that phone field has field_order 30 (swapped with company)
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'properties'->'phone'->>'fieldOrder')::INTEGER,
+    ((public.get_schema('customers')::jsonb)->'properties'->'phone'->>'field_order')::INTEGER,
     30,
-    'get_schema() should return fieldOrder 30 for phone field'
+    'get_schema() should return field_order 30 for phone field'
 );
 
 -- =====================================================
@@ -561,12 +561,12 @@ SELECT lives_ok(
 );
 
 -- =====================================================
--- TEST: Properties ordering by fieldOrder
+-- TEST: Properties ordering by field_order
 -- =====================================================
 
 select authenticate_as('user1');
 
--- Test that properties keys are ordered by fieldOrder value
+-- Test that properties keys are ordered by field_order value
 -- Since JSON maintains insertion order but JSONB doesn't, we test by checking
 -- that each key appears before the next key in the text representation
 WITH schema_text AS (
@@ -589,7 +589,318 @@ key_positions AS (
 SELECT is(
     (SELECT array_agg(field_name ORDER BY key_position) FROM key_positions),
     (SELECT ordered_fields FROM expected_order),
-    'get_schema() properties keys should be ordered by fieldOrder value (verified via text position)'
+    'get_schema() properties keys should be ordered by field_order value (verified via text position)'
+);
+
+-- =====================================================
+-- TEST: Verify get_schema() includes ALL table columns for tables table
+-- =====================================================
+
+-- Test that ALL fields defined in fields table for 'tables' are present in get_schema output
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'tables'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+)
+SELECT is(
+    (SELECT COUNT(*) FROM expected_fields),
+    (SELECT COUNT(*) FROM actual_properties),
+    'get_schema(tables) should include all fields from fields metadata - count match'
+);
+
+-- Test that there are NO missing fields (expected - actual = 0)
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'tables'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+),
+missing_fields AS (
+    SELECT field_name 
+    FROM expected_fields 
+    WHERE field_name NOT IN (SELECT property_name FROM actual_properties)
+)
+SELECT is(
+    (SELECT string_agg(field_name, ', ' ORDER BY field_name) FROM missing_fields),
+    NULL,
+    'get_schema(tables) should have no missing fields'
+);
+
+-- Test that there are NO extra fields (actual - expected = 0)
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'tables'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+),
+extra_fields AS (
+    SELECT property_name 
+    FROM actual_properties 
+    WHERE property_name NOT IN (SELECT field_name FROM expected_fields)
+)
+SELECT is(
+    (SELECT string_agg(property_name, ', ' ORDER BY property_name) FROM extra_fields),
+    NULL,
+    'get_schema(tables) should have no extra fields'
+);
+
+-- =====================================================
+-- TEST: Verify get_schema() includes ALL field columns for fields table
+-- =====================================================
+
+-- Test that ALL fields defined in fields table for 'fields' are present in get_schema output
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'fields'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
+)
+SELECT is(
+    (SELECT COUNT(*) FROM expected_fields),
+    (SELECT COUNT(*) FROM actual_properties),
+    'get_schema(fields) should include all fields from fields metadata - count match'
+);
+
+-- Test that there are NO missing fields
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'fields'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
+),
+missing_fields AS (
+    SELECT field_name 
+    FROM expected_fields 
+    WHERE field_name NOT IN (SELECT property_name FROM actual_properties)
+)
+SELECT is(
+    (SELECT string_agg(field_name, ', ' ORDER BY field_name) FROM missing_fields),
+    NULL,
+    'get_schema(fields) should have no missing fields'
+);
+
+-- Test that there are NO extra fields
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'fields'
+),
+actual_properties AS (
+    SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
+),
+extra_fields AS (
+    SELECT property_name 
+    FROM actual_properties 
+    WHERE property_name NOT IN (SELECT field_name FROM expected_fields)
+)
+SELECT is(
+    (SELECT string_agg(property_name, ', ' ORDER BY property_name) FROM extra_fields),
+    NULL,
+    'get_schema(fields) should have no extra fields'
+);
+
+-- =====================================================
+-- TEST: Verify 'table' object includes ALL columns from tables table
+-- =====================================================
+
+-- Test that the 'table' object in get_schema output includes all columns from the tables table
+WITH expected_fields AS (
+    SELECT field_name
+    FROM fields
+    WHERE table_name = 'tables'
+),
+actual_table_keys AS (
+    SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'table') AS key_name
+),
+missing_keys AS (
+    SELECT field_name 
+    FROM expected_fields 
+    WHERE field_name NOT IN (SELECT key_name FROM actual_table_keys)
+)
+SELECT is(
+    (SELECT string_agg(field_name, ', ' ORDER BY field_name) FROM missing_keys),
+    NULL,
+    'get_schema() table object should include all columns from tables table'
+);
+
+-- =====================================================
+-- TEST: Verify all properties have required attributes
+-- =====================================================
+
+-- Test that all properties include the field_order attribute
+WITH schema_properties AS (
+    SELECT 
+        key AS property_name,
+        value AS property_def
+    FROM jsonb_each(public.get_schema('fields')::jsonb->'properties')
+),
+missing_field_order AS (
+    SELECT property_name
+    FROM schema_properties
+    WHERE NOT (property_def ? 'field_order')
+)
+SELECT is(
+    (SELECT string_agg(property_name::text, ', ' ORDER BY property_name) FROM missing_field_order),
+    NULL,
+    'All properties in get_schema() should include field_order attribute'
+);
+
+-- =====================================================
+-- TEST: Verify that field properties include ctype, is_core, and searchable attributes
+-- =====================================================
+
+-- Test that a field with ctype has it in the schema
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'id' ? 'ctype'),
+    'get_schema(customers) id field should include ctype'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'id'->>'ctype'),
+    'id',
+    'get_schema(customers) id field ctype should be "id"'
+);
+
+-- Test that all fields have is_core attribute
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'id' ? 'is_core'),
+    'get_schema(customers) id field should include is_core'
+);
+
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'customer_name' ? 'is_core'),
+    'get_schema(customers) customer_name field should include is_core'
+);
+
+-- Test that all fields have searchable attribute
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'id' ? 'searchable'),
+    'get_schema(customers) id field should include searchable'
+);
+
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'customer_name' ? 'searchable'),
+    'get_schema(customers) customer_name field should include searchable'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'customer_name'->>'searchable'),
+    'true',
+    'get_schema(customers) customer_name field searchable should be true'
+);
+
+-- =====================================================
+-- TEST: Verify reference fields have reference_table, reference_delete_mode, and NEW reference columns
+-- =====================================================
+
+-- Test that region_id field in customers has reference_table and reference_delete_mode
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table'),
+    'get_schema(customers) region_id should include reference_table'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table'),
+    'regions',
+    'get_schema(customers) region_id reference_table should be "regions"'
+);
+
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_delete_mode'),
+    'get_schema(customers) region_id should include reference_delete_mode'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_delete_mode'),
+    'restrict',
+    'get_schema(customers) region_id reference_delete_mode should be "restrict"'
+);
+
+-- NEW: Test that region_id has reference_table_id_column
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_id_column'),
+    'get_schema(customers) region_id should include reference_table_id_column'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_id_column'),
+    'id',
+    'get_schema(customers) region_id reference_table_id_column should be "id"'
+);
+
+-- NEW: Test that region_id has reference_table_label_column
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_label_column'),
+    'get_schema(customers) region_id should include reference_table_label_column'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_label_column'),
+    'region_name',
+    'get_schema(customers) region_id reference_table_label_column should be "region_name"'
+);
+
+-- Test that department_id field in employees has reference_table and reference_delete_mode
+SELECT ok(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table'),
+    'get_schema(employees) department_id should include reference_table'
+);
+
+SELECT is(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table'),
+    'departments',
+    'get_schema(employees) department_id reference_table should be "departments"'
+);
+
+-- NEW: Test that department_id has reference_table_id_column
+SELECT ok(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_id_column'),
+    'get_schema(employees) department_id should include reference_table_id_column'
+);
+
+SELECT is(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_id_column'),
+    'id',
+    'get_schema(employees) department_id reference_table_id_column should be "id"'
+);
+
+-- NEW: Test that department_id has reference_table_label_column
+SELECT ok(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_label_column'),
+    'get_schema(employees) department_id should include reference_table_label_column'
+);
+
+SELECT is(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_label_column'),
+    'department_name',
+    'get_schema(employees) department_id reference_table_label_column should be "department_name"'
+);
+
+-- =====================================================
+-- TEST: Fields without reference_table should have empty strings
+-- =====================================================
+
+-- Test that a non-reference field (email) has empty string for reference_table_id_column and reference_table_label_column
+-- Since email doesn't have format='reference', these properties should not be present at all
+SELECT ok(
+    NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_id_column')),
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_id_column'
+);
+
+SELECT ok(
+    NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_label_column')),
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_label_column'
 );
 
 SELECT * FROM finish();

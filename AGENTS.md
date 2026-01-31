@@ -281,6 +281,21 @@ The `public.get_schema()` function returns JSON Schema with:
 - **table object**: The get_schema() output includes a 'table' object with ALL columns from the tables table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, label_column, managed, searchable, created_at, updated_at)
 - **properties object**: The get_schema() output includes a 'properties' object with ALL columns from the fields table as field properties
 
+**CRITICAL: JSON Field Naming Convention**
+- **ALWAYS use snake_case for JSON field names** - NEVER use camelCase
+- JSON output from `get_schema()` and other functions must use snake_case to match database column names
+- **Correct naming examples:**
+  - `input_mode` (NOT inputMode)
+  - `field_order` (NOT fieldOrder)
+  - `is_core` (NOT isCore)
+  - `reference_table` (NOT referenceTable)
+  - `reference_delete_mode` (NOT referenceDeleteMode)
+  - `reference_table_id_column` (NOT referenceTableIdColumn)
+  - `reference_table_label_column` (NOT referenceTableLabelColumn)
+- **Why snake_case?** It matches the actual database column names and maintains consistency throughout the API
+- When building JSON with `jsonb_build_object()`, always use snake_case for all field names
+- This applies to ALL JSON output from PostgreSQL functions, not just get_schema()
+
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment
