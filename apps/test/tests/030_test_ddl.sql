@@ -30,12 +30,12 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $$
-    INSERT INTO tables(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
+    INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
      VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'id', 'label' );
     $$,
     '42501',  -- insufficient_privilege (RLS violation)
     NULL,
-    'Insert into tables should fail due to RLS policy'
+    'Insert into entities should fail due to RLS policy'
 );
 
 
@@ -43,7 +43,7 @@ SELECT throws_ok(
 select authenticate_as('user3');
 
 -- Create "customers" table in CRM module
-INSERT INTO tables(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
+INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
      VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'id', 'label' );
 
 SELECT has_table(

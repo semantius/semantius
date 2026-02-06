@@ -21,9 +21,9 @@ SELECT ok(
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'tables' AND column_name = 'searchable'
+        WHERE table_name = 'entities' AND column_name = 'searchable'
     )),
-    'searchable column should exist on tables table'
+    'searchable column should exist on entities table'
 );
 
 -- =====================================================
@@ -31,7 +31,7 @@ SELECT ok(
 -- =====================================================
 
 -- Create a new table and verify its label column is searchable
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_search_table', 'test_search_table', 'Test Search Table', 'Test Search Tables', 'Test table for full-text search', 1, 'public:read', 'admin', 'id', 'name', TRUE);
 
 SELECT ok(
@@ -230,13 +230,13 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: tables.searchable auto-maintenance
+-- TEST: entities.searchable auto-maintenance
 -- =====================================================
 
 -- Verify table is marked as searchable (has searchable fields)
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
-    'tables.searchable should be TRUE when table has searchable fields'
+    'entities.searchable should be TRUE when table has searchable fields'
 );
 
 -- Make all searchable fields non-searchable
@@ -245,7 +245,7 @@ UPDATE fields SET searchable = FALSE WHERE table_name = 'test_search_table' AND 
 -- Verify table is now marked as non-searchable
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'test_search_table') = FALSE,
-    'tables.searchable should be FALSE when no fields are searchable'
+    'entities.searchable should be FALSE when no fields are searchable'
 );
 
 -- Verify search_vector column is removed when no searchable fields
@@ -272,11 +272,11 @@ UPDATE fields SET searchable = TRUE WHERE table_name = 'test_search_table' AND f
 -- Verify table is marked as searchable again
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
-    'tables.searchable should be TRUE after making a field searchable again'
+    'entities.searchable should be TRUE after making a field searchable again'
 );
 
 -- =====================================================
--- TEST: Attempting to manually change tables.searchable is rejected
+-- TEST: Attempting to manually change entities.searchable is rejected
 -- =====================================================
 
 -- Try to manually set searchable to FALSE (should be overridden)
@@ -285,7 +285,7 @@ UPDATE entities SET searchable = FALSE WHERE table_name = 'test_search_table';
 -- Verify it's still TRUE (recomputed from fields)
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
-    'tables.searchable should be recomputed when manually changed (not allowed to override)'
+    'entities.searchable should be recomputed when manually changed (not allowed to override)'
 );
 
 -- =====================================================
@@ -293,7 +293,7 @@ SELECT ok(
 -- =====================================================
 
 -- Create a table with managed=false
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_unmanaged_search', 'test_unmanaged_search', 'Test Unmanaged', 'Test Unmanaged', 'Unmanaged table', 1, 'public:read', 'admin', 'id', 'title', FALSE);
 
 -- Add a searchable field

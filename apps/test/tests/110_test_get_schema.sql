@@ -226,7 +226,7 @@ SELECT ok(
 SELECT throws_ok(
     'SELECT public.get_schema(''nonexistent_table'')',
     '42P01',
-    'Table "nonexistent_table" not found in tables',
+    'Table "nonexistent_table" not found in entities',
     'get_schema() should raise an error for non-existing table'
 );
 

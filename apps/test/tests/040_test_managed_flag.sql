@@ -11,7 +11,7 @@ SELECT authenticate_as('user3');
 -- =====================================================
 
 -- Test 1: Create a table with managed=true (default)
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_managed_true', 'test_managed_true', 'Test Managed True', 'Test Managed True', 'Test table with managed=true', 1, 'public:read', 'admin', 'id', 'label', TRUE);
 
 SELECT ok(
@@ -64,7 +64,7 @@ SELECT ok(
 -- =====================================================
 
 -- Test 6: Create a table with managed=false (should not create in DB)
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_managed_false', 'test_managed_false', 'Test Managed False', 'Test Managed False', 'Test table with managed=false', 1, 'public:read', 'admin', 'id', 'label', FALSE);
 
 SELECT ok(
