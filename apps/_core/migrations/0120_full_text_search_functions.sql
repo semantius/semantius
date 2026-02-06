@@ -2,7 +2,7 @@
 -- FULL-TEXT SEARCH FUNCTIONS AND TRIGGERS
 -- =====================================================
 -- Manages search_vector column and GIN index based on searchable fields
--- Automatically maintains tables.searchable based on related fields
+-- Automatically maintains entities.searchable based on related fields
 
 -- =====================================================
 -- HELPER FUNCTION: Update search_vector column and index
@@ -139,7 +139,7 @@ COMMENT ON FUNCTION update_search_vector_column IS
 'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Only executes when table is managed=true.';
 
 -- =====================================================
--- HELPER FUNCTION: Update tables.searchable flag
+-- HELPER FUNCTION: Update entities.searchable flag
 -- =====================================================
 -- Auto-maintains the searchable flag on tables based on related fields
 
@@ -220,9 +220,9 @@ COMMENT ON TRIGGER handle_field_searchable_change_trigger ON fields IS
 'Automatically updates search_vector column and index when field searchable status changes';
 
 -- =====================================================
--- TRIGGER FUNCTION: Recompute tables.searchable on direct update
+-- TRIGGER FUNCTION: Recompute entities.searchable on direct update
 -- =====================================================
--- Ensures tables.searchable always reflects the actual state of fields
+-- Ensures entities.searchable always reflects the actual state of fields
 -- even if someone tries to update it directly
 
 CREATE OR REPLACE FUNCTION enforce_table_searchable_consistency()

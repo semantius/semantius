@@ -12,7 +12,7 @@ SELECT authenticate_as('user1');
 
 -- Test that user1 can read fields
 SELECT ok(
-    (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'tables') > 0,
+    (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'entities') > 0,
     'user1 should be able to read fields table'
 );
 
@@ -33,11 +33,11 @@ DO $$
 DECLARE
     v_original_title TEXT;
 BEGIN
-    SELECT title INTO v_original_title FROM fields WHERE table_name = 'tables' AND field_name = 'table_name';
+    SELECT title INTO v_original_title FROM fields WHERE table_name = 'entities' AND field_name = 'table_name';
     -- Try to update
-    UPDATE fields SET title = 'Modified Title' WHERE table_name = 'tables' AND field_name = 'table_name';
+    UPDATE fields SET title = 'Modified Title' WHERE table_name = 'entities' AND field_name = 'table_name';
     -- Verify it wasn't changed
-    IF (SELECT title FROM fields WHERE table_name = 'tables' AND field_name = 'table_name') != v_original_title THEN
+    IF (SELECT title FROM fields WHERE table_name = 'entities' AND field_name = 'table_name') != v_original_title THEN
         RAISE EXCEPTION 'Title was modified when it should not have been';
     END IF;
 END $$;
@@ -51,10 +51,10 @@ DECLARE
     v_count_before INTEGER;
     v_count_after INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO v_count_before FROM fields WHERE table_name = 'tables';
+    SELECT COUNT(*) INTO v_count_before FROM fields WHERE table_name = 'entities';
     -- Try to delete
-    DELETE FROM fields WHERE table_name = 'tables' AND field_name = 'title';
-    SELECT COUNT(*) INTO v_count_after FROM fields WHERE table_name = 'tables';
+    DELETE FROM fields WHERE table_name = 'entities' AND field_name = 'title';
+    SELECT COUNT(*) INTO v_count_after FROM fields WHERE table_name = 'entities';
     -- Verify count didn't change
     IF v_count_before != v_count_after THEN
         RAISE EXCEPTION 'Record was deleted when it should not have been';

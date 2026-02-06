@@ -862,7 +862,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION delete_dd_table IS 
-'Trigger function that drops a table when a row is deleted from tables table.';
+'Trigger function that drops a table when a row is deleted from entities table.';
 
 -- Apply trigger BEFORE DELETE on entities
 -- Note: Fields will be deleted via CASCADE on the foreign key

@@ -312,7 +312,7 @@ SELECT ok(
 -- Verify table metadata still tracks searchable correctly
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'test_unmanaged_search'),
-    'tables.searchable should still be tracked for unmanaged tables (even though DDL not executed)'
+    'entities.searchable should still be tracked for unmanaged tables (even though DDL not executed)'
 );
 
 -- =====================================================
@@ -363,7 +363,7 @@ SELECT ok(
     'webhook_receiver_logs webhook_id field should be searchable'
 );
 
--- Verify ALL tables with searchable fields have tables.searchable=TRUE
+-- Verify ALL tables with searchable fields have entities.searchable=TRUE
 SELECT is(
     (SELECT table_name 
      FROM entities t 
@@ -374,7 +374,7 @@ SELECT is(
     'No table should have searchable=FALSE when it has searchable fields'
 );
 
--- Verify ALL tables without searchable fields have tables.searchable=FALSE  
+-- Verify ALL tables without searchable fields have entities.searchable=FALSE  
 SELECT ok(
     NOT EXISTS (
         SELECT t.table_name 

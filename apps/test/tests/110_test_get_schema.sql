@@ -711,14 +711,14 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST: Verify 'table' object includes ALL columns from tables table
+-- TEST: Verify 'table' object includes ALL columns from entities table
 -- =====================================================
 
--- Test that the 'table' object in get_schema output includes all columns from the tables table
+-- Test that the 'table' object in get_schema output includes all columns from the entities table
 WITH expected_fields AS (
     SELECT field_name
     FROM fields
-    WHERE table_name = 'tables'
+    WHERE table_name = 'entities'
 ),
 actual_table_keys AS (
     SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'table') AS key_name
@@ -731,7 +731,7 @@ missing_keys AS (
 SELECT is(
     (SELECT string_agg(field_name, ', ' ORDER BY field_name) FROM missing_keys),
     NULL,
-    'get_schema() table object should include all columns from tables table'
+    'get_schema() table object should include all columns from entities table'
 );
 
 -- =====================================================

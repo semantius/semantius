@@ -6,6 +6,12 @@
 -- assignments in subsequent test runs.
 -- =====================================================
 
+
+-- Perform the actual cleanup UPDATE outside the pgTAP transaction
+-- This ensures pgTAP state is properly cleaned up (ROLLBACK) while
+-- the data cleanup persists (separate UPDATE statement)
+UPDATE users SET last_seen = NULL WHERE id IN (1001, 1002, 1003);
+
 BEGIN;
 
 SELECT plan(4);
@@ -42,7 +48,3 @@ SELECT * FROM finish();
 
 ROLLBACK;
 
--- Perform the actual cleanup UPDATE outside the pgTAP transaction
--- This ensures pgTAP state is properly cleaned up (ROLLBACK) while
--- the data cleanup persists (separate UPDATE statement)
-UPDATE users SET last_seen = NULL WHERE id IN (1001, 1002, 1003);

@@ -124,7 +124,7 @@ DELETE FROM entities WHERE table_name = 'test_managed_false';
 
 SELECT ok(
     NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_managed_false'),
-    'Table metadata should be deleted from tables table for managed=false'
+    'Table metadata should be deleted from entities table for managed=false'
 );
 
 SELECT * FROM finish();
