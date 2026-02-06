@@ -17,3 +17,18 @@ SELECT * FROM entities;
 
 COMMENT ON VIEW tables IS 
 'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius-core uses "entities".';
+-- =====================================================
+-- SECURITY: Enable RLS and Grant Permissions
+-- =====================================================
+-- Views don't automatically inherit RLS from underlying tables
+-- We must explicitly enable RLS and grant permissions
+
+-- Enable Row Level Security on the view
+ALTER VIEW tables SET (security_invoker = true);
+
+-- Grant permissions to semantius_user role
+GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
+
+-- Note: The view will use the RLS policies from the underlying entities table
+-- because we set security_invoker = true, which makes the view execute with
+-- the permissions of the invoking user rather than the view owner
