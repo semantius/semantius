@@ -158,14 +158,14 @@ DECLARE
     v_required_fields JSON;
     v_result JSON;
 BEGIN
-    -- Check if table exists in tables metadata
+    -- Check if table exists in entities metadata
     SELECT * INTO v_table_record
-    FROM tables
+    FROM entities
     WHERE table_name = p_table_name;
     
     -- Raise error if table not found
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Table "%" not found in tables', p_table_name
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
             USING ERRCODE = 'undefined_table';
     END IF;
     
@@ -202,7 +202,7 @@ BEGIN
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column
         FROM fields f
-        LEFT JOIN tables t ON f.reference_table = t.table_name
+        LEFT JOIN entities t ON f.reference_table = t.table_name
         WHERE f.table_name = p_table_name
         ORDER BY f.field_order
     ),

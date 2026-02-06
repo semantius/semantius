@@ -9,7 +9,7 @@ SELECT plan(33);
 
 -- Test 1: webhook_receivers table exists
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receivers')),
+    (SELECT EXISTS (SELECT 1 FROM entities WHERE table_name = 'webhook_receivers')),
     'webhook_receivers table metadata should exist in tables'
 );
 
@@ -85,7 +85,7 @@ SELECT ok(
 
 -- Test 13: webhook_receiver_logs table exists
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'webhook_receiver_logs')),
+    (SELECT EXISTS (SELECT 1 FROM entities WHERE table_name = 'webhook_receiver_logs')),
     'webhook_receiver_logs table metadata should exist in tables'
 );
 
@@ -97,7 +97,7 @@ SELECT ok(
 
 -- Test 15: webhook_receiver_logs label_column should be webhook_id
 SELECT ok(
-    (SELECT label_column = 'webhook_id' FROM tables WHERE table_name = 'webhook_receiver_logs'),
+    (SELECT label_column = 'webhook_id' FROM entities WHERE table_name = 'webhook_receiver_logs'),
     'webhook_receiver_logs label_column should be webhook_id'
 );
 

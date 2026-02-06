@@ -33,7 +33,7 @@ BEGIN
     END IF;
     
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM tables WHERE table_name = p_table_name;
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = p_table_name;
     
     IF v_is_managed IS NULL THEN
         -- Table metadata doesn't exist, likely being deleted
@@ -155,8 +155,8 @@ BEGIN
           AND searchable = TRUE
     ) INTO v_has_searchable_fields;
     
-    -- Update the searchable flag on the tables record
-    UPDATE tables 
+    -- Update the searchable flag on the entities record
+    UPDATE entities 
     SET searchable = v_has_searchable_fields
     WHERE table_name = p_table_name;
 
@@ -164,7 +164,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION update_table_searchable_flag IS 
-'Auto-maintains the searchable flag on tables table based on whether any related fields are searchable.';
+'Auto-maintains the searchable flag on entities table based on whether any related fields are searchable.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: Handle field searchable changes
@@ -264,7 +264,7 @@ COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON tables IS
 -- FINAL CONSISTENCY CHECK
 -- =====================================================
 -- Ensure all tables have correct searchable flags after all triggers are set up
-UPDATE tables t
+UPDATE entities t
 SET searchable = EXISTS (
     SELECT 1 FROM fields f 
     WHERE f.table_name = t.table_name 

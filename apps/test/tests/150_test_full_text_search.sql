@@ -235,7 +235,7 @@ SELECT ok(
 
 -- Verify table is marked as searchable (has searchable fields)
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
     'tables.searchable should be TRUE when table has searchable fields'
 );
 
@@ -244,7 +244,7 @@ UPDATE fields SET searchable = FALSE WHERE table_name = 'test_search_table' AND 
 
 -- Verify table is now marked as non-searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table') = FALSE,
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table') = FALSE,
     'tables.searchable should be FALSE when no fields are searchable'
 );
 
@@ -271,7 +271,7 @@ UPDATE fields SET searchable = TRUE WHERE table_name = 'test_search_table' AND f
 
 -- Verify table is marked as searchable again
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
     'tables.searchable should be TRUE after making a field searchable again'
 );
 
@@ -280,11 +280,11 @@ SELECT ok(
 -- =====================================================
 
 -- Try to manually set searchable to FALSE (should be overridden)
-UPDATE tables SET searchable = FALSE WHERE table_name = 'test_search_table';
+UPDATE entities SET searchable = FALSE WHERE table_name = 'test_search_table';
 
 -- Verify it's still TRUE (recomputed from fields)
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
     'tables.searchable should be recomputed when manually changed (not allowed to override)'
 );
 
@@ -311,7 +311,7 @@ SELECT ok(
 
 -- Verify table metadata still tracks searchable correctly
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_unmanaged_search'),
+    (SELECT searchable FROM entities WHERE table_name = 'test_unmanaged_search'),
     'tables.searchable should still be tracked for unmanaged tables (even though DDL not executed)'
 );
 
@@ -343,7 +343,7 @@ SELECT ok(
 
 -- webhook_receivers should be searchable because label field is searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'webhook_receivers'),
+    (SELECT searchable FROM entities WHERE table_name = 'webhook_receivers'),
     'webhook_receivers table should be searchable (label field is searchable)'
 );
 
@@ -354,7 +354,7 @@ SELECT ok(
 
 -- webhook_receiver_logs should be searchable because webhook_id (label) field is searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'webhook_receiver_logs'),
+    (SELECT searchable FROM entities WHERE table_name = 'webhook_receiver_logs'),
     'webhook_receiver_logs table should be searchable (webhook_id label field is searchable)'
 );
 
@@ -366,7 +366,7 @@ SELECT ok(
 -- Verify ALL tables with searchable fields have tables.searchable=TRUE
 SELECT is(
     (SELECT table_name 
-     FROM tables t 
+     FROM entities t 
      WHERE t.searchable = FALSE 
        AND EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
      LIMIT 1),
@@ -378,7 +378,7 @@ SELECT is(
 SELECT ok(
     NOT EXISTS (
         SELECT t.table_name 
-        FROM tables t 
+        FROM entities t 
         WHERE t.searchable = TRUE 
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
     ),

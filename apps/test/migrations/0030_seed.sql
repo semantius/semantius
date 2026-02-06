@@ -44,7 +44,7 @@ WHERE r.role_name = 'Sales User'
 
 -- Test case a: Create "customers" table WITHOUT providing plural value
 -- The trigger should auto-set plural = 'customers' (matching table_name)
-INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'customers',
     'customer',
@@ -60,7 +60,7 @@ VALUES (
 
 -- Test case b: Create "employees" table WITH a wrong plural value ('wrongplural')
 -- The trigger should ignore 'wrongplural' and auto-set plural = 'employees'
-INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employees',
     'employee',
@@ -77,7 +77,7 @@ VALUES (
 
 -- Test case c: Create "products" table with correct plural value
 -- The trigger should still enforce plural = 'products'
-INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'products',
     'product',
@@ -94,7 +94,7 @@ VALUES (
 
 -- Test case d: Create "regions" table for CRM module
 -- Customers will reference this table with ON DELETE default (restrict), not required
-INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'regions',
     'region',
@@ -110,7 +110,7 @@ VALUES (
 
 -- Test case f: Create "product_categories" table for Inventory module
 -- Products will reference this table with ON DELETE restrict, required
-INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'product_categories',
     'product_category',
@@ -126,7 +126,7 @@ VALUES (
 
 -- Test case e: Create "departments" table for HR module
 -- Employees will reference this table with ON DELETE restrict, required
-INSERT INTO tables (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'departments',
     'department',
