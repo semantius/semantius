@@ -249,16 +249,16 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
-'Trigger function that ensures tables.searchable always reflects the status of related fields, preventing manual overrides.';
+'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
 
 CREATE TRIGGER enforce_table_searchable_consistency_trigger
-    BEFORE UPDATE ON tables
+    BEFORE UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.searchable IS DISTINCT FROM NEW.searchable)
     EXECUTE FUNCTION enforce_table_searchable_consistency();
 
-COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON tables IS
-'Ensures tables.searchable is always consistent with related fields, preventing manual changes';
+COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
+'Ensures entities.searchable is always consistent with related fields, preventing manual changes';
 
 -- =====================================================
 -- FINAL CONSISTENCY CHECK

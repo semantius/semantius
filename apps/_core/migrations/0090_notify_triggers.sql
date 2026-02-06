@@ -24,11 +24,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION notify_pgrst_tables IS 
-'Trigger function that notifies PostgREST to reload schema when tables are modified.';
+'Trigger function that notifies PostgREST to reload schema when entities are modified.';
 
--- Apply trigger on tables table
+-- Apply trigger on entities table
 CREATE TRIGGER notify_pgrst_on_tables_change
-    AFTER INSERT OR UPDATE OR DELETE ON tables
+    AFTER INSERT OR UPDATE OR DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION notify_pgrst_tables();
 
