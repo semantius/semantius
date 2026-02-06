@@ -226,7 +226,7 @@ SELECT ok(
 SELECT throws_ok(
     'SELECT public.get_schema(''nonexistent_table'')',
     '42P01',
-    'Table "nonexistent_table" not found in tables',
+    'Table "nonexistent_table" not found in entities',
     'get_schema() should raise an error for non-existing table'
 );
 
@@ -593,32 +593,32 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST: Verify get_schema() includes ALL table columns for tables table
+-- TEST: Verify get_schema() includes ALL table columns for entities table
 -- =====================================================
 
--- Test that ALL fields defined in fields table for 'tables' are present in get_schema output
+-- Test that ALL fields defined in fields table for 'entities' are present in get_schema output
 WITH expected_fields AS (
     SELECT field_name
     FROM fields
-    WHERE table_name = 'tables'
+    WHERE table_name = 'entities'
 ),
 actual_properties AS (
-    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+    SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
 )
 SELECT is(
     (SELECT COUNT(*) FROM expected_fields),
     (SELECT COUNT(*) FROM actual_properties),
-    'get_schema(tables) should include all fields from fields metadata - count match'
+    'get_schema(entities) should include all fields from fields metadata - count match'
 );
 
 -- Test that there are NO missing fields (expected - actual = 0)
 WITH expected_fields AS (
     SELECT field_name
     FROM fields
-    WHERE table_name = 'tables'
+    WHERE table_name = 'entities'
 ),
 actual_properties AS (
-    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+    SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
 ),
 missing_fields AS (
     SELECT field_name 
@@ -628,17 +628,17 @@ missing_fields AS (
 SELECT is(
     (SELECT string_agg(field_name, ', ' ORDER BY field_name) FROM missing_fields),
     NULL,
-    'get_schema(tables) should have no missing fields'
+    'get_schema(entities) should have no missing fields'
 );
 
 -- Test that there are NO extra fields (actual - expected = 0)
 WITH expected_fields AS (
     SELECT field_name
     FROM fields
-    WHERE table_name = 'tables'
+    WHERE table_name = 'entities'
 ),
 actual_properties AS (
-    SELECT jsonb_object_keys(public.get_schema('tables')::jsonb->'properties') AS property_name
+    SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
 ),
 extra_fields AS (
     SELECT property_name 
@@ -648,7 +648,7 @@ extra_fields AS (
 SELECT is(
     (SELECT string_agg(property_name, ', ' ORDER BY property_name) FROM extra_fields),
     NULL,
-    'get_schema(tables) should have no extra fields'
+    'get_schema(entities) should have no extra fields'
 );
 
 -- =====================================================

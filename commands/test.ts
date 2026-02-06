@@ -29,17 +29,21 @@ class DefaultReporter implements TapReporter {
   private totalTests = 0;
   private totalPassed = 0;
   private totalFailed = 0;
+  private totalPlanned = 0;
+  private filesWithErrors = 0;
 
   start(): void {
     console.log("TAP version 13");
   }
 
   test(result: TestResult): void {
-    // SQL execution errors indicate setup problems - abort immediately
+    // SQL execution errors are reported but don't abort the test run
     if (result.errors.length > 0) {
-      console.log(`# FATAL: SQL execution failed for ${result.filename}`);
+      console.log(`# FATAL ERROR in ${result.filename}`);
       console.log(`# Error: ${result.errors[0]}`);
-      Deno.exit(1);
+      this.filesWithErrors++;
+      this.totalFailed++; // Count the file error as a failure
+      return;
     }
     
     console.log(`# ${basename(result.filename)}, ${result.executionTimeMs} ms`);
@@ -50,6 +54,8 @@ class DefaultReporter implements TapReporter {
     for (const line of lines) {
       if (line.startsWith('1..')) {
         console.log(line);
+        const planned = parseInt(line.substring(3));
+        this.totalPlanned += planned;
       } else if (line.match(/^(not )?ok \d+/)) {
         testNum++;
         console.log(line);
@@ -71,12 +77,26 @@ class DefaultReporter implements TapReporter {
     console.log(`\n# Tests: ${this.totalTests}`);
     console.log(`# Passed: ${this.totalPassed}`);
     console.log(`# Failed: ${this.totalFailed}`);
+    if (this.filesWithErrors > 0) {
+      console.log(`# Files with errors: ${this.filesWithErrors}`);
+    }
+    
+    // Validate that all planned tests actually ran
+    if (this.totalPlanned > 0 && this.totalTests !== this.totalPlanned) {
+      console.log(`# WARNING: Test count mismatch!`);
+      console.log(`#   Planned: ${this.totalPlanned} tests`);
+      console.log(`#   Executed: ${this.totalTests} tests`);
+      console.log(`#   Missing: ${this.totalPlanned - this.totalTests} tests`);
+    }
+    
     console.log(`# Total execution time: ${totalExecutionMs} ms`);
     
-    const overallResult = this.totalFailed === 0 ? "PASS" : "FAIL";
+    const hasFailures = this.totalFailed > 0 || this.filesWithErrors > 0;
+    const hasMissingTests = this.totalPlanned > 0 && this.totalTests !== this.totalPlanned;
+    const overallResult = (hasFailures || hasMissingTests) ? "FAIL" : "PASS";
     console.log(`# Result: ${overallResult}`);
     
-    if (this.totalFailed > 0) {
+    if (hasFailures || hasMissingTests) {
       Deno.exit(1);
     }
   }
@@ -88,6 +108,8 @@ class TapSpecReporter implements TapReporter {
   private totalPassed = 0;
   private totalFailed = 0;
   private currentTest = 0;
+  private filesWithErrors = 0;
+  private skippedFiles: string[] = [];
 
   start(): void {
     console.log("\n");
@@ -96,11 +118,14 @@ class TapSpecReporter implements TapReporter {
   test(result: TestResult): void {
     console.log(`\n  ${basename(result.filename)}, ${result.executionTimeMs} ms`);
     
-    // SQL execution errors indicate setup problems - abort immediately  
+    // SQL execution errors are reported but don't abort the test run
     if (result.errors.length > 0) {
       console.error(`    ✗ FATAL: SQL execution failed`);
       console.error(`    Error: ${result.errors[0]}`);
-      Deno.exit(1);
+      this.filesWithErrors++;
+      this.totalFailed++;
+      this.skippedFiles.push(basename(result.filename));
+      return;
     }
     
     const lines = result.content.split('\n').filter(line => line.trim());
@@ -158,13 +183,27 @@ class TapSpecReporter implements TapReporter {
     
     // Check for overall plan vs execution mismatch
     if (this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned) {
-      console.log(`  Plan mismatch: planned ${this.totalPlanned} tests but ran ${this.totalExecuted}`);
+      console.log(`\n  ⚠️  WARNING: Test count mismatch!`);
+      console.log(`      Planned: ${this.totalPlanned} tests`);
+      console.log(`      Executed: ${this.totalExecuted} tests`);
+      console.log(`      Missing: ${this.totalPlanned - this.totalExecuted} tests`);
     }
     
-    console.log(`  Total execution time: ${totalExecutionMs} ms`);
+    // Report files with errors
+    if (this.filesWithErrors > 0) {
+      console.log(`\n  ⚠️  ${this.filesWithErrors} file(s) had SQL execution errors:`);
+      for (const file of this.skippedFiles) {
+        console.log(`      - ${file}`);
+      }
+    }
     
-    // Exit with failure if there are failed tests OR plan mismatches
-    if (this.totalFailed > 0 || (this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned)) {
+    console.log(`\n  Total execution time: ${totalExecutionMs} ms`);
+    
+    // Exit with failure if there are failed tests, plan mismatches, or file errors
+    const hasFailures = this.totalFailed > 0 || this.filesWithErrors > 0;
+    const hasMissingTests = this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned;
+    
+    if (hasFailures || hasMissingTests) {
       Deno.exit(1);
     }
   }

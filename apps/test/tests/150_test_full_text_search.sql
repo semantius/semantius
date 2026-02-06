@@ -21,9 +21,9 @@ SELECT ok(
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'tables' AND column_name = 'searchable'
+        WHERE table_name = 'entities' AND column_name = 'searchable'
     )),
-    'searchable column should exist on tables table'
+    'searchable column should exist on entities table'
 );
 
 -- =====================================================
@@ -31,7 +31,7 @@ SELECT ok(
 -- =====================================================
 
 -- Create a new table and verify its label column is searchable
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_search_table', 'test_search_table', 'Test Search Table', 'Test Search Tables', 'Test table for full-text search', 1, 'public:read', 'admin', 'id', 'name', TRUE);
 
 SELECT ok(
@@ -230,13 +230,13 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: tables.searchable auto-maintenance
+-- TEST: entities.searchable auto-maintenance
 -- =====================================================
 
 -- Verify table is marked as searchable (has searchable fields)
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
-    'tables.searchable should be TRUE when table has searchable fields'
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
+    'entities.searchable should be TRUE when table has searchable fields'
 );
 
 -- Make all searchable fields non-searchable
@@ -244,8 +244,8 @@ UPDATE fields SET searchable = FALSE WHERE table_name = 'test_search_table' AND 
 
 -- Verify table is now marked as non-searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table') = FALSE,
-    'tables.searchable should be FALSE when no fields are searchable'
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table') = FALSE,
+    'entities.searchable should be FALSE when no fields are searchable'
 );
 
 -- Verify search_vector column is removed when no searchable fields
@@ -271,21 +271,21 @@ UPDATE fields SET searchable = TRUE WHERE table_name = 'test_search_table' AND f
 
 -- Verify table is marked as searchable again
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
-    'tables.searchable should be TRUE after making a field searchable again'
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
+    'entities.searchable should be TRUE after making a field searchable again'
 );
 
 -- =====================================================
--- TEST: Attempting to manually change tables.searchable is rejected
+-- TEST: Attempting to manually change entities.searchable is rejected
 -- =====================================================
 
 -- Try to manually set searchable to FALSE (should be overridden)
-UPDATE tables SET searchable = FALSE WHERE table_name = 'test_search_table';
+UPDATE entities SET searchable = FALSE WHERE table_name = 'test_search_table';
 
 -- Verify it's still TRUE (recomputed from fields)
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_search_table'),
-    'tables.searchable should be recomputed when manually changed (not allowed to override)'
+    (SELECT searchable FROM entities WHERE table_name = 'test_search_table'),
+    'entities.searchable should be recomputed when manually changed (not allowed to override)'
 );
 
 -- =====================================================
@@ -293,7 +293,7 @@ SELECT ok(
 -- =====================================================
 
 -- Create a table with managed=false
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_unmanaged_search', 'test_unmanaged_search', 'Test Unmanaged', 'Test Unmanaged', 'Unmanaged table', 1, 'public:read', 'admin', 'id', 'title', FALSE);
 
 -- Add a searchable field
@@ -311,7 +311,7 @@ SELECT ok(
 
 -- Verify table metadata still tracks searchable correctly
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'test_unmanaged_search'),
+    (SELECT searchable FROM entities WHERE table_name = 'test_unmanaged_search'),
     'tables.searchable should still be tracked for unmanaged tables (even though DDL not executed)'
 );
 
@@ -343,7 +343,7 @@ SELECT ok(
 
 -- webhook_receivers should be searchable because label field is searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'webhook_receivers'),
+    (SELECT searchable FROM entities WHERE table_name = 'webhook_receivers'),
     'webhook_receivers table should be searchable (label field is searchable)'
 );
 
@@ -354,7 +354,7 @@ SELECT ok(
 
 -- webhook_receiver_logs should be searchable because webhook_id (label) field is searchable
 SELECT ok(
-    (SELECT searchable FROM tables WHERE table_name = 'webhook_receiver_logs'),
+    (SELECT searchable FROM entities WHERE table_name = 'webhook_receiver_logs'),
     'webhook_receiver_logs table should be searchable (webhook_id label field is searchable)'
 );
 
@@ -366,7 +366,7 @@ SELECT ok(
 -- Verify ALL tables with searchable fields have tables.searchable=TRUE
 SELECT is(
     (SELECT table_name 
-     FROM tables t 
+     FROM entities t 
      WHERE t.searchable = FALSE 
        AND EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
      LIMIT 1),
@@ -378,7 +378,7 @@ SELECT is(
 SELECT ok(
     NOT EXISTS (
         SELECT t.table_name 
-        FROM tables t 
+        FROM entities t 
         WHERE t.searchable = TRUE 
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
     ),

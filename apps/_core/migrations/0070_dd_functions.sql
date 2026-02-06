@@ -248,10 +248,10 @@ BEGIN
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', '', TRUE, FALSE);
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
-    -- and update tables.searchable automatically. However, since we're in a nested trigger context,
+    -- and update entities.searchable automatically. However, since we're in a nested trigger context,
     -- we need to ensure the searchable flag gets set correctly after this trigger completes.
     -- The solution is to update it directly here since the label field is always searchable.
-    UPDATE tables 
+    UPDATE entities 
     SET searchable = TRUE 
     WHERE table_name = NEW.table_name 
       AND EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND searchable = TRUE);
@@ -261,11 +261,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION create_dd_table IS 
-'Trigger function that creates a table with RLS policies when a row is inserted into tables table.';
+'Trigger function that creates a table with RLS policies when a row is inserted into entities table.';
 
--- Apply trigger AFTER INSERT on tables
+-- Apply trigger AFTER INSERT on entities
 CREATE TRIGGER create_table_trigger
-    AFTER INSERT ON tables
+    AFTER INSERT ON entities
     FOR EACH ROW
     EXECUTE FUNCTION create_dd_table();
 
@@ -290,7 +290,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
     
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
     
     IF NOT v_is_managed THEN
         RAISE NOTICE 'Skipping field addition for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
@@ -299,9 +299,9 @@ BEGIN
     
     -- Skip if this is the id or label column (already created by create_dd_table)
     IF NEW.field_name IN (
-        SELECT id_column FROM tables WHERE table_name = NEW.table_name
+        SELECT id_column FROM entities WHERE table_name = NEW.table_name
         UNION
-        SELECT label_column FROM tables WHERE table_name = NEW.table_name
+        SELECT label_column FROM entities WHERE table_name = NEW.table_name
     ) THEN
         -- Still add column comment if description provided
         IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
@@ -401,7 +401,7 @@ BEGIN
     IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
         -- Get the id_column of the referenced table
         SELECT id_column INTO v_ref_id_column
-        FROM tables
+        FROM entities
         WHERE table_name = NEW.reference_table;
         
         IF v_ref_id_column IS NULL THEN
@@ -500,7 +500,7 @@ DECLARE
     v_on_delete TEXT;
 BEGIN
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM tables WHERE table_name = NEW.table_name;
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
     
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
@@ -656,7 +656,7 @@ BEGIN
             IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
                 -- Get the id_column of the referenced table
                 SELECT id_column INTO v_ref_id_column
-                FROM tables
+                FROM entities
                 WHERE table_name = NEW.reference_table;
                 
                 IF v_ref_id_column IS NULL THEN
@@ -775,9 +775,9 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
 BEGIN
-    -- Check if the parent table still exists in tables table
+    -- Check if the parent table still exists in entities table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
-    SELECT EXISTS(SELECT 1 FROM tables WHERE table_name = OLD.table_name) INTO v_table_exists;
+    SELECT EXISTS(SELECT 1 FROM entities WHERE table_name = OLD.table_name) INTO v_table_exists;
     
     IF NOT v_table_exists THEN
         -- Table is being deleted, allow cascade deletion of all fields including core fields
@@ -790,7 +790,7 @@ BEGIN
     END IF;
     
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM tables WHERE table_name = OLD.table_name;
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
     
     IF NOT v_is_managed THEN
         RAISE NOTICE 'Skipping field deletion for "%.%" (table managed=false)', OLD.table_name, OLD.field_name;
@@ -864,9 +864,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION delete_dd_table IS 
 'Trigger function that drops a table when a row is deleted from tables table.';
 
--- Apply trigger BEFORE DELETE on tables
+-- Apply trigger BEFORE DELETE on entities
 -- Note: Fields will be deleted via CASCADE on the foreign key
 CREATE TRIGGER delete_table_trigger
-    BEFORE DELETE ON tables
+    BEFORE DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION delete_dd_table();

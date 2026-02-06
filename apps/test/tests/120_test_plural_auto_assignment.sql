@@ -10,7 +10,7 @@ SELECT plan(4);
 -- Test 1: customers table (inserted WITHOUT plural value)
 -- Should have plural = 'customers' (auto-set from table_name)
 SELECT is(
-    (SELECT plural FROM tables WHERE table_name = 'customers'),
+    (SELECT plural FROM entities WHERE table_name = 'customers'),
     'customers',
     'customers table should have plural = "customers" (auto-set from table_name)'
 );
@@ -18,7 +18,7 @@ SELECT is(
 -- Test 2: employees table (inserted WITH wrong plural value 'wrongplural')
 -- Should have plural = 'employees' (user input ignored, auto-set from table_name)
 SELECT is(
-    (SELECT plural FROM tables WHERE table_name = 'employees'),
+    (SELECT plural FROM entities WHERE table_name = 'employees'),
     'employees',
     'employees table should have plural = "employees" (wrong user input ignored)'
 );
@@ -26,7 +26,7 @@ SELECT is(
 -- Test 3: products table (inserted WITH correct plural value 'products')
 -- Should have plural = 'products' (trigger ensures it matches table_name)
 SELECT is(
-    (SELECT plural FROM tables WHERE table_name = 'products'),
+    (SELECT plural FROM entities WHERE table_name = 'products'),
     'products',
     'products table should have plural = "products" (correct value maintained)'
 );
@@ -35,12 +35,12 @@ SELECT is(
 -- The trigger should ignore the update and keep plural = 'products'
 SELECT authenticate_as('user3'); -- user3 is admin with permission to update
 
-UPDATE tables 
+UPDATE entities 
 SET plural = 'wrongupdatevalue'
 WHERE table_name = 'products';
 
 SELECT is(
-    (SELECT plural FROM tables WHERE table_name = 'products'),
+    (SELECT plural FROM entities WHERE table_name = 'products'),
     'products',
     'products table should still have plural = "products" after UPDATE with wrong value (ignored by trigger)'
 );

@@ -11,7 +11,7 @@ SELECT authenticate_as('user3');
 -- =====================================================
 
 -- Test 1: Create a table with managed=true (default)
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_managed_true', 'test_managed_true', 'Test Managed True', 'Test Managed True', 'Test table with managed=true', 1, 'public:read', 'admin', 'id', 'label', TRUE);
 
 SELECT ok(
@@ -52,7 +52,7 @@ SELECT ok(
 );
 
 -- Test 5: Delete managed=true table
-DELETE FROM tables WHERE table_name = 'test_managed_true';
+DELETE FROM entities WHERE table_name = 'test_managed_true';
 
 SELECT ok(
     NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_managed_true'),
@@ -64,7 +64,7 @@ SELECT ok(
 -- =====================================================
 
 -- Test 6: Create a table with managed=false (should not create in DB)
-INSERT INTO tables(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_managed_false', 'test_managed_false', 'Test Managed False', 'Test Managed False', 'Test table with managed=false', 1, 'public:read', 'admin', 'id', 'label', FALSE);
 
 SELECT ok(
@@ -74,13 +74,13 @@ SELECT ok(
 
 -- Test 7: Table metadata should still exist in tables table
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM tables WHERE table_name = 'test_managed_false')),
+    (SELECT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_managed_false')),
     'Table metadata should exist in tables table even when managed=false'
 );
 
 -- Test 8: Verify managed flag is set correctly
 SELECT ok(
-    (SELECT managed = FALSE FROM tables WHERE table_name = 'test_managed_false'),
+    (SELECT managed = FALSE FROM entities WHERE table_name = 'test_managed_false'),
     'Managed flag should be FALSE for test_managed_false table'
 );
 
@@ -120,10 +120,10 @@ SELECT ok(
 );
 
 -- Test 13: Delete managed=false table (should not drop from DB since it wasn't created)
-DELETE FROM tables WHERE table_name = 'test_managed_false';
+DELETE FROM entities WHERE table_name = 'test_managed_false';
 
 SELECT ok(
-    NOT EXISTS (SELECT 1 FROM tables WHERE table_name = 'test_managed_false'),
+    NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_managed_false'),
     'Table metadata should be deleted from tables table for managed=false'
 );
 

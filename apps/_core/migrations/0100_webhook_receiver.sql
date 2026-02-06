@@ -2,14 +2,14 @@
 -- WEBHOOK RECEIVER TABLES
 -- =====================================================
 -- Create tables for webhook receivers and webhook receiver logs
--- These tables are created by inserting into the tables and fields tables
+-- These tables are created by inserting into the entities and fields tables
 -- =====================================================
 
 -- =====================================================
 -- CREATE webhook_receivers TABLE
 -- =====================================================
 
-INSERT INTO tables (
+INSERT INTO entities (
     table_name, 
     singular, 
     singular_label, 
@@ -49,7 +49,7 @@ VALUES
 -- CREATE webhook_receiver_logs TABLE
 -- =====================================================
 
-INSERT INTO tables (
+INSERT INTO entities (
     table_name, 
     singular, 
     singular_label, 
@@ -95,7 +95,7 @@ VALUES
 ALTER TABLE webhook_receivers 
 ADD CONSTRAINT fk_webhook_receivers_table_name 
 FOREIGN KEY (table_name) 
-REFERENCES tables(table_name) 
+REFERENCES entities(table_name) 
 ON DELETE CASCADE;
 
 -- Add foreign key constraint for webhook_receiver_id

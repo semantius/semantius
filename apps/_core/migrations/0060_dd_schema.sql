@@ -6,11 +6,11 @@
 -- =====================================================
 
 -- =====================================================
--- TABLES TABLE
+-- ENTITIES TABLE
 -- =====================================================
 -- Stores metadata about dynamically created tables
 
-CREATE TABLE IF NOT EXISTS tables (
+CREATE TABLE IF NOT EXISTS entities (
     table_name TEXT PRIMARY KEY,
     singular TEXT NOT NULL DEFAULT '',
     plural TEXT DEFAULT '',  -- Nullable because trigger auto-sets it before constraint check
@@ -39,22 +39,22 @@ CREATE TABLE IF NOT EXISTS tables (
     CONSTRAINT plural_matches_table_name CHECK (plural = table_name)
 );
 
-CREATE INDEX idx_tables_module ON tables(module_id);
+CREATE INDEX idx_entities_module ON entities(module_id);
 
-COMMENT ON TABLE tables IS 
+COMMENT ON TABLE entities IS 
 'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
 
-COMMENT ON COLUMN tables.table_name IS 'Physical table name in database (lowercase, underscores only)';
-COMMENT ON COLUMN tables.singular IS 'Singular form of table name (e.g., customer for customers table)';
-COMMENT ON COLUMN tables.plural IS 'Plural form of table name, auto-assigned to table_name (e.g., customers)';
-COMMENT ON COLUMN tables.singular_label IS 'Human-readable singular label for UI/reports (e.g., Customer)';
-COMMENT ON COLUMN tables.plural_label IS 'Human-readable plural label for UI/reports (e.g., Customers)';
-COMMENT ON COLUMN tables.icon_url IS 'Optional URL or path to icon for this table';
-COMMENT ON COLUMN tables.view_permission IS 'Permission required to SELECT from this table';
-COMMENT ON COLUMN tables.edit_permission IS 'Permission required to INSERT/UPDATE/DELETE from this table';
-COMMENT ON COLUMN tables.id_column IS 'Name of primary key column (created automatically)';
-COMMENT ON COLUMN tables.label_column IS 'Name of label/display column (created automatically)';
-COMMENT ON COLUMN tables.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
+COMMENT ON COLUMN entities.table_name IS 'Physical table name in database (lowercase, underscores only)';
+COMMENT ON COLUMN entities.singular IS 'Singular form of table name (e.g., customer for customers table)';
+COMMENT ON COLUMN entities.plural IS 'Plural form of table name, auto-assigned to table_name (e.g., customers)';
+COMMENT ON COLUMN entities.singular_label IS 'Human-readable singular label for UI/reports (e.g., Customer)';
+COMMENT ON COLUMN entities.plural_label IS 'Human-readable plural label for UI/reports (e.g., Customers)';
+COMMENT ON COLUMN entities.icon_url IS 'Optional URL or path to icon for this table';
+COMMENT ON COLUMN entities.view_permission IS 'Permission required to SELECT from this table';
+COMMENT ON COLUMN entities.edit_permission IS 'Permission required to INSERT/UPDATE/DELETE from this table';
+COMMENT ON COLUMN entities.id_column IS 'Name of primary key column (created automatically)';
+COMMENT ON COLUMN entities.label_column IS 'Name of label/display column (created automatically)';
+COMMENT ON COLUMN entities.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -63,7 +63,7 @@ COMMENT ON COLUMN tables.managed IS 'When false, automatic DDL execution for tab
 
 CREATE TABLE IF NOT EXISTS fields (
     id VARCHAR GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
-    table_name TEXT NOT NULL REFERENCES tables(table_name) ON DELETE CASCADE,
+    table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE,
     field_name TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
@@ -167,8 +167,8 @@ BEGIN
     -- Only validate if reference_table is not empty
     IF NEW.reference_table != '' THEN
         -- Check if the referenced table exists
-        IF NOT EXISTS (SELECT 1 FROM tables WHERE table_name = NEW.reference_table) THEN
-            RAISE EXCEPTION 'Referenced table "%" not found in tables', NEW.reference_table;
+        IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = NEW.reference_table) THEN
+            RAISE EXCEPTION 'Referenced table "%" not found in entities', NEW.reference_table;
         END IF;
     END IF;
     RETURN NEW;
@@ -184,30 +184,30 @@ CREATE TRIGGER validate_reference_table_trigger
 -- ENABLE RLS ON METADATA TABLES
 -- =====================================================
 
-ALTER TABLE tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- RLS POLICIES FOR TABLES
+-- RLS POLICIES FOR ENTITIES
 -- =====================================================
 
-CREATE POLICY tables_select_policy ON tables
+CREATE POLICY entities_select_policy ON entities
     FOR SELECT
     TO semantius_user
     USING (rbac.has_permission('public:read'));
 
-CREATE POLICY tables_insert_policy ON tables
+CREATE POLICY entities_insert_policy ON entities
     FOR INSERT
     TO semantius_user
     WITH CHECK (rbac.has_permission('admin'));
 
-CREATE POLICY tables_update_policy ON tables
+CREATE POLICY entities_update_policy ON entities
     FOR UPDATE
     TO semantius_user
     USING (rbac.has_permission('admin'))
     WITH CHECK (rbac.has_permission('admin'));
 
-CREATE POLICY tables_delete_policy ON tables
+CREATE POLICY entities_delete_policy ON entities
     FOR DELETE
     TO semantius_user
     USING (rbac.has_permission('admin'));
@@ -256,11 +256,11 @@ COMMENT ON FUNCTION auto_set_plural IS
 'Trigger function that automatically sets plural column to match table_name, ignoring user input';
 
 CREATE TRIGGER auto_set_plural_trigger
-    BEFORE INSERT OR UPDATE ON tables
+    BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION auto_set_plural();
 
-COMMENT ON TRIGGER auto_set_plural_trigger ON tables IS
+COMMENT ON TRIGGER auto_set_plural_trigger ON entities IS
 'Automatically sets plural to match table_name on INSERT/UPDATE';
 
 -- =====================================================
@@ -268,8 +268,8 @@ COMMENT ON TRIGGER auto_set_plural_trigger ON tables IS
 -- =====================================================
 -- Uses common.update_updated_at_column() from common schema
 
-CREATE TRIGGER update_tables_updated_at
-    BEFORE UPDATE ON tables
+CREATE TRIGGER update_entities_updated_at
+    BEFORE UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION common.update_updated_at_column();
 
@@ -284,35 +284,35 @@ CREATE TRIGGER update_fields_updated_at
 -- Add metadata for core RBAC and dynamic table system tables
 -- These are marked with is_core=true to indicate they are system tables
 
--- Insert tables metadata for core tables
-INSERT INTO tables (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- Insert entities metadata for core tables
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES 
-    ('tables', 'table', 'tables', 'Table', 'Tables', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title'),
     ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
     ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name');
 
--- Insert fields metadata for tables table
+-- Insert fields metadata for entities table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
 VALUES 
-    ('tables', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 0, 'default', 'm', 'id', TRUE, TRUE),
-    ('tables', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE),
-    ('tables', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'm', NULL, TRUE, TRUE),
-    ('tables', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE),
-    ('tables', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'text', FALSE, FALSE, 40, 'default', 'm', NULL, TRUE, TRUE),
-    ('tables', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE),
-    ('tables', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, TRUE),
-    ('tables', 'module_id', 'Module Id', 'Module this table belongs to', 'int32', FALSE, TRUE, 70, 'default', 's', NULL, TRUE, FALSE),
-    ('tables', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE),
-    ('tables', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'm', NULL, TRUE, FALSE),
-    ('tables', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE),
-    ('tables', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'm', NULL, TRUE, FALSE),
-    ('tables', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 's', NULL, TRUE, FALSE),
-    ('tables', 'searchable', 'Searchable', 'Whether table is included in full-text search', 'boolean', FALSE, FALSE, 117, 'default', 's', NULL, TRUE, FALSE),
-    ('tables', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE, FALSE),
-    ('tables', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE, FALSE);
+    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 0, 'default', 'm', 'id', TRUE, TRUE),
+    ('entities', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE),
+    ('entities', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'm', NULL, TRUE, TRUE),
+    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE),
+    ('entities', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'text', FALSE, FALSE, 40, 'default', 'm', NULL, TRUE, TRUE),
+    ('entities', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE),
+    ('entities', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, TRUE),
+    ('entities', 'module_id', 'Module Id', 'Module this table belongs to', 'int32', FALSE, TRUE, 70, 'default', 's', NULL, TRUE, FALSE),
+    ('entities', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE),
+    ('entities', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'm', NULL, TRUE, FALSE),
+    ('entities', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE),
+    ('entities', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'm', NULL, TRUE, FALSE),
+    ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 's', NULL, TRUE, FALSE),
+    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search', 'boolean', FALSE, FALSE, 117, 'default', 's', NULL, TRUE, FALSE),
+    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE, FALSE),
+    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE, FALSE);
 
 -- Insert fields metadata for fields table
 -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
@@ -369,7 +369,7 @@ VALUES
 -- =====================================================
 -- UPDATE SEARCHABLE FLAGS FOR CORE TABLES
 -- =====================================================
-UPDATE tables t
+UPDATE entities t
 SET searchable = EXISTS (
     SELECT 1 FROM fields f 
     WHERE f.table_name = t.table_name 
