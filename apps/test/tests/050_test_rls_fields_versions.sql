@@ -28,15 +28,25 @@ SELECT throws_ok(
 );
 
 -- Test that user1 cannot modify fields (update)
--- Store the original title value
+-- Store the original title value and verify UPDATE affects 0 rows due to RLS
 DO $$ 
 DECLARE
     v_original_title TEXT;
+    v_rows_affected INTEGER;
 BEGIN
-    SELECT title INTO v_original_title FROM fields WHERE table_name = 'entities' AND field_name = 'table_name';
-    -- Try to update
+    -- First, verify the record exists and we can read it
+    SELECT title INTO STRICT v_original_title FROM fields WHERE table_name = 'entities' AND field_name = 'table_name';
+    
+    -- Try to update (should be blocked by RLS)
     UPDATE fields SET title = 'Modified Title' WHERE table_name = 'entities' AND field_name = 'table_name';
-    -- Verify it wasn't changed
+    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
+    
+    -- Verify RLS blocked the update (0 rows affected)
+    IF v_rows_affected != 0 THEN
+        RAISE EXCEPTION 'UPDATE affected % rows when it should have affected 0 (RLS should block)', v_rows_affected;
+    END IF;
+    
+    -- Verify value is unchanged
     IF (SELECT title FROM fields WHERE table_name = 'entities' AND field_name = 'table_name') != v_original_title THEN
         RAISE EXCEPTION 'Title was modified when it should not have been';
     END IF;
@@ -45,19 +55,37 @@ END $$;
 SELECT ok(true, 'user1 cannot update fields table (verified data unchanged)');
 
 -- Test that user1 cannot modify fields (delete)
--- Store the count before delete attempt
+-- Verify DELETE affects 0 rows due to RLS
 DO $$
 DECLARE
     v_count_before INTEGER;
-    v_count_after INTEGER;
+    v_rows_affected INTEGER;
+    v_record_exists BOOLEAN;
 BEGIN
+    -- Verify the record exists that we're trying to delete (use 'description' field which exists for entities)
+    SELECT EXISTS(SELECT 1 FROM fields WHERE table_name = 'entities' AND field_name = 'description') INTO STRICT v_record_exists;
+    IF NOT v_record_exists THEN
+        RAISE EXCEPTION 'Test setup error: record to delete does not exist';
+    END IF;
+    
+    -- Get count before delete attempt
     SELECT COUNT(*) INTO v_count_before FROM fields WHERE table_name = 'entities';
-    -- Try to delete
-    DELETE FROM fields WHERE table_name = 'entities' AND field_name = 'title';
-    SELECT COUNT(*) INTO v_count_after FROM fields WHERE table_name = 'entities';
-    -- Verify count didn't change
-    IF v_count_before != v_count_after THEN
-        RAISE EXCEPTION 'Record was deleted when it should not have been';
+    IF v_count_before = 0 THEN
+        RAISE EXCEPTION 'Test setup error: no fields found for entities table';
+    END IF;
+    
+    -- Try to delete (should be blocked by RLS)
+    DELETE FROM fields WHERE table_name = 'entities' AND field_name = 'description';
+    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
+    
+    -- Verify RLS blocked the delete (0 rows affected)
+    IF v_rows_affected != 0 THEN
+        RAISE EXCEPTION 'DELETE affected % rows when it should have affected 0 (RLS should block)', v_rows_affected;
+    END IF;
+    
+    -- Double-check count didn't change
+    IF (SELECT COUNT(*) FROM fields WHERE table_name = 'entities') != v_count_before THEN
+        RAISE EXCEPTION 'Record count changed when it should not have';
     END IF;
 END $$;
 
@@ -98,15 +126,25 @@ SELECT throws_ok(
 );
 
 -- Test that user3 cannot update _versions
--- Store the original name value
+-- Verify UPDATE affects 0 rows due to RLS
 DO $$
 DECLARE
     v_original_name TEXT;
+    v_rows_affected INTEGER;
 BEGIN
-    SELECT name INTO v_original_name FROM _versions WHERE name = '_core.0010_create_core';
-    -- Try to update
+    -- Verify the record exists
+    SELECT name INTO STRICT v_original_name FROM _versions WHERE name = '_core.0010_create_core';
+    
+    -- Try to update (should be blocked by RLS)
     UPDATE _versions SET name = 'modified_name' WHERE name = '_core.0010_create_core';
-    -- Verify it wasn't changed
+    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
+    
+    -- Verify RLS blocked the update (0 rows affected)
+    IF v_rows_affected != 0 THEN
+        RAISE EXCEPTION 'UPDATE affected % rows when it should have affected 0 (RLS should block)', v_rows_affected;
+    END IF;
+    
+    -- Verify name is unchanged
     IF NOT EXISTS (SELECT 1 FROM _versions WHERE name = '_core.0010_create_core') THEN
         RAISE EXCEPTION 'Name was modified when it should not have been';
     END IF;
