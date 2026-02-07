@@ -10,7 +10,9 @@
 -- Perform the actual cleanup UPDATE outside the pgTAP transaction
 -- This ensures pgTAP state is properly cleaned up (ROLLBACK) while
 -- the data cleanup persists (separate UPDATE statement)
+BEGIN;
 UPDATE users SET last_seen = NULL WHERE id IN (1001, 1002, 1003);
+COMMIT;
 
 BEGIN;
 

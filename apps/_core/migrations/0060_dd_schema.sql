@@ -429,27 +429,27 @@ VALUES
     ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE, FALSE);
 
 -- Insert fields metadata for user_roles table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
-    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
-    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
-    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE),
-    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'int32', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE);
+    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, '', 'restrict'),
+    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'reference', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE, 'users', 'restrict'),
+    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'reference', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE, 'roles', 'restrict'),
+    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE, '', 'restrict'),
+    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE, 'users', 'clear');
 
 -- Insert fields metadata for role_permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
-    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
-    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
-    ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE),
-    ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'int32', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE);
+    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, '', 'restrict'),
+    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'reference', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE, 'roles', 'restrict'),
+    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'reference', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE, 'permissions', 'restrict'),
+    ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE, '', 'restrict'),
+    ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE, 'users', 'clear');
 
 -- Insert fields metadata for permission_hierarchy table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
-    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
-    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
-    ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE);
+    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, '', 'restrict'),
+    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'reference', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE, 'permissions', 'restrict'),
+    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'reference', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE, 'permissions', 'restrict'),
+    ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE, '', 'restrict');
