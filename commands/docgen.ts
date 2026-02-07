@@ -110,13 +110,16 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       
       // Fields table
       markdown += "\n### Fields\n\n";
-      markdown += "| Field Name | Title | Format | Type | Nullable | Default | Order | Input Type | Width | Core | Searchable |\n";
-      markdown += "|------------|-------|--------|------|----------|---------|-------|------------|-------|------|------------|\n";
+      markdown += "| Field Name | Title | Format | Type | Nullable | Default | Order | Input Type | Width | Core | Searchable | Enum Values | Reference Table | Reference Delete Mode |\n";
+      markdown += "|------------|-------|--------|------|----------|---------|-------|------------|-------|------|------------|-------------|-----------------|----------------------|\n";
       
       for (const field of fieldsResult.rows) {
         const pkMarker = field.is_pk ? " 🔑" : "";
         const ctypeMarker = field.ctype ? ` (${field.ctype})` : "";
-        markdown += `| \`${field.field_name}\`${pkMarker}${ctypeMarker} | ${field.title} | ${field.format} | ${field.input_type} | ${field.is_nullable} | ${field.default_value || "-"} | ${field.field_order} | ${field.input_type} | ${field.width} | ${field.is_core} | ${field.searchable} |\n`;
+        const enumValues = field.enum_values ? JSON.stringify(field.enum_values) : "-";
+        const referenceTable = field.reference_table || "-";
+        const referenceDeleteMode = field.reference_delete_mode || "-";
+        markdown += `| \`${field.field_name}\`${pkMarker}${ctypeMarker} | ${field.title} | ${field.format} | ${field.input_type} | ${field.is_nullable} | ${field.default_value || "-"} | ${field.field_order} | ${field.input_type} | ${field.width} | ${field.is_core} | ${field.searchable} | ${enumValues} | ${referenceTable} | ${referenceDeleteMode} |\n`;
       }
       
       markdown += "\n---\n\n";
