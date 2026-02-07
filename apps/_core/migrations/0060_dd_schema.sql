@@ -280,73 +280,77 @@ VALUES
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id');
 
 -- =====================================================
--- ADD ENUM CONSTRAINTS USING DRY PRINCIPLE
+-- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
 -- =====================================================
--- Each constraint uses a single array variable for both the CHECK constraint
--- and the enum_values metadata, ensuring consistency and maintainability
+-- Define enum value arrays ONCE and use for both CHECK constraints and field metadata
+-- This ensures no duplication and maintains consistency
 
--- Add input_type constraint and enum_values
 DO $$
 DECLARE
+  -- Define all enum value arrays in one place
+  format_values TEXT[] := ARRAY[
+    -- Custom SemSchema formats
+    'json', 'html', 'text', 'code', 'jsonata', 'reference', 'enum',
+    -- Standard JSON Schema formats
+    'date', 'time', 'date-time', 'duration',
+    'uri', 'uri-reference', 'uri-template', 'url',
+    'email', 'hostname', 'ipv4', 'ipv6', 'regex', 'uuid',
+    'json-pointer', 'json-pointer-uri-fragment', 'relative-json-pointer',
+    'byte', 'int32', 'int64', 'float', 'double', 'password', 'binary',
+    -- Primitive types from JSON Schema
+    'string', 'number', 'integer', 'boolean', 'object', 'array', 'null'
+  ];
   input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
+  width_values TEXT[] := ARRAY['s', 'm', 'w'];
+  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
+  reference_delete_mode_values TEXT[] := ARRAY['restrict', 'clear'];
 BEGIN
-  -- Add constraint
+  -- Add enum constraints
   EXECUTE format(
     'ALTER TABLE fields ADD CONSTRAINT valid_input_type CHECK (input_type = ANY(%L))',
     input_type_values
   );
   
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(input_type_values));
-END $$;
-
--- Add width constraint and enum_values
-DO $$
-DECLARE
-  width_values TEXT[] := ARRAY['s', 'm', 'w'];
-BEGIN
-  -- Add constraint
   EXECUTE format(
     'ALTER TABLE fields ADD CONSTRAINT valid_width CHECK (width = ANY(%L))',
     width_values
   );
   
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, to_jsonb(width_values));
-END $$;
-
--- Add ctype constraint and enum_values
-DO $$
-DECLARE
-  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
-BEGIN
-  -- Add constraint
   EXECUTE format(
     'ALTER TABLE fields ADD CONSTRAINT valid_ctype CHECK (ctype = ANY(%L))',
     ctype_values
   );
   
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(ctype_values));
-END $$;
-
--- Add reference_delete_mode constraint and enum_values
-DO $$
-DECLARE
-  reference_delete_mode_values TEXT[] := ARRAY['restrict', 'clear'];
-BEGIN
-  -- Add constraint
   EXECUTE format(
     'ALTER TABLE fields ADD CONSTRAINT valid_reference_delete_mode CHECK (reference_delete_mode = ANY(%L))',
     reference_delete_mode_values
   );
   
-  -- Insert field definition
+  -- Insert field metadata for fields table using the same enum arrays
+  -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
+  -- All field definitions for the fields table are consolidated here with NO duplication
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values));
+  VALUES 
+      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, NULL),
+      ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE, NULL),
+      ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE, TRUE, NULL),
+      ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE, NULL),
+      ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL),
+      ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'enum', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(format_values)),
+      ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE, FALSE, NULL),
+      ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE, FALSE, NULL),
+      ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE, NULL),
+      ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE, FALSE, NULL),
+      ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(input_type_values)),
+      ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, to_jsonb(width_values)),
+      ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(ctype_values)),
+      ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE, NULL),
+      ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE, NULL),
+      ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL),
+      ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
+      ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values)),
+      ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE, NULL),
+      ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE, NULL);
 END $$;
 
 -- Insert fields metadata for entities table
@@ -368,29 +372,6 @@ VALUES
     ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search', 'boolean', FALSE, FALSE, 117, 'default', 's', NULL, TRUE, FALSE),
     ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'm', NULL, TRUE, FALSE),
     ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'm', NULL, TRUE, FALSE);
-
--- Insert fields metadata for fields table
--- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
--- table_name and field_name have a unique constraint together
--- Note: input_type, width, ctype, and reference_delete_mode fields are inserted by DO blocks above
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-VALUES 
-    ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, NULL),
-    ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'm', NULL, TRUE, TRUE, NULL),
-    ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'm', NULL, TRUE, TRUE, NULL),
-    ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'm', 'label', TRUE, TRUE, NULL),
-    ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL),
-    ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'text', FALSE, FALSE, 50, 'default', 'm', NULL, TRUE, FALSE, NULL),
-    ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE, NULL),
-    ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL),
-    ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
-    ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE, NULL),
-    ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE, NULL);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
