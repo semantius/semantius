@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-02-07T10:28:27.354Z
+**Generated:** 2026-02-07T10:37:32.938Z
 
 ---
 
@@ -84,7 +84,7 @@ This document describes the database schema for the _core module.
 | `field_name` | Field Name | Physical column name in database | text | false | false | - | 20 | default | m | - | true | true | - | - | restrict |
 | `title` (label) | Title | Human-readable display name for the field | text | false | false | - | 30 | required | m | label | true | true | - | - | restrict |
 | `description` | Description | Detailed description of the field | text | false | false | - | 40 | default | w | - | true | true | - | - | restrict |
-| `format` | Format | JSON Schema format or primitive type | text | false | false | - | 50 | default | m | - | true | false | - | - | restrict |
+| `format` | Format | JSON Schema format or primitive type | enum | false | false | - | 50 | default | m | - | true | false | ["json","html","text","code","jsonata","reference","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | - | restrict |
 | `is_pk` | Is Primary Key | Whether this field is the primary key | boolean | false | false | - | 60 | default | s | - | true | false | - | - | restrict |
 | `is_nullable` | Is Nullable | Whether this field allows NULL values | boolean | false | false | - | 70 | default | s | - | true | false | - | - | restrict |
 | `default_value` | Default Value | Default value for the field | text | false | false | - | 80 | default | m | - | true | false | - | - | restrict |
