@@ -100,6 +100,16 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       markdown += `| Managed | ${entity.managed} |\n`;
       markdown += `| Searchable | ${entity.searchable} |\n`;
       
+      // Query field metadata to determine which columns to display
+      const fieldMetadataResult = await client.queryObject<FieldRecord>(
+        "SELECT * FROM fields WHERE table_name = 'fields' ORDER BY field_order"
+      );
+      
+      // Build list of columns to display (exclude internal/redundant fields)
+      const displayColumns = fieldMetadataResult.rows
+        .filter(f => !['id', 'table_name', 'created_at', 'updated_at'].includes(f.field_name))
+        .map(f => f.field_name);
+      
       // Query fields for this entity
       const fieldsResult = await client.queryObject<FieldRecord>(
         "SELECT * FROM fields WHERE table_name = $1 ORDER BY field_order",
@@ -110,16 +120,38 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       
       // Fields table
       markdown += "\n### Fields\n\n";
-      markdown += "| field_name | title | format | input_type | is_nullable | default_value | field_order | width | is_core | searchable | enum_values | reference_table | reference_delete_mode |\n";
-      markdown += "|------------|-------|--------|------------|-------------|---------------|-------------|-------|---------|------------|-------------|-----------------|----------------------|\n";
       
+      // Build header row dynamically
+      markdown += "| " + displayColumns.join(" | ") + " |\n";
+      markdown += "|" + displayColumns.map(() => "------------").join("|") + "|\n";
+      
+      // Build data rows dynamically
       for (const field of fieldsResult.rows) {
         const pkMarker = field.is_pk ? " 🔑" : "";
         const ctypeMarker = field.ctype ? ` (${field.ctype})` : "";
-        const enumValues = field.enum_values ? JSON.stringify(field.enum_values) : "-";
-        const referenceTable = field.reference_table || "-";
-        const referenceDeleteMode = field.reference_delete_mode || "-";
-        markdown += `| \`${field.field_name}\`${pkMarker}${ctypeMarker} | ${field.title} | ${field.format} | ${field.input_type} | ${field.is_nullable} | ${field.default_value || "-"} | ${field.field_order} | ${field.width} | ${field.is_core} | ${field.searchable} | ${enumValues} | ${referenceTable} | ${referenceDeleteMode} |\n`;
+        
+        const values = displayColumns.map(colName => {
+          const value = field[colName as keyof FieldRecord];
+          
+          // Special formatting for field_name (first column)
+          if (colName === 'field_name') {
+            return `\`${value}\`${pkMarker}${ctypeMarker}`;
+          }
+          
+          // Special formatting for enum_values (JSON)
+          if (colName === 'enum_values') {
+            return value ? JSON.stringify(value) : "-";
+          }
+          
+          // Handle empty strings and null values
+          if (value === null || value === undefined || value === '') {
+            return "-";
+          }
+          
+          return String(value);
+        });
+        
+        markdown += "| " + values.join(" | ") + " |\n";
       }
       
       markdown += "\n---\n\n";
