@@ -170,76 +170,6 @@ ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- ADD ENUM CONSTRAINTS USING DRY PRINCIPLE
--- =====================================================
--- Each constraint uses a single array variable for both the CHECK constraint
--- and the enum_values metadata, ensuring consistency and maintainability
-
--- Add input_type constraint and enum_values
-DO $$
-DECLARE
-  input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
-BEGIN
-  -- Add constraint
-  EXECUTE format(
-    'ALTER TABLE fields ADD CONSTRAINT valid_input_type CHECK (input_type = ANY(%L))',
-    input_type_values
-  );
-  
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(input_type_values));
-END $$;
-
--- Add width constraint and enum_values
-DO $$
-DECLARE
-  width_values TEXT[] := ARRAY['s', 'm', 'w'];
-BEGIN
-  -- Add constraint
-  EXECUTE format(
-    'ALTER TABLE fields ADD CONSTRAINT valid_width CHECK (width = ANY(%L))',
-    width_values
-  );
-  
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, to_jsonb(width_values));
-END $$;
-
--- Add ctype constraint and enum_values
-DO $$
-DECLARE
-  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
-BEGIN
-  -- Add constraint
-  EXECUTE format(
-    'ALTER TABLE fields ADD CONSTRAINT valid_ctype CHECK (ctype = ANY(%L))',
-    ctype_values
-  );
-  
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(ctype_values));
-END $$;
-
--- Add reference_delete_mode constraint and enum_values
-DO $$
-DECLARE
-  reference_delete_mode_values TEXT[] := ARRAY['restrict', 'clear'];
-BEGIN
-  -- Add constraint
-  EXECUTE format(
-    'ALTER TABLE fields ADD CONSTRAINT valid_reference_delete_mode CHECK (reference_delete_mode = ANY(%L))',
-    reference_delete_mode_values
-  );
-  
-  -- Insert field definition
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
-  VALUES ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values));
-END $$;
-
--- =====================================================
 -- RLS POLICIES FOR ENTITIES
 -- =====================================================
 
@@ -348,6 +278,76 @@ VALUES
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id');
+
+-- =====================================================
+-- ADD ENUM CONSTRAINTS USING DRY PRINCIPLE
+-- =====================================================
+-- Each constraint uses a single array variable for both the CHECK constraint
+-- and the enum_values metadata, ensuring consistency and maintainability
+
+-- Add input_type constraint and enum_values
+DO $$
+DECLARE
+  input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_input_type CHECK (input_type = ANY(%L))',
+    input_type_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(input_type_values));
+END $$;
+
+-- Add width constraint and enum_values
+DO $$
+DECLARE
+  width_values TEXT[] := ARRAY['s', 'm', 'w'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_width CHECK (width = ANY(%L))',
+    width_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, to_jsonb(width_values));
+END $$;
+
+-- Add ctype constraint and enum_values
+DO $$
+DECLARE
+  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_ctype CHECK (ctype = ANY(%L))',
+    ctype_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(ctype_values));
+END $$;
+
+-- Add reference_delete_mode constraint and enum_values
+DO $$
+DECLARE
+  reference_delete_mode_values TEXT[] := ARRAY['restrict', 'clear'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_reference_delete_mode CHECK (reference_delete_mode = ANY(%L))',
+    reference_delete_mode_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values));
+END $$;
 
 -- Insert fields metadata for entities table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
