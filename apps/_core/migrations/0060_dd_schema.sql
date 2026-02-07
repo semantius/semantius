@@ -105,25 +105,7 @@ CREATE TABLE IF NOT EXISTS fields (
         )
     ),
     
-    -- Validate input_type
-    CONSTRAINT valid_input_type CHECK (
-        input_type IN ('default', 'required', 'readonly', 'disabled', 'hidden')
-    ),
-    
-    -- Validate width
-    CONSTRAINT valid_width CHECK (
-        width IN ('s', 'm', 'w')
-    ),
-    
-    -- Validate ctype
-    CONSTRAINT valid_ctype CHECK (
-        ctype IN ('', 'id', 'label')
-    ),
-    
-    -- Validate reference_delete_mode
-    CONSTRAINT valid_reference_delete_mode CHECK (
-        reference_delete_mode IN ('restrict', 'clear')
-    ),
+
     
     -- Ensure reference_table is set when format is 'reference'
     CONSTRAINT reference_requires_table CHECK (
@@ -186,6 +168,76 @@ CREATE TRIGGER validate_reference_table_trigger
 
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================
+-- ADD ENUM CONSTRAINTS USING DRY PRINCIPLE
+-- =====================================================
+-- Each constraint uses a single array variable for both the CHECK constraint
+-- and the enum_values metadata, ensuring consistency and maintainability
+
+-- Add input_type constraint and enum_values
+DO $$
+DECLARE
+  input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_input_type CHECK (input_type = ANY(%L))',
+    input_type_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(input_type_values));
+END $$;
+
+-- Add width constraint and enum_values
+DO $$
+DECLARE
+  width_values TEXT[] := ARRAY['s', 'm', 'w'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_width CHECK (width = ANY(%L))',
+    width_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, to_jsonb(width_values));
+END $$;
+
+-- Add ctype constraint and enum_values
+DO $$
+DECLARE
+  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_ctype CHECK (ctype = ANY(%L))',
+    ctype_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, to_jsonb(ctype_values));
+END $$;
+
+-- Add reference_delete_mode constraint and enum_values
+DO $$
+DECLARE
+  reference_delete_mode_values TEXT[] := ARRAY['restrict', 'clear'];
+BEGIN
+  -- Add constraint
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_reference_delete_mode CHECK (reference_delete_mode = ANY(%L))',
+    reference_delete_mode_values
+  );
+  
+  -- Insert field definition
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
+  VALUES ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values));
+END $$;
 
 -- =====================================================
 -- RLS POLICIES FOR ENTITIES
@@ -320,6 +372,7 @@ VALUES
 -- Insert fields metadata for fields table
 -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
 -- table_name and field_name have a unique constraint together
+-- Note: input_type, width, ctype, and reference_delete_mode fields are inserted by DO blocks above
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values)
 VALUES 
     ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE, NULL),
@@ -332,14 +385,10 @@ VALUES
     ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 's', NULL, TRUE, FALSE, NULL),
     ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'm', NULL, TRUE, FALSE, NULL),
     ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 's', NULL, TRUE, FALSE, NULL),
-    ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'm', NULL, TRUE, FALSE, '["default", "required", "readonly", "disabled", "hidden"]'::jsonb),
-    ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 's', NULL, TRUE, FALSE, '["s", "m", "w"]'::jsonb),
-    ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'm', NULL, TRUE, FALSE, '["", "id", "label"]'::jsonb),
     ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 's', NULL, TRUE, FALSE, NULL),
     ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 's', NULL, TRUE, FALSE, NULL),
     ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL),
     ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'm', NULL, TRUE, FALSE, NULL),
-    ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 's', NULL, TRUE, FALSE, '["restrict", "clear"]'::jsonb),
     ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'm', NULL, TRUE, FALSE, NULL),
     ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'm', NULL, TRUE, FALSE, NULL);
 
