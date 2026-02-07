@@ -8,6 +8,7 @@ import { migrateCommand } from "./commands/migrate.ts";
 import { connectDatabaseConnection } from "./commands/connect.ts";
 import { testCommand } from "./commands/test.ts";
 import { dropallCommand } from "./commands/dropall.ts";
+import { docgenCommand } from "./commands/docgen.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -93,6 +94,7 @@ COMMANDS:
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
+    docgen           Generate schema.md documentation from entities metadata
 
 EXAMPLES:
     deno task init
@@ -237,6 +239,10 @@ async function main(): Promise<void> {
       
     case "dropall":
       await dropallCommand(databaseUrl!, args.confirm || false, args.script || false);
+      break;
+      
+    case "docgen":
+      await docgenCommand(databaseUrl!);
       break;
       
     default:

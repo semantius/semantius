@@ -292,7 +292,10 @@ VALUES
     ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name');
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name'),
+    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
+    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
+    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id');
 
 -- Insert fields metadata for entities table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
@@ -394,3 +397,29 @@ VALUES
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'int32', FALSE, TRUE, 30, 'default', 's', NULL, TRUE, FALSE),
     ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'm', NULL, TRUE, FALSE),
     ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'm', NULL, TRUE, FALSE);
+
+-- Insert fields metadata for user_roles table
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+VALUES 
+    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
+    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
+    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
+    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE),
+    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'int32', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE);
+
+-- Insert fields metadata for role_permissions table
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+VALUES 
+    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
+    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
+    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
+    ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE),
+    ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'int32', FALSE, TRUE, 40, 'default', 's', NULL, TRUE, FALSE);
+
+-- Insert fields metadata for permission_hierarchy table
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable)
+VALUES 
+    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'm', 'id', TRUE, FALSE),
+    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'int32', FALSE, FALSE, 10, 'default', 's', NULL, TRUE, FALSE),
+    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'int32', FALSE, FALSE, 20, 'default', 's', NULL, TRUE, FALSE),
+    ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'm', NULL, TRUE, FALSE);

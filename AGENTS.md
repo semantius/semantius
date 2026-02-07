@@ -146,6 +146,7 @@ deno task test
 - `dropall --confirm`: Completely reset database (required for clean testing)
 - `test`: Run pgTAP tests
 - `connect`: Connect to database
+- `docgen`: Generate schema.md documentation from entities metadata for _core module
 
 ## Development Guidelines
 
