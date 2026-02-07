@@ -2,32 +2,30 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-02-07T10:37:32.938Z
+**Generated:** 2026-02-07T11:11:11.092Z
 
 ---
 
-## Entity
+## entities
 
-**Table Name:** `entities`
+Metadata for dynamically created tables
 
-**Description:** Metadata for dynamically created tables
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `entities` |
-| Singular | entity |
-| Plural | entities |
-| Singular Label | Entity |
-| Plural Label | Entities |
-| Module ID | 1 |
-| View Permission | `public:read` |
-| Edit Permission | `admin` |
-| ID Column | `table_name` |
-| Label Column | `singular_label` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `entities` |
+| singular | Singular | entity |
+| plural | Plural | entities |
+| singular_label | Singular Label | Entity |
+| plural_label | Plural Label | Entities |
+| icon_url | Icon URL | - |
+| description | Description | Metadata for dynamically created tables |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `table_name` |
+| label_column | Label Column | `singular_label` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -47,33 +45,29 @@ This document describes the database schema for the _core module.
 | `label_column` | Label Column | Name of label/display column | text | false | false | - | 110 | default | m | - | true | false | - | - | restrict |
 | `managed` | Managed | When false, automatic DDL execution is disabled | boolean | false | false | - | 115 | default | s | - | true | false | - | - | restrict |
 | `searchable` | Searchable | Whether table is included in full-text search | boolean | false | false | - | 117 | default | s | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 120 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 130 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Field
+## fields
 
-**Table Name:** `fields`
+Metadata for fields in dynamically created tables
 
-**Description:** Metadata for fields in dynamically created tables
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `fields` |
-| Singular | field |
-| Plural | fields |
-| Singular Label | Field |
-| Plural Label | Fields |
-| Module ID | 1 |
-| View Permission | `public:read` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `title` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `fields` |
+| singular | Singular | field |
+| plural | Plural | fields |
+| singular_label | Singular Label | Field |
+| plural_label | Plural Label | Fields |
+| icon_url | Icon URL | - |
+| description | Description | Metadata for fields in dynamically created tables |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `title` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -97,33 +91,29 @@ This document describes the database schema for the _core module.
 | `enum_values` | Enum Values | JSON array of allowed enum values | json | false | true | - | 137 | default | w | - | true | false | - | - | restrict |
 | `reference_table` | Reference Table | Table name for foreign key relationships | text | false | false | - | 138 | default | m | - | true | false | - | - | restrict |
 | `reference_delete_mode` | Reference Delete Mode | ON DELETE behavior: restrict or clear | enum | false | false | - | 139 | default | s | - | true | false | ["restrict","clear"] | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 140 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 150 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Module
+## modules
 
-**Table Name:** `modules`
+Logical modules that group related roles and permissions
 
-**Description:** Logical modules that group related roles and permissions
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `modules` |
-| Singular | module |
-| Plural | modules |
-| Singular Label | Module |
-| Plural Label | Modules |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `module_name` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `modules` |
+| singular | Singular | module |
+| plural | Plural | modules |
+| singular_label | Singular Label | Module |
+| plural_label | Plural Label | Modules |
+| icon_url | Icon URL | - |
+| description | Description | Logical modules that group related roles and permissions |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `module_name` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -138,33 +128,29 @@ This document describes the database schema for the _core module.
 | `home_page` | Home Page | Default home page path for module | text | false | false | - | 37 | default | m | - | true | false | - | - | restrict |
 | `alias` | Alias | Alternative name or identifier for module | text | false | false | - | 38 | default | m | - | true | false | - | - | restrict |
 | `settings` | Settings | Module-specific settings and configuration | json | false | false | - | 39 | default | w | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 40 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 50 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Permission Hierarchy
+## permission_hierarchy
 
-**Table Name:** `permission_hierarchy`
+Defines permission inheritance (parent implies children)
 
-**Description:** Defines permission inheritance (parent implies children)
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `permission_hierarchy` |
-| Singular | permission_hierarchy |
-| Plural | permission_hierarchy |
-| Singular Label | Permission Hierarchy |
-| Plural Label | Permission Hierarchy |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `id` |
-| Managed | true |
-| Searchable | false |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `permission_hierarchy` |
+| singular | Singular | permission_hierarchy |
+| plural | Plural | permission_hierarchy |
+| singular_label | Singular Label | Permission Hierarchy |
+| plural_label | Plural Label | Permission Hierarchy |
+| icon_url | Icon URL | - |
+| description | Description | Defines permission inheritance (parent implies children) |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `id` |
+| managed | Managed | true |
+| searchable | Searchable | false |
 
 ### Fields
 
@@ -173,32 +159,29 @@ This document describes the database schema for the _core module.
 | `id` 🔑 (id) | Id | Generated identifier (parent_permission_id.child_permission_id) | text | true | false | - | 0 | readonly | m | id | true | false | - | - | restrict |
 | `parent_permission_id` | Parent Permission Id | Parent permission that implies child permissions | int32 | false | false | - | 10 | default | s | - | true | false | - | - | restrict |
 | `child_permission_id` | Child Permission Id | Child permission implied by parent | int32 | false | false | - | 20 | default | s | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 30 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Permission
+## permissions
 
-**Table Name:** `permissions`
+System permissions that can be assigned to roles
 
-**Description:** System permissions that can be assigned to roles
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `permissions` |
-| Singular | permission |
-| Plural | permissions |
-| Singular Label | Permission |
-| Plural Label | Permissions |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `permission_name` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `permissions` |
+| singular | Singular | permission |
+| plural | Plural | permissions |
+| singular_label | Singular Label | Permission |
+| plural_label | Plural Label | Permissions |
+| icon_url | Icon URL | - |
+| description | Description | System permissions that can be assigned to roles |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `permission_name` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -208,33 +191,29 @@ This document describes the database schema for the _core module.
 | `permission_name` (label) | Permission Name | Unique permission name | text | false | false | - | 10 | required | m | label | true | true | - | - | restrict |
 | `description` | Description | Description of the permission | text | false | false | - | 20 | default | w | - | true | true | - | - | restrict |
 | `module_id` | Module Id | Module this permission belongs to | int32 | false | true | - | 30 | default | s | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 40 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 50 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Role Permission
+## role_permissions
 
-**Table Name:** `role_permissions`
+Many-to-many mapping between roles and permissions
 
-**Description:** Many-to-many mapping between roles and permissions
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `role_permissions` |
-| Singular | role_permission |
-| Plural | role_permissions |
-| Singular Label | Role Permission |
-| Plural Label | Role Permissions |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `id` |
-| Managed | true |
-| Searchable | false |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `role_permissions` |
+| singular | Singular | role_permission |
+| plural | Plural | role_permissions |
+| singular_label | Singular Label | Role Permission |
+| plural_label | Plural Label | Role Permissions |
+| icon_url | Icon URL | - |
+| description | Description | Many-to-many mapping between roles and permissions |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `id` |
+| managed | Managed | true |
+| searchable | Searchable | false |
 
 ### Fields
 
@@ -248,28 +227,26 @@ This document describes the database schema for the _core module.
 
 ---
 
-## Role
+## roles
 
-**Table Name:** `roles`
+Groups of permissions that can be assigned to users
 
-**Description:** Groups of permissions that can be assigned to users
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `roles` |
-| Singular | role |
-| Plural | roles |
-| Singular Label | Role |
-| Plural Label | Roles |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `role_name` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `roles` |
+| singular | Singular | role |
+| plural | Plural | roles |
+| singular_label | Singular Label | Role |
+| plural_label | Plural Label | Roles |
+| icon_url | Icon URL | - |
+| description | Description | Groups of permissions that can be assigned to users |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `role_name` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -279,33 +256,29 @@ This document describes the database schema for the _core module.
 | `role_name` (label) | Role Name | Unique role name | text | false | false | - | 10 | required | m | label | true | true | - | - | restrict |
 | `description` | Description | Description of the role | text | false | false | - | 20 | default | w | - | true | true | - | - | restrict |
 | `module_id` | Module Id | Module this role belongs to | int32 | false | true | - | 30 | default | s | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 40 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 50 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## User Role
+## user_roles
 
-**Table Name:** `user_roles`
+Many-to-many mapping between users and roles
 
-**Description:** Many-to-many mapping between users and roles
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `user_roles` |
-| Singular | user_role |
-| Plural | user_roles |
-| Singular Label | User Role |
-| Plural Label | User Roles |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `id` |
-| Managed | true |
-| Searchable | false |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `user_roles` |
+| singular | Singular | user_role |
+| plural | Plural | user_roles |
+| singular_label | Singular Label | User Role |
+| plural_label | Plural Label | User Roles |
+| icon_url | Icon URL | - |
+| description | Description | Many-to-many mapping between users and roles |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `id` |
+| managed | Managed | true |
+| searchable | Searchable | false |
 
 ### Fields
 
@@ -319,28 +292,26 @@ This document describes the database schema for the _core module.
 
 ---
 
-## User
+## users
 
-**Table Name:** `users`
+External users synchronized from JWT tokens
 
-**Description:** External users synchronized from JWT tokens
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `users` |
-| Singular | user |
-| Plural | users |
-| Singular Label | User |
-| Plural Label | Users |
-| Module ID | 1 |
-| View Permission | `user:read` |
-| Edit Permission | `user:manage` |
-| ID Column | `id` |
-| Label Column | `email` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `users` |
+| singular | Singular | user |
+| plural | Plural | users |
+| singular_label | Singular Label | User |
+| plural_label | Plural Label | Users |
+| icon_url | Icon URL | - |
+| description | Description | External users synchronized from JWT tokens |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `user:read` |
+| edit_permission | Edit Permission | `user:manage` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `email` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -351,34 +322,30 @@ This document describes the database schema for the _core module.
 | `email` (label) | Email | User email address | email | false | false | - | 20 | default | m | label | true | true | - | - | restrict |
 | `is_disabled` | Is Disabled | Whether user account is disabled | boolean | false | false | - | 30 | default | s | - | true | false | - | - | restrict |
 | `settings` | Settings | User-specific settings and preferences | json | false | false | - | 35 | default | w | - | true | false | - | - | restrict |
-| `created_at` | Created At | Timestamp when record was created | date-time | false | false | - | 40 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | Timestamp when record was last updated | date-time | false | false | - | 50 | disabled | m | - | true | false | - | - | restrict |
 | `last_seen` | Last Seen | Timestamp when user was last active | date-time | false | true | - | 60 | readonly | m | - | true | false | - | - | restrict |
 
 ---
 
-## Webhook Receiver Log
+## webhook_receiver_logs
 
-**Table Name:** `webhook_receiver_logs`
+Log of webhook receiver events
 
-**Description:** Log of webhook receiver events
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `webhook_receiver_logs` |
-| Singular | webhook_receiver_log |
-| Plural | webhook_receiver_logs |
-| Singular Label | Webhook Receiver Log |
-| Plural Label | Webhook Receiver Logs |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `webhook_id` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `webhook_receiver_logs` |
+| singular | Singular | webhook_receiver_log |
+| plural | Plural | webhook_receiver_logs |
+| singular_label | Singular Label | Webhook Receiver Log |
+| plural_label | Plural Label | Webhook Receiver Logs |
+| icon_url | Icon URL | - |
+| description | Description | Log of webhook receiver events |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `webhook_id` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -392,33 +359,29 @@ This document describes the database schema for the _core module.
 | `payload` | Payload | Webhook payload data | json | false | false | - | 50 | default | w | - | false | false | - | - | restrict |
 | `result` | Result | Processing result: 10=received, 20=processed, 90=failed | enum | false | false | 10 | 60 | default | s | - | false | false | ["10","20","90"] | - | restrict |
 | `error_message` | Error Message | Error message if processing failed | text | false | false | - | 70 | default | w | - | false | false | - | - | restrict |
-| `created_at` | Created At | - | date-time | false | false | - | 999998 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | - | date-time | false | false | - | 999999 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 
-## Webhook Receiver
+## webhook_receivers
 
-**Table Name:** `webhook_receivers`
+Configuration for webhook endpoints
 
-**Description:** Configuration for webhook endpoints
-
-### Entity Metadata
-
-| Property | Value |
-|----------|-------|
-| Table Name | `webhook_receivers` |
-| Singular | webhook_receiver |
-| Plural | webhook_receivers |
-| Singular Label | Webhook Receiver |
-| Plural Label | Webhook Receivers |
-| Module ID | 1 |
-| View Permission | `admin` |
-| Edit Permission | `admin` |
-| ID Column | `id` |
-| Label Column | `label` |
-| Managed | true |
-| Searchable | true |
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `webhook_receivers` |
+| singular | Singular | webhook_receiver |
+| plural | Plural | webhook_receivers |
+| singular_label | Singular Label | Webhook Receiver |
+| plural_label | Plural Label | Webhook Receivers |
+| icon_url | Icon URL | - |
+| description | Description | Configuration for webhook endpoints |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `label` |
+| managed | Managed | true |
+| searchable | Searchable | true |
 
 ### Fields
 
@@ -433,8 +396,6 @@ This document describes the database schema for the _core module.
 | `header_name` | Header Name | Custom header name for authentication | text | false | false | - | 45 | default | m | - | false | false | - | - | restrict |
 | `header_value` | Header Value | Expected value for custom header authentication | text | false | false | - | 46 | default | m | - | false | false | - | - | restrict |
 | `jsonata` | JSONata Expression | Optional JSONata expression to transform incoming data | jsonata | false | false | - | 50 | default | w | - | false | false | - | - | restrict |
-| `created_at` | Created At | - | date-time | false | false | - | 999998 | disabled | m | - | true | false | - | - | restrict |
-| `updated_at` | Updated At | - | date-time | false | false | - | 999999 | disabled | m | - | true | false | - | - | restrict |
 
 ---
 

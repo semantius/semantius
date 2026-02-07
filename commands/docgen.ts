@@ -73,32 +73,42 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     for (const entity of entitiesResult.rows) {
       console.log(`Processing entity: ${entity.table_name}`);
       
-      markdown += `## ${entity.singular_label}\n\n`;
-      markdown += `**Table Name:** \`${entity.table_name}\`\n\n`;
+      markdown += `## ${entity.table_name}\n\n`;
       
       if (entity.description) {
-        markdown += `**Description:** ${entity.description}\n\n`;
+        markdown += `${entity.description}\n\n`;
       }
       
+      // Query fields for 'entities' table to dynamically build entity metadata
+      const entityFieldsResult = await client.queryObject<FieldRecord>(
+        "SELECT * FROM fields WHERE table_name = 'entities' AND field_name NOT IN ('created_at', 'updated_at') ORDER BY field_order"
+      );
+      
       // Entity metadata table
-      markdown += "### Entity Metadata\n\n";
-      markdown += "| Property | Value |\n";
-      markdown += "|----------|-------|\n";
-      markdown += `| Table Name | \`${entity.table_name}\` |\n`;
-      markdown += `| Singular | ${entity.singular} |\n`;
-      markdown += `| Plural | ${entity.plural} |\n`;
-      markdown += `| Singular Label | ${entity.singular_label} |\n`;
-      markdown += `| Plural Label | ${entity.plural_label} |\n`;
-      if (entity.icon_url) {
-        markdown += `| Icon URL | ${entity.icon_url} |\n`;
+      markdown += `| field_name | label | value |\n`;
+      markdown += `|------------|-------|-------|\n`;
+      
+      // Build rows dynamically from entities table fields
+      for (const field of entityFieldsResult.rows) {
+        const fieldValue = entity[field.field_name as keyof EntityRecord];
+        let displayValue: string;
+        
+        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+          displayValue = '-';
+        } else if (typeof fieldValue === 'boolean') {
+          displayValue = String(fieldValue);
+        } else if (field.field_name === 'table_name' || field.field_name === 'view_permission' || 
+                   field.field_name === 'edit_permission' || field.field_name === 'id_column' || 
+                   field.field_name === 'label_column') {
+          displayValue = `\`${fieldValue}\``;
+        } else {
+          displayValue = String(fieldValue);
+        }
+        
+        markdown += `| ${field.field_name} | ${field.title} | ${displayValue} |\n`;
       }
-      markdown += `| Module ID | ${entity.module_id} |\n`;
-      markdown += `| View Permission | \`${entity.view_permission}\` |\n`;
-      markdown += `| Edit Permission | \`${entity.edit_permission}\` |\n`;
-      markdown += `| ID Column | \`${entity.id_column}\` |\n`;
-      markdown += `| Label Column | \`${entity.label_column}\` |\n`;
-      markdown += `| Managed | ${entity.managed} |\n`;
-      markdown += `| Searchable | ${entity.searchable} |\n`;
+      
+      markdown += '\n';
       
       // Query field metadata to determine which columns to display
       const fieldMetadataResult = await client.queryObject<FieldRecord>(
@@ -119,7 +129,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       console.log(`  Found ${fieldsResult.rows.length} fields`);
       
       // Fields table
-      markdown += "\n### Fields\n\n";
+      markdown += "### Fields\n\n";
       
       // Build header row dynamically
       markdown += "| " + displayColumns.join(" | ") + " |\n";
@@ -127,6 +137,11 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       
       // Build data rows dynamically
       for (const field of fieldsResult.rows) {
+        // Skip created_at and updated_at fields
+        if (field.field_name === 'created_at' || field.field_name === 'updated_at') {
+          continue;
+        }
+        
         const pkMarker = field.is_pk ? " 🔑" : "";
         const ctypeMarker = field.ctype ? ` (${field.ctype})` : "";
         
