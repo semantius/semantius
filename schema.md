@@ -2,11 +2,11 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-02-07T11:11:11.092Z
+**Generated:** 2026-02-09T17:18:33.074Z
 
 ---
 
-## entities
+## Entity: entities
 
 Metadata for dynamically created tables
 
@@ -29,26 +29,26 @@ Metadata for dynamically created tables
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `table_name` 🔑 (id) | Table Name | Physical table name in database | text | true | false | - | 0 | default | m | id | true | true | - | - | restrict |
-| `singular` | Singular | Singular form of table name | text | false | false | - | 10 | default | m | - | true | true | - | - | restrict |
-| `plural` | Plural | Plural form of table name, auto-assigned to table_name | text | false | false | - | 20 | readonly | m | - | true | true | - | - | restrict |
-| `singular_label` (label) | Singular Label | Human-readable singular label for UI/reports | text | false | false | - | 30 | required | m | label | true | true | - | - | restrict |
-| `plural_label` | Plural Label | Human-readable plural label for UI/reports | text | false | false | - | 40 | default | m | - | true | true | - | - | restrict |
-| `icon_url` | Icon URL | Optional URL or path to icon for this table | url | false | false | - | 50 | default | w | - | true | false | - | - | restrict |
-| `description` | Description | Detailed description of the table | text | false | false | - | 60 | default | w | - | true | true | - | - | restrict |
-| `module_id` | Module Id | Module this table belongs to | int32 | false | true | - | 70 | default | s | - | true | false | - | - | restrict |
-| `view_permission` | View Permission | Permission required to SELECT from this table | text | false | false | - | 80 | default | m | - | true | false | - | - | restrict |
-| `edit_permission` | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | text | false | false | - | 90 | default | m | - | true | false | - | - | restrict |
-| `id_column` | Id Column | Name of primary key column | text | false | false | - | 100 | default | m | - | true | false | - | - | restrict |
-| `label_column` | Label Column | Name of label/display column | text | false | false | - | 110 | default | m | - | true | false | - | - | restrict |
-| `managed` | Managed | When false, automatic DDL execution is disabled | boolean | false | false | - | 115 | default | s | - | true | false | - | - | restrict |
-| `searchable` | Searchable | Whether table is included in full-text search | boolean | false | false | - | 117 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `table_name` 🔑 (id) | Table Name | Physical table name in database | string | text | true | false | - | 0 | default | m | id | true | true | - | - | - |
+| `singular` | Singular | Singular form of table name | string | text | false | false | - | 10 | default | m | - | true | true | - | - | - |
+| `plural` | Plural | Plural form of table name, auto-assigned to table_name | string | text | false | false | - | 20 | readonly | m | - | true | true | - | - | - |
+| `singular_label` (label) | Singular Label | Human-readable singular label for UI/reports | string | text | false | false | - | 30 | required | m | label | true | true | - | - | - |
+| `plural_label` | Plural Label | Human-readable plural label for UI/reports | string | text | false | false | - | 40 | default | m | - | true | true | - | - | - |
+| `icon_url` | Icon URL | Optional URL or path to icon for this table | string | url | false | false | - | 50 | default | w | - | true | false | - | - | - |
+| `description` | Description | Detailed description of the table | string | text | false | false | - | 60 | default | w | - | true | true | - | - | - |
+| `module_id` | Module Id | Module this table belongs to | integer | reference | false | true | - | 70 | default | s | - | true | false | - | modules | clear |
+| `view_permission` | View Permission | Permission required to SELECT from this table | string | text | false | false | - | 80 | default | m | - | true | false | - | - | - |
+| `edit_permission` | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | text | false | false | - | 90 | default | m | - | true | false | - | - | - |
+| `id_column` | Id Column | Name of primary key column | string | text | false | false | - | 100 | default | m | - | true | false | - | - | - |
+| `label_column` | Label Column | Name of label/display column | string | text | false | false | - | 110 | default | m | - | true | false | - | - | - |
+| `managed` | Managed | When false, automatic DDL execution is disabled | boolean | boolean | false | false | - | 115 | default | s | - | true | false | - | - | - |
+| `searchable` | Searchable | Whether table is included in full-text search | boolean | boolean | false | false | - | 117 | default | s | - | true | false | - | - | - |
 
 ---
 
-## fields
+## Entity: fields
 
 Metadata for fields in dynamically created tables
 
@@ -71,30 +71,30 @@ Metadata for fields in dynamically created tables
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (table_name.field_name) | text | true | false | - | 0 | readonly | m | id | true | false | - | - | restrict |
-| `table_name` | Table Name | Table this field belongs to | text | false | false | - | 10 | default | m | - | true | true | - | - | restrict |
-| `field_name` | Field Name | Physical column name in database | text | false | false | - | 20 | default | m | - | true | true | - | - | restrict |
-| `title` (label) | Title | Human-readable display name for the field | text | false | false | - | 30 | required | m | label | true | true | - | - | restrict |
-| `description` | Description | Detailed description of the field | text | false | false | - | 40 | default | w | - | true | true | - | - | restrict |
-| `format` | Format | JSON Schema format or primitive type | enum | false | false | - | 50 | default | m | - | true | false | ["json","html","text","code","jsonata","reference","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | - | restrict |
-| `is_pk` | Is Primary Key | Whether this field is the primary key | boolean | false | false | - | 60 | default | s | - | true | false | - | - | restrict |
-| `is_nullable` | Is Nullable | Whether this field allows NULL values | boolean | false | false | - | 70 | default | s | - | true | false | - | - | restrict |
-| `default_value` | Default Value | Default value for the field | text | false | false | - | 80 | default | m | - | true | false | - | - | restrict |
-| `field_order` | Field Order | Display order for the field | int32 | false | false | - | 90 | default | s | - | true | false | - | - | restrict |
-| `input_type` | Input Type | Input type for UI rendering | enum | false | false | - | 100 | default | m | - | true | false | ["default","required","readonly","disabled","hidden"] | - | restrict |
-| `width` | Width | Display width for UI rendering | enum | false | false | - | 110 | default | s | - | true | false | ["s","m","w"] | - | restrict |
-| `ctype` | Column Type | Special column type (id, label, etc.) | enum | false | false | - | 120 | default | m | - | true | false | ["","id","label"] | - | restrict |
-| `is_core` | Is Core | Whether this is a core system field | boolean | false | false | - | 130 | default | s | - | true | false | - | - | restrict |
-| `searchable` | Searchable | Whether field is included in full-text search | boolean | false | false | - | 135 | default | s | - | true | false | - | - | restrict |
-| `enum_values` | Enum Values | JSON array of allowed enum values | json | false | true | - | 137 | default | w | - | true | false | - | - | restrict |
-| `reference_table` | Reference Table | Table name for foreign key relationships | text | false | false | - | 138 | default | m | - | true | false | - | - | restrict |
-| `reference_delete_mode` | Reference Delete Mode | ON DELETE behavior: restrict or clear | enum | false | false | - | 139 | default | s | - | true | false | ["restrict","clear"] | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Generated identifier (table_name.field_name) | string | text | true | false | - | 0 | readonly | m | id | true | false | - | - | - |
+| `table_name` | Table Name | Table this field belongs to | string | text | false | false | - | 10 | default | m | - | true | true | - | - | - |
+| `field_name` | Field Name | Physical column name in database | string | text | false | false | - | 20 | default | m | - | true | true | - | - | - |
+| `title` (label) | Title | Human-readable display name for the field | string | text | false | false | - | 30 | required | m | label | true | true | - | - | - |
+| `description` | Description | Detailed description of the field | string | text | false | false | - | 40 | default | w | - | true | true | - | - | - |
+| `format` | Format | JSON Schema format or primitive type | string | enum | false | false | - | 50 | default | m | - | true | false | ["json","html","text","code","jsonata","reference","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | - | - |
+| `is_pk` | Is Primary Key | Whether this field is the primary key | boolean | boolean | false | false | - | 60 | default | s | - | true | false | - | - | - |
+| `is_nullable` | Is Nullable | Whether this field allows NULL values | boolean | boolean | false | false | - | 70 | default | s | - | true | false | - | - | - |
+| `default_value` | Default Value | Default value for the field | string | text | false | false | - | 80 | default | m | - | true | false | - | - | - |
+| `field_order` | Field Order | Display order for the field | integer | int32 | false | false | - | 90 | default | s | - | true | false | - | - | - |
+| `input_type` | Input Type | Input type for UI rendering | string | enum | false | false | - | 100 | default | m | - | true | false | ["default","required","readonly","disabled","hidden"] | - | - |
+| `width` | Width | Display width for UI rendering | string | enum | false | false | - | 110 | default | s | - | true | false | ["s","m","w"] | - | - |
+| `ctype` | Column Type | Special column type (id, label, etc.) | string | enum | false | false | - | 120 | default | m | - | true | false | ["","id","label"] | - | - |
+| `is_core` | Is Core | Whether this is a core system field | boolean | boolean | false | false | - | 130 | default | s | - | true | false | - | - | - |
+| `searchable` | Searchable | Whether field is included in full-text search | boolean | boolean | false | false | - | 135 | default | s | - | true | false | - | - | - |
+| `enum_values` | Enum Values | JSON array of allowed enum values | json | json | false | true | - | 137 | default | w | - | true | false | - | - | - |
+| `reference_table` | Reference Table | Table name for foreign key relationships | string | text | false | false | - | 138 | default | m | - | true | false | - | - | - |
+| `reference_delete_mode` | Reference Delete Mode | ON DELETE behavior: restrict or clear | string | enum | false | false | - | 139 | default | s | - | true | false | ["","restrict","clear"] | - | - |
 
 ---
 
-## modules
+## Entity: modules
 
 Logical modules that group related roles and permissions
 
@@ -117,21 +117,21 @@ Logical modules that group related roles and permissions
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Internal module identifier | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `module_name` (label) | Module Name | Unique module name | text | false | false | - | 10 | required | m | label | true | true | - | - | restrict |
-| `description` | Description | Description of the module | text | false | false | - | 20 | default | w | - | true | true | - | - | restrict |
-| `view_permission` | View Permission | Permission required to view this module | text | false | false | - | 30 | default | m | - | true | false | - | - | restrict |
-| `logo_url` | Logo URL | URL or base64 data URI for module logo | url | false | false | - | 35 | default | w | - | true | false | - | - | restrict |
-| `logo_color` | Logo Color | Hex color code for module logo | text | false | false | - | 36 | default | s | - | true | false | - | - | restrict |
-| `home_page` | Home Page | Default home page path for module | text | false | false | - | 37 | default | m | - | true | false | - | - | restrict |
-| `alias` | Alias | Alternative name or identifier for module | text | false | false | - | 38 | default | m | - | true | false | - | - | restrict |
-| `settings` | Settings | Module-specific settings and configuration | json | false | false | - | 39 | default | w | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Internal module identifier | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `module_name` (label) | Module Name | Unique module name | string | text | false | false | - | 10 | required | m | label | true | true | - | - | - |
+| `description` | Description | Description of the module | string | text | false | false | - | 20 | default | w | - | true | true | - | - | - |
+| `view_permission` | View Permission | Permission required to view this module | string | text | false | false | - | 30 | default | m | - | true | false | - | - | - |
+| `logo_url` | Logo URL | URL or base64 data URI for module logo | string | url | false | false | - | 35 | default | w | - | true | false | - | - | - |
+| `logo_color` | Logo Color | Hex color code for module logo | string | text | false | false | - | 36 | default | s | - | true | false | - | - | - |
+| `home_page` | Home Page | Default home page path for module | string | text | false | false | - | 37 | default | m | - | true | false | - | - | - |
+| `alias` | Alias | Alternative name or identifier for module | string | text | false | false | - | 38 | default | m | - | true | false | - | - | - |
+| `settings` | Settings | Module-specific settings and configuration | json | json | false | false | - | 39 | default | w | - | true | false | - | - | - |
 
 ---
 
-## permission_hierarchy
+## Entity: permission_hierarchy
 
 Defines permission inheritance (parent implies children)
 
@@ -154,15 +154,15 @@ Defines permission inheritance (parent implies children)
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (parent_permission_id.child_permission_id) | text | true | false | - | 0 | readonly | m | id | true | false | - | - | restrict |
-| `parent_permission_id` | Parent Permission Id | Parent permission that implies child permissions | int32 | false | false | - | 10 | default | s | - | true | false | - | - | restrict |
-| `child_permission_id` | Child Permission Id | Child permission implied by parent | int32 | false | false | - | 20 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Generated identifier (parent_permission_id.child_permission_id) | string | text | true | false | - | 0 | readonly | m | id | true | false | - | - | - |
+| `parent_permission_id` | Parent Permission Id | Parent permission that implies child permissions | integer | reference | false | false | - | 10 | default | s | - | true | false | - | permissions | restrict |
+| `child_permission_id` | Child Permission Id | Child permission implied by parent | integer | reference | false | false | - | 20 | default | s | - | true | false | - | permissions | restrict |
 
 ---
 
-## permissions
+## Entity: permissions
 
 System permissions that can be assigned to roles
 
@@ -185,16 +185,16 @@ System permissions that can be assigned to roles
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Internal permission identifier | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `permission_name` (label) | Permission Name | Unique permission name | text | false | false | - | 10 | required | m | label | true | true | - | - | restrict |
-| `description` | Description | Description of the permission | text | false | false | - | 20 | default | w | - | true | true | - | - | restrict |
-| `module_id` | Module Id | Module this permission belongs to | int32 | false | true | - | 30 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Internal permission identifier | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `permission_name` (label) | Permission Name | Unique permission name | string | text | false | false | - | 10 | required | m | label | true | true | - | - | - |
+| `description` | Description | Description of the permission | string | text | false | false | - | 20 | default | w | - | true | true | - | - | - |
+| `module_id` | Module Id | Module this permission belongs to | integer | reference | false | true | - | 30 | default | s | - | true | false | - | modules | clear |
 
 ---
 
-## role_permissions
+## Entity: role_permissions
 
 Many-to-many mapping between roles and permissions
 
@@ -217,17 +217,17 @@ Many-to-many mapping between roles and permissions
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (role_id.permission_id) | text | true | false | - | 0 | readonly | m | id | true | false | - | - | restrict |
-| `role_id` | Role Id | Role this permission is granted to | int32 | false | false | - | 10 | default | s | - | true | false | - | - | restrict |
-| `permission_id` | Permission Id | Permission granted to the role | int32 | false | false | - | 20 | default | s | - | true | false | - | - | restrict |
-| `granted_at` | Granted At | Timestamp when permission was granted | date-time | false | false | - | 30 | disabled | m | - | true | false | - | - | restrict |
-| `granted_by` | Granted By | User who granted this permission | int32 | false | true | - | 40 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Generated identifier (role_id.permission_id) | string | text | true | false | - | 0 | readonly | m | id | true | false | - | - | - |
+| `role_id` | Role Id | Role this permission is granted to | integer | reference | false | false | - | 10 | default | s | - | true | false | - | roles | restrict |
+| `permission_id` | Permission Id | Permission granted to the role | integer | reference | false | false | - | 20 | default | s | - | true | false | - | permissions | restrict |
+| `granted_at` | Granted At | Timestamp when permission was granted | string | date-time | false | false | - | 30 | disabled | m | - | true | false | - | - | - |
+| `granted_by` | Granted By | User who granted this permission | integer | reference | false | true | - | 40 | default | s | - | true | false | - | users | clear |
 
 ---
 
-## roles
+## Entity: roles
 
 Groups of permissions that can be assigned to users
 
@@ -250,16 +250,16 @@ Groups of permissions that can be assigned to users
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Internal role identifier | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `role_name` (label) | Role Name | Unique role name | text | false | false | - | 10 | required | m | label | true | true | - | - | restrict |
-| `description` | Description | Description of the role | text | false | false | - | 20 | default | w | - | true | true | - | - | restrict |
-| `module_id` | Module Id | Module this role belongs to | int32 | false | true | - | 30 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Internal role identifier | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `role_name` (label) | Role Name | Unique role name | string | text | false | false | - | 10 | required | m | label | true | true | - | - | - |
+| `description` | Description | Description of the role | string | text | false | false | - | 20 | default | w | - | true | true | - | - | - |
+| `module_id` | Module Id | Module this role belongs to | integer | reference | false | true | - | 30 | default | s | - | true | false | - | modules | clear |
 
 ---
 
-## user_roles
+## Entity: user_roles
 
 Many-to-many mapping between users and roles
 
@@ -282,17 +282,17 @@ Many-to-many mapping between users and roles
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (user_id.role_id) | text | true | false | - | 0 | readonly | m | id | true | false | - | - | restrict |
-| `user_id` | User Id | User this role is assigned to | int32 | false | false | - | 10 | default | s | - | true | false | - | - | restrict |
-| `role_id` | Role Id | Role assigned to the user | int32 | false | false | - | 20 | default | s | - | true | false | - | - | restrict |
-| `assigned_at` | Assigned At | Timestamp when role was assigned | date-time | false | false | - | 30 | disabled | m | - | true | false | - | - | restrict |
-| `assigned_by` | Assigned By | User who assigned this role | int32 | false | true | - | 40 | default | s | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Generated identifier (user_id.role_id) | string | text | true | false | - | 0 | readonly | m | id | true | false | - | - | - |
+| `user_id` | User Id | User this role is assigned to | integer | reference | false | false | - | 10 | default | s | - | true | false | - | users | restrict |
+| `role_id` | Role Id | Role assigned to the user | integer | reference | false | false | - | 20 | default | s | - | true | false | - | roles | restrict |
+| `assigned_at` | Assigned At | Timestamp when role was assigned | string | date-time | false | false | - | 30 | disabled | m | - | true | false | - | - | - |
+| `assigned_by` | Assigned By | User who assigned this role | integer | reference | false | true | - | 40 | default | s | - | true | false | - | users | clear |
 
 ---
 
-## users
+## Entity: users
 
 External users synchronized from JWT tokens
 
@@ -315,18 +315,18 @@ External users synchronized from JWT tokens
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Internal user identifier | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `external_id` | External Id | External identifier from authentication provider | text | false | false | - | 10 | readonly | m | - | true | true | - | - | restrict |
-| `email` (label) | Email | User email address | email | false | false | - | 20 | default | m | label | true | true | - | - | restrict |
-| `is_disabled` | Is Disabled | Whether user account is disabled | boolean | false | false | - | 30 | default | s | - | true | false | - | - | restrict |
-| `settings` | Settings | User-specific settings and preferences | json | false | false | - | 35 | default | w | - | true | false | - | - | restrict |
-| `last_seen` | Last Seen | Timestamp when user was last active | date-time | false | true | - | 60 | readonly | m | - | true | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | Internal user identifier | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `external_id` | External Id | External identifier from authentication provider | string | text | false | false | - | 10 | readonly | m | - | true | true | - | - | - |
+| `email` (label) | Email | User email address | string | email | false | false | - | 20 | default | m | label | true | true | - | - | - |
+| `is_disabled` | Is Disabled | Whether user account is disabled | boolean | boolean | false | false | - | 30 | default | s | - | true | false | - | - | - |
+| `settings` | Settings | User-specific settings and preferences | json | json | false | false | - | 35 | default | w | - | true | false | - | - | - |
+| `last_seen` | Last Seen | Timestamp when user was last active | string | date-time | false | true | - | 60 | readonly | m | - | true | false | - | - | - |
 
 ---
 
-## webhook_receiver_logs
+## Entity: webhook_receiver_logs
 
 Log of webhook receiver events
 
@@ -349,20 +349,20 @@ Log of webhook receiver events
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `webhook_id` (label) | Webhook Receiver Log | - | text | false | false | - | 1 | required | m | label | true | true | - | - | restrict |
-| `webhook_receiver_id` | Webhook Receiver | Reference to webhook receiver configuration | int32 | false | false | - | 10 | default | s | - | false | false | - | - | restrict |
-| `webhook_timestamp` | Webhook Timestamp | Timestamp from webhook source | date-time | false | false | - | 30 | default | m | - | false | false | - | - | restrict |
-| `received_timestamp` | Received Timestamp | Timestamp when webhook was received | date-time | false | false | CURRENT_TIMESTAMP | 40 | disabled | m | - | false | false | - | - | restrict |
-| `payload` | Payload | Webhook payload data | json | false | false | - | 50 | default | w | - | false | false | - | - | restrict |
-| `result` | Result | Processing result: 10=received, 20=processed, 90=failed | enum | false | false | 10 | 60 | default | s | - | false | false | ["10","20","90"] | - | restrict |
-| `error_message` | Error Message | Error message if processing failed | text | false | false | - | 70 | default | w | - | false | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `webhook_id` (label) | Webhook Receiver Log | - | string | text | false | false | - | 1 | required | m | label | true | true | - | - | - |
+| `webhook_receiver_id` | Webhook Receiver | Reference to webhook receiver configuration | integer | reference | false | false | - | 10 | default | s | - | false | false | - | webhook_receivers | clear |
+| `webhook_timestamp` | Webhook Timestamp | Timestamp from webhook source | string | date-time | false | false | - | 30 | default | m | - | false | false | - | - | - |
+| `received_timestamp` | Received Timestamp | Timestamp when webhook was received | string | date-time | false | false | CURRENT_TIMESTAMP | 40 | disabled | m | - | false | false | - | - | - |
+| `payload` | Payload | Webhook payload data | json | json | false | false | - | 50 | default | w | - | false | false | - | - | - |
+| `result` | Result | Processing result: 10=received, 20=processed, 90=failed | string | enum | false | false | 10 | 60 | default | s | - | false | false | ["10","20","90"] | - | - |
+| `error_message` | Error Message | Error message if processing failed | string | text | false | false | - | 70 | default | w | - | false | false | - | - | - |
 
 ---
 
-## webhook_receivers
+## Entity: webhook_receivers
 
 Configuration for webhook endpoints
 
@@ -385,17 +385,17 @@ Configuration for webhook endpoints
 
 ### Fields
 
-| field_name | title | description | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | restrict |
-| `label` (label) | Webhook Receiver | - | text | false | false | - | 1 | required | m | label | true | true | - | - | restrict |
-| `table_name` | Table | Target table for webhook data | text | false | false | - | 10 | default | s | - | false | false | - | - | restrict |
-| `description` | Description | Description of webhook receiver purpose | text | false | false | - | 20 | default | w | - | false | false | - | - | restrict |
-| `auth_type` | Authentication Type | Type of authentication (none, hmac, or custom header) | enum | false | false | none | 30 | default | s | - | false | false | ["none","hmac","header"] | - | restrict |
-| `secret` | Secret | Secret for webhook authentication | text | false | false | - | 40 | default | m | - | false | false | - | - | restrict |
-| `header_name` | Header Name | Custom header name for authentication | text | false | false | - | 45 | default | m | - | false | false | - | - | restrict |
-| `header_value` | Header Value | Expected value for custom header authentication | text | false | false | - | 46 | default | m | - | false | false | - | - | restrict |
-| `jsonata` | JSONata Expression | Optional JSONata expression to transform incoming data | jsonata | false | false | - | 50 | default | w | - | false | false | - | - | restrict |
+| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | reference_delete_mode |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 0 | readonly | s | id | true | false | - | - | - |
+| `label` (label) | Webhook Receiver | - | string | text | false | false | - | 1 | required | m | label | true | true | - | - | - |
+| `table_name` | Table | Target table for webhook data | string | text | false | false | - | 10 | default | s | - | false | false | - | - | - |
+| `description` | Description | Description of webhook receiver purpose | string | text | false | false | - | 20 | default | w | - | false | false | - | - | - |
+| `auth_type` | Authentication Type | Type of authentication (none, hmac, or custom header) | string | enum | false | false | none | 30 | default | s | - | false | false | ["none","hmac","header"] | - | - |
+| `secret` | Secret | Secret for webhook authentication | string | text | false | false | - | 40 | default | m | - | false | false | - | - | - |
+| `header_name` | Header Name | Custom header name for authentication | string | text | false | false | - | 45 | default | m | - | false | false | - | - | - |
+| `header_value` | Header Value | Expected value for custom header authentication | string | text | false | false | - | 46 | default | m | - | false | false | - | - | - |
+| `jsonata` | JSONata Expression | Optional JSONata expression to transform incoming data | string | jsonata | false | false | - | 50 | default | w | - | false | false | - | - | - |
 
 ---
 

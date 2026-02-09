@@ -47,6 +47,45 @@ interface FieldRecord {
   updated_at: string;
 }
 
+/**
+ * Convert format value to JSON Schema type(s)
+ * Mimics the logic from format_to_json_type PostgreSQL function
+ */
+function formatToJsonType(format: string): string {
+  // Special case: json format maps to json for simplicity
+  if (format === 'json') {
+    return 'json';
+  }
+  
+  // Single type mappings
+  if (['int32', 'int64', 'integer', 'reference'].includes(format)) {
+    return 'integer';
+  }
+  
+  if (['float', 'double', 'number'].includes(format)) {
+    return 'number';
+  }
+  
+  if (format === 'boolean') {
+    return 'boolean';
+  }
+  
+  if (format === 'array') {
+    return 'array';
+  }
+  
+  if (format === 'object') {
+    return 'object';
+  }
+  
+  if (format === 'null') {
+    return 'null';
+  }
+  
+  // Default to string for all other formats
+  return 'string';
+}
+
 export async function docgenCommand(databaseUrl: string): Promise<void> {
   console.log("Generating schema.md documentation...");
   
@@ -73,7 +112,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     for (const entity of entitiesResult.rows) {
       console.log(`Processing entity: ${entity.table_name}`);
       
-      markdown += `## ${entity.table_name}\n\n`;
+      markdown += `## Entity: ${entity.table_name}\n\n`;
       
       if (entity.description) {
         markdown += `${entity.description}\n\n`;
@@ -116,9 +155,18 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       );
       
       // Build list of columns to display (exclude internal/redundant fields)
-      const displayColumns = fieldMetadataResult.rows
+      // Add computed 'type' column between 'description' and 'format'
+      const baseColumns = fieldMetadataResult.rows
         .filter(f => !['id', 'table_name', 'created_at', 'updated_at'].includes(f.field_name))
         .map(f => f.field_name);
+      
+      const displayColumns: string[] = [];
+      for (const col of baseColumns) {
+        displayColumns.push(col);
+        if (col === 'description') {
+          displayColumns.push('type'); // Insert computed type column after description
+        }
+      }
       
       // Query fields for this entity
       const fieldsResult = await client.queryObject<FieldRecord>(
@@ -146,6 +194,11 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
         const ctypeMarker = field.ctype ? ` (${field.ctype})` : "";
         
         const values = displayColumns.map(colName => {
+          // Special handling for computed 'type' column
+          if (colName === 'type') {
+            return formatToJsonType(field.format);
+          }
+          
           const value = field[colName as keyof FieldRecord];
           
           // Special formatting for field_name (first column)
