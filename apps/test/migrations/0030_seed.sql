@@ -374,7 +374,7 @@ VALUES
 INSERT INTO users (id, external_id, email, last_seen) VALUES
     (1001, 'user1', 'user@test.com', NULL),
     (1002, 'user2', 'sales@test.com', NULL),
-    (1003, 'user3', 'admin@test.com', null);
+    (1003, 'user3', 'admin@test.com', '2026-01-01 12:34:00'::timestamptz);
 
 -- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
 SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
