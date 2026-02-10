@@ -813,10 +813,11 @@ BEGIN
     
     -- If Administrator role exists, grant the new permission to it
     IF v_administrator_role_id IS NOT NULL THEN
-        -- Insert into role_permissions if not already exists
+        -- Upsert into role_permissions - insert or update if already exists
         INSERT INTO role_permissions (role_id, permission_id)
         VALUES (v_administrator_role_id, NEW.id)
-        ON CONFLICT (role_id, permission_id) DO NOTHING;
+        ON CONFLICT (role_id, permission_id) 
+        DO UPDATE SET granted_at = CURRENT_TIMESTAMP;
     END IF;
     
     RETURN NEW;
