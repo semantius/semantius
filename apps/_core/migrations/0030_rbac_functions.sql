@@ -796,3 +796,39 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 COMMENT ON FUNCTION rbac.whoami IS 
 'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
 
+-- =====================================================
+-- AUTO-GRANT NEW PERMISSIONS TO ADMINISTRATOR ROLE
+-- =====================================================
+
+-- Trigger function to automatically grant new permissions to Administrator role
+CREATE OR REPLACE FUNCTION rbac.grant_permission_to_administrator()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_administrator_role_id INTEGER;
+BEGIN
+    -- Get Administrator role id (role_name = 'Administrator')
+    SELECT id INTO v_administrator_role_id
+    FROM roles
+    WHERE role_name = 'Administrator';
+    
+    -- If Administrator role exists, grant the new permission to it
+    IF v_administrator_role_id IS NOT NULL THEN
+        -- Upsert into role_permissions - insert or update if already exists
+        INSERT INTO role_permissions (role_id, permission_id)
+        VALUES (v_administrator_role_id, NEW.id)
+        ON CONFLICT (role_id, permission_id) 
+        DO UPDATE SET granted_at = CURRENT_TIMESTAMP;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS 
+'Automatically grants newly created permissions to the Administrator role';
+
+-- Apply trigger AFTER INSERT on permissions table
+CREATE TRIGGER auto_grant_permission_to_administrator
+    AFTER INSERT ON permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.grant_permission_to_administrator();
