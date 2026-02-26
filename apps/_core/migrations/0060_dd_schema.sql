@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS entities (
     label_column TEXT NOT NULL DEFAULT 'label',
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     -- Validate table_name follows PostgreSQL naming conventions
     CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
@@ -80,8 +80,8 @@ CREATE TABLE IF NOT EXISTS fields (
     enum_values JSONB DEFAULT NULL,
     reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     -- Unique constraint on table_name and field_name
     CONSTRAINT fields_table_field_unique UNIQUE (table_name, field_name),

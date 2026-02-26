@@ -8,9 +8,9 @@ CREATE UNLOGGED TABLE IF NOT EXISTS common._cache (
     id BIGSERIAL PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
     value TEXT NOT NULL,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Create index on key for fast lookups
@@ -81,8 +81,8 @@ RETURNS TABLE(
     total_entries BIGINT,
     expired_entries BIGINT,
     active_entries BIGINT,
-    oldest_entry TIMESTAMP WITH TIME ZONE,
-    newest_entry TIMESTAMP WITH TIME ZONE
+    oldest_entry TIMESTAMPTZ,
+    newest_entry TIMESTAMPTZ
 ) AS $$
 BEGIN
     RETURN QUERY

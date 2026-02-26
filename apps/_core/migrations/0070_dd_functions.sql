@@ -154,8 +154,8 @@ BEGIN
         'CREATE TABLE IF NOT EXISTS public.%I (
             %I SERIAL PRIMARY KEY,
             %I TEXT NOT NULL DEFAULT '''',
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )',
         NEW.table_name,
         NEW.id_column,

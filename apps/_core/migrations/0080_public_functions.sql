@@ -329,7 +329,7 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 
 CREATE OR REPLACE FUNCTION public.ping()
 RETURNS TABLE(
-    server_time TIMESTAMP WITH TIME ZONE,
+    server_time TIMESTAMPTZ,
     current_user_name TEXT,
     current_role_name TEXT,
     session_user_name TEXT
