@@ -399,15 +399,7 @@ VALUES
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 39, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
--- =====================================================
--- UPDATE SEARCHABLE FLAGS FOR CORE TABLES
--- =====================================================
-UPDATE entities t
-SET searchable = EXISTS (
-    SELECT 1 FROM fields f 
-    WHERE f.table_name = t.table_name 
-      AND f.searchable = TRUE
-);
+
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
