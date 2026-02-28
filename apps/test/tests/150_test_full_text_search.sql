@@ -1,7 +1,7 @@
 -- Test full-text search functionality
 BEGIN;
 
-SELECT plan(39);
+SELECT plan(55);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -383,6 +383,135 @@ SELECT ok(
           AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = t.table_name AND f.searchable = TRUE)
     ),
     'No table should have searchable=TRUE when it has no searchable fields'
+);
+
+-- =====================================================
+-- TEST: Core tables have search_vector column and FTS works
+-- =====================================================
+
+-- Test that modules table has search_vector column (core table with searchable fields)
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'modules' AND column_name = 'search_vector'
+    )),
+    'modules core table should have search_vector column'
+);
+
+-- Test that modules GIN index exists
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'modules' AND indexname = 'modules_search_vector_idx'
+    )),
+    'modules core table should have GIN index on search_vector'
+);
+
+-- Test that roles table has search_vector column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'roles' AND column_name = 'search_vector'
+    )),
+    'roles core table should have search_vector column'
+);
+
+-- Test that permissions table has search_vector column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'permissions' AND column_name = 'search_vector'
+    )),
+    'permissions core table should have search_vector column'
+);
+
+-- Test that users table has search_vector column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'users' AND column_name = 'search_vector'
+    )),
+    'users core table should have search_vector column'
+);
+
+-- Test that entities table has search_vector column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'entities' AND column_name = 'search_vector'
+    )),
+    'entities core table should have search_vector column'
+);
+
+-- Test that fields table has search_vector column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'fields' AND column_name = 'search_vector'
+    )),
+    'fields core table should have search_vector column'
+);
+
+-- Test FTS works on modules core table
+SELECT ok(
+    (SELECT COUNT(*) FROM modules WHERE search_vector @@ to_tsquery('english', 'CRM')) >= 1,
+    'Full-text search should find "CRM" in modules table'
+);
+
+-- Test FTS works on roles core table
+SELECT ok(
+    (SELECT COUNT(*) FROM roles WHERE search_vector @@ to_tsquery('english', 'User')) >= 1,
+    'Full-text search should find "User" in roles table'
+);
+
+-- Test FTS works on permissions core table
+SELECT ok(
+    (SELECT COUNT(*) FROM permissions WHERE search_vector @@ to_tsquery('english', 'admin')) >= 1,
+    'Full-text search should find "admin" in permissions table'
+);
+
+-- Test FTS works on users core table
+SELECT ok(
+    (SELECT COUNT(*) FROM users WHERE search_vector @@ to_tsquery('english', 'user1')) >= 1,
+    'Full-text search should find "user1" in users table (external_id field)'
+);
+
+-- Test FTS works on entities core table
+SELECT ok(
+    (SELECT COUNT(*) FROM entities WHERE search_vector @@ to_tsquery('english', 'Customer')) >= 1,
+    'Full-text search should find "Customer" in entities table'
+);
+
+-- Test FTS works on fields core table
+SELECT ok(
+    (SELECT COUNT(*) FROM fields WHERE search_vector @@ to_tsquery('english', 'Email')) >= 1,
+    'Full-text search should find "Email" in fields table'
+);
+
+-- Test that core tables without searchable fields do NOT have search_vector
+-- user_roles, role_permissions, permission_hierarchy have no searchable fields
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'user_roles' AND column_name = 'search_vector'
+    ),
+    'user_roles core table (no searchable fields) should NOT have search_vector column'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'role_permissions' AND column_name = 'search_vector'
+    ),
+    'role_permissions core table (no searchable fields) should NOT have search_vector column'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'permission_hierarchy' AND column_name = 'search_vector'
+    ),
+    'permission_hierarchy core table (no searchable fields) should NOT have search_vector column'
 );
 
 SELECT * FROM finish();

@@ -1117,36 +1117,3 @@ CREATE TRIGGER enforce_table_searchable_consistency_trigger
 
 COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
 'Ensures entities.searchable is always consistent with related fields, preventing manual changes';
-
--- =====================================================
--- APPLY FTS TO CORE TABLES
--- =====================================================
--- Core tables (entities, fields, users, modules, roles, permissions, etc.)
--- are created before the DD trigger system, so they need search_vector
--- columns applied explicitly. This runs after all field metadata is seeded.
-
-DO $$
-DECLARE
-    v_table_name TEXT;
-BEGIN
-    -- Update searchable flags for all entities
-    UPDATE entities t
-    SET searchable = EXISTS (
-        SELECT 1 FROM fields f 
-        WHERE f.table_name = t.table_name 
-          AND f.searchable = TRUE
-    );
-
-    -- Apply search_vector to all tables that have searchable fields and a physical table
-    FOR v_table_name IN
-        SELECT DISTINCT e.table_name
-        FROM entities e
-        WHERE e.searchable = TRUE
-          AND EXISTS (
-              SELECT 1 FROM information_schema.tables it
-              WHERE it.table_schema = 'public' AND it.table_name = e.table_name
-          )
-    LOOP
-        PERFORM update_search_vector_column(v_table_name);
-    END LOOP;
-END $$;
