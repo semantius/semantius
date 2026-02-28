@@ -265,7 +265,7 @@ The system supports automatic foreign key creation and management:
 - The searchable column in fields controls whether individual fields are included in full-text search
 - System automatically creates/drops `search_vector` column and GIN index based on searchable fields
 - Full-text search works on both managed (entity) tables and core DD tables (modules, roles, permissions, users, entities, fields)
-- Core tables get FTS applied through the 0120_apply_core_fts.sql migration
+- Core tables get FTS applied through the 0072_apply_core_fts.sql migration
 - Only text-based fields (format_to_json_type = 'string') can be searchable
 - Label fields (ctype='label') get highest search weight ('A'), descriptions get 'B', others get 'C'
 
