@@ -21,7 +21,7 @@ SELECT ok(
 
 -- Test 2: Add a field to managed=true table
 INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_managed_true', 'test_field', 'Test Field', 'int32', FALSE, FALSE, 10, 'default', 'm', 'Test field');
+VALUES ('test_managed_true', 'test_field', 'Test Field', 'int32', FALSE, FALSE, 10, 'default', 'default', 'Test field');
 
 SELECT ok(
     (SELECT EXISTS (
@@ -86,7 +86,7 @@ SELECT ok(
 
 -- Test 9: Add a field to managed=false table (should not add column in DB)
 INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_managed_false', 'test_field_unmanaged', 'Test Field', 'text', FALSE, FALSE, 10, 'default', 'm', 'Test field for unmanaged table');
+VALUES ('test_managed_false', 'test_field_unmanaged', 'Test Field', 'text', FALSE, FALSE, 10, 'default', 'default', 'Test field for unmanaged table');
 
 SELECT ok(
     (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'test_managed_false' AND field_name = 'test_field_unmanaged')),

@@ -229,7 +229,7 @@ The `fields` table uses a JSON Schema-based format system:
   - Foreign key format: 'reference' (mapped to INTEGER type for foreign key relationships)
   - Enum format: 'enum' (mapped to TEXT type with CHECK constraint for allowed values)
 - **input_type** column: UI rendering hint - ENUM with allowed values `['default', 'required', 'readonly', 'disabled', 'hidden']`
-- **width** column: UI width hint - ENUM with allowed values `['s', 'm', 'w']` (small, medium, wide)
+- **width** column: UI width hint - ENUM with allowed values `['default', 's', 'm', 'w']` (default/auto, small, medium, wide)
 - **ctype** column: Special column type - ENUM with allowed values `['', 'id', 'label']` (empty string = normal field)
 - **title** column: Human-readable field label (renamed from 'label')
 - **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
@@ -264,6 +264,8 @@ The system supports automatic foreign key creation and management:
 - When inserting into the `tables` table, **NEVER include the searchable column** - it will be computed automatically
 - The searchable column in fields controls whether individual fields are included in full-text search
 - System automatically creates/drops `search_vector` column and GIN index based on searchable fields
+- Full-text search works on both managed (entity) tables and core DD tables (modules, roles, permissions, users, entities, fields)
+- Core tables get FTS applied through the 0072_apply_core_fts.sql migration
 - Only text-based fields (format_to_json_type = 'string') can be searchable
 - Label fields (ctype='label') get highest search weight ('A'), descriptions get 'B', others get 'C'
 
@@ -273,6 +275,7 @@ The `public.get_schema()` function returns JSON Schema with:
 - **format field**: Only included for string-based formats (email, url, date, etc.), NOT for type mappers (int32, float, double, etc.)
 - **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
 - **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
+- **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
 - **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at) even if they have is_nullable=FALSE
 - **created_at and updated_at fields**: 
@@ -293,6 +296,8 @@ The `public.get_schema()` function returns JSON Schema with:
   - `reference_delete_mode` (NOT referenceDeleteMode)
   - `reference_table_id_column` (NOT referenceTableIdColumn)
   - `reference_table_label_column` (NOT referenceTableLabelColumn)
+  - `reference_table_singular_label` (NOT referenceTableSingularLabel)
+  - `reference_table_plural_label` (NOT referenceTablePluralLabel)
 - **Why snake_case?** It matches the actual database column names and maintains consistency throughout the API
 - When building JSON with `jsonb_build_object()`, always use snake_case for all field names
 - This applies to ALL JSON output from PostgreSQL functions, not just get_schema()

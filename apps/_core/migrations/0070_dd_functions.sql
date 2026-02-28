@@ -242,10 +242,10 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search
     INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 's', 'id', TRUE, FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'm', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'm', '', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'm', '', TRUE, FALSE, '', '');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
@@ -870,3 +870,250 @@ CREATE TRIGGER delete_table_trigger
     BEFORE DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION delete_dd_table();
+
+-- =====================================================
+-- FULL-TEXT SEARCH FUNCTIONS AND TRIGGERS
+-- =====================================================
+-- Manages search_vector column and GIN index based on searchable fields
+-- Automatically maintains entities.searchable based on related fields
+
+-- =====================================================
+-- HELPER FUNCTION: Update search_vector column and index
+-- =====================================================
+-- This function generates and executes DDL to create/recreate the search_vector
+-- column and GIN index for a table based on its searchable fields
+
+CREATE OR REPLACE FUNCTION update_search_vector_column(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_searchable_fields TEXT[];
+    v_search_expr TEXT;
+    v_table_exists BOOLEAN;
+BEGIN
+    -- Suppress IF NOT EXISTS/IF EXISTS notices
+    SET LOCAL client_min_messages = WARNING;
+    
+    -- Check if the table actually exists in the database
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = p_table_name
+    ) INTO v_table_exists;
+    
+    IF NOT v_table_exists THEN
+
+        RETURN;
+    END IF;
+    
+    -- Get all searchable text-based fields for this table that actually exist as columns
+    SELECT ARRAY_AGG(field_name ORDER BY field_order)
+    INTO v_searchable_fields
+    FROM fields f
+    WHERE f.table_name = p_table_name
+      AND f.searchable = TRUE
+      AND format_to_json_type(f.format)::text = '"string"'  -- Only text-based fields
+      AND EXISTS (  -- Only include fields that actually exist as columns in the table
+          SELECT 1 FROM information_schema.columns c
+          WHERE c.table_schema = 'public'
+            AND c.table_name = p_table_name
+            AND c.column_name = f.field_name
+      );
+    
+    -- If no searchable fields, drop the search_vector column and index if they exist
+    IF v_searchable_fields IS NULL OR array_length(v_searchable_fields, 1) IS NULL THEN
+        -- Drop the GIN index first
+        EXECUTE format(
+            'DROP INDEX IF EXISTS %I',
+            p_table_name || '_search_vector_idx'
+        );
+        
+        -- Drop the search_vector column
+        EXECUTE format(
+            'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
+            p_table_name
+        );
+        
+
+        RETURN;
+    END IF;
+    
+    -- Build the tsvector expression by concatenating all searchable fields
+    -- Using coalesce to handle NULL values and setweight for ranking
+    v_search_expr := (
+        SELECT string_agg(
+            format('setweight(to_tsvector(''english'', coalesce(%I, '''')), ''%s'')',
+                f.field_name,
+                CASE 
+                    WHEN f.ctype = 'label' THEN 'A'  -- Label fields get highest weight
+                    WHEN f.field_name IN ('title', 'name') THEN 'A'  -- Title/name fields
+                    WHEN f.field_name LIKE '%description%' THEN 'B'  -- Description fields
+                    ELSE 'C'  -- Other searchable fields
+                END
+            ),
+            ' || '
+            ORDER BY f.field_order
+        )
+        FROM fields f
+        WHERE f.table_name = p_table_name
+          AND f.searchable = TRUE
+          AND format_to_json_type(f.format)::text = '"string"'
+          AND EXISTS (  -- Only include fields that actually exist as columns
+              SELECT 1 FROM information_schema.columns c
+              WHERE c.table_schema = 'public'
+                AND c.table_name = p_table_name
+                AND c.column_name = f.field_name
+          )
+    );
+    
+    -- Drop existing search_vector column if it exists
+    EXECUTE format(
+        'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
+        p_table_name
+    );
+    
+    -- Create the search_vector column as GENERATED ALWAYS
+    EXECUTE format(
+        'ALTER TABLE %I ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (%s) STORED',
+        p_table_name,
+        v_search_expr
+    );
+    
+    -- Drop existing GIN index if it exists
+    EXECUTE format(
+        'DROP INDEX IF EXISTS %I',
+        p_table_name || '_search_vector_idx'
+    );
+    
+    -- Create GIN index on the search_vector column
+    EXECUTE format(
+        'CREATE INDEX %I ON %I USING GIN (search_vector)',
+        p_table_name || '_search_vector_idx',
+        p_table_name
+    );
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION update_search_vector_column IS 
+'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists.';
+
+-- =====================================================
+-- HELPER FUNCTION: Update entities.searchable flag
+-- =====================================================
+-- Auto-maintains the searchable flag on tables based on related fields
+
+CREATE OR REPLACE FUNCTION update_table_searchable_flag(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_has_searchable_fields BOOLEAN;
+BEGIN
+    -- Check if any fields in this table are searchable
+    SELECT EXISTS (
+        SELECT 1 FROM fields 
+        WHERE table_name = p_table_name 
+          AND searchable = TRUE
+    ) INTO v_has_searchable_fields;
+    
+    -- Update the searchable flag on the entities record
+    UPDATE entities 
+    SET searchable = v_has_searchable_fields
+    WHERE table_name = p_table_name;
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION update_table_searchable_flag IS 
+'Auto-maintains the searchable flag on entities table based on whether any related fields are searchable.';
+
+-- =====================================================
+-- TRIGGER FUNCTION: Handle field searchable changes
+-- =====================================================
+-- Detects when searchable field list changes and updates search_vector accordingly
+
+CREATE OR REPLACE FUNCTION handle_field_searchable_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_searchable_changed BOOLEAN := FALSE;
+    v_table_name_to_update TEXT;
+BEGIN
+    -- Determine which table needs updating and if searchable changed
+    IF TG_OP = 'INSERT' THEN
+        v_table_name_to_update := NEW.table_name;
+        v_searchable_changed := (NEW.searchable = TRUE);
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_table_name_to_update := NEW.table_name;
+        v_searchable_changed := (OLD.searchable IS DISTINCT FROM NEW.searchable);
+    ELSIF TG_OP = 'DELETE' THEN
+        v_table_name_to_update := OLD.table_name;
+        v_searchable_changed := (OLD.searchable = TRUE);
+    END IF;
+    
+    -- Update search vector if searchable fields changed
+    -- The add_field_trigger runs alphabetically before this trigger, so the column already exists
+    IF v_searchable_changed THEN
+        PERFORM update_search_vector_column(v_table_name_to_update);
+    END IF;
+    
+    -- Always update the table searchable flag when fields change
+    PERFORM update_table_searchable_flag(v_table_name_to_update);
+    
+    -- Return appropriate value based on operation
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION handle_field_searchable_change IS 
+'Trigger function that updates search_vector column and GIN index when searchable fields are created, updated, or deleted. The add_field_trigger executes before this trigger (alphabetically), ensuring the physical column exists before we update the search_vector.';
+
+-- Apply trigger AFTER INSERT/UPDATE/DELETE on fields
+CREATE TRIGGER handle_field_searchable_change_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_field_searchable_change();
+
+COMMENT ON TRIGGER handle_field_searchable_change_trigger ON fields IS
+'Automatically updates search_vector column and index when field searchable status changes';
+
+-- =====================================================
+-- TRIGGER FUNCTION: Recompute entities.searchable on direct update
+-- =====================================================
+-- Ensures entities.searchable always reflects the actual state of fields
+-- even if someone tries to update it directly
+
+CREATE OR REPLACE FUNCTION enforce_table_searchable_consistency()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_computed_searchable BOOLEAN;
+BEGIN
+    -- If searchable was changed, recompute it from fields and override the value
+    IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
+        -- Compute the correct value from fields
+        SELECT EXISTS (
+            SELECT 1 FROM fields 
+            WHERE table_name = NEW.table_name 
+              AND searchable = TRUE
+        ) INTO v_computed_searchable;
+        
+        -- Override any manual change with the computed value
+        NEW.searchable := v_computed_searchable;
+
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
+'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
+
+CREATE TRIGGER enforce_table_searchable_consistency_trigger
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.searchable IS DISTINCT FROM NEW.searchable)
+    EXECUTE FUNCTION enforce_table_searchable_consistency();
+
+COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
+'Ensures entities.searchable is always consistent with related fields, preventing manual changes';

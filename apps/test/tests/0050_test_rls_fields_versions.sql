@@ -20,7 +20,7 @@ SELECT ok(
 SELECT throws_ok(
     $$
     INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width)
-    VALUES ('tables', 'test_field', 'Test Field', 'text', FALSE, TRUE, 999, 'default', 'm');
+    VALUES ('tables', 'test_field', 'Test Field', 'text', FALSE, TRUE, 999, 'default', 'default');
     $$,
     '42501',
     NULL,

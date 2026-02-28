@@ -200,7 +200,9 @@ BEGIN
             -- doesn't exist or is missing columns. These fields are only added to JSON output when
             -- format='reference' and reference_table is not empty (see line ~245).
             COALESCE(t.id_column, '') AS reference_table_id_column,
-            COALESCE(t.label_column, '') AS reference_table_label_column
+            COALESCE(t.label_column, '') AS reference_table_label_column,
+            COALESCE(t.singular_label, '') AS reference_table_singular_label,
+            COALESCE(t.plural_label, '') AS reference_table_plural_label
         FROM fields f
         LEFT JOIN entities t ON f.reference_table = t.table_name
         WHERE f.table_name = p_table_name
@@ -250,7 +252,9 @@ BEGIN
                     'reference_table', reference_table, 
                     'reference_delete_mode', reference_delete_mode,
                     'reference_table_id_column', reference_table_id_column,
-                    'reference_table_label_column', reference_table_label_column
+                    'reference_table_label_column', reference_table_label_column,
+                    'reference_table_singular_label', reference_table_singular_label,
+                    'reference_table_plural_label', reference_table_plural_label
                 )
                 ELSE '{}'::jsonb
             END ||

@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(108);
+SELECT plan(118);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -270,7 +270,7 @@ SELECT is(
 -- Test width field exists and has correct value
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'id'->>'width',
-    's',
+    'default',
     'get_schema() should return correct width for id field'
 );
 
@@ -851,6 +851,30 @@ SELECT is(
     'get_schema(customers) region_id reference_table_label_column should be "region_name"'
 );
 
+-- NEW: Test that region_id has reference_table_singular_label
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_singular_label'),
+    'get_schema(customers) region_id should include reference_table_singular_label'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_singular_label'),
+    'Region',
+    'get_schema(customers) region_id reference_table_singular_label should be "Region"'
+);
+
+-- NEW: Test that region_id has reference_table_plural_label
+SELECT ok(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id' ? 'reference_table_plural_label'),
+    'get_schema(customers) region_id should include reference_table_plural_label'
+);
+
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'reference_table_plural_label'),
+    'Regions',
+    'get_schema(customers) region_id reference_table_plural_label should be "Regions"'
+);
+
 -- Test that department_id field in employees has reference_table and reference_delete_mode
 SELECT ok(
     (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table'),
@@ -887,6 +911,30 @@ SELECT is(
     'get_schema(employees) department_id reference_table_label_column should be "department_name"'
 );
 
+-- NEW: Test that department_id has reference_table_singular_label
+SELECT ok(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_singular_label'),
+    'get_schema(employees) department_id should include reference_table_singular_label'
+);
+
+SELECT is(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_singular_label'),
+    'Department',
+    'get_schema(employees) department_id reference_table_singular_label should be "Department"'
+);
+
+-- NEW: Test that department_id has reference_table_plural_label
+SELECT ok(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id' ? 'reference_table_plural_label'),
+    'get_schema(employees) department_id should include reference_table_plural_label'
+);
+
+SELECT is(
+    (SELECT public.get_schema('employees')::jsonb->'properties'->'department_id'->>'reference_table_plural_label'),
+    'Departments',
+    'get_schema(employees) department_id reference_table_plural_label should be "Departments"'
+);
+
 -- =====================================================
 -- TEST: Fields without reference_table should have empty strings
 -- =====================================================
@@ -901,6 +949,16 @@ SELECT ok(
 SELECT ok(
     NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_label_column')),
     'get_schema(customers) email (non-reference field) should NOT include reference_table_label_column'
+);
+
+SELECT ok(
+    NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_singular_label')),
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_singular_label'
+);
+
+SELECT ok(
+    NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_plural_label')),
+    'get_schema(customers) email (non-reference field) should NOT include reference_table_plural_label'
 );
 
 SELECT * FROM finish();
