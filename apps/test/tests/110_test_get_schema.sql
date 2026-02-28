@@ -270,7 +270,7 @@ SELECT is(
 -- Test width field exists and has correct value
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'id'->>'width',
-    's',
+    'default',
     'get_schema() should return correct width for id field'
 );
 
