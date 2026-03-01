@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(118);
+SELECT plan(130);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -959,6 +959,100 @@ SELECT ok(
 SELECT ok(
     NOT ((SELECT public.get_schema('customers')::jsonb->'properties'->'email' ? 'reference_table_plural_label')),
     'get_schema(customers) email (non-reference field) should NOT include reference_table_plural_label'
+);
+
+-- =====================================================
+-- TEST: get_schema() children array
+-- =====================================================
+
+-- Test that children key exists in get_schema output
+SELECT ok(
+    (public.get_schema('customers')::jsonb) ? 'children',
+    'get_schema(customers) should include children key'
+);
+
+-- Test that children is an array
+SELECT is(
+    jsonb_typeof((public.get_schema('customers')::jsonb)->'children'),
+    'array',
+    'get_schema(customers) children should be a JSON array'
+);
+
+-- Test that children for customers is empty (no tables reference customers as parent)
+SELECT is(
+    jsonb_array_length((public.get_schema('customers')::jsonb)->'children'),
+    0,
+    'get_schema(customers) children should be empty'
+);
+
+-- Test that children key exists in get_schema for users
+SELECT ok(
+    (public.get_schema('users')::jsonb) ? 'children',
+    'get_schema(users) should include children key'
+);
+
+-- Test that children for users is an array
+SELECT is(
+    jsonb_typeof((public.get_schema('users')::jsonb)->'children'),
+    'array',
+    'get_schema(users) children should be a JSON array'
+);
+
+-- Test that children for users has at least 1 item (user_roles.user_id)
+SELECT ok(
+    jsonb_array_length((public.get_schema('users')::jsonb)->'children') >= 1,
+    'get_schema(users) children should contain at least one entry'
+);
+
+-- Test that user_roles.user_id is in children for users
+SELECT ok(
+    (public.get_schema('users')::jsonb)->'children' @> '[{"id": "user_roles.user_id"}]'::jsonb,
+    'get_schema(users) children should include user_roles.user_id'
+);
+
+-- Test children entry for user_roles.user_id has correct title
+SELECT is(
+    (SELECT elem->>'title'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'User Id',
+    'get_schema(users) children user_roles.user_id should have title "User Id"'
+);
+
+-- Test children entry for user_roles.user_id has correct singular_label
+SELECT is(
+    (SELECT elem->>'singular_label'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'User Role',
+    'get_schema(users) children user_roles.user_id should have singular_label "User Role"'
+);
+
+-- Test children entry for user_roles.user_id has correct plural_label
+SELECT is(
+    (SELECT elem->>'plural_label'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'User Roles',
+    'get_schema(users) children user_roles.user_id should have plural_label "User Roles"'
+);
+
+-- Test children entry for user_roles.user_id has correct id_column
+SELECT is(
+    (SELECT elem->>'id_column'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'id',
+    'get_schema(users) children user_roles.user_id should have id_column "id"'
+);
+
+-- Test children entry for user_roles.user_id has correct label_column
+SELECT is(
+    (SELECT elem->>'label_column'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'id',
+    'get_schema(users) children user_roles.user_id should have label_column "id"'
 );
 
 SELECT * FROM finish();

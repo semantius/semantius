@@ -144,6 +144,48 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 
 
 -- =====================================================
+-- GET SCHEMA CHILDREN
+-- =====================================================
+
+-- Get child relationships for a table
+-- Returns an array of fields that reference the given table with format='parent'
+-- Each child entry includes: fields.id, fields.title, entities.singular_label,
+-- entities.plural_label, entities.id_column, entities.label_column
+CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_result JSON;
+BEGIN
+    SELECT COALESCE(
+        json_agg(
+            json_build_object(
+                'id', f.id,
+                'title', f.title,
+                'singular_label', e.singular_label,
+                'plural_label', e.plural_label,
+                'id_column', e.id_column,
+                'label_column', e.label_column
+            ) ORDER BY f.id
+        ),
+        '[]'::json
+    )
+    INTO v_result
+    FROM fields f
+    JOIN entities e ON f.table_name = e.table_name
+    WHERE f.reference_table = p_table_name
+      AND f.format = 'parent';
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.get_schema_children IS 
+'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
+
+-- =====================================================
 -- GET SCHEMA
 -- =====================================================
 
@@ -156,6 +198,7 @@ DECLARE
     v_table_record RECORD;
     v_properties JSON;
     v_required_fields JSON;
+    v_children JSON;
     v_result JSON;
 BEGIN
     -- Check if table exists in entities metadata
@@ -304,6 +347,9 @@ BEGIN
     INTO v_required_fields
     FROM required_fields;
     
+    -- Get children (fields in other tables that reference this table with format='parent')
+    v_children := public.get_schema_children(p_table_name);
+
     -- Build the final JSON Schema result
     v_result := json_build_object(
         '$schema', 'https://semantius.com/meta/sem-schema/v1',
@@ -314,6 +360,7 @@ BEGIN
         'type', 'object',
         'properties', v_properties,
         'required', v_required_fields,
+        'children', v_children,
         'additionalProperties', false
     );
     
