@@ -313,3 +313,39 @@ CREATE TRIGGER prevent_user_role_deletion_trigger
 
 COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 'Prevents deletion of role 1 (User) from any user in user_roles table.';
+
+-- =====================================================
+-- TRIGGER: Default assigned_by to current user
+-- =====================================================
+-- When a user_role record is inserted without an assigned_by value,
+-- automatically set it to the current user ID from the session context
+
+CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_current_user_id INTEGER;
+BEGIN
+    IF NEW.assigned_by IS NULL THEN
+        BEGIN
+            v_current_user_id := rbac.user_id();
+        EXCEPTION WHEN OTHERS THEN
+            v_current_user_id := NULL;
+        END;
+        IF v_current_user_id IS NOT NULL THEN
+            NEW.assigned_by := v_current_user_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION rbac.default_assigned_by IS
+'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
+
+CREATE TRIGGER default_assigned_by_trigger
+    BEFORE INSERT ON user_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.default_assigned_by();
+
+COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
+'Defaults assigned_by to the current session user when not provided on insert.';

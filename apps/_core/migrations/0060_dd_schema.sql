@@ -439,8 +439,8 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
     ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
-    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
+    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
+    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 

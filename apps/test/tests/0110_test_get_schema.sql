@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(130);
+SELECT plan(131);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -182,10 +182,10 @@ SELECT ok(
      SELECT (prop ? 'type') AND
             (prop ? 'title') AND
             (prop ? 'description') AND
-            (prop ? 'input_mode') AND
+            (prop ? 'inputMode') AND
             (prop ? 'width')
      FROM id_property),
-    'get_schema() properties should have all expected fields (type, title, description, input_mode, width)'
+    'get_schema() properties should have all expected fields (type, title, description, inputMode, width)'
 );
 
 -- Test required array exists
@@ -212,10 +212,10 @@ SELECT ok(
     'get_schema() required array should NOT contain updated_at field (auto-maintained)'
 );
 
--- Test required array contains customer_name (label_column, which is required)
+-- Test required array does NOT contain customer_name (has default value)
 SELECT ok(
-    (public.get_schema('customers')::jsonb)->'required' @> '["customer_name"]'::jsonb,
-    'get_schema() required array should contain customer_name field (label_column)'
+    NOT ((public.get_schema('customers')::jsonb)->'required' @> '["customer_name"]'::jsonb),
+    'get_schema() required array should NOT contain customer_name field (has default value)'
 );
 
 -- =====================================================
@@ -262,9 +262,9 @@ select authenticate_as('user1');
 
 -- Test input_mode field exists and has correct value
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'input_mode',
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'inputMode',
     'readonly',
-    'get_schema() should return correct input_mode for id field'
+    'get_schema() should return correct inputMode for id field'
 );
 
 -- Test width field exists and has correct value
@@ -436,9 +436,9 @@ SELECT is(
 
 -- Test created_at has correct input_mode
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'input_mode',
+    (public.get_schema('customers')::jsonb)->'properties'->'created_at'->>'inputMode',
     'disabled',
-    'get_schema() created_at should have input_mode disabled'
+    'get_schema() created_at should have inputMode disabled'
 );
 
 -- Test updated_at has correct type
@@ -457,9 +457,9 @@ SELECT is(
 
 -- Test updated_at has correct input_mode
 SELECT is(
-    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'input_mode',
+    (public.get_schema('customers')::jsonb)->'properties'->'updated_at'->>'inputMode',
     'disabled',
-    'get_schema() updated_at should have input_mode disabled'
+    'get_schema() updated_at should have inputMode disabled'
 );
 
 -- =====================================================
@@ -803,6 +803,13 @@ SELECT is(
 -- =====================================================
 -- TEST: Verify reference fields have reference_table, reference_delete_mode, and NEW reference columns
 -- =====================================================
+
+-- Test that reference fields include format property
+SELECT is(
+    (SELECT public.get_schema('customers')::jsonb->'properties'->'region_id'->>'format'),
+    'reference',
+    'get_schema(customers) region_id format should be "reference"'
+);
 
 -- Test that region_id field in customers has reference_table and reference_delete_mode
 SELECT ok(

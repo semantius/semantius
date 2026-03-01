@@ -259,7 +259,7 @@ BEGIN
                 'type', format_to_json_type(format),
                 'title', title,
                 'description', description,
-                'input_mode', input_type,
+                'inputMode', input_type,
                 'width', width,
                 'field_order', field_order
             ) || 
@@ -278,7 +278,7 @@ BEGIN
                 WHEN format IS NOT NULL 
                      AND format != '' 
                      AND format != 'text'
-                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum', 'reference', 'parent')
+                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
             END ||
@@ -314,6 +314,8 @@ BEGIN
                     END
                 -- For string types without explicit default, add empty string default
                 WHEN format_to_json_type(format)::text = '"string"' THEN jsonb_build_object('default', '')
+                -- For JSON types without explicit default, add empty object default
+                WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
             END)::json AS property_value
         FROM ordered_fields
@@ -338,6 +340,8 @@ BEGIN
           AND is_nullable = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
+          AND default_value IS NULL
+          AND format != 'json'
         ORDER BY field_order
     )
     SELECT COALESCE(
