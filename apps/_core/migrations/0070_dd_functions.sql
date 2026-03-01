@@ -421,7 +421,7 @@ BEGIN
         -- Generate foreign key constraint name
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         
-        -- Add foreign key constraint (skip if constraint already exists)
+        -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
         v_alter_sql := format(
             'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
             NEW.table_name,
@@ -434,7 +434,8 @@ BEGIN
         BEGIN
             EXECUTE v_alter_sql;
         EXCEPTION WHEN duplicate_object THEN
-            RAISE NOTICE 'Foreign key constraint "%" already exists, skipping', v_fk_name;
+            RAISE NOTICE 'Foreign key constraint "%" already exists on "%.%", skipping creation. Verify ON DELETE behavior matches expected: %',
+                v_fk_name, NEW.table_name, NEW.field_name, v_on_delete;
         END;
         
         -- Create index for foreign key

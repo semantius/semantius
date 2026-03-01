@@ -383,8 +383,8 @@ VALUES
     ('entities', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'readonly', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'readonly', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
