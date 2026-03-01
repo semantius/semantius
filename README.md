@@ -37,16 +37,21 @@ deno task [OPTIONS] [COMMAND]
 - `--output <DIR>`: Specify output directory
 - `--apps <APPS>`: Comma-separated list of app names (for migrate command)
 - `--script`: Generate migrate.sql file instead of executing (for migrate command)
+- `--confirm`: Skip confirmation prompt (for dropall and reset commands)
+- `--env <ENV>`: Environment name to load (default: `local`, loads `.env.<ENV>` file)
 
 ### Commands
 
 - `init`: Initialize a new project
 - `build`: Build the project
-- `test`: Test database connection
+- `test`: Run pgTAP tests
 - `lint`: Run linter
 - `format`: Format code
+- `connect`: Test database connection
 - `migrate`: Process and validate app folders (requires --apps parameter)
 - `dropall`: ⚠️ **DANGER**: Drop ALL database objects in public schema (DESTRUCTIVE!)
+- `reset`: ⚠️ **DANGER**: Drop all, migrate `--apps test`, and run tests (requires `--confirm`)
+- `docgen`: Generate schema.md documentation from entities metadata
 
 ### Examples
 
@@ -61,7 +66,7 @@ deno task init
 deno task build --output ./dist
 
 # Test database connection with verbose output
-deno task test --verbose
+deno task connect --verbose
 
 # Run migration on specific apps
 deno task migrate --apps app1,app2,app3 --verbose
@@ -72,6 +77,14 @@ deno task migrate --apps _core --script
 
 # Drop all database objects (DANGEROUS - use with caution!)
 deno task dropall --verbose
+
+# Reset database: drop all, migrate test apps, run tests (DANGEROUS!)
+deno task reset --confirm
+deno task reset --confirm --verbose
+
+# Use a different environment file (e.g. .env.test instead of .env.local)
+deno task connect --env test
+deno task migrate --apps nwind --env staging
 
 # Run test directly with deno
 deno run --allow-read --allow-write --allow-env --allow-net cli.ts test
@@ -108,6 +121,45 @@ deno task dropall --verbose
 ```
 
 **Use this command only in development environments or when you specifically need to reset your database schema completely.**
+
+## ⚠️ IMPORTANT SAFETY WARNING: reset Command
+
+The `reset` command is a **DESTRUCTIVE** operation that combines three steps:
+
+1. `dropall --confirm` — permanently deletes ALL database objects
+2. `migrate --apps test` — re-deploys the schema for the `test` app
+3. `test` — runs the full pgTAP test suite
+
+**The `--confirm` flag is required.** Running `deno task reset` without `--confirm` will print an error and exit immediately.
+
+### Usage
+
+```bash
+# Reset (requires --confirm)
+deno task reset --confirm
+
+# Reset with verbose output
+deno task reset --confirm --verbose
+```
+
+## Environment Files (`--env` option)
+
+By default all commands load environment variables from `.env.local`. Use the `--env` flag to load a different environment file:
+
+| Flag | File loaded |
+|------|------------|
+| *(none)* | `.env.local` |
+| `--env test` | `.env.test` |
+| `--env staging` | `.env.staging` |
+
+### Examples
+
+```bash
+# Use .env.test instead of .env.local
+deno task connect --env test
+deno task migrate --apps nwind --env test
+deno task reset --confirm --env test
+```
 
 
 

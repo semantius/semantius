@@ -21,6 +21,7 @@
     "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",
     "migrate": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts migrate",
     "dropall": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts dropall",
+    "reset": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts reset",
     "docgen": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts docgen",
     "check": "deno check cli.ts"
   },

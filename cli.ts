@@ -9,6 +9,7 @@ import { connectDatabaseConnection } from "./commands/connect.ts";
 import { testCommand } from "./commands/test.ts";
 import { dropallCommand } from "./commands/dropall.ts";
 import { docgenCommand } from "./commands/docgen.ts";
+import { resetCommand } from "./commands/reset.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -32,6 +33,7 @@ interface CliArgs {
   tap?: boolean;
   confirm?: boolean;
   script?: boolean;
+  env?: string;
   _: string[];
 }
 
@@ -47,22 +49,23 @@ async function getVersion(): Promise<string> {
 
 const VERSION = await getVersion();
 
-async function getDatabaseUrl(): Promise<string> {
+async function getDatabaseUrl(env: string = "local"): Promise<string> {
   try {
-    // Load environment variables from .env.local
-    const env = await load({ envPath: ".env.local" });
-    const databaseUrl = env.DATABASE_URL || Deno.env.get("DATABASE_URL");
+    // Load environment variables from .env.<env>
+    const envPath = `.env.${env}`;
+    const envVars = await load({ envPath });
+    const databaseUrl = envVars.DATABASE_URL || Deno.env.get("DATABASE_URL");
     
     if (!databaseUrl) {
-      console.error("❌ DATABASE_URL not found in environment variables or .env.local");
-      console.log("💡 Make sure DATABASE_URL is set in your .env.local file");
+      console.error(`❌ DATABASE_URL not found in environment variables or ${envPath}`);
+      console.log(`💡 Make sure DATABASE_URL is set in your ${envPath} file`);
       Deno.exit(1);
     }
     
     return databaseUrl;
   } catch (error) {
     console.error("❌ Failed to load environment variables:", error instanceof Error ? error.message : String(error));
-    console.log("💡 Make sure .env.local file exists and is properly formatted");
+    console.log(`💡 Make sure .env.${env} file exists and is properly formatted`);
     Deno.exit(1);
   }
 }
@@ -82,8 +85,9 @@ OPTIONS:
     --config <FILE>  Specify config file path
     --output <DIR>   Specify output directory
     --apps <APPS>    Comma-separated list of app names (for migrate command)
-    --confirm        Skip confirmation prompt (for dropall command)
+    --confirm        Skip confirmation prompt (for dropall and reset commands)
     --script         Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
+    --env <ENV>      Environment name to load (default: local, loads .env.<ENV> file)
 
 COMMANDS:
     init             Initialize a new project
@@ -94,6 +98,7 @@ COMMANDS:
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
+    reset            ⚠️ Drop all, migrate --apps test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
 
 EXAMPLES:
@@ -106,7 +111,11 @@ EXAMPLES:
     deno task migrate --apps nwind --script
     deno task dropall --verbose
     deno task dropall --confirm
-    deno task dropall --script    
+    deno task dropall --script
+    deno task reset --confirm
+    deno task reset --confirm --verbose
+    deno task connect --env test
+    deno task migrate --apps nwind --env staging
   `);
 }
 
@@ -176,7 +185,7 @@ async function lintProject(): Promise<void> {
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
     boolean: ["help", "version", "verbose", "tap", "confirm", "script"],
-    string: ["config", "output", "apps"],
+    string: ["config", "output", "apps", "env"],
     alias: {
       h: "help",
       v: "verbose",
@@ -202,7 +211,7 @@ async function main(): Promise<void> {
   
   // Get database URL for commands that need it
   let databaseUrl: string | undefined;  
-  databaseUrl = await getDatabaseUrl();  
+  databaseUrl = await getDatabaseUrl(args.env || "local");  
   
   switch (command) {
     case "init":
@@ -239,6 +248,10 @@ async function main(): Promise<void> {
       
     case "dropall":
       await dropallCommand(databaseUrl!, args.confirm || false, args.script || false);
+      break;
+
+    case "reset":
+      await resetCommand(databaseUrl!, args.confirm || false);
       break;
       
     case "docgen":
