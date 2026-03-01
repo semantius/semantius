@@ -23,3 +23,11 @@ SET searchable = EXISTS (
     WHERE f.table_name = t.table_name 
       AND f.searchable = TRUE
 );
+
+-- Update is_child flags for all core entities to ensure consistency
+UPDATE entities t
+SET is_child = EXISTS (
+    SELECT 1 FROM fields f 
+    WHERE f.table_name = t.table_name 
+      AND f.format = 'parent'
+);

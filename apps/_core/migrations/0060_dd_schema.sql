@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS entities (
     label_column TEXT NOT NULL DEFAULT 'label',
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
+    is_child BOOLEAN NOT NULL DEFAULT FALSE,
+    edit_mode TEXT NOT NULL DEFAULT 'auto',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -93,7 +95,7 @@ CREATE TABLE IF NOT EXISTS fields (
     CONSTRAINT valid_format CHECK (
         format IN (
             -- Custom SemSchema formats
-            'json', 'html', 'text', 'code', 'jsonata', 'reference', 'enum',
+            'json', 'html', 'text', 'code', 'jsonata', 'reference', 'parent', 'enum',
             -- Standard JSON Schema formats
             'date', 'time', 'date-time', 'duration',
             'uri', 'uri-reference', 'uri-template', 'url',
@@ -107,9 +109,9 @@ CREATE TABLE IF NOT EXISTS fields (
     
 
     
-    -- Ensure reference_table is set when format is 'reference'
+    -- Ensure reference_table is set when format is 'reference' or 'parent'
     CONSTRAINT reference_requires_table CHECK (
-        (format = 'reference' AND reference_table != '') OR (format != 'reference')
+        (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
     )
 );
 
@@ -121,6 +123,7 @@ WHERE is_pk;-- Ensure only one primary key per table
 CREATE INDEX idx_fields_table ON fields(table_name);
 CREATE INDEX idx_fields_name ON fields(field_name);
 CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
+CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
 
 COMMENT ON TABLE fields IS 
 'Metadata for fields in dynamically created tables. Each row triggers ALTER TABLE to add column.';
@@ -290,7 +293,7 @@ DECLARE
   -- Define all enum value arrays in one place
   format_values TEXT[] := ARRAY[
     -- Custom SemSchema formats
-    'json', 'html', 'text', 'code', 'jsonata', 'reference', 'enum',
+    'json', 'html', 'text', 'code', 'jsonata', 'reference', 'parent', 'enum',
     -- Standard JSON Schema formats
     'date', 'time', 'date-time', 'duration',
     'uri', 'uri-reference', 'uri-template', 'url',
@@ -303,7 +306,8 @@ DECLARE
   input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
   width_values TEXT[] := ARRAY['default', 's', 'm', 'w'];
   ctype_values TEXT[] := ARRAY['', 'id', 'label'];
-  reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear'];
+  reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
+  edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
 BEGIN
   -- Add enum constraints
   EXECUTE format(
@@ -325,6 +329,11 @@ BEGIN
     'ALTER TABLE fields ADD CONSTRAINT valid_reference_delete_mode CHECK (reference_delete_mode = ANY(%L))',
     reference_delete_mode_values
   );
+
+  EXECUTE format(
+    'ALTER TABLE entities ADD CONSTRAINT valid_edit_mode CHECK (edit_mode = ANY(%L))',
+    edit_mode_values
+  );
   
   -- Insert field metadata for fields table using the same enum arrays
   -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
@@ -332,7 +341,7 @@ BEGIN
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES 
       ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
-      ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'text', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
+      ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, 'entities', 'cascade'),
       ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
       ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, NULL, '', ''),
       ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL, '', ''),
@@ -348,9 +357,14 @@ BEGIN
       ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict or clear', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
+      ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict, clear, or cascade', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
       ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
+
+  -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
+  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
+  VALUES
+      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', '');
 END $$;
 
 -- Insert fields metadata for entities table
@@ -369,7 +383,8 @@ VALUES
     ('entities', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search', 'boolean', FALSE, FALSE, 117, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
@@ -424,8 +439,8 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
     ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'reference', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'users', 'restrict'),
-    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'reference', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'restrict'),
+    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
+    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
@@ -433,8 +448,8 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
     ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'reference', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'restrict'),
-    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'reference', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'restrict'),
+    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
+    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
@@ -442,6 +457,6 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
     ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'reference', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'restrict'),
-    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'reference', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'restrict'),
+    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');

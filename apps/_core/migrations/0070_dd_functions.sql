@@ -20,6 +20,7 @@ BEGIN
         WHEN 'int64' THEN 'BIGINT'
         WHEN 'integer' THEN 'INTEGER'
         WHEN 'reference' THEN 'INTEGER'  -- Foreign key references use INTEGER
+        WHEN 'parent' THEN 'INTEGER'     -- Parent references use INTEGER (like reference)
         
         -- Number formats
         WHEN 'float' THEN 'REAL'
@@ -67,7 +68,7 @@ BEGIN
         -- Special case: json format can accept any type
         WHEN p_format = 'json' THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
         -- Single type mappings
-        WHEN p_format IN ('int32', 'int64', 'integer', 'reference') THEN to_jsonb('integer'::text)
+        WHEN p_format IN ('int32', 'int64', 'integer', 'reference', 'parent') THEN to_jsonb('integer'::text)
         WHEN p_format IN ('float', 'double', 'number') THEN to_jsonb('number'::text)
         WHEN p_format = 'boolean' THEN to_jsonb('boolean'::text)
         WHEN p_format IN ('array') THEN to_jsonb('array'::text)
@@ -397,8 +398,8 @@ BEGIN
         );
     END IF;
     
-    -- If this is a reference field, add foreign key constraint
-    IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
+    -- If this is a reference or parent field, add foreign key constraint
+    IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
         -- Get the id_column of the referenced table
         SELECT id_column INTO v_ref_id_column
         FROM entities
@@ -411,6 +412,8 @@ BEGIN
         -- Determine ON DELETE behavior based on reference_delete_mode
         IF NEW.reference_delete_mode = 'clear' THEN
             v_on_delete := 'SET NULL';
+        ELSIF NEW.reference_delete_mode = 'cascade' THEN
+            v_on_delete := 'CASCADE';
         ELSE
             v_on_delete := 'RESTRICT';
         END IF;
@@ -418,7 +421,7 @@ BEGIN
         -- Generate foreign key constraint name
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         
-        -- Add foreign key constraint
+        -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
         v_alter_sql := format(
             'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
             NEW.table_name,
@@ -428,7 +431,12 @@ BEGIN
             v_ref_id_column,
             v_on_delete
         );
-        EXECUTE v_alter_sql;
+        BEGIN
+            EXECUTE v_alter_sql;
+        EXCEPTION WHEN duplicate_object THEN
+            RAISE NOTICE 'Foreign key constraint "%" already exists on "%.%", skipping creation. Verify ON DELETE behavior matches expected: %',
+                v_fk_name, NEW.table_name, NEW.field_name, v_on_delete;
+        END;
         
         -- Create index for foreign key
         v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
@@ -633,7 +641,7 @@ BEGIN
     END IF;
     
     -- Handle foreign key reference changes
-    IF OLD.format = 'reference' OR NEW.format = 'reference' THEN
+    IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
         
@@ -643,7 +651,7 @@ BEGIN
            (OLD.format <> NEW.format) THEN
             
             -- Drop existing foreign key constraint if it exists
-            IF OLD.format = 'reference' THEN
+            IF OLD.format IN ('reference', 'parent') THEN
                 EXECUTE format(
                     'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
                     NEW.table_name,
@@ -652,8 +660,8 @@ BEGIN
                 RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
             END IF;
             
-            -- Add new foreign key constraint if format is now 'reference'
-            IF NEW.format = 'reference' AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
+            -- Add new foreign key constraint if format is now 'reference' or 'parent'
+            IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
                 -- Get the id_column of the referenced table
                 SELECT id_column INTO v_ref_id_column
                 FROM entities
@@ -666,6 +674,8 @@ BEGIN
                 -- Determine ON DELETE behavior
                 IF NEW.reference_delete_mode = 'clear' THEN
                     v_on_delete := 'SET NULL';
+                ELSIF NEW.reference_delete_mode = 'cascade' THEN
+                    v_on_delete := 'CASCADE';
                 ELSE
                     v_on_delete := 'RESTRICT';
                 END IF;
@@ -693,8 +703,8 @@ BEGIN
                 
                 RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
                     v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
-            ELSIF NEW.format != 'reference' AND OLD.format = 'reference' THEN
-                -- Drop index if format changed from reference to something else
+            ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
+                -- Drop index if format changed from reference/parent to something else
                 EXECUTE format(
                     'DROP INDEX IF EXISTS %I',
                     v_idx_name
@@ -797,8 +807,8 @@ BEGIN
         RETURN OLD;
     END IF;
     
-    -- Drop foreign key constraint if this is a reference field
-    IF OLD.format = 'reference' THEN
+    -- Drop foreign key constraint if this is a reference or parent field
+    IF OLD.format IN ('reference', 'parent') THEN
         v_fk_name := format('%s_%s_fkey', OLD.table_name, OLD.field_name);
         EXECUTE format(
             'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
@@ -1117,3 +1127,111 @@ CREATE TRIGGER enforce_table_searchable_consistency_trigger
 
 COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
 'Ensures entities.searchable is always consistent with related fields, preventing manual changes';
+-- =====================================================
+-- IS_CHILD FUNCTIONS AND TRIGGERS
+-- =====================================================
+-- Manages entities.is_child based on whether any field has format='parent'
+-- Automatically maintains entities.is_child similar to searchable
+
+-- =====================================================
+-- HELPER FUNCTION: Update entities.is_child flag
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION update_table_is_child_flag(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_has_parent_fields BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1 FROM fields 
+        WHERE table_name = p_table_name 
+          AND format = 'parent'
+    ) INTO v_has_parent_fields;
+    
+    UPDATE entities 
+    SET is_child = v_has_parent_fields
+    WHERE table_name = p_table_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION update_table_is_child_flag IS 
+'Auto-maintains the is_child flag on entities table based on whether any related fields have format=''parent''.';
+
+-- =====================================================
+-- TRIGGER FUNCTION: Handle field parent format changes
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION handle_field_parent_format_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_parent_changed BOOLEAN := FALSE;
+    v_table_name_to_update TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        v_table_name_to_update := NEW.table_name;
+        v_parent_changed := (NEW.format = 'parent');
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_table_name_to_update := NEW.table_name;
+        v_parent_changed := (OLD.format IS DISTINCT FROM NEW.format AND (OLD.format = 'parent' OR NEW.format = 'parent'));
+    ELSIF TG_OP = 'DELETE' THEN
+        v_table_name_to_update := OLD.table_name;
+        v_parent_changed := (OLD.format = 'parent');
+    END IF;
+
+    IF v_parent_changed THEN
+        PERFORM update_table_is_child_flag(v_table_name_to_update);
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION handle_field_parent_format_change IS 
+'Trigger function that updates entities.is_child when fields with format=''parent'' are created, updated, or deleted.';
+
+CREATE TRIGGER handle_field_parent_format_change_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_field_parent_format_change();
+
+COMMENT ON TRIGGER handle_field_parent_format_change_trigger ON fields IS
+'Automatically updates entities.is_child when field parent format status changes';
+
+-- =====================================================
+-- TRIGGER FUNCTION: Recompute entities.is_child on direct update
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION enforce_table_is_child_consistency()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_computed_is_child BOOLEAN;
+BEGIN
+    IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
+        SELECT EXISTS (
+            SELECT 1 FROM fields 
+            WHERE table_name = NEW.table_name 
+              AND format = 'parent'
+        ) INTO v_computed_is_child;
+
+        NEW.is_child := v_computed_is_child;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION enforce_table_is_child_consistency IS 
+'Trigger function that ensures entities.is_child always reflects the status of related fields, preventing manual overrides.';
+
+CREATE TRIGGER enforce_table_is_child_consistency_trigger
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.is_child IS DISTINCT FROM NEW.is_child)
+    EXECUTE FUNCTION enforce_table_is_child_consistency();
+
+COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
+'Ensures entities.is_child is always consistent with related fields, preventing manual changes';

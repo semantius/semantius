@@ -95,10 +95,10 @@ SELECT ok(
     'webhook_receiver_logs table should exist in database'
 );
 
--- Test 15: webhook_receiver_logs label_column should be webhook_id
+-- Test 15: webhook_receiver_logs label_column should be label
 SELECT ok(
-    (SELECT label_column = 'webhook_id' FROM entities WHERE table_name = 'webhook_receiver_logs'),
-    'webhook_receiver_logs label_column should be webhook_id'
+    (SELECT label_column = 'label' FROM entities WHERE table_name = 'webhook_receiver_logs'),
+    'webhook_receiver_logs label_column should be label'
 );
 
 -- Test 16: webhook_receiver_logs has webhook_receiver_id field
@@ -158,18 +158,18 @@ SELECT ok(
     'Foreign key constraint should exist on webhook_receivers.table_name'
 );
 
--- Test 24: Foreign key constraint exists for webhook_receiver_id
+-- Test 24: Foreign key constraint exists for webhook_receiver_id (created by DD trigger)
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'fk_webhook_receiver_logs_webhook_receiver_id' 
+        WHERE constraint_name = 'webhook_receiver_logs_webhook_receiver_id_fkey' 
         AND table_name = 'webhook_receiver_logs'
         AND constraint_type = 'FOREIGN KEY'
     )),
     'Foreign key constraint should exist on webhook_receiver_id'
 );
 
--- Test 25: Index on webhook_id exists
+-- Test 25: Index on webhook_id exists (created by DD trigger for parent format field)
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_indexes 
@@ -212,7 +212,7 @@ SELECT ok(
     'header_value column should exist in webhook_receivers table'
 );
 
--- Test 30: Test webhook_id is the label column in webhook_receiver_logs table
+-- Test 30: Test webhook_id column exists in webhook_receiver_logs table (as parent reference)
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.columns 
@@ -221,10 +221,10 @@ SELECT ok(
     'webhook_id column should exist in webhook_receiver_logs table'
 );
 
--- Test 31: Verify ctype is set to label for webhook_id field
+-- Test 31: Verify format is 'parent' for webhook_id field
 SELECT ok(
-    (SELECT ctype = 'label' FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id'),
-    'webhook_id field should have ctype=label in webhook_receiver_logs'
+    (SELECT format = 'parent' FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id'),
+    'webhook_id field should have format=parent in webhook_receiver_logs'
 );
 
 -- Test 32: Sample webhook receiver logs exist

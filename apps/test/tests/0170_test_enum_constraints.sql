@@ -62,29 +62,29 @@ SELECT is(
 
 -- Test 7: Insert valid enum value '10' should succeed
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_timestamp, payload, result) 
-      VALUES (1, '2026-01-26 12:00:00'::timestamptz, '{}'::jsonb, '10')$$,
+    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, webhook_timestamp, payload, result) 
+      VALUES (1, 1, '2026-01-26 12:00:00'::timestamptz, '{}'::jsonb, '10')$$,
     'Should allow valid enum value "10" for result'
 );
 
 -- Test 8: Insert valid enum value '20' should succeed
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_timestamp, payload, result) 
-      VALUES (1, '2026-01-26 12:01:00'::timestamptz, '{}'::jsonb, '20')$$,
+    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, webhook_timestamp, payload, result) 
+      VALUES (1, 1, '2026-01-26 12:01:00'::timestamptz, '{}'::jsonb, '20')$$,
     'Should allow valid enum value "20" for result'
 );
 
 -- Test 9: Insert valid enum value '90' should succeed
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_timestamp, payload, result) 
-      VALUES (1, '2026-01-26 12:02:00'::timestamptz, '{}'::jsonb, '90')$$,
+    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, webhook_timestamp, payload, result) 
+      VALUES (1, 1, '2026-01-26 12:02:00'::timestamptz, '{}'::jsonb, '90')$$,
     'Should allow valid enum value "90" for result'
 );
 
 -- Test 10: Insert invalid enum value should fail
 SELECT throws_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_timestamp, payload, result) 
-      VALUES (1, '2026-01-26 12:03:00'::timestamptz, '{}'::jsonb, '99')$$,
+    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, webhook_timestamp, payload, result) 
+      VALUES (1, 1, '2026-01-26 12:03:00'::timestamptz, '{}'::jsonb, '99')$$,
     '23514',
     NULL,
     'Should reject invalid enum value "99" for result'
