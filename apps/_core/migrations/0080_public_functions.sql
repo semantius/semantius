@@ -235,7 +235,7 @@ BEGIN
                 WHEN format IS NOT NULL 
                      AND format != '' 
                      AND format != 'text'
-                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
+                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum', 'reference', 'parent')
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
             END ||
@@ -245,9 +245,9 @@ BEGIN
                 THEN jsonb_build_object('enum', enum_values)
                 ELSE '{}'::jsonb
             END ||
-            -- Add reference_table field if format is 'reference'
+            -- Add reference_table field if format is 'reference' or 'parent'
             CASE 
-                WHEN format = 'reference' AND reference_table != ''
+                WHEN format IN ('reference', 'parent') AND reference_table != ''
                 THEN jsonb_build_object(
                     'reference_table', reference_table, 
                     'reference_delete_mode', reference_delete_mode,

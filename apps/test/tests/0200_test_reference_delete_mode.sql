@@ -3,7 +3,7 @@
 
 BEGIN;
 
-SELECT plan(10);
+SELECT plan(17);
 
 -- =====================================================
 -- TEST 1: reference_delete_mode can be empty when reference_table is empty
@@ -142,6 +142,76 @@ SELECT lives_ok(
 -- Clean up
 DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_empty_mode';
 DELETE FROM entities WHERE table_name = 'test_ref_table';
+
+-- =====================================================
+-- TEST 9: reference_delete_mode can be 'cascade' with reference format
+-- =====================================================
+
+INSERT INTO entities (table_name, singular_label, managed)
+VALUES ('test_ref_table2', 'Test Ref Table 2', FALSE);
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_cascade_field', 'Test Cascade Field', 'reference', FALSE, 80, 'test_ref_table2', 'cascade')$$,
+    'Can insert field with reference_delete_mode=cascade'
+);
+
+SELECT is(
+    (SELECT reference_delete_mode FROM fields WHERE table_name = 'test_table' AND field_name = 'test_cascade_field'),
+    'cascade',
+    'Field with reference_delete_mode=cascade is stored correctly'
+);
+
+DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_cascade_field';
+
+-- =====================================================
+-- TEST 10 (was 8 position): parent format requires reference_table
+-- =====================================================
+
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_parent_no_ref', 'Test Parent No Ref', 'parent', FALSE, 90, '', 'cascade')$$,
+    23514, -- CHECK constraint violation (reference_requires_table)
+    NULL,
+    'Cannot insert parent format field without reference_table'
+);
+
+-- =====================================================
+-- TEST 11: parent format with valid reference_table
+-- =====================================================
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_parent_field', 'Test Parent Field', 'parent', FALSE, 95, 'test_ref_table2', 'cascade')$$,
+    'Can insert field with parent format and cascade delete mode'
+);
+
+SELECT is(
+    (SELECT format FROM fields WHERE table_name = 'test_table' AND field_name = 'test_parent_field'),
+    'parent',
+    'Parent format field is stored correctly'
+);
+
+-- =====================================================
+-- TEST 12: is_child flag on entities is updated for parent format
+-- =====================================================
+
+SELECT is(
+    (SELECT is_child FROM entities WHERE table_name = 'test_table'),
+    TRUE,
+    'entities.is_child should be TRUE when a parent format field exists'
+);
+
+DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_parent_field';
+
+SELECT is(
+    (SELECT is_child FROM entities WHERE table_name = 'test_table'),
+    FALSE,
+    'entities.is_child should be FALSE after parent format field is removed'
+);
+
+-- Clean up
+DELETE FROM entities WHERE table_name = 'test_ref_table2';
 
 SELECT * FROM finish();
 ROLLBACK;

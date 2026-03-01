@@ -71,13 +71,15 @@ VALUES (
     'admin',
     'admin',
     'id',
-    'webhook_id'
+    'label'
 );
 
 -- Add fields to webhook_receiver_logs table
--- Note: webhook_id is the label_column and is automatically created by the create_dd_table trigger
+-- Note: 'label' is the label_column and is automatically created by the create_dd_table trigger
+-- webhook_id is an explicit parent reference to webhook_receivers (ON DELETE CASCADE)
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode)
 VALUES 
+    ('webhook_receiver_logs', 'webhook_id', 'Webhook Receiver', 'parent', FALSE, FALSE, 5, 'default', 'default', 'Parent webhook receiver this log belongs to', NULL, NULL, NULL, 'webhook_receivers', 'cascade'),
     ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'reference', FALSE, FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration', NULL, NULL, NULL, 'webhook_receivers', 'clear'),
     ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, FALSE, 30, 'default', 'default', 'Timestamp from webhook source', NULL, NULL, NULL, '', ''),
     ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL, '', ''),
@@ -91,23 +93,10 @@ VALUES
 -- The dynamic table system creates tables automatically, so we need to add
 -- the foreign key and index after the tables are created by triggers
 
--- Add foreign key constraint for table_name
+-- Add foreign key constraint for table_name (webhook_receivers → entities)
+-- This is a plain text FK, not managed by the DD trigger system
 ALTER TABLE webhook_receivers 
 ADD CONSTRAINT fk_webhook_receivers_table_name 
 FOREIGN KEY (table_name) 
 REFERENCES entities(table_name) 
 ON DELETE CASCADE;
-
--- Add foreign key constraint for webhook_receiver_id
-ALTER TABLE webhook_receiver_logs 
-ADD CONSTRAINT fk_webhook_receiver_logs_webhook_receiver_id 
-FOREIGN KEY (webhook_receiver_id) 
-REFERENCES webhook_receivers(id) 
-ON DELETE CASCADE;
-
--- Create index on webhook_id for efficient lookups
-CREATE INDEX idx_webhook_receiver_logs_webhook_id 
-ON webhook_receiver_logs(webhook_id);
-
-COMMENT ON INDEX idx_webhook_receiver_logs_webhook_id IS 
-'Index on webhook_id for efficient webhook log lookups';

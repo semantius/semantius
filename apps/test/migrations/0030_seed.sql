@@ -406,13 +406,14 @@ VALUES
     ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', '', '', '');
 
 -- Sample webhook receiver logs
--- Note: webhook_id is the label column, so it's not listed separately
-INSERT INTO webhook_receiver_logs (webhook_receiver_id, webhook_id, webhook_timestamp, received_timestamp, payload, result, error_message)
+-- webhook_id is now an INTEGER parent reference to webhook_receivers (ON DELETE CASCADE)
+-- label is the label column (text) for display purposes
+INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, received_timestamp, payload, result, error_message)
 VALUES 
-    (1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, ''),
-    (2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, ''),
-    (3, 'test-webhook-001', '2026-01-01 12:36:00'::timestamptz, '2026-01-01 12:36:01'::timestamptz, '{"message": "test"}'::jsonb, 10, ''),
-    (1, 'gh-evt-67890', '2026-01-01 12:37:00'::timestamptz, '2026-01-01 12:37:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');
+    (1, 1, 'gh-evt-12345', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"action": "push", "ref": "refs/heads/main"}'::jsonb, 20, ''),
+    (2, 2, 'evt_1ABC123', '2026-01-01 12:35:00'::timestamptz, '2026-01-01 12:35:01'::timestamptz, '{"type": "payment_intent.succeeded", "amount": 1000}'::jsonb, 20, ''),
+    (3, 3, 'test-webhook-001', '2026-01-01 12:36:00'::timestamptz, '2026-01-01 12:36:01'::timestamptz, '{"message": "test"}'::jsonb, 10, ''),
+    (1, 1, 'gh-evt-67890', '2026-01-01 12:37:00'::timestamptz, '2026-01-01 12:37:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');
 
 -- =====================================================
 -- VERIFICATION QUERIES

@@ -352,15 +352,15 @@ SELECT ok(
     'webhook_receivers label field should be searchable'
 );
 
--- webhook_receiver_logs should be searchable because webhook_id (label) field is searchable
+-- webhook_receiver_logs should be searchable because label (label_column) field is searchable
 SELECT ok(
     (SELECT searchable FROM entities WHERE table_name = 'webhook_receiver_logs'),
-    'webhook_receiver_logs table should be searchable (webhook_id label field is searchable)'
+    'webhook_receiver_logs table should be searchable (label field is searchable)'
 );
 
 SELECT ok(
-    (SELECT searchable FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id'),
-    'webhook_receiver_logs webhook_id field should be searchable'
+    (SELECT searchable FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'label'),
+    'webhook_receiver_logs label field should be searchable'
 );
 
 -- Verify ALL tables with searchable fields have entities.searchable=TRUE
