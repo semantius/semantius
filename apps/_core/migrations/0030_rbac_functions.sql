@@ -254,12 +254,13 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions(v_external_id);
     
-    -- Set PostgreSQL session variables for the current transaction
-    -- These are automatically cleared when the transaction ends
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, false);
-    PERFORM set_config('app.current_external_id', v_external_id, false);
-    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), false);
-    PERFORM set_config('app.context_initialized', 'true', false);
+    -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
+    -- Using true (LOCAL) ensures these are automatically cleared when the transaction ends,
+    -- preventing stale permissions from leaking across requests on pooled connections
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
+    PERFORM set_config('app.current_external_id', v_external_id, true);
+    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), true);
+    PERFORM set_config('app.context_initialized', 'true', true);
     
     -- Note: OAuth scopes handled separately if needed
 END;
@@ -300,15 +301,17 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions(v_external_id);
     
-    -- Set PostgreSQL session variables for the current transaction
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, false);
-    PERFORM set_config('app.current_external_id', v_external_id, false);
-    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), false);
-    PERFORM set_config('app.context_initialized', 'true', false);
-    
+    -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
+    -- Using true (LOCAL) ensures these are automatically cleared when the transaction ends,
+    -- preventing stale permissions from leaking across requests on pooled connections
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
+    PERFORM set_config('app.current_external_id', v_external_id, true);
+    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), true);
+    PERFORM set_config('app.context_initialized', 'true', true);
+
     -- Store OAuth2 scopes if present (for API requests)
     IF p_oauth_scopes IS NOT NULL THEN
-        PERFORM set_config('app.oauth_scopes', p_oauth_scopes, false);
+        PERFORM set_config('app.oauth_scopes', p_oauth_scopes, true);
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

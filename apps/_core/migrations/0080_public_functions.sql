@@ -105,7 +105,20 @@ BEGIN
     ), '[]'::jsonb)
     INTO v_permissions
     FROM rbac.get_user_permissions(v_external_id);
-    
+
+    -- Explicitly initialize the context cache with the permissions we just computed.
+    -- This is necessary because get_user_modules() -> has_any_permission() uses
+    -- ensure_context_initialized() which may see a stale snapshot (STABLE function)
+    -- when the user was just created in this same function call.
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
+    PERFORM set_config('app.current_external_id', v_external_id, true);
+    PERFORM set_config('app.user_permissions', COALESCE(
+        (SELECT string_agg(p.value #>> '{}', ',' ORDER BY p.value #>> '{}')
+         FROM jsonb_array_elements(v_permissions) AS p(value)),
+        ''
+    ), true);
+    PERFORM set_config('app.context_initialized', 'true', true);
+
     -- Build modules array (filtered by permissions via helper function)
     v_modules := public.get_user_modules();
     
