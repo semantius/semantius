@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(131);
+SELECT plan(137);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -1060,6 +1060,64 @@ SELECT is(
      WHERE elem->>'id' = 'user_roles.user_id'),
     'id',
     'get_schema(users) children user_roles.user_id should have label_column "id"'
+);
+
+-- =====================================================
+-- TEST: singular_label_parent / plural_label_parent in properties
+-- =====================================================
+
+-- user_roles requires admin access, switch to user3 for these tests
+select authenticate_as('user3');
+
+-- Test that user_id property in user_roles includes singular_label_parent
+SELECT is(
+    (SELECT public.get_schema('user_roles')::jsonb->'properties'->'user_id'->>'singular_label_parent'),
+    'Role',
+    'get_schema(user_roles) user_id should have singular_label_parent "Role"'
+);
+
+-- Test that user_id property in user_roles includes plural_label_parent
+SELECT is(
+    (SELECT public.get_schema('user_roles')::jsonb->'properties'->'user_id'->>'plural_label_parent'),
+    'Roles',
+    'get_schema(user_roles) user_id should have plural_label_parent "Roles"'
+);
+
+-- Test that role_id property in user_roles includes singular_label_parent
+SELECT is(
+    (SELECT public.get_schema('user_roles')::jsonb->'properties'->'role_id'->>'singular_label_parent'),
+    'User',
+    'get_schema(user_roles) role_id should have singular_label_parent "User"'
+);
+
+-- Test that a non-parent field does NOT include singular_label_parent
+SELECT ok(
+    NOT ((SELECT public.get_schema('user_roles')::jsonb->'properties'->'assigned_at' ? 'singular_label_parent')),
+    'get_schema(user_roles) assigned_at (non-parent field) should NOT include singular_label_parent'
+);
+
+-- =====================================================
+-- TEST: singular_label_parent / plural_label_parent in children
+-- =====================================================
+
+select authenticate_as('user1');
+
+-- Test children entry for user_roles.user_id has correct singular_label_parent
+SELECT is(
+    (SELECT elem->>'singular_label_parent'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'Role',
+    'get_schema(users) children user_roles.user_id should have singular_label_parent "Role"'
+);
+
+-- Test children entry for user_roles.user_id has correct plural_label_parent
+SELECT is(
+    (SELECT elem->>'plural_label_parent'
+     FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
+     WHERE elem->>'id' = 'user_roles.user_id'),
+    'Roles',
+    'get_schema(users) children user_roles.user_id should have plural_label_parent "Roles"'
 );
 
 SELECT * FROM finish();

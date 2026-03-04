@@ -176,6 +176,8 @@ BEGIN
                 'title', f.title,
                 'singular_label', e.singular_label,
                 'plural_label', e.plural_label,
+                'singular_label_parent', f.singular_label_parent,
+                'plural_label_parent', f.plural_label_parent,
                 'id_column', e.id_column,
                 'label_column', e.label_column
             ) ORDER BY f.id
@@ -251,6 +253,8 @@ BEGIN
             f.ctype,
             f.is_core,
             f.searchable,
+            f.singular_label_parent,
+            f.plural_label_parent,
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
             -- doesn't exist or is missing columns. These fields are only added to JSON output when
@@ -311,6 +315,15 @@ BEGIN
                     'reference_table_label_column', reference_table_label_column,
                     'reference_table_singular_label', reference_table_singular_label,
                     'reference_table_plural_label', reference_table_plural_label
+                )
+                ELSE '{}'::jsonb
+            END ||
+            -- Add singular_label_parent / plural_label_parent for parent fields when set
+            CASE
+                WHEN format = 'parent' AND singular_label_parent != ''
+                THEN jsonb_build_object(
+                    'singular_label_parent', singular_label_parent,
+                    'plural_label_parent', plural_label_parent
                 )
                 ELSE '{}'::jsonb
             END ||
