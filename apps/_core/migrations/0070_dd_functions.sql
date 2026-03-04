@@ -479,6 +479,30 @@ BEGIN
         END;
     END IF;
     
+    -- If unique_value is TRUE, create a partial unique index
+    IF NEW.unique_value THEN
+        DECLARE
+            v_unique_idx_name TEXT;
+            v_where_clause TEXT;
+        BEGIN
+            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            -- For string types, exclude NULL and empty string from uniqueness enforcement
+            IF format_to_json_type(NEW.format)::text = '"string"' THEN
+                v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
+            ELSE
+                v_where_clause := format('%I IS NOT NULL', NEW.field_name);
+            END IF;
+            EXECUTE format(
+                'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
+                v_unique_idx_name,
+                NEW.table_name,
+                NEW.field_name,
+                v_where_clause
+            );
+            RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+        END;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -760,6 +784,36 @@ BEGIN
         END;
     END IF;
     
+    -- Handle unique_value changes
+    IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
+        DECLARE
+            v_unique_idx_name TEXT;
+            v_where_clause TEXT;
+        BEGIN
+            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            IF NEW.unique_value THEN
+                -- Create partial unique index
+                IF format_to_json_type(NEW.format)::text = '"string"' THEN
+                    v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
+                ELSE
+                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
+                END IF;
+                EXECUTE format(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
+                    v_unique_idx_name,
+                    NEW.table_name,
+                    NEW.field_name,
+                    v_where_clause
+                );
+                RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+            ELSE
+                -- Drop unique index
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
+                RAISE NOTICE 'Dropped unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -824,6 +878,12 @@ BEGIN
             v_idx_name
         );
         RAISE NOTICE 'Dropped index "%"', v_idx_name;
+    END IF;
+    
+    -- Drop unique index if unique_value was set
+    IF OLD.unique_value THEN
+        EXECUTE format('DROP INDEX IF EXISTS %I', format('%s_%s_unique', OLD.table_name, OLD.field_name));
+        RAISE NOTICE 'Dropped unique index "%"', format('%s_%s_unique', OLD.table_name, OLD.field_name);
     END IF;
     
     -- Drop the column (CASCADE to drop any dependent objects like generated columns)
