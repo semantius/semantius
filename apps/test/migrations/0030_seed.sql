@@ -148,13 +148,13 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, searchable, reference_table, reference_delete_mode, unique_value)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'default', 'Customer primary email address', '', NULL, TRUE, '', ''),
-    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', ''),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', ''),
-    ('customers', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', ''),
-    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '');
+    ('customers', 'email', 'Email Address', 'email', FALSE, TRUE, 10, 'default', 'default', 'Customer primary email address', '', NULL, TRUE, '', '', TRUE),
+    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', '', FALSE),
+    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', '', FALSE),
+    ('customers', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', '', FALSE),
+    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '', FALSE);
 
 -- Add reference field from customers to regions (not required, default restrict mode)
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)

@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS fields (
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
     singular_label_parent TEXT NOT NULL DEFAULT '',
     plural_label_parent TEXT NOT NULL DEFAULT '',
+    unique_value BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -147,6 +148,7 @@ COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (f
 COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
 COMMENT ON COLUMN fields.singular_label_parent IS 'Custom singular label for the parent entity when format is ''parent''. Overrides the default singular_label from the parent entity when set.';
 COMMENT ON COLUMN fields.plural_label_parent IS 'Custom plural label for the parent entity when format is ''parent''. Overrides the default plural_label from the parent entity when set.';
+COMMENT ON COLUMN fields.unique_value IS 'When TRUE, enforces a partial unique index on this column. For string types, NULL and empty string values are excluded from the uniqueness check.';
 
 -- Create trigger function to validate reference_table when not empty
 -- We use a trigger instead of CHECK constraint to allow subqueries
@@ -364,6 +366,7 @@ BEGIN
       ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict, clear, or cascade', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
       ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
+      ('fields', 'unique_value', 'Unique Value', 'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
 
