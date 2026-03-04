@@ -273,7 +273,11 @@ BEGIN
             field_name,
             field_order,
             (jsonb_build_object(
-                'type', format_to_json_type(format),
+                'type', CASE
+                    WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
+                    THEN to_jsonb('string'::text)
+                    ELSE format_to_json_type(format)
+                END,
                 'title', title,
                 'description', description,
                 'inputMode', input_type,
@@ -328,9 +332,12 @@ BEGIN
                 ELSE '{}'::jsonb
             END ||
             -- Add default field separately to handle type conversion properly
-            CASE 
+            CASE
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
+                        -- Special case: reference/parent to entities/fields are string-typed
+                        WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
+                        THEN jsonb_build_object('default', trim(both '''' from default_value))
                         WHEN format_to_json_type(format)::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
                         WHEN format_to_json_type(format)::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
                         WHEN format_to_json_type(format)::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
@@ -338,6 +345,9 @@ BEGIN
                         -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                         ELSE jsonb_build_object('default', trim(both '''' from default_value))
                     END
+                -- Special case: reference/parent to entities/fields get empty string default
+                WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
+                THEN jsonb_build_object('default', '')
                 -- For string types without explicit default, add empty string default
                 WHEN format_to_json_type(format)::text = '"string"' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
