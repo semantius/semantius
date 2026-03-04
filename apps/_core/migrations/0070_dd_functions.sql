@@ -533,7 +533,7 @@ DECLARE
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
-    
+
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
         RAISE EXCEPTION 'Cannot change table_name of a field';
