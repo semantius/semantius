@@ -27,8 +27,8 @@ SELECT ok(
 
 -- Test 4: table_name field has correct format
 SELECT ok(
-    (SELECT format = 'text' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'table_name'),
-    'table_name field should have text format'
+    (SELECT format = 'parent' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'table_name'),
+    'table_name field should have parent format'
 );
 
 -- Test 5: webhook_receivers has description field
@@ -147,11 +147,11 @@ SELECT ok(
 -- TEST: Foreign key and index exist
 -- =====================================================
 
--- Test 23: Foreign key constraint exists for table_name
+-- Test 23: Foreign key constraint exists for table_name (created by DD trigger)
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'fk_webhook_receivers_table_name' 
+        WHERE constraint_name = 'webhook_receivers_table_name_fkey' 
         AND table_name = 'webhook_receivers'
         AND constraint_type = 'FOREIGN KEY'
     )),

@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS fields (
     enum_values JSONB DEFAULT NULL,
     reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
+    singular_label_parent TEXT NOT NULL DEFAULT '',
+    plural_label_parent TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -143,6 +145,8 @@ COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, la
 COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
 COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference entities.table_name when format is "reference". Empty string means no reference.';
 COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
+COMMENT ON COLUMN fields.singular_label_parent IS 'Custom singular label for the parent entity when format is ''parent''. Overrides the default singular_label from the parent entity when set.';
+COMMENT ON COLUMN fields.plural_label_parent IS 'Custom plural label for the parent entity when format is ''parent''. Overrides the default plural_label from the parent entity when set.';
 
 -- Create trigger function to validate reference_table when not empty
 -- We use a trigger instead of CHECK constraint to allow subqueries
@@ -358,6 +362,8 @@ BEGIN
       ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict, clear, or cascade', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
+      ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
+      ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
 
@@ -444,6 +450,9 @@ VALUES
     ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
+UPDATE fields SET singular_label_parent = 'Role',  plural_label_parent = 'Roles'  WHERE table_name = 'user_roles' AND field_name = 'user_id';
+UPDATE fields SET singular_label_parent = 'User',  plural_label_parent = 'Users'  WHERE table_name = 'user_roles' AND field_name = 'role_id';
+
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
@@ -452,6 +461,9 @@ VALUES
     ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
+
+UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'role_id';
+UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_id';
 
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)

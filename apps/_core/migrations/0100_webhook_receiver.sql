@@ -34,10 +34,17 @@ VALUES (
     'label'
 );
 
+-- Pre-create table_name as TEXT before inserting the field metadata.
+-- The 'parent' format normally maps to INTEGER in format_to_data_type(), which is designed
+-- for auto-incrementing ID references. Here we need TEXT because entities.table_name is TEXT
+-- (not an auto-incrementing INTEGER id). By pre-creating the column as TEXT, the DD trigger's
+-- ADD COLUMN IF NOT EXISTS silently skips creation and proceeds to build the FK TEXT→TEXT.
+ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
+
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode)
 VALUES 
-    ('webhook_receivers', 'table_name', 'Table', 'text', FALSE, FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, '', ''),
+    ('webhook_receivers', 'table_name', 'Table', 'parent', FALSE, FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
     ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL, '', ''),
     ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb, '', ''),
     ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'default', 'Secret for webhook authentication', '', NULL, '', ''),
@@ -88,15 +95,8 @@ VALUES
     ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, FALSE, 70, 'default', 'w', 'Error message if processing failed', '', NULL, NULL, '', '');
 
 -- =====================================================
--- ADD FOREIGN KEY AND INDEX
+-- ADD INDEX
 -- =====================================================
--- The dynamic table system creates tables automatically, so we need to add
--- the foreign key and index after the tables are created by triggers
-
--- Add foreign key constraint for table_name (webhook_receivers → entities)
--- This is a plain text FK, not managed by the DD trigger system
-ALTER TABLE webhook_receivers 
-ADD CONSTRAINT fk_webhook_receivers_table_name 
-FOREIGN KEY (table_name) 
-REFERENCES entities(table_name) 
-ON DELETE CASCADE;
+-- The dynamic table system creates the foreign key and index automatically
+-- via the DD trigger when the table_name field is inserted with format='parent'
+-- (constraint name: webhook_receivers_table_name_fkey)
