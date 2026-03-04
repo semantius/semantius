@@ -115,6 +115,11 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Ensure reference_table is set when format is 'reference' or 'parent'
     CONSTRAINT reference_requires_table CHECK (
         (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
+    ),
+
+    -- Ensure format is 'reference' or 'parent' when reference_table is set
+    CONSTRAINT reference_table_requires_reference_format CHECK (
+        (reference_table != '' AND format IN ('reference', 'parent')) OR (reference_table = '')
     )
 );
 
