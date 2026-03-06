@@ -3,12 +3,13 @@
 -- =====================================================
 -- Tests for the nwind module setup: module, permissions,
 -- entity tables, fields, and sample data integrity.
--- Requires apps/test/migrations/0035_seed_nwind.sql
+-- Requires apps/nwind/migrations/ to have been applied.
+-- Run: deno task migrate --apps nwind --verbose
 -- =====================================================
 
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(37);
 
 -- =====================================================
 -- MODULE TESTS
@@ -185,11 +186,11 @@ SELECT is(
 -- DATA INTEGRITY TESTS
 -- =====================================================
 
--- Test 29: categories has data
+-- Test 29: categories has full dataset (8 rows)
 SELECT is(
     (SELECT COUNT(*)::integer FROM categories),
-    3,
-    'categories should have 3 rows of test data'
+    8,
+    'categories should have 8 rows (full Northwind dataset)'
 );
 
 -- Test 30: regions has 4 rows
@@ -199,11 +200,11 @@ SELECT is(
     'regions should have 4 rows (Eastern, Western, Northern, Southern)'
 );
 
--- Test 31: customers has 3 rows
+-- Test 31: customers has full dataset (91 rows)
 SELECT is(
     (SELECT COUNT(*)::integer FROM customers),
-    3,
-    'customers should have 3 rows of test data'
+    91,
+    'customers should have 91 rows (full Northwind dataset)'
 );
 
 -- Test 32: customers.customer_id stores original text codes
@@ -219,7 +220,7 @@ SELECT is(
      FROM orders o
      JOIN customers c ON c.id = o.customer_id
      WHERE o.id = 10248),
-    'Alfreds Futterkiste',
+    'Vins et alcools Chevalier',
     'orders.customer_id integer FK should join correctly to customers.id'
 );
 
@@ -241,8 +242,22 @@ SELECT is(
      JOIN orders o ON o.id = od.order_id
      JOIN products p ON p.id = od.product_id
      WHERE o.id = 10248),
-    2,
-    'Order 10248 should have 2 order detail lines'
+    3,
+    'Order 10248 should have 3 order detail lines'
+);
+
+-- Test 36: specific category data integrity
+SELECT is(
+    (SELECT COUNT(*)::integer FROM categories WHERE category_name IN ('Beverages', 'Condiments', 'Confections')),
+    3,
+    'categories should contain Beverages, Condiments, and Confections'
+);
+
+-- Test 37: specific customer data integrity
+SELECT is(
+    (SELECT COUNT(*)::integer FROM customers WHERE customer_id IN ('ALFKI', 'ANATR', 'VINET')),
+    3,
+    'customers should contain ALFKI, ANATR, and VINET customer codes'
 );
 
 SELECT * FROM finish();
