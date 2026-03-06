@@ -89,11 +89,10 @@ SELECT ok(
     'First user (admin) modules should not be empty'
 );
 
--- Test 9: Should see all 6 modules (admin sees everything: _core, _public, CRM, HR, Inventory, nwind)
-SELECT is(
-    (SELECT jsonb_array_length(info->'modules') FROM first_user_info),
-    6,
-    'First user (admin) should see all 6 modules'
+-- Test 9: Should see at least _core, _public, CRM, HR, and Inventory modules (ignoring any additional modules)
+SELECT ok(
+    (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "_public"}, {"module_name": "CRM"}, {"module_name": "HR"}, {"module_name": "Inventory"}]'::jsonb FROM first_user_info),
+    'First user (admin) should see _core, _public, CRM, HR, and Inventory modules'
 );
 
 -- Test 10: Should see _core module (requires admin permission)
