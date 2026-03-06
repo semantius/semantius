@@ -41,22 +41,7 @@ VALUES (
     'category_name'
 );
 
--- 2. customer_demographics
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES (
-    'customer_demographics',
-    'customer_demographic',
-    'Customer Demographic',
-    'Customer Demographics',
-    'Customer demographic categories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
-    'nwind:view',
-    'nwind:manage',
-    'id',
-    'customer_desc'
-);
-
--- 3. customers
+-- 2. customers
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'customers',
@@ -71,22 +56,7 @@ VALUES (
     'company_name'
 );
 
--- 4. customer_customer_demo (junction)
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES (
-    'customer_customer_demo',
-    'customer_customer_demo',
-    'Customer Demographic Assignment',
-    'Customer Demographic Assignments',
-    'Links customers to their demographic categories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
-    'nwind:view',
-    'nwind:manage',
-    'id',
-    'label'
-);
-
--- 5. employees
+-- 3. employees
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employees',
@@ -101,7 +71,7 @@ VALUES (
     'last_name'
 );
 
--- 6. suppliers
+-- 4. suppliers
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'suppliers',
@@ -116,7 +86,7 @@ VALUES (
     'company_name'
 );
 
--- 7. products
+-- 5. products
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'products',
@@ -131,7 +101,7 @@ VALUES (
     'product_name'
 );
 
--- 8. regions
+-- 6. regions
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'regions',
@@ -146,7 +116,7 @@ VALUES (
     'region_description'
 );
 
--- 9. shippers
+-- 7. shippers
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'shippers',
@@ -161,7 +131,7 @@ VALUES (
     'company_name'
 );
 
--- 10. orders
+-- 8. orders
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'orders',
@@ -176,7 +146,7 @@ VALUES (
     'ship_name'
 );
 
--- 11. territories
+-- 9. territories
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'territories',
@@ -191,7 +161,7 @@ VALUES (
     'territory_description'
 );
 
--- 12. employee_territories (junction)
+-- 10. employee_territories (junction)
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'employee_territories',
@@ -206,7 +176,7 @@ VALUES (
     'label'
 );
 
--- 13. order_details (junction)
+-- 11. order_details (junction)
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'order_details',
@@ -221,7 +191,7 @@ VALUES (
     'label'
 );
 
--- 14. us_states
+-- 12. us_states
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
     'us_states',
@@ -249,14 +219,6 @@ VALUES
     ('categories', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of the product category', '', TRUE, '');
 
 -- -----------------------------------------------------
--- customer_demographics fields
--- -----------------------------------------------------
--- (customer_desc is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
-VALUES
-    ('customer_demographics', 'customer_type_id', 'Customer Type ID', 'text', FALSE, 10, 'required', 'default', 'Original customer type identifier', '', FALSE, TRUE, '');
-
--- -----------------------------------------------------
 -- customers fields
 -- -----------------------------------------------------
 -- (company_name is auto-created as the label_column)
@@ -264,22 +226,14 @@ INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_or
 VALUES
     ('customers', 'customer_id',    'Customer ID',    'text', FALSE, 10, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
     ('customers', 'contact_name',   'Contact Name',   'text', FALSE, 30, 'default',  'default', 'Name of the primary contact person',        '', TRUE,  FALSE, ''),
-    ('customers', 'contact_title',  'Contact Title',  'text', FALSE, 40, 'default',  'default', 'Title of the primary contact person',       '', FALSE, FALSE, ''),
-    ('customers', 'address',        'Address',        'text', FALSE, 50, 'default',  'w',       'Street address',                            '', FALSE, FALSE, ''),
-    ('customers', 'city',           'City',           'text', FALSE, 60, 'default',  'default', 'City',                                      '', TRUE,  FALSE, ''),
+    ('customers', 'contact_title',  'Contact Title',  'text', FALSE, 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
+    ('customers', 'address',        'Street Address', 'text', FALSE, 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
+    ('customers', 'city',           'City',           'text', FALSE, 60, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
     ('customers', 'region',         'Region',         'text', FALSE, 70, 'default',  'default', 'State or province',                         '', FALSE, FALSE, ''),
     ('customers', 'postal_code',    'Postal Code',    'text', FALSE, 80, 'default',  'default', 'Postal or ZIP code',                        '', FALSE, FALSE, ''),
-    ('customers', 'country',        'Country',        'text', FALSE, 90, 'default',  'default', 'Country',                                   '', TRUE,  FALSE, ''),
+    ('customers', 'country',        'Country',        'text', FALSE, 90, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
     ('customers', 'phone',          'Phone',          'text', FALSE, 100, 'default', 'default', 'Primary phone number',                      '', FALSE, FALSE, ''),
-    ('customers', 'fax',            'Fax',            'text', FALSE, 110, 'default', 'default', 'Fax number',                                '', FALSE, FALSE, '');
-
--- -----------------------------------------------------
--- customer_customer_demo fields (junction)
--- -----------------------------------------------------
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
-VALUES
-    ('customer_customer_demo', 'customer_id',              'Customer',             'parent', FALSE, 10, 'required', 'default', 'Reference to the customer',             'customers',             'restrict', FALSE),
-    ('customer_customer_demo', 'customer_demographics_id', 'Customer Demographic', 'parent', FALSE, 20, 'required', 'default', 'Reference to the customer demographic', 'customer_demographics', 'restrict', FALSE);
+    ('customers', 'fax',            'Fax',            'text', FALSE, 110, 'default', 'default', '',                                          '', FALSE, FALSE, '');
 
 -- -----------------------------------------------------
 -- employees fields
@@ -287,17 +241,17 @@ VALUES
 -- (last_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('employees', 'first_name',         'First Name',         'text', FALSE, 20,  'required', 'default', 'Employee first name',                     '', TRUE,  ''),
+    ('employees', 'first_name',         'First Name',         'text', FALSE, 20,  'required', 'default', '',                                        '', TRUE,  ''),
     ('employees', 'title',              'Title',              'text', FALSE, 30,  'default',  'default', 'Job title',                               '', FALSE, ''),
     ('employees', 'title_of_courtesy',  'Title of Courtesy',  'text', FALSE, 40,  'default',  'default', 'Courtesy title (Mr., Ms., Dr., etc.)',    '', FALSE, ''),
-    ('employees', 'address',            'Address',            'text', FALSE, 60,  'default',  'w',       'Street address',                          '', FALSE, ''),
-    ('employees', 'city',               'City',               'text', FALSE, 70,  'default',  'default', 'City',                                    '', TRUE,  ''),
+    ('employees', 'address',            'Street Address',     'text', FALSE, 60,  'default',  'w',       '',                                        '', FALSE, ''),
+    ('employees', 'city',               'City',               'text', FALSE, 70,  'default',  'default', '',                                        '', TRUE,  ''),
     ('employees', 'region',             'Region',             'text', FALSE, 80,  'default',  'default', 'State or province',                       '', FALSE, ''),
     ('employees', 'postal_code',        'Postal Code',        'text', FALSE, 90,  'default',  'default', 'Postal or ZIP code',                      '', FALSE, ''),
-    ('employees', 'country',            'Country',            'text', FALSE, 100, 'default',  'default', 'Country',                                 '', TRUE,  ''),
-    ('employees', 'home_phone',         'Home Phone',         'text', FALSE, 110, 'default',  'default', 'Home telephone number',                   '', FALSE, ''),
+    ('employees', 'country',            'Country',            'text', FALSE, 100, 'default',  'default', '',                                        '', TRUE,  ''),
+    ('employees', 'home_phone',         'Home Phone',         'text', FALSE, 110, 'default',  'default', '',                                        '', FALSE, ''),
     ('employees', 'extension',          'Extension',          'text', FALSE, 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
-    ('employees', 'notes',              'Notes',              'text', FALSE, 130, 'default',  'w',       'General notes about the employee',        '', FALSE, ''),
+    ('employees', 'notes',              'Notes',              'text', FALSE, 130, 'default',  'w',       '',                                        '', FALSE, ''),
     ('employees', 'photo_path',         'Photo Path',         'text', FALSE, 140, 'default',  'default', 'Path to employee photo file',             '', FALSE, '');
 
 -- birth_date: nullable (no sensible default)
@@ -321,15 +275,15 @@ VALUES
 -- (company_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('suppliers', 'contact_name',  'Contact Name',  'text', FALSE, 20,  'default',  'default', 'Name of the primary contact',    '', TRUE,  ''),
-    ('suppliers', 'contact_title', 'Contact Title', 'text', FALSE, 30,  'default',  'default', 'Title of the primary contact',   '', FALSE, ''),
-    ('suppliers', 'address',       'Address',       'text', FALSE, 40,  'default',  'w',       'Street address',                 '', FALSE, ''),
-    ('suppliers', 'city',          'City',          'text', FALSE, 50,  'default',  'default', 'City',                           '', TRUE,  ''),
+    ('suppliers', 'contact_name',  'Contact Name',  'text', FALSE, 20,  'default',  'default', '',                               '', TRUE,  ''),
+    ('suppliers', 'contact_title', 'Contact Title', 'text', FALSE, 30,  'default',  'default', 'Job title of the primary contact', '', FALSE, ''),
+    ('suppliers', 'address',       'Street Address','text', FALSE, 40,  'default',  'w',       '',                               '', FALSE, ''),
+    ('suppliers', 'city',          'City',          'text', FALSE, 50,  'default',  'default', '',                               '', TRUE,  ''),
     ('suppliers', 'region',        'Region',        'text', FALSE, 60,  'default',  'default', 'State or province',              '', FALSE, ''),
     ('suppliers', 'postal_code',   'Postal Code',   'text', FALSE, 70,  'default',  'default', 'Postal or ZIP code',             '', FALSE, ''),
-    ('suppliers', 'country',       'Country',       'text', FALSE, 80,  'default',  'default', 'Country',                        '', TRUE,  ''),
+    ('suppliers', 'country',       'Country',       'text', FALSE, 80,  'default',  'default', '',                               '', TRUE,  ''),
     ('suppliers', 'phone',         'Phone',         'text', FALSE, 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
-    ('suppliers', 'fax',           'Fax',           'text', FALSE, 100, 'default',  'default', 'Fax number',                     '', FALSE, ''),
+    ('suppliers', 'fax',           'Fax',           'text', FALSE, 100, 'default',  'default', '',                               '', FALSE, ''),
     ('suppliers', 'homepage',      'Homepage',      'text', FALSE, 110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
 
 -- -----------------------------------------------------
@@ -361,7 +315,7 @@ VALUES
 -- (company_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('shippers', 'phone', 'Phone', 'text', FALSE, 20, 'default', 'default', 'Shipper phone number', '', FALSE, '');
+    ('shippers', 'phone', 'Phone', 'text', FALSE, 20, 'default', 'default', '', '', FALSE, '');
 
 -- -----------------------------------------------------
 -- orders fields
@@ -369,11 +323,11 @@ VALUES
 -- (ship_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('orders', 'ship_address',    'Ship Address',     'text',  FALSE, 50,  'default', 'w',       'Street address for shipment',              '', FALSE, ''),
-    ('orders', 'ship_city',       'Ship City',        'text',  FALSE, 60,  'default', 'default', 'City for shipment',                        '', TRUE,  ''),
+    ('orders', 'ship_address',    'Ship Address',     'text',  FALSE, 50,  'default', 'w',       '',                                         '', FALSE, ''),
+    ('orders', 'ship_city',       'Ship City',        'text',  FALSE, 60,  'default', 'default', '',                                         '', TRUE,  ''),
     ('orders', 'ship_region',     'Ship Region',      'text',  FALSE, 70,  'default', 'default', 'State or province for shipment',           '', FALSE, ''),
-    ('orders', 'ship_postal_code','Ship Postal Code', 'text',  FALSE, 80,  'default', 'default', 'Postal code for shipment',                 '', FALSE, ''),
-    ('orders', 'ship_country',    'Ship Country',     'text',  FALSE, 90,  'default', 'default', 'Country for shipment',                     '', TRUE,  ''),
+    ('orders', 'ship_postal_code','Ship Postal Code', 'text',  FALSE, 80,  'default', 'default', '',                                         '', FALSE, ''),
+    ('orders', 'ship_country',    'Ship Country',     'text',  FALSE, 90,  'default', 'default', '',                                         '', TRUE,  ''),
     ('orders', 'freight',         'Freight',          'float', FALSE, 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
 
 -- order_date and required_date: not nullable with defaults
