@@ -1,7 +1,7 @@
 -- Test public.get_schemas() function
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(18);
 
 -- =====================================================
 -- TEST: get_schemas() returns correct data
@@ -86,28 +86,7 @@ SELECT ok(
     'get_schemas() element should have a children array'
 );
 
--- Test that a non-existent table is silently skipped
-SELECT is(
-    json_array_length(public.get_schemas('nonexistent_table_xyz')),
-    0,
-    'get_schemas() should silently skip non-existent tables and return empty array'
-);
-
--- Test that non-existent table mixed with valid table returns only valid schemas
-SELECT is(
-    json_array_length(public.get_schemas('nonexistent_table_xyz, customers_test')),
-    1,
-    'get_schemas() should skip non-existent tables and return only valid schemas'
-);
-
--- Test that the valid table is still returned correctly when mixed with an invalid one
-SELECT is(
-    (public.get_schemas('nonexistent_table_xyz, customers_test')::jsonb)->0->>'title',
-    'Customer',
-    'get_schemas() should return the valid table schema when mixed with non-existent tables'
-);
-
--- Test empty string returns empty array
+-- Test empty string returns empty array (blank entries are always skipped)
 SELECT is(
     json_array_length(public.get_schemas('')),
     0,
@@ -129,22 +108,32 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST: get_schemas() permission checks
+-- TEST: get_schemas() raises errors for missing/inaccessible tables
 -- =====================================================
 
--- Test that a table the user cannot access is silently skipped
--- (user1 has public:read, not nwind:view, so nwind tables should be skipped)
-SELECT is(
-    json_array_length(public.get_schemas('customers_test, customers')),
-    1,
-    'get_schemas() should skip tables where the user lacks view permission'
+-- Test that a non-existent table raises an error
+SELECT throws_ok(
+    'SELECT public.get_schemas(''nonexistent_table_xyz'')',
+    '42P01',
+    'Table "nonexistent_table_xyz" not found in entities',
+    'get_schemas() should raise an error for a non-existent table'
 );
 
--- Test that only accessible tables are returned in a mixed list
-SELECT is(
-    (public.get_schemas('customers_test, customers')::jsonb)->0->>'title',
-    'Customer',
-    'get_schemas() should return only the accessible table in a mixed-permission list'
+-- Test that a non-existent table in a mixed list still raises an error
+SELECT throws_ok(
+    'SELECT public.get_schemas(''customers_test, nonexistent_table_xyz'')',
+    '42P01',
+    'Table "nonexistent_table_xyz" not found in entities',
+    'get_schemas() should raise an error even when only one table in the list does not exist'
+);
+
+-- Test that a table the user cannot access raises an error
+-- (user1 does not have admin permission, so webhook_receivers is inaccessible)
+SELECT throws_ok(
+    'SELECT public.get_schemas(''customers_test, webhook_receivers'')',
+    '42P01',
+    'Table "webhook_receivers" not found in tables metadata',
+    'get_schemas() should raise an error when the user lacks view permission for any table in the list'
 );
 
 SELECT * FROM finish();

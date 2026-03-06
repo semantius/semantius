@@ -225,7 +225,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
     ('customers', 'customer_id',    'Customer ID',    'text', FALSE, 10, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
-    ('customers', 'contact_name',   'Contact Name',   'text', FALSE, 30, 'default',  'default', 'Name of the primary contact person',        '', TRUE,  FALSE, ''),
+    ('customers', 'contact_name',   'Contact Name',   'text', FALSE, 30, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
     ('customers', 'contact_title',  'Contact Title',  'text', FALSE, 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
     ('customers', 'address',        'Street Address', 'text', FALSE, 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
     ('customers', 'city',           'City',           'text', FALSE, 60, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
@@ -252,17 +252,17 @@ VALUES
     ('employees', 'home_phone',         'Home Phone',         'text', FALSE, 110, 'default',  'default', '',                                        '', FALSE, ''),
     ('employees', 'extension',          'Extension',          'text', FALSE, 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
     ('employees', 'notes',              'Notes',              'text', FALSE, 130, 'default',  'w',       '',                                        '', FALSE, ''),
-    ('employees', 'photo_path',         'Photo Path',         'text', FALSE, 140, 'default',  'default', 'Path to employee photo file',             '', FALSE, '');
+    ('employees', 'photo_path',         'Photo Path',         'text', FALSE, 140, 'default',  'default', '',                                        '', FALSE, '');
 
 -- birth_date: nullable (no sensible default)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, searchable, ctype)
 VALUES
-    ('employees', 'birth_date', 'Birth Date', 'date', TRUE, 50, 'default', 'default', 'Employee date of birth', FALSE, '');
+    ('employees', 'birth_date', 'Birth Date', 'date', TRUE, 50, 'default', 'default', '', FALSE, '');
 
 -- hire_date: not nullable with default
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, 55, 'default', 'default', 'Date the employee was hired', 'CURRENT_DATE', FALSE, '');
+    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
 -- reports_to: self-reference, nullable
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
@@ -293,7 +293,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',  FALSE, 40, 'default',  'default', 'Quantity and unit of measure per package',    '', FALSE, ''),
-    ('products', 'unit_price',        'Unit Price',         'float', FALSE, 50, 'default',  'default', 'Price per unit',                              '0.0', FALSE, ''),
+    ('products', 'unit_price',        'Unit Price',         'float', FALSE, 50, 'default',  'default', '',                                            '0.0', FALSE, ''),
     ('products', 'units_in_stock',    'Units In Stock',     'int32', FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',   FALSE, ''),
     ('products', 'units_on_order',    'Units On Order',     'int32', FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',   FALSE, ''),
     ('products', 'reorder_level',     'Reorder Level',      'int32', FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',   FALSE, ''),
@@ -333,13 +333,13 @@ VALUES
 -- order_date and required_date: not nullable with defaults
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('orders', 'order_date',    'Order Date',    'date', FALSE, 110, 'default', 'default', 'Date the order was placed',    'CURRENT_DATE', FALSE, ''),
-    ('orders', 'required_date', 'Required Date', 'date', FALSE, 120, 'default', 'default', 'Date the order is required by', 'CURRENT_DATE', FALSE, '');
+    ('orders', 'order_date',    'Order Date',    'date', FALSE, 110, 'default', 'default', '',    'CURRENT_DATE', FALSE, ''),
+    ('orders', 'required_date', 'Required Date', 'date', FALSE, 120, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
 -- shipped_date: nullable (order may not yet be shipped)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, searchable, ctype)
 VALUES
-    ('orders', 'shipped_date', 'Shipped Date', 'date', TRUE, 130, 'default', 'default', 'Date the order was shipped', FALSE, '');
+    ('orders', 'shipped_date', 'Shipped Date', 'date', TRUE, 130, 'default', 'default', '', FALSE, '');
 
 -- FK references on orders (not parent — orders is not a junction/child table)
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
