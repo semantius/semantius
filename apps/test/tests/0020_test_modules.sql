@@ -26,11 +26,11 @@ SELECT is(
 -- Test as admin@test.com (has user:read permission)
 select authenticate_as('user3');
 
--- admin@test.com should see  all 5 modules (_public, _core, CRM, HR, and Inventory)
+-- admin@test.com should see all 6 modules (_public, _core, CRM, HR, Inventory, and nwind)
 SELECT is(
     (SELECT COUNT(*)::integer FROM modules),
-    5,
-    'admin@test.com should see all 5 modules (_public, _core, CRM, HR, and Inventory)'
+    6,
+    'admin@test.com should see all 6 modules (_public, _core, CRM, HR, Inventory, and nwind)'
 );
 
 SELECT * FROM finish();

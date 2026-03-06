@@ -293,12 +293,6 @@ VALUES
 -- MINIMAL TEST DATA
 -- =====================================================
 
--- Add nwind:view permission to the standard User role
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r, permissions p
-WHERE r.role_name = 'User' AND p.permission_name = 'nwind:view';
-
 -- regions
 INSERT INTO regions (id, region_description) VALUES
     (1, 'Eastern'),

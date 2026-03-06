@@ -132,11 +132,11 @@ SELECT is(
 -- FIELD DEFINITION TESTS
 -- =====================================================
 
--- Test 22: categories has correct field count (id + label auto-created + description)
+-- Test 22: categories has correct field count (id + label + created_at + updated_at auto-created + description)
 SELECT is(
     (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'categories'),
-    2,
-    'categories should have 2 custom fields (category_name, description)'
+    5,
+    'categories should have 5 fields (id, category_name, created_at, updated_at auto-created + description)'
 );
 
 -- Test 23: customers has unique_value=TRUE on customer_id

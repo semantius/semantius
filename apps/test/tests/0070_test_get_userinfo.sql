@@ -175,12 +175,12 @@ SELECT is(
     'user2 should see 4 modules (_public, CRM, HR, and Inventory)'
 );
 
--- Test user3 (admin) modules (should see all 5 modules)
+-- Test user3 (admin) modules (should see all 6 modules)
 select authenticate_as('user3');
 SELECT is(
     (SELECT jsonb_array_length(public.get_userinfo()->'modules')),
-    5,
-    'user3 (admin) should see all 5 modules (_public, _core, CRM, HR, and Inventory)'
+    6,
+    'user3 (admin) should see all 6 modules (_public, _core, CRM, HR, Inventory, and nwind)'
 );
 
 -- Test _core module has logo_url
