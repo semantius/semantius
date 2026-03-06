@@ -319,22 +319,22 @@ SELECT ok(
 -- TEST: Seed data has searchable fields marked
 -- =====================================================
 
--- Verify customers table has searchable fields
+-- Verify customers_test table has searchable fields
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'customers' AND searchable = TRUE) >= 3,
-    'customers table should have at least 3 searchable fields (email, company, phone, etc.)'
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'customers_test' AND searchable = TRUE) >= 3,
+    'customers_test table should have at least 3 searchable fields (email, company, phone, etc.)'
 );
 
--- Verify employees table has searchable fields  
+-- Verify employees_test table has searchable fields  
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'employees' AND searchable = TRUE) >= 3,
-    'employees table should have at least 3 searchable fields (email, department, position)'
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'employees_test' AND searchable = TRUE) >= 3,
+    'employees_test table should have at least 3 searchable fields (email, department, position)'
 );
 
--- Verify products table has searchable fields
+-- Verify products_test table has searchable fields
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'products' AND searchable = TRUE) >= 3,
-    'products table should have at least 3 searchable fields (sku, description, category)'
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'products_test' AND searchable = TRUE) >= 3,
+    'products_test table should have at least 3 searchable fields (sku, description, category)'
 );
 
 -- =====================================================

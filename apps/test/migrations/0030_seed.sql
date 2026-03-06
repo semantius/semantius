@@ -7,9 +7,9 @@
 
 -- Insert sample modules if they don't exist
 INSERT INTO modules (id, module_name, description, view_permission, home_page) VALUES
-    (1001, 'CRM', 'Customer Relationship Management', 'sales:read', '/crm/customers'),
+    (1001, 'CRM', 'Customer Relationship Management', 'sales:read', '/crm/customers_test'),
     (1002, 'HR', 'Human Resources', 'user:read', DEFAULT),
-    (1003, 'Inventory', 'Inventory Management', DEFAULT, '/inventory/products')
+    (1003, 'Inventory', 'Inventory Management', DEFAULT, '/inventory/products_test')
 ON CONFLICT (id) DO NOTHING;
 
 -- Adjust the sequence counter to ensure next module starts after test modules
@@ -42,11 +42,11 @@ WHERE r.role_name = 'Sales User'
 -- These will automatically create actual database tables
 -- with proper RLS policies
 
--- Test case a: Create "customers" table WITHOUT providing plural value
--- The trigger should auto-set plural = 'customers' (matching table_name)
+-- Test case a: Create "customers_test" table WITHOUT providing plural value
+-- The trigger should auto-set plural = 'customers_test' (matching table_name)
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
-    'customers',
+    'customers_test',
     'customer',
     'Customer',
     'Customers',
@@ -58,11 +58,11 @@ VALUES (
     'customer_name'
 );
 
--- Test case b: Create "employees" table WITH a wrong plural value ('wrongplural')
--- The trigger should ignore 'wrongplural' and auto-set plural = 'employees'
+-- Test case b: Create "employees_test" table WITH a wrong plural value ('wrongplural')
+-- The trigger should ignore 'wrongplural' and auto-set plural = 'employees_test'
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
-    'employees',
+    'employees_test',
     'employee',
     'wrongplural',  -- This value should be ignored by the trigger
     'Employee',
@@ -75,13 +75,13 @@ VALUES (
     'full_name'
 );
 
--- Test case c: Create "products" table with correct plural value
--- The trigger should still enforce plural = 'products'
+-- Test case c: Create "products_test" table with correct plural value
+-- The trigger should still enforce plural = 'products_test'
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
-    'products',
+    'products_test',
     'product',
-    'products',
+    'products_test',
     'Product',
     'Products',
     'Product catalog and inventory',
@@ -92,11 +92,11 @@ VALUES (
     'product_name'
 );
 
--- Test case d: Create "regions" table for CRM module
+-- Test case d: Create "regions_test" table for CRM module
 -- Customers will reference this table with ON DELETE default (restrict), not required
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
 VALUES (
-    'regions',
+    'regions_test',
     'region',
     'Region',
     'Regions',
@@ -147,53 +147,53 @@ VALUES (
 -- Note: id_column and label_column are created automatically by create_dd_table()
 -- so we only add additional custom fields here
 
--- Add fields to customers table
+-- Add fields to customers_test table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, searchable, reference_table, reference_delete_mode, unique_value)
 VALUES 
-    ('customers', 'email', 'Email Address', 'email', FALSE, TRUE, 10, 'default', 'default', 'Customer primary email address', '', NULL, TRUE, '', '', TRUE),
-    ('customers', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', '', FALSE),
-    ('customers', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', '', FALSE),
-    ('customers', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', '', FALSE),
-    ('customers', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '', FALSE);
+    ('customers_test', 'email', 'Email Address', 'email', FALSE, TRUE, 10, 'default', 'default', 'Customer primary email address', '', NULL, TRUE, '', '', TRUE),
+    ('customers_test', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', '', FALSE),
+    ('customers_test', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', '', FALSE),
+    ('customers_test', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', '', FALSE),
+    ('customers_test', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '', FALSE);
 
--- Add reference field from customers to regions (not required, default restrict mode)
+-- Add reference field from customers_test to regions_test (not required, default restrict mode)
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES 
-    ('customers', 'region_id', 'Region', 'reference', FALSE, TRUE, 35, 'default', 'default', 'Geographic region for this customer', 'regions', 'restrict', FALSE);
+    ('customers_test', 'region_id', 'Region', 'reference', FALSE, TRUE, 35, 'default', 'default', 'Geographic region for this customer', 'regions_test', 'restrict', FALSE);
 
--- Add fields to employees table
+-- Add fields to employees_test table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('employees', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'default', 'Employee work email address', '', TRUE, '', ''),
-    ('employees', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'default', 'Job title or position', '', TRUE, '', ''),
-    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'default', 'Date employee was hired', 'CURRENT_DATE', FALSE, '', ''),
-    ('employees', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'default', 'Annual salary amount', '0.0', FALSE, '', ''),
-    ('employees', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether employee is currently active', 'TRUE', FALSE, '', '');
+    ('employees_test', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'default', 'Employee work email address', '', TRUE, '', ''),
+    ('employees_test', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'default', 'Job title or position', '', TRUE, '', ''),
+    ('employees_test', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'default', 'Date employee was hired', 'CURRENT_DATE', FALSE, '', ''),
+    ('employees_test', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'default', 'Annual salary amount', '0.0', FALSE, '', ''),
+    ('employees_test', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether employee is currently active', 'TRUE', FALSE, '', '');
 
--- Add reference field from employees to departments (required, restrict mode)
+-- Add reference field from employees_test to departments (required, restrict mode)
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES 
-    ('employees', 'department_id', 'Department', 'reference', FALSE, FALSE, 20, 'required', 'default', 'Department this employee belongs to', 'departments', 'restrict', FALSE);
+    ('employees_test', 'department_id', 'Department', 'reference', FALSE, FALSE, 20, 'required', 'default', 'Department this employee belongs to', 'departments', 'restrict', FALSE);
 
--- Add fields to products table
+-- Add fields to products_test table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('products', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'default', 'Stock keeping unit - unique product identifier', '', TRUE, '', ''),
-    ('products', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE, '', ''),
-    ('products', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 'default', 'Product price in base currency', '0.0', FALSE, '', ''),
-    ('products', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 'default', 'Current inventory quantity', '0', FALSE, '', ''),
-    ('products', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether product is no longer available', 'FALSE', FALSE, '', '');
+    ('products_test', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'default', 'Stock keeping unit - unique product identifier', '', TRUE, '', ''),
+    ('products_test', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE, '', ''),
+    ('products_test', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 'default', 'Product price in base currency', '0.0', FALSE, '', ''),
+    ('products_test', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 'default', 'Current inventory quantity', '0', FALSE, '', ''),
+    ('products_test', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether product is no longer available', 'FALSE', FALSE, '', '');
 
--- Add reference field from products to product_categories (required, restrict mode)
+-- Add reference field from products_test to product_categories (required, restrict mode)
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES 
-    ('products', 'category_id', 'Category', 'reference', FALSE, FALSE, 50, 'required', 'default', 'Product category classification', 'product_categories', 'restrict', FALSE);
+    ('products_test', 'category_id', 'Category', 'reference', FALSE, FALSE, 50, 'required', 'default', 'Product category classification', 'product_categories', 'restrict', FALSE);
 
--- Add fields to regions table
+-- Add fields to regions_test table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('regions', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 'default', 'Short code for the region', '', TRUE, '', ''),
-    ('regions', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '', TRUE, '', '');
+    ('regions_test', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 'default', 'Short code for the region', '', TRUE, '', ''),
+    ('regions_test', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '', TRUE, '', '');
 
 -- Add fields to departments table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
@@ -215,16 +215,16 @@ VALUES
 -- Note: Tables use the default id_column ('id') and label_column ('label')
 -- unless specified otherwise in the tables definition
 
--- Sample regions (inserted BEFORE customers since customers reference regions)
--- Table: regions (id_column: id, label_column: region_name)
-INSERT INTO regions (id, region_name, code, description)
+-- Sample regions_test (inserted BEFORE customers_test since customers_test reference regions_test)
+-- Table: regions_test (id_column: id, label_column: region_name)
+INSERT INTO regions_test (id, region_name, code, description)
 VALUES 
     (1, 'North America', 'NA', 'United States, Canada, and Mexico'),
     (2, 'Europe', 'EU', 'European Union countries and associated states'),
     (3, 'Asia Pacific', 'APAC', 'Asia and Pacific region'),
     (4, 'Latin America', 'LATAM', 'Central and South America excluding Mexico');
 
--- Sample departments (inserted BEFORE employees since employees reference departments)
+-- Sample departments (inserted BEFORE employees_test since employees_test reference departments)
 -- Table: departments (id_column: id, label_column: department_name)
 INSERT INTO departments (id, department_name, code, description, budget)
 VALUES 
@@ -233,7 +233,7 @@ VALUES
     (3, 'Human Resources', 'HR', 'Human resources and talent management', 800000.00),
     (4, 'Marketing', 'MKT', 'Marketing and brand management', 1500000.00);
 
--- Sample product_categories (inserted BEFORE products since products reference product_categories)
+-- Sample product_categories (inserted BEFORE products_test since products_test reference product_categories)
 -- Table: product_categories (id_column: id, label_column: category_name)
 INSERT INTO product_categories (id, category_name, code, description)
 VALUES 
@@ -241,9 +241,9 @@ VALUES
     (2, 'Gadgets', 'GAD', 'Gadget devices and electronics'),
     (3, 'Tools', 'TLS', 'Tools and equipment for various purposes');
 
--- Sample customers (now with region_id references)
--- Table: customers (id_column: id, label_column: customer_name)
-INSERT INTO customers (customer_name, email, phone, company, status, total_orders, region_id)
+-- Sample customers_test (now with region_id references)
+-- Table: customers_test (id_column: id, label_column: customer_name)
+INSERT INTO customers_test (customer_name, email, phone, company, status, total_orders, region_id)
 VALUES 
     ('John Smith', 'john.smith@example.com', '+1-555-0101', 'Acme Corp', 'active', 15, 1),
     ('Jane Doe', 'jane.doe@example.com', '+1-555-0102', 'Tech Solutions', 'active', 8, 1),
@@ -346,9 +346,9 @@ VALUES
     ('António Rodrigues', 'antonio.rodrigues@example.com', '+351-21-4567890', 'Millennium BCP', 'active', 12, 2),
     ('Søren Eriksen', 'soren.eriksen@example.com', '+45-35-123456', 'Novo Nordisk', 'active', 19, 2);
 
--- Sample employees (now with department_id references)
--- Table: employees (id_column: id, label_column: full_name)
-INSERT INTO employees (full_name, email, department_id, position, hire_date, salary, is_active)
+-- Sample employees_test (now with department_id references)
+-- Table: employees_test (id_column: id, label_column: full_name)
+INSERT INTO employees_test (full_name, email, department_id, position, hire_date, salary, is_active)
 VALUES 
     ('Alice Williams', 'alice.williams@company.com', 1, 'Senior Developer', '2020-03-15', 95000, TRUE),
     ('Charlie Brown', 'charlie.brown@company.com', 2, 'Account Manager', '2021-06-01', 75000, TRUE),
@@ -356,9 +356,9 @@ VALUES
     ('Eve Anderson', 'eve.anderson@company.com', 1, 'Junior Developer', '2022-09-01', 65000, TRUE),
     ('Frank Miller', 'frank.miller@company.com', 4, 'Marketing Manager', '2021-02-15', 85000, TRUE);
 
--- Sample products
--- Table: products (id_column: id, label_column: product_name)
-INSERT INTO products (product_name, sku, description, price, quantity_in_stock, category_id, is_discontinued)
+-- Sample products_test
+-- Table: products_test (id_column: id, label_column: product_name)
+INSERT INTO products_test (product_name, sku, description, price, quantity_in_stock, category_id, is_discontinued)
 VALUES 
     ('Widget Pro', 'WGT-001', 'Professional grade widget', 29.99, 150, 1, FALSE),
     ('Gadget Plus', 'GAD-002', 'Advanced gadget with premium features', 49.99, 75, 2, FALSE),
@@ -398,12 +398,12 @@ WHERE u.external_id = 'user2'
 -- SEED WEBHOOK RECEIVER SAMPLE DATA
 -- =====================================================
 
--- Sample webhook receivers (using products table)
+-- Sample webhook receivers (using products_test table)
 INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, header_name, header_value)
 VALUES 
-    ('GitHub Webhook', 'products', 'Receives push events from GitHub repositories', 'hmac', 'your-secret-key', '', ''),
-    ('Stripe Webhook', 'products', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '', ''),
-    ('Simple Webhook', 'products', 'Basic webhook receiver for testing', 'none', '', '', '');
+    ('GitHub Webhook', 'products_test', 'Receives push events from GitHub repositories', 'hmac', 'your-secret-key', '', ''),
+    ('Stripe Webhook', 'products_test', 'Processes payment events from Stripe', 'hmac', 'whsec_test_secret', '', ''),
+    ('Simple Webhook', 'products_test', 'Basic webhook receiver for testing', 'none', '', '', '');
 
 -- Sample webhook receiver logs
 -- webhook_id is now an INTEGER parent reference to webhook_receivers (ON DELETE CASCADE)
@@ -427,13 +427,13 @@ VALUES
 -- SELECT f.field_name, f.label, f.data_type, f.is_pk, f.is_nullable
 -- FROM fields f
 -- JOIN tables t ON f.table_id = t.table_id
--- WHERE t.table_name = 'customers'
+-- WHERE t.table_name = 'customers_test'
 -- ORDER BY f.field_order;
 
 -- View data from dynamically created tables
--- SELECT * FROM customers;
--- SELECT * FROM employees;
--- SELECT * FROM products;
+-- SELECT * FROM customers_test;
+-- SELECT * FROM employees_test;
+-- SELECT * FROM products_test;
 
 -- View test users and their roles
 -- SELECT u.external_id, u.email, r.role_name
@@ -443,6 +443,6 @@ VALUES
 -- ORDER BY u.external_id, r.role_name;
 
 -- Test RLS policies (these will only work if proper permissions are set)
--- SELECT * FROM customers; -- Should work with public:read
--- INSERT INTO customers (customer_name, email, status, total_orders) 
+-- SELECT * FROM customers_test; -- Should work with public:read
+-- INSERT INTO customers_test (customer_name, email, status, total_orders) 
 -- VALUES ('Test User', 'test@example.com', 'pending', 0); -- Requires user:manage

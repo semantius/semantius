@@ -1,4 +1,4 @@
--- Test that admin role can read products table
+-- Test that admin role can read products_test table
 BEGIN;
 
 SELECT plan(5);
@@ -29,20 +29,20 @@ SELECT is(
     'user3 (Administrator) should have admin permission'
 );
 
--- Test product count - Administrator should be able to read products
--- because products table has view_permission='user:read' and
+-- Test product count - Administrator should be able to read products_test
+-- because products_test table has view_permission='user:read' and
 -- Administrator role has user:manage which implies user:read
 SELECT is(
-    (SELECT COUNT(*)::integer FROM products),
+    (SELECT COUNT(*)::integer FROM products_test),
     3,
-    'Administrator should be able to read products table (count should be 3)'
+    'Administrator should be able to read products_test table (count should be 3)'
 );
 
 -- Test that user3 can select specific product details
 SELECT ok(
     EXISTS(
         SELECT 1 
-        FROM products 
+        FROM products_test 
         WHERE product_name = 'Widget Pro' 
         AND sku = 'WGT-001'
     ),

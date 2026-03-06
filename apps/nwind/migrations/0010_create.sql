@@ -53,7 +53,7 @@ VALUES (
     'nwind:view',
     'nwind:manage',
     'id',
-    'customer_type_id'
+    'customer_desc'
 );
 
 -- 3. customers
@@ -251,10 +251,10 @@ VALUES
 -- -----------------------------------------------------
 -- customer_demographics fields
 -- -----------------------------------------------------
--- (customer_type_id is auto-created as the label_column; unique_value handled separately if needed)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+-- (customer_desc is auto-created as the label_column)
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('customer_demographics', 'customer_desc', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of the customer demographic', '', TRUE, '');
+    ('customer_demographics', 'customer_type_id', 'Customer Type ID', 'text', FALSE, 10, 'required', 'default', 'Original customer type identifier', '', FALSE, TRUE, '');
 
 -- -----------------------------------------------------
 -- customers fields
@@ -278,8 +278,8 @@ VALUES
 -- -----------------------------------------------------
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('customer_customer_demo', 'customer_id',      'Customer',           'parent', FALSE, 10, 'required', 'default', 'Reference to the customer',             'customers',            'restrict', FALSE),
-    ('customer_customer_demo', 'customer_type_id', 'Customer Demographic', 'parent', FALSE, 20, 'required', 'default', 'Reference to the customer demographic', 'customer_demographics', 'restrict', FALSE);
+    ('customer_customer_demo', 'customer_id',              'Customer',             'parent', FALSE, 10, 'required', 'default', 'Reference to the customer',             'customers',             'restrict', FALSE),
+    ('customer_customer_demo', 'customer_demographics_id', 'Customer Demographic', 'parent', FALSE, 20, 'required', 'default', 'Reference to the customer demographic', 'customer_demographics', 'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- employees fields

@@ -14,28 +14,28 @@ SELECT rbac.set_request_context('{"sub": "user3"}');
 -- Test 1: Insert valid enum value 'none' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products', 'Test webhook with none auth', 'none')$$,
+      VALUES ('products_test', 'Test webhook with none auth', 'none')$$,
     'Should allow valid enum value "none" for auth_type'
 );
 
 -- Test 2: Insert valid enum value 'hmac' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products', 'Test webhook with hmac auth', 'hmac')$$,
+      VALUES ('products_test', 'Test webhook with hmac auth', 'hmac')$$,
     'Should allow valid enum value "hmac" for auth_type'
 );
 
 -- Test 3: Insert valid enum value 'header' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products', 'Test webhook with header auth', 'header')$$,
+      VALUES ('products_test', 'Test webhook with header auth', 'header')$$,
     'Should allow valid enum value "header" for auth_type'
 );
 
 -- Test 4: Insert invalid enum value should fail
 SELECT throws_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products', 'Test webhook with invalid auth', 'invalid_value')$$,
+      VALUES ('products_test', 'Test webhook with invalid auth', 'invalid_value')$$,
     '23514',
     NULL,
     'Should reject invalid enum value "invalid_value" for auth_type'
@@ -91,19 +91,19 @@ SELECT throws_ok(
 );
 
 -- =====================================================
--- TEST: customers.status enum constraint
+-- TEST: customers_test.status enum constraint
 -- =====================================================
 
 -- Test 11: Insert valid enum value 'pending' should succeed
 SELECT lives_ok(
-    $$INSERT INTO customers (email, company, phone, status) 
+    $$INSERT INTO customers_test (email, company, phone, status) 
       VALUES ('test@example.com', 'Test Company', '555-1234', 'pending')$$,
     'Should allow valid enum value "pending" for status'
 );
 
 -- Test 12: Insert invalid enum value should fail
 SELECT throws_ok(
-    $$INSERT INTO customers (email, company, phone, status) 
+    $$INSERT INTO customers_test (email, company, phone, status) 
       VALUES ('test2@example.com', 'Test Company 2', '555-5678', 'unknown_status')$$,
     '23514',
     NULL,

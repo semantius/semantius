@@ -42,7 +42,7 @@ SELECT throws_ok(
 -- admin should be able to create the table and add columns
 select authenticate_as('user3');
 
--- Create "customers" table in CRM module
+-- Create "customers_test" table in CRM module
 INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
      VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'id', 'label' );
 

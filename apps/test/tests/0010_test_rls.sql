@@ -45,7 +45,7 @@ SELECT is(
 -- check that insert is blocked by RLS
 SELECT throws_ok(
     $$
-    INSERT INTO products (
+    INSERT INTO products_test (
         product_name, sku, description, price, quantity_in_stock, category_id, is_discontinued
     )
     VALUES 
@@ -67,7 +67,7 @@ SELECT is(
 
 -- Test product count - RLS should allow access, so count should be 3
 SELECT is(
-    (SELECT COUNT(*)::integer FROM products),
+    (SELECT COUNT(*)::integer FROM products_test),
     3,
     'Products table should contain 3 products'
 );
