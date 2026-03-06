@@ -1,7 +1,7 @@
 -- Test module visibility based on view_permission
 BEGIN;
 
-SELECT plan(3);
+SELECT plan(6);
 
 -- Test as user@test.com (has user:read permission)
 select authenticate_as('user1');
@@ -13,6 +13,20 @@ SELECT is(
     'user@test.com should see _public, HR, and Inventory modules'
 );
 
+-- user1 should NOT see _core (requires admin permission)
+SELECT is(
+    (SELECT COUNT(*)::integer FROM modules WHERE module_name = '_core'),
+    0,
+    'user@test.com should NOT see _core module (requires admin permission)'
+);
+
+-- user1 should NOT see CRM (requires sales:read permission)
+SELECT is(
+    (SELECT COUNT(*)::integer FROM modules WHERE module_name = 'CRM'),
+    0,
+    'user@test.com should NOT see CRM module (requires sales:read permission)'
+);
+
 -- Test as sales@test.com (has user:read and sales:read permissions)
 select authenticate_as('user2');
 
@@ -21,6 +35,13 @@ SELECT is(
     (SELECT COUNT(*)::integer FROM modules WHERE module_name IN ('_public', 'CRM', 'HR', 'Inventory')),
     4,
     'sales@test.com should see _public, CRM, HR, and Inventory modules'
+);
+
+-- user2 should NOT see _core (requires admin permission)
+SELECT is(
+    (SELECT COUNT(*)::integer FROM modules WHERE module_name = '_core'),
+    0,
+    'sales@test.com should NOT see _core module (requires admin permission)'
 );
 
 -- Test as admin@test.com (has admin permission)
