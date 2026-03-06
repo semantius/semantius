@@ -252,9 +252,9 @@ VALUES
 -- nw_customer_demographics fields
 -- -----------------------------------------------------
 -- (customer_type_id is auto-created as the label_column; unique_value handled separately if needed)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('nw_customer_demographics', 'customer_desc', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of the customer demographic', '', TRUE, FALSE, '');
+    ('nw_customer_demographics', 'customer_desc', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of the customer demographic', '', TRUE, '');
 
 -- -----------------------------------------------------
 -- nw_customers fields
