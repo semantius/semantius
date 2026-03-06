@@ -35,9 +35,9 @@ select authenticate_as('user2');
 
 -- Verify query on table with RLS works
 SELECT is(
-    (SELECT COUNT(*)::integer FROM products),
+    (SELECT COUNT(*)::integer FROM products_test),
     3,
-    'user2 should see 3 products through RLS'
+    'user2 should see 3 products_test through RLS'
 );
 
 -- =====================================================
@@ -109,7 +109,7 @@ SELECT throws_ok(
 -- Test that querying RLS-protected table also fails
 SELECT throws_ok(
     $$
-    SELECT COUNT(*) FROM products;
+    SELECT COUNT(*) FROM products_test;
     $$,
     '28000',
     NULL,
