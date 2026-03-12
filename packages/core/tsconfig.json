@@ -10,9 +10,8 @@
     "skipLibCheck": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "resolveJsonModule": true
+    "sourceMap": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/migrate.ts"],
   "exclude": ["node_modules", "dist"]
 }

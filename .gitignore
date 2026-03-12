@@ -149,5 +149,8 @@ packages/triggerdev/src/migrations-bundle.ts
 # TriggerDev build output
 packages/triggerdev/dist/
 
+# Core package build output
+packages/core/dist/
+
 # pnpm lock file (managed by pnpm)
 # pnpm-lock.yaml

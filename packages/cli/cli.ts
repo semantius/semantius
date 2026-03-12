@@ -63,18 +63,26 @@ async function getDatabaseUrl(
     return cliUrl;
   }
 
+  // DATABASE_URL env var takes next priority — checked before loading the .env
+  // file so that CI environments and devcontainers work without requiring a
+  // .env.local file to be present.
+  const envVar = Deno.env.get("DATABASE_URL");
+  if (envVar) {
+    return envVar;
+  }
+
+  // Fall back to loading from .env.<env> file
   try {
-    // Load environment variables from .env.<env>
     const envPath = `.env.${env}`;
     const envVars = await load({ envPath });
-    const databaseUrl = envVars.DATABASE_URL || Deno.env.get("DATABASE_URL");
+    const databaseUrl = envVars.DATABASE_URL;
 
     if (!databaseUrl) {
       console.error(
-        `❌ DATABASE_URL not found in environment variables or ${envPath}`,
+        `DATABASE_URL not found in ${envPath} or in environment variables`,
       );
       console.log(
-        `💡 Make sure DATABASE_URL is set in your ${envPath} file or pass --database-url <URL>`,
+        `Set DATABASE_URL in your ${envPath} file, as an environment variable, or pass --database-url <URL>`,
       );
       Deno.exit(1);
     }
@@ -82,11 +90,11 @@ async function getDatabaseUrl(
     return databaseUrl;
   } catch (error) {
     console.error(
-      "❌ Failed to load environment variables:",
+      "Failed to load environment variables:",
       error instanceof Error ? error.message : String(error),
     );
     console.log(
-      `💡 Make sure .env.${env} file exists and is properly formatted`,
+      `Set DATABASE_URL in your .env.${env} file, as an environment variable, or pass --database-url <URL>`,
     );
     Deno.exit(1);
   }

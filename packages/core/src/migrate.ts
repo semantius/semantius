@@ -190,6 +190,9 @@ export async function executeMigrations(
         [versionName],
       );
 
+      // Notify PostgREST (if present) to reload its schema cache so the
+      // new objects are immediately accessible via the REST API.
+      // Safe to fire even when PostgREST is not running.
       await client.queryObject("NOTIFY pgrst, 'reload schema'");
       await client.queryObject("COMMIT");
 

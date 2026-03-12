@@ -167,6 +167,13 @@
         "dependencies": [
           "jsr:@std/fmt@1.0.8"
         ]
+      },
+      "packages/core": {
+        "packageJson": {
+          "dependencies": [
+            "npm:typescript@^5.8.2"
+          ]
+        }
       }
     }
   }

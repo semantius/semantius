@@ -1,17 +1,21 @@
 # @semantius/triggerdev
 
-TriggerDev integration for Semantius Core. Run database migrations from [TriggerDev](https://trigger.dev) tasks using pre-bundled SQL content.
+TriggerDev integration for Semantius Core. Run database migrations from
+[TriggerDev](https://trigger.dev) tasks using pre-bundled SQL content.
 
-Unlike the CLI (which reads SQL files from disk), this package bundles all SQL
-migration files into the compiled output so that migrations can be executed from
-serverless/edge environments where the filesystem is not available.
+Unlike the CLI (which reads SQL files from disk at runtime), this package
+bundles all SQL migration files at build time so they can be executed from
+serverless/edge environments like TriggerDev where the filesystem is not
+available.
 
 ## Prerequisites
 
 - Node.js 18+
 - pnpm 8+
-- [TriggerDev](https://trigger.dev) account and project set up
+- [TriggerDev](https://trigger.dev) v3 account and project
 - PostgreSQL database
+
+---
 
 ## Setup
 
@@ -23,32 +27,66 @@ From the project root:
 pnpm install
 ```
 
-### 2. Bundle SQL migrations
+### 2. Initialise TriggerDev in your project
 
-Before building the package you must bundle the SQL files:
+If you have not already set up TriggerDev, run the initialisation wizard from
+your application directory:
 
 ```bash
-# From the project root:
-deno task bundle-sql
-# or via pnpm:
-pnpm run bundle-sql
+npx trigger.dev@latest init
 ```
 
-This reads all `apps/*/migrations/*.sql` files and embeds their content into
-`packages/triggerdev/src/migrations-bundle.ts`.
+This creates a `trigger/` directory and adds the necessary configuration files
+(`.trigger/`, `trigger.config.ts`).
 
-> **Important:** Re-run `bundle-sql` every time you add, modify, or remove SQL
-> migration files and before deploying to TriggerDev.
+### 3. Configure environment variables
 
-### 3. Build the package
+Your environment must have the following variables set before deploying or
+running locally.
+
+#### Required
+
+| Variable            | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`      | PostgreSQL connection URL, e.g. `postgresql://user:pass@host/db?sslmode=require` |
+| `TRIGGER_SECRET_KEY`| TriggerDev API secret key — found in your project's **API keys** settings page |
+| `TRIGGER_PROJECT_ID`| TriggerDev project ID (e.g. `proj_xxxxxxxxxxxxxxxx`) — found in your project settings |
+
+#### Optional
+
+| Variable              | Description                                           |
+| --------------------- | ----------------------------------------------------- |
+| `TRIGGER_API_URL`     | TriggerDev API base URL (default: `https://api.trigger.dev`) |
+
+Copy `.env.example` to `.env.local` (for local dev) or set these variables in
+your deployment environment / CI:
 
 ```bash
-pnpm --filter @semantius/triggerdev build
-# or from root:
+cp .env.example .env.local
+# then edit .env.local:
+DATABASE_URL='postgresql://user:pass@host:5432/db?sslmode=require'
+TRIGGER_SECRET_KEY='tr_dev_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+TRIGGER_PROJECT_ID='proj_xxxxxxxxxxxxxxxx'
+```
+
+### 4. Build the @semantius/triggerdev package
+
+The build step:
+1. Compiles `@semantius/core` (shared migration logic) to CommonJS.
+2. Bundles all `apps/*/migrations/*.sql` files into a TypeScript file
+   (`src/migrations-bundle.ts`) — the `test` app is excluded.
+3. Compiles `@semantius/triggerdev` to CommonJS.
+
+Run from the **project root**:
+
+```bash
 pnpm run triggerdev:build
 ```
 
-### 4. Create a TriggerDev task
+> **Important:** Re-run `pnpm run triggerdev:build` every time you add, modify,
+> or remove SQL migration files and before deploying to TriggerDev.
+
+### 5. Create a TriggerDev task
 
 ```typescript
 // trigger/migration.ts
@@ -65,33 +103,54 @@ export const migrationTask = task({
 });
 ```
 
-### 5. Trigger migrations from your application
+### 6. Run locally for development
+
+```bash
+npx trigger.dev@latest dev
+```
+
+This starts the TriggerDev dev server which connects to your TriggerDev project
+and allows you to trigger tasks locally.
+
+### 7. Deploy to TriggerDev
+
+```bash
+npx trigger.dev@latest deploy
+```
+
+### 8. Trigger migrations from your application
 
 ```typescript
 import { tasks } from "@trigger.dev/sdk/v3";
 
-// Run all migrations
+// Run all bundled migrations
 await tasks.trigger("run-migrations", {});
 
-// Run specific modules only
+// Run specific modules only (_core is always included automatically)
 await tasks.trigger("run-migrations", {
-  modules: ["_core", "nwind"],
+  modules: ["nwind"],
 });
 ```
+
+---
 
 ## API
 
 ### `migrate(databaseUrl, modules?, options?)`
 
-Runs database migrations for the specified modules.
+Runs database migrations for the specified modules using bundled SQL content.
 
-| Parameter    | Type            | Description                                                          |
-| ------------ | --------------- | -------------------------------------------------------------------- |
-| `databaseUrl`| `string`        | PostgreSQL connection URL                                            |
-| `modules`    | `string[]`      | Module names to migrate. Defaults to all bundled apps.              |
-| `options`    | `MigrateOptions`| Optional: `{ verbose: boolean }` — enables detailed logging.        |
+Acquires a PostgreSQL advisory lock before starting to prevent concurrent
+migration runs.
 
-The `_core` module is always prepended automatically.
+| Parameter     | Type            | Description                                                             |
+| ------------- | --------------- | ----------------------------------------------------------------------- |
+| `databaseUrl` | `string`        | PostgreSQL connection URL                                               |
+| `modules`     | `string[]`      | Module names to migrate. Defaults to all bundled apps when omitted.    |
+| `options`     | `MigrateOptions`| Optional: `{ verbose: boolean }` — enables detailed logging.           |
+
+The `_core` module is always prepended automatically regardless of what is
+passed in `modules`.
 
 ### `getBundledAppNames(): string[]`
 
@@ -101,20 +160,37 @@ Returns the list of app names that have bundled SQL migrations.
 
 Returns the migrations for a specific app, sorted by filename.
 
+---
+
 ## How it works
 
-1. The `bundle-sql.ts` build script walks `apps/*/migrations/*.sql` and embeds
-   the SQL content as TypeScript string literals in `migrations-bundle.ts`.
+1. **Build time** — `scripts/bundle-sql.ts` walks `apps/*/migrations/*.sql`
+   and embeds the SQL content as TypeScript string literals in
+   `src/migrations-bundle.ts` (the `test` app is excluded since pgTAP is not
+   needed in production).
 
-2. At runtime the `migrate()` function:
-   - Connects to the database with an advisory lock (prevents concurrent runs).
-   - Calls `ensureVersionsTable()` to create the `_versions` tracking table.
+2. **Runtime** — `migrate()`:
+   - Connects to the database and acquires a PostgreSQL advisory lock
+     (`pg_try_advisory_lock`) to prevent concurrent migration runs.
+   - For each app, ensures the `_versions` tracking table exists.
    - Iterates bundled migrations, skipping any already recorded in `_versions`.
-   - Executes each new migration in a transaction, recording the version on success.
-   - Releases the advisory lock when done.
+   - Executes each new migration inside a transaction and records the version
+     on success.
+   - Releases the advisory lock when all apps are processed.
 
-## Environment Variables
+---
 
-| Variable        | Description                    |
-| --------------- | ------------------------------ |
-| `DATABASE_URL`  | PostgreSQL connection URL      |
+## Monorepo structure
+
+This package is part of the Semantius Core monorepo:
+
+```
+packages/
+├── core/        @semantius/core   — shared migration logic (Deno + Node.js)
+├── cli/         @semantius/cli    — Deno CLI (deno task migrate, dropall, etc.)
+└── triggerdev/  @semantius/triggerdev — TriggerDev integration (this package)
+```
+
+The migration logic (`ensureVersionsTable`, `executeSQL`, `executeMigrations`)
+lives exclusively in `packages/core/src/migrate.ts` and is compiled to
+CommonJS before being consumed here. No logic is duplicated.

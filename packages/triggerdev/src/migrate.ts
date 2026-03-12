@@ -36,7 +36,7 @@ import {
   ensureVersionsTable,
   executeMigrations,
   type MigrationFile,
-} from "./core.js";
+} from "@semantius/core";
 import {
   getBundledAppNames,
   getBundledMigrations,
@@ -214,4 +214,4 @@ async function migrateApp(
 }
 
 export { getBundledAppNames, getBundledMigrations } from "./migrations-bundle.js";
-export type { MigrationFile } from "./core.js";
+export type { MigrationFile } from "@semantius/core";

@@ -16,8 +16,7 @@
     "reset": "deno task reset",
     "docgen": "deno task docgen",
     "bundle-sql": "deno task bundle-sql",
-    "triggerdev:build": "pnpm --filter @semantius/triggerdev build",
-    "triggerdev:bundle-sql": "deno task bundle-sql && pnpm --filter @semantius/triggerdev build"
+    "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build"
   },
   "engines": {
     "pnpm": ">=8.0.0"

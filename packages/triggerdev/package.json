@@ -5,10 +5,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "prebuild": "echo 'Run: deno task bundle-sql from the project root before building'"
+    "build": "tsc"
   },
   "dependencies": {
+    "@semantius/core": "workspace:*",
     "pg": "^8.13.3"
   },
   "devDependencies": {
