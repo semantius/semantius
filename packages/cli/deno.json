@@ -1,0 +1,14 @@
+{
+  "name": "@semantius/cli",
+  "version": "0.1.0",
+  "description": "Semantius CLI",
+  "exports": "./cli.ts",
+  "imports": {
+    "@std/flags": "https://deno.land/std@0.208.0/flags/mod.ts",
+    "@std/dotenv": "https://deno.land/std@0.208.0/dotenv/mod.ts",
+    "@postgres": "https://deno.land/x/postgres@v0.17.0/mod.ts",
+    "@std/fmt/colors": "jsr:@std/fmt@1.0.8/colors",
+    "@std/fs/walk": "https://deno.land/std@0.208.0/fs/walk.ts",
+    "@std/path": "https://deno.land/std@0.208.0/path/mod.ts"
+  }
+}

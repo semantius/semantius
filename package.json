@@ -1,0 +1,25 @@
+{
+  "name": "semantius-core",
+  "version": "0.1.0",
+  "description": "Semantius Core - pnpm monorepo",
+  "private": true,
+  "scripts": {
+    "start": "deno task start",
+    "init": "deno task init",
+    "build": "deno task build",
+    "connect": "deno task connect",
+    "test": "deno task test",
+    "lint": "deno task lint",
+    "fmt": "deno task fmt",
+    "migrate": "deno task migrate",
+    "dropall": "deno task dropall",
+    "reset": "deno task reset",
+    "docgen": "deno task docgen",
+    "bundle-sql": "deno task bundle-sql",
+    "triggerdev:build": "pnpm --filter @semantius/triggerdev build",
+    "triggerdev:bundle-sql": "deno task bundle-sql && pnpm --filter @semantius/triggerdev build"
+  },
+  "engines": {
+    "pnpm": ">=8.0.0"
+  }
+}

@@ -34,13 +34,18 @@ interface CliArgs {
   confirm?: boolean;
   script?: boolean;
   env?: string;
+  "database-url"?: string;
   _: string[];
 }
 
-// Read version from deno.json
+// Read version from the CLI package's deno.json
 async function getVersion(): Promise<string> {
   try {
-    const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
+    // Resolve deno.json relative to this file (packages/cli/deno.json)
+    const cliDir = new URL(".", import.meta.url).pathname;
+    const denoConfig = JSON.parse(
+      await Deno.readTextFile(`${cliDir}/deno.json`),
+    );
     return denoConfig.version || "unknown";
   } catch {
     return "unknown";
@@ -49,23 +54,40 @@ async function getVersion(): Promise<string> {
 
 const VERSION = await getVersion();
 
-async function getDatabaseUrl(env: string = "local"): Promise<string> {
+async function getDatabaseUrl(
+  env: string = "local",
+  cliUrl?: string,
+): Promise<string> {
+  // --database-url flag takes highest priority
+  if (cliUrl) {
+    return cliUrl;
+  }
+
   try {
     // Load environment variables from .env.<env>
     const envPath = `.env.${env}`;
     const envVars = await load({ envPath });
     const databaseUrl = envVars.DATABASE_URL || Deno.env.get("DATABASE_URL");
-    
+
     if (!databaseUrl) {
-      console.error(`❌ DATABASE_URL not found in environment variables or ${envPath}`);
-      console.log(`💡 Make sure DATABASE_URL is set in your ${envPath} file`);
+      console.error(
+        `❌ DATABASE_URL not found in environment variables or ${envPath}`,
+      );
+      console.log(
+        `💡 Make sure DATABASE_URL is set in your ${envPath} file or pass --database-url <URL>`,
+      );
       Deno.exit(1);
     }
-    
+
     return databaseUrl;
   } catch (error) {
-    console.error("❌ Failed to load environment variables:", error instanceof Error ? error.message : String(error));
-    console.log(`💡 Make sure .env.${env} file exists and is properly formatted`);
+    console.error(
+      "❌ Failed to load environment variables:",
+      error instanceof Error ? error.message : String(error),
+    );
+    console.log(
+      `💡 Make sure .env.${env} file exists and is properly formatted`,
+    );
     Deno.exit(1);
   }
 }
@@ -79,15 +101,16 @@ USAGE:
     deno task start [COMMAND] [OPTIONS]
 
 OPTIONS:
-    -h, --help       Show this help message
-    --version        Show version information
-    -v, --verbose    Enable verbose output
-    --config <FILE>  Specify config file path
-    --output <DIR>   Specify output directory
-    --apps <APPS>    Comma-separated list of app names (for migrate command)
-    --confirm        Skip confirmation prompt (for dropall and reset commands)
-    --script         Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
-    --env <ENV>      Environment name to load (default: local, loads .env.<ENV> file)
+    -h, --help              Show this help message
+    --version               Show version information
+    -v, --verbose           Enable verbose output
+    --config <FILE>         Specify config file path
+    --output <DIR>          Specify output directory
+    --apps <APPS>           Comma-separated list of app names (for migrate command)
+    --confirm               Skip confirmation prompt (for dropall and reset commands)
+    --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
+    --env <ENV>             Environment name to load (default: local, loads .env.<ENV> file)
+    --database-url <URL>    Database connection URL (overrides DATABASE_URL env variable and .env file)
 
 COMMANDS:
     init             Initialize a new project
@@ -105,10 +128,12 @@ EXAMPLES:
     deno task init
     deno task build --output ./dist
     deno task connect --verbose
+    deno task connect --database-url postgresql://user:pass@host:5432/db
     deno task test --tap
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
+    deno task migrate --apps nwind --database-url postgresql://user:pass@host:5432/db
     deno task dropall --verbose
     deno task dropall --confirm
     deno task dropall --script
@@ -185,7 +210,7 @@ async function lintProject(): Promise<void> {
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
     boolean: ["help", "version", "verbose", "tap", "confirm", "script"],
-    string: ["config", "output", "apps", "env"],
+    string: ["config", "output", "apps", "env", "database-url"],
     alias: {
       h: "help",
       v: "verbose",
@@ -208,10 +233,14 @@ async function main(): Promise<void> {
   }
 
   const command = args._[0];
-  
-  // Get database URL for commands that need it
-  let databaseUrl: string | undefined;  
-  databaseUrl = await getDatabaseUrl(args.env || "local");  
+
+  // Get database URL for commands that need it.
+  // --database-url flag takes priority over env file / DATABASE_URL env var.
+  let databaseUrl: string | undefined;
+  databaseUrl = await getDatabaseUrl(
+    args.env || "local",
+    args["database-url"],
+  );
   
   switch (command) {
     case "init":
