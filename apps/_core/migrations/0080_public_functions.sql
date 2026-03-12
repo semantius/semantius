@@ -201,13 +201,14 @@ COMMENT ON FUNCTION public.get_schema_children IS
 GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 
 -- =====================================================
--- GET SCHEMA
+-- GET SCHEMA FOR TABLE (Internal helper)
 -- =====================================================
 
--- Get schema information for a table in extended JSON Schema format
--- Returns JSON Schema with table metadata and properties
--- Raises an error when the table is not found
-CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
+-- Internal helper that builds a schema JSON for a single table.
+-- Assumes the caller has already verified the table exists and the
+-- user has the required view permission. Used by both get_schema()
+-- and get_schemas() so that any future change applies to both.
+CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
@@ -216,24 +217,15 @@ DECLARE
     v_children JSON;
     v_result JSON;
 BEGIN
-    -- Check if table exists in entities metadata
     SELECT * INTO v_table_record
     FROM entities
     WHERE table_name = p_table_name;
-    
-    -- Raise error if table not found
+
+    -- Return NULL if the table does not exist (callers should verify before calling)
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table';
+        RETURN NULL;
     END IF;
-    
-    -- Check if user has view permission for this table
-    -- Raise same error to avoid leaking table existence
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table';
-    END IF;
-    
+
     -- Build properties object from fields
     -- Each field becomes a property with JSON Schema attributes
     WITH ordered_fields AS (
@@ -408,11 +400,108 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+COMMENT ON FUNCTION public.build_schema_for_table IS 
+'Internal helper that builds a schema JSON for a single table without performing permission checks. Used by get_schema() and get_schemas() to ensure consistent output from a single implementation.';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA
+-- =====================================================
+
+-- Get schema information for a table in extended JSON Schema format
+-- Returns JSON Schema with table metadata and properties
+-- Raises an error when the table is not found
+CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+BEGIN
+    -- Check if table exists in entities metadata
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+    
+    -- Raise error if table not found
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table';
+    END IF;
+    
+    -- Check if user has view permission for this table
+    -- Raise same error to avoid leaking table existence
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table';
+    END IF;
+    
+    RETURN public.build_schema_for_table(p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
 
 -- Grant execute permission to semantius_user role
 GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMAS
+-- =====================================================
+
+-- Get schemas for multiple tables in extended JSON Schema format
+-- Accepts a comma-separated list of table names
+-- Returns a JSON array of schemas, one per table
+-- Each schema uses the same format as get_schema()
+-- Raises an error if any table is not found or the user lacks view permission
+-- (same error behaviour as get_schema() — use the same error code to avoid
+--  leaking information about table existence)
+CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schemas JSON[] := '{}';
+    v_schema JSON;
+BEGIN
+    FOREACH v_table_name IN ARRAY string_to_array(p_table_names, ',')
+    LOOP
+        v_table_name := trim(v_table_name);
+        -- Skip blank entries that result from leading/trailing commas or spaces
+        IF v_table_name = '' THEN
+            CONTINUE;
+        END IF;
+
+        -- Raise error if table not found in entities metadata
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        -- Raise same error when user lacks view permission (avoid leaking table existence)
+        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        v_schema := public.build_schema_for_table(v_table_name);
+        v_schemas := array_append(v_schemas, v_schema);
+    END LOOP;
+
+    RETURN array_to_json(v_schemas);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION public.get_schemas IS 
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behaviour of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+
+-- Grant execute permission to semantius_user role
+GRANT EXECUTE ON FUNCTION public.get_schemas(TEXT) TO semantius_user;
 
 -- =====================================================
 -- PING
