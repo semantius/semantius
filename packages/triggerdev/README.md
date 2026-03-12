@@ -54,9 +54,9 @@ running locally.
 
 #### Optional
 
-| Variable              | Description                                           |
-| --------------------- | ----------------------------------------------------- |
-| `TRIGGER_API_URL`     | TriggerDev API base URL (default: `https://api.trigger.dev`) |
+| Variable          | Description                                                       |
+| ----------------- | ----------------------------------------------------------------- |
+| `TRIGGER_API_URL` | TriggerDev API base URL (default: `https://api.trigger.dev`)     |
 
 Copy `.env.example` to `.env.local` (for local dev) or set these variables in
 your deployment environment / CI:
@@ -86,7 +86,17 @@ pnpm run triggerdev:build
 > **Important:** Re-run `pnpm run triggerdev:build` every time you add, modify,
 > or remove SQL migration files and before deploying to TriggerDev.
 
-### 5. Create a TriggerDev task
+### 5. Register the migration task
+
+The simplest way to deploy the pre-built task is to re-export it from your
+`trigger/` directory:
+
+```typescript
+// trigger/migration.ts
+export { migrationTask } from "@semantius/triggerdev";
+```
+
+Alternatively, wrap the `migrate()` function in your own task for custom logic:
 
 ```typescript
 // trigger/migration.ts
@@ -95,10 +105,9 @@ import { migrate } from "@semantius/triggerdev";
 
 export const migrationTask = task({
   id: "run-migrations",
-  run: async (payload: { modules?: string[] }) => {
-    await migrate(process.env.DATABASE_URL!, payload.modules, {
-      verbose: true,
-    });
+  run: async (payload: { databaseUrl?: string; modules?: string[] }) => {
+    const databaseUrl = payload.databaseUrl ?? process.env.DATABASE_URL!;
+    await migrate(databaseUrl, payload.modules, { verbose: true });
   },
 });
 ```
@@ -120,37 +129,96 @@ npx trigger.dev@latest deploy
 
 ### 8. Trigger migrations from your application
 
+The task payload accepts `databaseUrl` (the PostgreSQL connection URL) and an
+optional `modules` array. If `databaseUrl` is omitted the task falls back to
+the `DATABASE_URL` environment variable set on the TriggerDev worker.
+
+`_core` is always migrated first regardless of what `modules` contains.
+
+#### Run only `_core` migrations
+
 ```typescript
 import { tasks } from "@trigger.dev/sdk/v3";
 
-// Run all bundled migrations
-await tasks.trigger("run-migrations", {});
-
-// Run specific modules only (_core is always included automatically)
 await tasks.trigger("run-migrations", {
-  modules: ["nwind"],
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core"],
 });
+```
+
+#### Run `_core` + `nwind` migrations
+
+```typescript
+import { tasks } from "@trigger.dev/sdk/v3";
+
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core", "nwind"],
+});
+```
+
+#### Run all bundled migrations
+
+```typescript
+import { tasks } from "@trigger.dev/sdk/v3";
+
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+});
+```
+
+#### Example payloads (JSON)
+
+```json
+// _core only
+{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core"] }
+
+// _core + nwind
+{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core", "nwind"] }
+
+// All bundled apps
+{ "databaseUrl": "postgresql://user:pass@host:5432/db" }
 ```
 
 ---
 
 ## API
 
+### `migrationTask`
+
+The ready-to-use TriggerDev task exported from this package.
+
+**Task ID:** `run-migrations`
+
+**Payload type:**
+
+| Field         | Type       | Required | Description                                                           |
+| ------------- | ---------- | -------- | --------------------------------------------------------------------- |
+| `databaseUrl` | `string`   | No\*     | PostgreSQL connection URL. Falls back to `DATABASE_URL` env var.      |
+| `modules`     | `string[]` | No       | Apps to migrate. Defaults to all bundled apps. `_core` always first.  |
+
+\*Either `databaseUrl` in the payload or `DATABASE_URL` as an environment
+variable on the TriggerDev worker must be present.
+
+---
+
 ### `migrate(databaseUrl, modules?, options?)`
 
-Runs database migrations for the specified modules using bundled SQL content.
+Low-level function for running migrations programmatically.
 
 Acquires a PostgreSQL advisory lock before starting to prevent concurrent
 migration runs.
 
-| Parameter     | Type            | Description                                                             |
-| ------------- | --------------- | ----------------------------------------------------------------------- |
-| `databaseUrl` | `string`        | PostgreSQL connection URL                                               |
-| `modules`     | `string[]`      | Module names to migrate. Defaults to all bundled apps when omitted.    |
-| `options`     | `MigrateOptions`| Optional: `{ verbose: boolean }` — enables detailed logging.           |
+| Parameter     | Type            | Description                                                          |
+| ------------- | --------------- | -------------------------------------------------------------------- |
+| `databaseUrl` | `string`        | PostgreSQL connection URL                                            |
+| `modules`     | `string[]`      | Module names to migrate. Defaults to all bundled apps when omitted. |
+| `options`     | `MigrateOptions`| Optional: `{ verbose: boolean }` — enables detailed logging.        |
 
 The `_core` module is always prepended automatically regardless of what is
 passed in `modules`.
+
+---
 
 ### `getBundledAppNames(): string[]`
 
@@ -169,7 +237,7 @@ Returns the migrations for a specific app, sorted by filename.
    `src/migrations-bundle.ts` (the `test` app is excluded since pgTAP is not
    needed in production).
 
-2. **Runtime** — `migrate()`:
+2. **Runtime** — `migrationTask` / `migrate()`:
    - Connects to the database and acquires a PostgreSQL advisory lock
      (`pg_try_advisory_lock`) to prevent concurrent migration runs.
    - For each app, ensures the `_versions` tracking table exists.
@@ -186,8 +254,8 @@ This package is part of the Semantius Core monorepo:
 
 ```
 packages/
-├── core/        @semantius/core   — shared migration logic (Deno + Node.js)
-├── cli/         @semantius/cli    — Deno CLI (deno task migrate, dropall, etc.)
+├── core/        @semantius/core       — shared migration logic (Deno + Node.js)
+├── cli/         @semantius/cli        — Deno CLI (deno task migrate, dropall, etc.)
 └── triggerdev/  @semantius/triggerdev — TriggerDev integration (this package)
 ```
 

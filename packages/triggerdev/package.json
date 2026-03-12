@@ -7,11 +7,15 @@
   "scripts": {
     "build": "tsc"
   },
+  "peerDependencies": {
+    "@trigger.dev/sdk": "^3.0.0 || ^4.0.0"
+  },
   "dependencies": {
     "@semantius/core": "workspace:*",
     "pg": "^8.13.3"
   },
   "devDependencies": {
+    "@trigger.dev/sdk": "^4.4.3",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.11.11",
     "typescript": "^5.8.2"

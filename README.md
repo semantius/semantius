@@ -31,10 +31,7 @@ allow list:
 
 - `deno.land` — Deno standard library
 - `jsr.io` — JSR package registry
-- `neon.tech` — Neon database (recommended; use a Neon database for testing)
-
-> **Note:** Supabase databases (`*.supabase.co`) are not reliably accessible
-> from Copilot agent environments. Use a Neon database for automated testing.
+- `neon.tech` — Neon database
 
 ---
 
@@ -188,15 +185,25 @@ pnpm run triggerdev:build
 ```
 
 ```typescript
-// trigger/migration.ts
-import { task } from "@trigger.dev/sdk/v3";
-import { migrate } from "@semantius/triggerdev";
+// trigger/migration.ts  — simplest approach: re-export the pre-built task
+export { migrationTask } from "@semantius/triggerdev";
+```
 
-export const migrationTask = task({
-  id: "run-migrations",
-  run: async (payload: { modules?: string[] }) => {
-    await migrate(process.env.DATABASE_URL!, payload.modules);
-  },
+The task payload accepts `databaseUrl` and an optional `modules` array:
+
+```typescript
+import { tasks } from "@trigger.dev/sdk/v3";
+
+// Run _core migrations
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core"],
+});
+
+// Run _core + nwind
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core", "nwind"],
 });
 ```
 
