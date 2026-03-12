@@ -170,42 +170,46 @@ The `_core` app is always migrated first regardless of which apps you specify.
 
 ## TriggerDev integration (`packages/triggerdev`)
 
-The `@semantius/triggerdev` package allows running database migrations from a
-TriggerDev task — useful for automated deployments in serverless environments
-where the local filesystem is not available.
+The `@semantius/triggerdev` package is a ready-to-deploy TriggerDev project.
+The `trigger/migration.ts` task file and `trigger.config.ts` are already
+included — no extra setup needed.
 
-See [`packages/triggerdev/README.md`](packages/triggerdev/README.md) for full
-setup instructions including required environment variables.
-
-### Quick overview
+### Deploy
 
 ```bash
-# Build everything for TriggerDev (builds core → bundles SQL → builds triggerdev)
+# 1. Build everything (builds core → bundles SQL → builds triggerdev)
 pnpm run triggerdev:build
+
+# 2. Deploy the migration task
+cd packages/triggerdev
+pnpm run deploy
 ```
 
-```typescript
-// trigger/migration.ts  — simplest approach: re-export the pre-built task
-export { migrationTask } from "@semantius/triggerdev";
-```
-
-The task payload accepts `databaseUrl` and an optional `modules` array:
+### Trigger migrations from your application
 
 ```typescript
 import { tasks } from "@trigger.dev/sdk/v3";
 
-// Run _core migrations
+// Run _core migrations only
 await tasks.trigger("run-migrations", {
   databaseUrl: process.env.DATABASE_URL!,
   modules: ["_core"],
 });
 
-// Run _core + nwind
+// Run _core + nwind migrations
 await tasks.trigger("run-migrations", {
   databaseUrl: process.env.DATABASE_URL!,
   modules: ["_core", "nwind"],
 });
+
+// Run all bundled migrations
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+});
 ```
+
+See [`packages/triggerdev/README.md`](packages/triggerdev/README.md) for full
+setup instructions including required environment variables.
 
 ---
 

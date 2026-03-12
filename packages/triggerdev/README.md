@@ -12,12 +12,82 @@ available.
 
 - Node.js 18+
 - pnpm 8+
-- [TriggerDev](https://trigger.dev) v3 account and project
+- [TriggerDev](https://trigger.dev) v3/v4 account and project
 - PostgreSQL database
 
 ---
 
-## Setup
+## Quick start (deploy to TriggerDev)
+
+```bash
+# 1. From the repo root — build the package and bundle SQL migrations
+pnpm run triggerdev:build
+
+# 2. Set required environment variables
+cp .env.example .env.local
+# Edit .env.local:
+#   DATABASE_URL='postgresql://user:pass@host:5432/db?sslmode=require'
+#   TRIGGER_SECRET_KEY='tr_dev_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+#   TRIGGER_PROJECT_ID='proj_xxxxxxxxxxxxxxxx'
+
+# 3. Deploy the migration task
+cd packages/triggerdev
+pnpm run deploy
+# or for local development:
+pnpm run dev
+```
+
+That's it. The `trigger/migration.ts` file and `trigger.config.ts` are already
+included in this package — no extra setup required.
+
+---
+
+## Trigger migrations from your application
+
+Once deployed, trigger the task from anywhere in your application:
+
+```typescript
+import { tasks } from "@trigger.dev/sdk/v3";
+
+// Run _core migrations only
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core"],
+});
+
+// Run _core + nwind migrations
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+  modules: ["_core", "nwind"],
+});
+
+// Run all bundled migrations
+await tasks.trigger("run-migrations", {
+  databaseUrl: process.env.DATABASE_URL!,
+});
+```
+
+### Example payloads (JSON)
+
+```json
+{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core"] }
+```
+
+```json
+{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core", "nwind"] }
+```
+
+```json
+{ "databaseUrl": "postgresql://user:pass@host:5432/db" }
+```
+
+The `_core` module is always migrated first regardless of what `modules`
+contains. If `databaseUrl` is omitted in the payload, the task falls back to
+the `DATABASE_URL` environment variable set on the TriggerDev worker.
+
+---
+
+## Setup details
 
 ### 1. Install dependencies
 
@@ -27,79 +97,81 @@ From the project root:
 pnpm install
 ```
 
-### 2. Initialise TriggerDev in your project
+### 2. Configure environment variables
 
-If you have not already set up TriggerDev, run the initialisation wizard from
-your application directory:
-
-```bash
-npx trigger.dev@latest init
-```
-
-This creates a `trigger/` directory and adds the necessary configuration files
-(`.trigger/`, `trigger.config.ts`).
-
-### 3. Configure environment variables
-
-Your environment must have the following variables set before deploying or
-running locally.
-
-#### Required
-
-| Variable            | Description                                                  |
-| ------------------- | ------------------------------------------------------------ |
-| `DATABASE_URL`      | PostgreSQL connection URL, e.g. `postgresql://user:pass@host/db?sslmode=require` |
-| `TRIGGER_SECRET_KEY`| TriggerDev API secret key — found in your project's **API keys** settings page |
-| `TRIGGER_PROJECT_ID`| TriggerDev project ID (e.g. `proj_xxxxxxxxxxxxxxxx`) — found in your project settings |
-
-#### Optional
-
-| Variable          | Description                                                       |
-| ----------------- | ----------------------------------------------------------------- |
-| `TRIGGER_API_URL` | TriggerDev API base URL (default: `https://api.trigger.dev`)     |
-
-Copy `.env.example` to `.env.local` (for local dev) or set these variables in
-your deployment environment / CI:
+| Variable            | Description                                                               |
+| ------------------- | ------------------------------------------------------------------------- |
+| `DATABASE_URL`      | PostgreSQL connection URL, e.g. `postgresql://user:pass@host/db`         |
+| `TRIGGER_SECRET_KEY`| TriggerDev API secret key — found in your project's **API keys** page    |
+| `TRIGGER_PROJECT_ID`| TriggerDev project ID (e.g. `proj_xxxxxxxxxxxxxxxx`)                     |
 
 ```bash
 cp .env.example .env.local
-# then edit .env.local:
-DATABASE_URL='postgresql://user:pass@host:5432/db?sslmode=require'
-TRIGGER_SECRET_KEY='tr_dev_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-TRIGGER_PROJECT_ID='proj_xxxxxxxxxxxxxxxx'
 ```
 
-### 4. Build the @semantius/triggerdev package
+### 3. Build
 
 The build step:
 1. Compiles `@semantius/core` (shared migration logic) to CommonJS.
-2. Bundles all `apps/*/migrations/*.sql` files into a TypeScript file
-   (`src/migrations-bundle.ts`) — the `test` app is excluded.
+2. Bundles all `apps/*/migrations/*.sql` files into `src/migrations-bundle.ts`
+   (the `test` app is excluded).
 3. Compiles `@semantius/triggerdev` to CommonJS.
 
-Run from the **project root**:
-
 ```bash
+# From repo root:
 pnpm run triggerdev:build
 ```
 
 > **Important:** Re-run `pnpm run triggerdev:build` every time you add, modify,
-> or remove SQL migration files and before deploying to TriggerDev.
+> or remove SQL migration files and before redeploying.
 
-### 5. Register the migration task
+### 4. Run locally for development
 
-The simplest way to deploy the pre-built task is to re-export it from your
-`trigger/` directory:
-
-```typescript
-// trigger/migration.ts
-export { migrationTask } from "@semantius/triggerdev";
+```bash
+cd packages/triggerdev
+pnpm run dev
+# or: npx trigger.dev@latest dev
 ```
 
-Alternatively, wrap the `migrate()` function in your own task for custom logic:
+### 5. Deploy to TriggerDev
+
+```bash
+cd packages/triggerdev
+pnpm run deploy
+# or: npx trigger.dev@latest deploy
+```
+
+---
+
+## Project structure
+
+The deployable TriggerDev project is self-contained in `packages/triggerdev`:
+
+```
+packages/triggerdev/
+├── trigger/
+│   └── migration.ts       # Task entry point (re-exports migrationTask)
+├── trigger.config.ts      # TriggerDev project configuration
+├── src/
+│   ├── index.ts           # Library exports (migrationTask, migrate, etc.)
+│   ├── migrate.ts         # Core migration logic using bundled SQL
+│   └── migrations-bundle.ts  # Auto-generated SQL bundle (build artefact)
+└── package.json
+```
+
+The `trigger/migration.ts` file is the TriggerDev entry point. It re-exports
+`migrationTask` from the library source. TriggerDev's bundler compiles and
+deploys it together with all its dependencies.
+
+---
+
+## Custom task (advanced)
+
+If you need to customise the task, copy `trigger/migration.ts` to your own
+TriggerDev project and modify it:
 
 ```typescript
-// trigger/migration.ts
+// your-app/trigger/migration.ts
 import { task } from "@trigger.dev/sdk/v3";
 import { migrate } from "@semantius/triggerdev";
 
@@ -112,74 +184,6 @@ export const migrationTask = task({
 });
 ```
 
-### 6. Run locally for development
-
-```bash
-npx trigger.dev@latest dev
-```
-
-This starts the TriggerDev dev server which connects to your TriggerDev project
-and allows you to trigger tasks locally.
-
-### 7. Deploy to TriggerDev
-
-```bash
-npx trigger.dev@latest deploy
-```
-
-### 8. Trigger migrations from your application
-
-The task payload accepts `databaseUrl` (the PostgreSQL connection URL) and an
-optional `modules` array. If `databaseUrl` is omitted the task falls back to
-the `DATABASE_URL` environment variable set on the TriggerDev worker.
-
-`_core` is always migrated first regardless of what `modules` contains.
-
-#### Run only `_core` migrations
-
-```typescript
-import { tasks } from "@trigger.dev/sdk/v3";
-
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-  modules: ["_core"],
-});
-```
-
-#### Run `_core` + `nwind` migrations
-
-```typescript
-import { tasks } from "@trigger.dev/sdk/v3";
-
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-  modules: ["_core", "nwind"],
-});
-```
-
-#### Run all bundled migrations
-
-```typescript
-import { tasks } from "@trigger.dev/sdk/v3";
-
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-});
-```
-
-#### Example payloads (JSON)
-
-```json
-// _core only
-{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core"] }
-
-// _core + nwind
-{ "databaseUrl": "postgresql://user:pass@host:5432/db", "modules": ["_core", "nwind"] }
-
-// All bundled apps
-{ "databaseUrl": "postgresql://user:pass@host:5432/db" }
-```
-
 ---
 
 ## API
@@ -190,15 +194,14 @@ The ready-to-use TriggerDev task exported from this package.
 
 **Task ID:** `run-migrations`
 
-**Payload type:**
+**Payload:**
 
 | Field         | Type       | Required | Description                                                           |
 | ------------- | ---------- | -------- | --------------------------------------------------------------------- |
 | `databaseUrl` | `string`   | No\*     | PostgreSQL connection URL. Falls back to `DATABASE_URL` env var.      |
 | `modules`     | `string[]` | No       | Apps to migrate. Defaults to all bundled apps. `_core` always first.  |
 
-\*Either `databaseUrl` in the payload or `DATABASE_URL` as an environment
-variable on the TriggerDev worker must be present.
+\*Either `databaseUrl` in the payload or `DATABASE_URL` as an env var is required.
 
 ---
 
@@ -206,17 +209,13 @@ variable on the TriggerDev worker must be present.
 
 Low-level function for running migrations programmatically.
 
-Acquires a PostgreSQL advisory lock before starting to prevent concurrent
-migration runs.
+Acquires a PostgreSQL advisory lock to prevent concurrent migration runs.
 
 | Parameter     | Type            | Description                                                          |
 | ------------- | --------------- | -------------------------------------------------------------------- |
 | `databaseUrl` | `string`        | PostgreSQL connection URL                                            |
 | `modules`     | `string[]`      | Module names to migrate. Defaults to all bundled apps when omitted. |
 | `options`     | `MigrateOptions`| Optional: `{ verbose: boolean }` — enables detailed logging.        |
-
-The `_core` module is always prepended automatically regardless of what is
-passed in `modules`.
 
 ---
 
@@ -230,27 +229,7 @@ Returns the migrations for a specific app, sorted by filename.
 
 ---
 
-## How it works
-
-1. **Build time** — `scripts/bundle-sql.ts` walks `apps/*/migrations/*.sql`
-   and embeds the SQL content as TypeScript string literals in
-   `src/migrations-bundle.ts` (the `test` app is excluded since pgTAP is not
-   needed in production).
-
-2. **Runtime** — `migrationTask` / `migrate()`:
-   - Connects to the database and acquires a PostgreSQL advisory lock
-     (`pg_try_advisory_lock`) to prevent concurrent migration runs.
-   - For each app, ensures the `_versions` tracking table exists.
-   - Iterates bundled migrations, skipping any already recorded in `_versions`.
-   - Executes each new migration inside a transaction and records the version
-     on success.
-   - Releases the advisory lock when all apps are processed.
-
----
-
 ## Monorepo structure
-
-This package is part of the Semantius Core monorepo:
 
 ```
 packages/
@@ -260,5 +239,4 @@ packages/
 ```
 
 The migration logic (`ensureVersionsTable`, `executeSQL`, `executeMigrations`)
-lives exclusively in `packages/core/src/migrate.ts` and is compiled to
-CommonJS before being consumed here. No logic is duplicated.
+lives exclusively in `packages/core/src/migrate.ts`. No logic is duplicated.

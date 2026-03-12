@@ -19,13 +19,13 @@ importers:
       '@semantius/core':
         specifier: workspace:*
         version: link:../core
+      '@trigger.dev/sdk':
+        specifier: ^4.4.3
+        version: 4.4.3(zod@3.25.76)
       pg:
         specifier: ^8.13.3
         version: 8.20.0
     devDependencies:
-      '@trigger.dev/sdk':
-        specifier: ^4.4.3
-        version: 4.4.3(zod@3.25.76)
       '@types/node':
         specifier: ^22.13.10
         version: 22.19.15
