@@ -1,0 +1,16 @@
+{
+  "name": "@semantius/core",
+  "version": "0.1.0",
+  "description": "Shared core migration logic for Semantius CLI and TriggerDev",
+  "main": "dist/migrate.js",
+  "types": "dist/migrate.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "files": [
+    "dist"
+  ]
+}

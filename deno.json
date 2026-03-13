@@ -1,33 +1,23 @@
 {
-  "name": "semantius-core",
-  "version": "0.1.0",
-  "description": "Semantius CLI",
-  "exports": "./cli.ts",
-  "imports": {
-    "@std/flags": "https://deno.land/std@0.208.0/flags/mod.ts",
-    "@std/dotenv": "https://deno.land/std@0.208.0/dotenv/mod.ts",
-    "@postgres": "https://deno.land/x/postgres@v0.17.0/mod.ts",
-    "@std/fmt/colors": "jsr:@std/fmt@1.0.8/colors",
-    "@std/fs/walk": "https://deno.land/std@0.208.0/fs/walk.ts",
-    "@std/path": "https://deno.land/std@0.208.0/path/mod.ts"
-  },
-  "tasks": {
-    "start": "deno run --allow-read --allow-write --allow-env cli.ts",
-    "init": "deno run --allow-read --allow-write --allow-env cli.ts init",
-    "build": "deno run --allow-read --allow-write --allow-env cli.ts build",
-    "connect": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts connect",
-    "test": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts test",
-    "lint": "deno run --allow-read --allow-write --allow-env cli.ts lint",
-    "fmt": "deno run --allow-read --allow-write --allow-env cli.ts format",
-    "migrate": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts migrate",
-    "dropall": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts dropall",
-    "reset": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts reset",
-    "docgen": "deno run --allow-read --allow-write --allow-env --allow-net cli.ts docgen",
-    "check": "deno check cli.ts"
-  },
+  "workspace": ["packages/core", "packages/cli"],
   "compilerOptions": {
     "lib": ["deno.window", "deno.ns"],
     "strict": true
+  },
+  "tasks": {
+    "start": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts",
+    "init": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts init",
+    "build": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts build",
+    "connect": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts connect",
+    "test": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts test",
+    "lint": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts lint",
+    "fmt": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts format",
+    "migrate": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts migrate",
+    "dropall": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts dropall",
+    "reset": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts reset",
+    "docgen": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts docgen",
+    "check": "deno check packages/cli/cli.ts",
+    "bundle-sql": "deno run --allow-read --allow-write scripts/bundle-sql.ts"
   },
   "fmt": {
     "files": {
