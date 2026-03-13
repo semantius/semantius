@@ -1,0 +1,8 @@
+name = "semantius-provisioning"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Set DATABASE_URL via wrangler secret or environment variables
+# wrangler secret put DATABASE_URL

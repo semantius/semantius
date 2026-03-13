@@ -16,7 +16,10 @@
     "reset": "deno task reset",
     "docgen": "deno task docgen",
     "bundle-sql": "deno task bundle-sql",
-    "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build"
+    "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build",
+    "provisioning:dev": "pnpm --filter @semantius/provisioning dev",
+    "provisioning:deploy": "pnpm --filter @semantius/provisioning deploy",
+    "provisioning:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/provisioning build"
   },
   "engines": {
     "pnpm": ">=8.0.0"

@@ -142,12 +142,16 @@ vite.config.ts.timestamp-*
 migrate.sql
 dropall.sql
 
-# Generated TriggerDev SQL bundle (regenerate with: deno task bundle-sql)
-# The placeholder src/migrations-bundle.ts is committed; the generated version is not.
+# Generated SQL bundles (regenerate with: deno task bundle-sql)
+# The placeholder src/migrations-bundle.ts files are committed; the generated versions are not.
 packages/triggerdev/src/migrations-bundle.ts
+packages/provisioning/src/migrations-bundle.ts
 
 # TriggerDev build output
 packages/triggerdev/dist/
+
+# Provisioning build output
+packages/provisioning/dist/
 
 # Core package build output
 packages/core/dist/
