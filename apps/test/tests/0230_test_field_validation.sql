@@ -8,7 +8,7 @@ BEGIN;
 
 SELECT plan(8);
 
--- Set context as admin user to bypass RLS
+-- Authenticate as admin user
 SELECT authenticate_as('user3');
 
 -- =====================================================
