@@ -480,3 +480,7 @@ VALUES
     ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+
+-- Revoke default PUBLIC execute on trigger functions defined in this file
+REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;

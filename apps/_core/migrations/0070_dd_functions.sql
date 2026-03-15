@@ -960,12 +960,15 @@ DECLARE
     v_search_expr TEXT;
     v_table_exists BOOLEAN;
 BEGIN
+    -- Note: no rbac.uid() here — this function is called by triggers
+    -- during migrations when there is no JWT context.
+
     -- Suppress IF NOT EXISTS/IF EXISTS notices
     SET LOCAL client_min_messages = WARNING;
-    
+
     -- Check if the table actually exists in the database
     SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables 
+        SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = p_table_name
     ) INTO v_table_exists;
     
@@ -1076,13 +1079,16 @@ RETURNS VOID AS $$
 DECLARE
     v_has_searchable_fields BOOLEAN;
 BEGIN
+    -- Note: no rbac.uid() here — this function is called by triggers
+    -- during migrations when there is no JWT context.
+
     -- Check if any fields in this table are searchable
     SELECT EXISTS (
-        SELECT 1 FROM fields 
-        WHERE table_name = p_table_name 
+        SELECT 1 FROM fields
+        WHERE table_name = p_table_name
           AND searchable = TRUE
     ) INTO v_has_searchable_fields;
-    
+
     -- Update the searchable flag on the entities record
     UPDATE entities 
     SET searchable = v_has_searchable_fields
@@ -1202,9 +1208,12 @@ RETURNS VOID AS $$
 DECLARE
     v_has_parent_fields BOOLEAN;
 BEGIN
+    -- Note: no rbac.uid() here — this function is called by triggers
+    -- during migrations when there is no JWT context.
+
     SELECT EXISTS (
-        SELECT 1 FROM fields 
-        WHERE table_name = p_table_name 
+        SELECT 1 FROM fields
+        WHERE table_name = p_table_name
           AND format = 'parent'
     ) INTO v_has_parent_fields;
     
@@ -1295,3 +1304,20 @@ CREATE TRIGGER enforce_table_is_child_consistency_trigger
 
 COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
+
+-- Revoke default PUBLIC execute on all DDL functions defined in this file
+REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION add_dd_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_dd_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION delete_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_search_vector_column(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_table_searchable_flag(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION handle_field_searchable_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION enforce_table_searchable_consistency() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_table_is_child_flag(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION handle_field_parent_format_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION enforce_table_is_child_consistency() FROM PUBLIC;

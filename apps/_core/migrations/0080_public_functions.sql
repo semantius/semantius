@@ -41,7 +41,8 @@ $$ LANGUAGE plpgsql;
 COMMENT ON FUNCTION public.get_user_modules IS 
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
 
 -- =====================================================
@@ -65,10 +66,10 @@ DECLARE
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
-    
+
     -- Get email from JWT if available
     v_email := current_setting('request.jwt.claim.email', true);
-    
+
     -- Create or update user record and update last_seen
     v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
     
@@ -152,7 +153,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.get_userinfo IS 
 'Returns current authenticated user info as JSON with nested roles, permissions, and modules (filtered by RLS via helper function). Creates/updates user record and updates last_seen. Call once when new login detected.';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 
 
@@ -169,6 +171,8 @@ RETURNS JSON AS $$
 DECLARE
     v_result JSON;
 BEGIN
+    PERFORM rbac.uid();
+
     SELECT COALESCE(
         json_agg(
             json_build_object(
@@ -197,7 +201,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.get_schema_children IS 
 'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 
 -- =====================================================
@@ -217,6 +222,8 @@ DECLARE
     v_children JSON;
     v_result JSON;
 BEGIN
+    PERFORM rbac.uid();
+
     SELECT * INTO v_table_record
     FROM entities
     WHERE table_name = p_table_name;
@@ -403,7 +410,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.build_schema_for_table IS 
 'Internal helper that builds a schema JSON for a single table without performing permission checks. Used by get_schema() and get_schemas() to ensure consistent output from a single implementation.';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
 
 -- =====================================================
@@ -418,11 +426,13 @@ RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Check if table exists in entities metadata
     SELECT * INTO v_table_record
     FROM entities
     WHERE table_name = p_table_name;
-    
+
     -- Raise error if table not found
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
@@ -443,7 +453,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 
 -- =====================================================
@@ -465,6 +476,8 @@ DECLARE
     v_schemas JSON[] := '{}';
     v_schema JSON;
 BEGIN
+    PERFORM rbac.uid();
+
     FOREACH v_table_name IN ARRAY string_to_array(p_table_names, ',')
     LOOP
         v_table_name := trim(v_table_name);
@@ -500,7 +513,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.get_schemas IS 
 'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behaviour of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_schemas(TEXT) TO semantius_user;
 
 -- =====================================================
@@ -526,7 +540,8 @@ $$ LANGUAGE plpgsql;
 COMMENT ON FUNCTION public.ping IS 
 'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
 
--- Grant execute permission to semantius_user role
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.ping() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
 
 
@@ -544,6 +559,8 @@ DECLARE
     v_is_semantius_user BOOLEAN := FALSE;
     v_has_public_read BOOLEAN := FALSE;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Get the current PostgreSQL role
     v_current_role := current_user;
     
@@ -576,5 +593,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.has_public_read IS 
 'Returns current user access information: PostgreSQL role, semantius_user membership, and public:read permission status.';
 
--- Grant execute permission to semantius_user role
--- GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.has_public_read() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;

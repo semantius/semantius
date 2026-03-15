@@ -58,3 +58,7 @@ CREATE TRIGGER notify_pgrst_on_fields_change
     AFTER INSERT OR UPDATE OR DELETE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION notify_pgrst_fields();
+
+-- Revoke default PUBLIC execute on notify trigger functions
+REVOKE EXECUTE ON FUNCTION notify_pgrst_tables() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;

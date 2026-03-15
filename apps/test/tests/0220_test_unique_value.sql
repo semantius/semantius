@@ -6,7 +6,7 @@ BEGIN;
 SELECT plan(8);
 
 -- Set context as admin user to bypass RLS
-SELECT rbac.set_request_context('{"sub": "user3"}');
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- TEST: unique index exists for customers_test.email

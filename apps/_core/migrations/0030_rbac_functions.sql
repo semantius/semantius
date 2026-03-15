@@ -13,8 +13,12 @@ GRANT USAGE ON SCHEMA rbac TO semantius_user;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac TO semantius_user;
 
 -- Ensure future functions are automatically granted (THIS IS KEY!)
-ALTER DEFAULT PRIVILEGES IN SCHEMA rbac 
+ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
     GRANT EXECUTE ON FUNCTIONS TO semantius_user;
+
+-- Revoke default PUBLIC execute on future rbac functions
+ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 
 -- =====================================================
@@ -94,63 +98,82 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- USER DETECTION AND IDENTIFICATION
 -- =====================================================
 
--- Get current user's external_id from JWT
--- Works with both Neon and Supabase JWT formats
--- Automatically normalizes Supabase format to Neon format for future calls
+-- Validate JWT claims before allowing any operation
+-- Centralizes all JWT validation so that role, aud, or other checks
+-- only need to be changed in one place.
+-- Called by rbac.uid() which is the gateway for all authenticated operations.
+-- Single JWT validation + user identity function
+-- Handles both Neon format (individual request.jwt.claim.* settings)
+-- and Supabase format (single request.jwt.claims JSON blob)
+-- Normalizes Supabase format to Neon format for all downstream code
+-- STABLE: result is cached per transaction, so safe to call from every function
 CREATE OR REPLACE FUNCTION rbac.uid()
 RETURNS TEXT AS $$
 DECLARE
+    v_role TEXT;
     sub_value TEXT;
     supabase_claims jsonb;
     claim_key TEXT;
     claim_value TEXT;
 BEGIN
-    -- Step 1: Try Neon format (fastest path)
+    -- Step 1: Try Neon format (fastest path — individual claim settings)
+    v_role := current_setting('request.jwt.claim.role', true);
     sub_value := current_setting('request.jwt.claim.sub', true);
-    
-    IF sub_value IS NOT NULL AND sub_value != '' THEN
+
+    IF v_role = 'authenticated' AND sub_value IS NOT NULL AND sub_value != '' THEN
         RETURN sub_value;
     END IF;
-    
-    -- Step 2: Fallback - Check if Supabase format exists
-    BEGIN
-        supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
-    EXCEPTION
-        WHEN OTHERS THEN
-            RAISE EXCEPTION 'Authentication required: No valid JWT claims found';
-    END;
-    
-    IF supabase_claims IS NULL THEN
-        RAISE EXCEPTION 'Authentication required: No valid JWT claims found';
-    END IF;
-    
-    -- Step 3: Convert ALL Supabase JSON properties to Neon-style settings
-    -- This normalizes the format for future calls in this transaction
-    FOR claim_key, claim_value IN 
-        SELECT key, value::text 
-        FROM jsonb_each_text(supabase_claims)
-    LOOP
+
+    -- Step 2: Fallback — Supabase format (single JSON blob)
+    IF v_role IS NULL OR v_role = '' THEN
         BEGIN
-            PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
+            supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
         EXCEPTION
             WHEN OTHERS THEN
-                NULL; -- Skip if setting fails
+                RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
+                    USING ERRCODE = 'insufficient_privilege';
         END;
-    END LOOP;
-    
-    -- Step 4: Get sub from normalized Neon format
-    sub_value := current_setting('request.jwt.claim.sub', true);
-    
-    IF sub_value IS NULL OR sub_value = '' THEN
-        RAISE EXCEPTION 'Authentication required: JWT sub claim is missing';
+
+        IF supabase_claims IS NULL THEN
+            RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+
+        -- Normalize: convert all Supabase JSON properties to Neon-style settings
+        FOR claim_key, claim_value IN
+            SELECT key, value::text
+            FROM jsonb_each_text(supabase_claims)
+        LOOP
+            BEGIN
+                PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
+            EXCEPTION
+                WHEN OTHERS THEN NULL;
+            END;
+        END LOOP;
+
+        -- Read normalized values
+        v_role := current_setting('request.jwt.claim.role', true);
+        sub_value := current_setting('request.jwt.claim.sub', true);
     END IF;
-    
+
+    -- Validate role
+    IF v_role IS DISTINCT FROM 'authenticated' THEN
+        RAISE EXCEPTION 'Authentication required: JWT role claim must be authenticated'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- Validate sub
+    IF sub_value IS NULL OR sub_value = '' THEN
+        RAISE EXCEPTION 'Authentication required: JWT sub claim is missing'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     RETURN sub_value;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
-COMMENT ON FUNCTION rbac.uid IS 
-'Returns current user external_id from JWT. Auto-detects Neon/Supabase format.';
+COMMENT ON FUNCTION rbac.uid IS
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. STABLE — cached per transaction.';
 
 -- =====================================================
 -- USER MANAGEMENT
@@ -166,21 +189,23 @@ RETURNS INTEGER AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RETURN NULL;
     END IF;
-    
+
     SELECT id INTO v_user_id
     FROM users
     WHERE external_id = p_external_id
       AND is_disabled = FALSE;
-    
+
     RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
-COMMENT ON FUNCTION rbac.get_user_by_external_id IS 
+COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Used by RLS policies.';
 
 -- Initialize or update user from JWT
@@ -194,11 +219,13 @@ RETURNS INTEGER AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RAISE EXCEPTION 'external_id cannot be null or empty';
     END IF;
-    
+
     INSERT INTO users (external_id, email, last_seen)
     VALUES (p_external_id, p_email, CURRENT_TIMESTAMP)
     ON CONFLICT (external_id) DO UPDATE
@@ -229,9 +256,11 @@ DECLARE
     v_permissions TEXT;
     v_initialized TEXT;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Check if already initialized in this transaction
     v_initialized := current_setting('app.context_initialized', true);
-    
+
     IF v_initialized = 'true' THEN
         RETURN; -- Already initialized, skip
     END IF;
@@ -282,6 +311,8 @@ DECLARE
     v_user_id INTEGER;
     v_permissions TEXT;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Use provided external_id or detect from JWT
     v_external_id := COALESCE(p_external_id, rbac.uid());
     
@@ -338,6 +369,8 @@ DECLARE
     v_has_permission BOOLEAN;
     v_permission_id INTEGER;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RETURN FALSE;
@@ -432,6 +465,8 @@ DECLARE
     v_oauth_scopes TEXT;
     v_external_id TEXT;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate permission_name
     IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
         RETURN FALSE;
@@ -479,6 +514,7 @@ CREATE OR REPLACE FUNCTION rbac.require_permission(
 )
 RETURNS void AS $$
 BEGIN
+    PERFORM rbac.uid();
     IF NOT rbac.has_permission(p_permission_name) THEN
         RAISE EXCEPTION 'Permission denied: % required', p_permission_name
             USING ERRCODE = 'insufficient_privilege';
@@ -501,11 +537,13 @@ DECLARE
     v_oauth_scopes TEXT;
     v_has_base_permission BOOLEAN := FALSE;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate input
     IF p_permission_names IS NULL OR array_length(p_permission_names, 1) IS NULL THEN
         RETURN FALSE;
     END IF;
-    
+
     -- LAZY INITIALIZATION: Ensure context is initialized
     PERFORM rbac.ensure_context_initialized();
     
@@ -559,6 +597,7 @@ CREATE OR REPLACE FUNCTION rbac.require_any_permission(
 )
 RETURNS void AS $$
 BEGIN
+    PERFORM rbac.uid();
     IF NOT rbac.has_any_permission(VARIADIC p_permission_names) THEN
         RAISE EXCEPTION 'Permission denied: one of (%) required', array_to_string(p_permission_names, ', ')
             USING ERRCODE = 'insufficient_privilege';
@@ -581,11 +620,13 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate external_id
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RETURN;
     END IF;
-    
+
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions
@@ -621,9 +662,11 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 BEGIN
+    PERFORM rbac.uid();
+
     -- Ensure context is initialized
     PERFORM rbac.ensure_context_initialized();
-    
+
     -- Return cached permissions as table
     RETURN QUERY
     SELECT unnest(string_to_array(current_setting('app.user_permissions', true), ','))::TEXT
@@ -646,15 +689,17 @@ RETURNS TABLE (
     reason TEXT
 ) AS $$
 BEGIN
+    PERFORM rbac.uid();
+
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RAISE EXCEPTION 'external_id cannot be null or empty';
     END IF;
-    
+
     IF p_requested_scopes IS NULL OR trim(p_requested_scopes) = '' THEN
         RETURN;
     END IF;
-    
+
     RETURN QUERY
     WITH user_perms AS (
         SELECT permission_name FROM rbac.get_user_permissions(p_external_id)
@@ -675,6 +720,8 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 'Validates which OAuth scopes a user can request. Use during token issuance.';
 
 -- Validate that a permission exists
+-- Note: no rbac.uid() here — this function is called by triggers
+-- during migrations when there is no JWT context.
 CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -695,9 +742,11 @@ COMMENT ON FUNCTION rbac.validate_permission_exists IS
 CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS INTEGER AS $$
 BEGIN
+    PERFORM rbac.uid();
+
     -- Ensure context is initialized
     PERFORM rbac.ensure_context_initialized();
-    
+
     RETURN current_setting('app.current_user_id', true)::INTEGER;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
@@ -722,8 +771,10 @@ DECLARE
     v_claim TEXT;
     v_claim_value TEXT;
 BEGIN
+    PERFORM rbac.uid();
+
     -- Return raw JWT settings BEFORE initialization
-    RETURN QUERY SELECT 
+    RETURN QUERY SELECT
         'jwt_raw'::TEXT,
         'request.jwt.claim.sub'::TEXT,
         current_setting('request.jwt.claim.sub', true);
@@ -835,3 +886,8 @@ CREATE TRIGGER auto_grant_permission_to_administrator
     AFTER INSERT ON permissions
     FOR EACH ROW
     EXECUTE FUNCTION rbac.grant_permission_to_administrator();
+
+-- Revoke default PUBLIC execute on all rbac functions defined above
+-- Must come AFTER all CREATE FUNCTION statements
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
+

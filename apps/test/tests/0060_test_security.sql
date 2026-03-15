@@ -1,7 +1,7 @@
 -- Test security policies: RLS and function permissions
 BEGIN;
 
-SELECT plan(2);
+SELECT plan(3);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -42,8 +42,7 @@ SELECT is(
 -- =====================================================
 -- Get a comma separated list of all function names in public and rbac schema
 -- where the function is executable by public
--- The list should be empty but in the current iteration expect this test to fail,
--- we will fix it in a future iteration
+-- The list should be empty - all functions should have REVOKE EXECUTE FROM PUBLIC
 
 SELECT is(
     (
@@ -54,7 +53,40 @@ SELECT is(
         AND pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE')
     ),
     NULL::text,
-    'No functions in public and rbac schemas should be executable by public role (expected to fail in current iteration)'
+    'No functions in public and rbac schemas should be executable by public role'
+);
+
+-- =====================================================
+-- TEST 2.3: All SECURITY DEFINER functions must call rbac.uid()
+-- =====================================================
+-- Every non-trigger SECURITY DEFINER function must call rbac.uid()
+-- directly in its source code. No allowlists, no indirect chain assumptions.
+-- rbac.uid() is STABLE and cached per transaction so the cost is zero.
+-- rbac.uid itself is excluded.
+-- Trigger functions are excluded (invoked by the DB engine, not by users).
+
+SELECT is(
+    (
+        SELECT string_agg(n.nspname || '.' || p.proname, ', ' ORDER BY n.nspname, p.proname)
+        FROM pg_proc p
+        JOIN pg_namespace n ON p.pronamespace = n.oid
+        WHERE n.nspname IN ('public', 'rbac')
+        AND p.prosecdef = true                          -- SECURITY DEFINER only
+        AND p.prorettype != 'trigger'::regtype          -- exclude trigger functions
+        AND p.proname != 'uid'                          -- exclude uid itself
+        AND p.prosrc NOT LIKE '%rbac.uid()%'            -- must call rbac.uid() directly
+        -- Exclude helper functions called by triggers during migrations (no JWT context).
+        -- These are NOT trigger functions themselves (they return VOID/BOOLEAN, not trigger)
+        -- but are invoked by trigger functions during DDL migrations.
+        AND p.proname NOT IN (
+            'update_search_vector_column',
+            'update_table_searchable_flag',
+            'update_table_is_child_flag',
+            'validate_permission_exists'
+        )
+    ),
+    NULL::text,
+    'All non-trigger SECURITY DEFINER functions must call rbac.uid()'
 );
 
 SELECT * FROM finish();

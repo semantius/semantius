@@ -5,7 +5,7 @@ BEGIN;
 SELECT plan(12);
 
 -- Set context as admin user to bypass RLS
-SELECT rbac.set_request_context('{"sub": "user3"}');
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- TEST: webhook_receivers.auth_type enum constraint

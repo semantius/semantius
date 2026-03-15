@@ -34,8 +34,20 @@ BEGIN
 END $$;
 
 
+-- =====================================================
+-- SECURE DEFAULTS: Revoke PUBLIC execute on all future functions
+-- =====================================================
+-- PostgreSQL grants EXECUTE to PUBLIC by default on all functions.
+-- This changes the default so new functions are NOT callable by PUBLIC,
+-- preventing accidental privilege escalation via SECURITY DEFINER functions.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
 -- Create the common schema
 CREATE SCHEMA IF NOT EXISTS common;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA common
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 COMMENT ON SCHEMA common IS 'Shared database objects and functions used across multiple schemas';
 

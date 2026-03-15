@@ -349,3 +349,8 @@ CREATE TRIGGER default_assigned_by_trigger
 
 COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 'Defaults assigned_by to the current session user when not provided on insert.';
+
+-- Revoke default PUBLIC execute on trigger functions defined in this file
+REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;

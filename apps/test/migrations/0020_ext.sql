@@ -42,6 +42,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             -- Set JWT claims in the format expected by rbac functions
             perform set_config('request.jwt.claim.sub', external_id, true);
             perform set_config('request.jwt.claim.email', user_email, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
 
             -- Clear all app context variables set by ensure_context_initialized
             PERFORM set_config('app.current_user_id', NULL, false);
