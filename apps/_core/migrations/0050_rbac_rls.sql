@@ -270,7 +270,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS 
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first user accessing the system.';
@@ -301,7 +301,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
@@ -337,7 +337,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';

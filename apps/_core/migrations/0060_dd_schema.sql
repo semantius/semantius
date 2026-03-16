@@ -169,7 +169,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 CREATE TRIGGER validate_reference_table_trigger
     BEFORE INSERT OR UPDATE ON fields
@@ -246,7 +246,7 @@ BEGIN
     NEW.plural := NEW.table_name;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION auto_set_plural IS 
 'Trigger function that automatically sets plural column to match table_name, ignoring user input';

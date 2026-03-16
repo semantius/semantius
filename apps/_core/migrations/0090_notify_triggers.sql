@@ -21,7 +21,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION notify_pgrst_tables IS 
 'Trigger function that notifies PostgREST to reload schema when entities are modified.';
@@ -48,7 +48,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION notify_pgrst_fields IS 
 'Trigger function that notifies PostgREST to reload schema when fields are modified.';

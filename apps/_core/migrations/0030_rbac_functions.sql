@@ -83,7 +83,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.check_permission_hierarchy_cycle IS 
 'Trigger function to prevent cycles and enforce 11-level depth limit in permission hierarchy.';
@@ -170,7 +170,7 @@ BEGIN
 
     RETURN sub_value;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
 'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. STABLE — cached per transaction.';
@@ -203,7 +203,7 @@ BEGIN
 
     RETURN v_user_id;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Used by RLS policies.';
@@ -235,7 +235,7 @@ BEGIN
     
     RETURN v_user_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS 
 'Creates or updates user record from JWT claims. Updates last_seen timestamp. Called by get_userinfo().';
@@ -293,7 +293,7 @@ BEGIN
     
     -- Note: OAuth scopes handled separately if needed
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
 'Lazy initialization of request context. Called automatically on first permission check.';
@@ -345,7 +345,7 @@ BEGIN
         PERFORM set_config('app.oauth_scopes', p_oauth_scopes, true);
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.set_request_context IS 
 'Manually sets request context. Optional - context auto-initializes if not called. Use for OAuth scope validation.';
@@ -448,7 +448,7 @@ BEGIN
         WHERE permission_id = v_permission_id
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
@@ -502,7 +502,7 @@ BEGIN
     -- Should never reach here after initialization, but safety fallback
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.has_permission IS 
 'Checks if current user has permission. Auto-initializes context and uses cached permissions.';
@@ -520,7 +520,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -585,7 +585,7 @@ BEGIN
     -- Should never reach here after initialization
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.has_any_permission IS 
 'Returns true if current user has at least one of the specified permissions.';
@@ -603,7 +603,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -651,7 +651,7 @@ BEGIN
     FROM permission_tree pt
     ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS 
 'Returns all effective permissions for a user, including implied permissions.';
@@ -673,7 +673,7 @@ BEGIN
     WHERE current_setting('app.user_permissions', true) IS NOT NULL 
       AND current_setting('app.user_permissions', true) != '';
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_current_user_permissions IS 
 'Returns all permissions for current user from cache. Auto-initializes if needed.';
@@ -714,7 +714,7 @@ BEGIN
         END AS reason
     FROM unnest(string_to_array(p_requested_scopes, ' ')) AS s(scope);
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
@@ -729,7 +729,7 @@ BEGIN
         SELECT 1 FROM permissions WHERE permission_name = p_permission_name
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.validate_permission_exists IS 
 'Validates that a permission exists in the permissions table.';
@@ -749,7 +749,7 @@ BEGIN
 
     RETURN current_setting('app.current_user_id', true)::INTEGER;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.user_id IS 
 'Returns internal user_id for current user. Auto-initializes if needed.';
@@ -845,7 +845,7 @@ BEGIN
     
     RETURN;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.whoami IS 
 'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
@@ -876,7 +876,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS 
 'Automatically grants newly created permissions to the Administrator role';

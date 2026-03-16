@@ -49,7 +49,7 @@ BEGIN
         ELSE 'TEXT'
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_data_type IS 
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements.';
@@ -77,7 +77,7 @@ BEGIN
         ELSE to_jsonb('string'::text)
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
@@ -120,7 +120,7 @@ BEGIN
     -- Default: return as-is (for special types like UUID, JSONB, etc.)
     RETURN p_default_value;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION quote_default_value IS 
 'Properly quotes default values based on data type for use in DDL statements.';
@@ -259,7 +259,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION create_dd_table IS 
 'Trigger function that creates a table with RLS policies when a row is inserted into entities table.';
@@ -505,7 +505,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION add_dd_field IS 
 'Trigger function that adds a column to a table when a row is inserted into fields table.';
@@ -816,7 +816,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_dd_field IS 
 'Trigger function that updates column properties when a field is updated.';
@@ -898,7 +898,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION delete_dd_field IS 
 'Trigger function that drops a column when a field is deleted.';
@@ -929,7 +929,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION delete_dd_table IS 
 'Trigger function that drops a table when a row is deleted from entities table.';
@@ -1064,7 +1064,7 @@ BEGIN
     );
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_search_vector_column IS 
 'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists.';
@@ -1095,7 +1095,7 @@ BEGIN
     WHERE table_name = p_table_name;
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_table_searchable_flag IS 
 'Auto-maintains the searchable flag on entities table based on whether any related fields are searchable.';
@@ -1139,7 +1139,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION handle_field_searchable_change IS 
 'Trigger function that updates search_vector column and GIN index when searchable fields are created, updated, or deleted. The add_field_trigger executes before this trigger (alphabetically), ensuring the physical column exists before we update the search_vector.';
@@ -1180,7 +1180,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
 'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
@@ -1221,7 +1221,7 @@ BEGIN
     SET is_child = v_has_parent_fields
     WHERE table_name = p_table_name;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_table_is_child_flag IS 
 'Auto-maintains the is_child flag on entities table based on whether any related fields have format=''parent''.';
@@ -1257,7 +1257,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION handle_field_parent_format_change IS 
 'Trigger function that updates entities.is_child when fields with format=''parent'' are created, updated, or deleted.';
@@ -1291,7 +1291,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION enforce_table_is_child_consistency IS 
 'Trigger function that ensures entities.is_child always reflects the status of related fields, preventing manual overrides.';
