@@ -160,5 +160,8 @@ packages/neon-provisioner/dist/
 # Core package build output
 packages/core/dist/
 
+# Wrangler local state
+.wrangler/
+
 # pnpm lock file (managed by pnpm)
 # pnpm-lock.yaml

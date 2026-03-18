@@ -12,9 +12,11 @@ import { migrate } from "./migrate.js";
 import {
   findProjectByName,
   createProject,
-  getProjectDetails,
+  getProjectConnectionUri,
   listProjectJwks,
   addProjectJwks,
+  listRoles,
+  deleteRole,
   listBranches,
   listDatabases,
   createDataApi,
@@ -206,25 +208,52 @@ app.post("/neon-provisioner", async (c) => {
   try {
     // Step 1: Check if project already exists, create if not
     let projectId: string;
-    let connectionUri: string;
+    let connection: Record<string, unknown>;
 
     const existingProject = await findProjectByName(project_name, apiOptions);
 
     if (existingProject) {
       projectId = existingProject.id as string;
 
-      // Get connection URI for existing project
-      const connDetails = await getProjectDetails(projectId, apiOptions);
-      connectionUri = (connDetails as { uri: string }).uri;
+      // Discover the database name, then get connection URI
+      const existingBranches = await listBranches(projectId, apiOptions);
+      const existingMainBranch = existingBranches.find(
+        (b: Record<string, unknown>) => b.name === "main",
+      );
+      if (!existingMainBranch) {
+        return c.json(
+          { success: false, error: "Could not find 'main' branch on existing project" },
+          500,
+        );
+      }
+      const existingDatabases = await listDatabases(projectId, existingMainBranch.id as string, apiOptions);
+      if (!existingDatabases || existingDatabases.length === 0) {
+        return c.json(
+          { success: false, error: "No databases found on existing project's main branch" },
+          500,
+        );
+      }
+      const existingDbName = existingDatabases[0].name as string;
+      const existingBranchId = existingMainBranch.id as string;
+
+      const existingRoles = await listRoles(projectId, existingBranchId, apiOptions);
+      if (!existingRoles || existingRoles.length === 0) {
+        return c.json(
+          { success: false, error: "No roles found on existing project's main branch" },
+          500,
+        );
+      }
+      const existingRoleName = existingRoles[0].name as string;
+
+      const connDetails = await getProjectConnectionUri(projectId, existingDbName, existingRoleName, apiOptions);
+      connection = connDetails;
     } else {
       const createResult = await createProject(project_name, region_id, apiOptions);
 
       const project = createResult.project as Record<string, unknown>;
       projectId = project.id as string;
 
-      const connectionUris = createResult.connection_uris as Array<{
-        connection_uri: string;
-      }>;
+      const connectionUris = createResult.connection_uris as Array<Record<string, unknown>>;
 
       if (!connectionUris || connectionUris.length === 0) {
         return c.json(
@@ -236,7 +265,7 @@ app.post("/neon-provisioner", async (c) => {
         );
       }
 
-      connectionUri = connectionUris[0].connection_uri;
+      connection = connectionUris[0];
     }
 
     // Step 2: Check if JWKS URL already exists, create if not
@@ -249,11 +278,7 @@ app.post("/neon-provisioner", async (c) => {
       await addProjectJwks(projectId, jwks_url, jwt_audience, apiOptions);
     }
 
-    // Step 3: Run migrations using the connection URI (defaults to _core only)
-    const modules = body.modules && body.modules.length > 0 ? body.modules : ["_core"];
-    await migrate(connectionUri, modules, { verbose: true });
-
-    // Step 4: Get branch_id for "main" branch
+    // Step 3: Get branch_id for "main" branch
     const branches = await listBranches(projectId, apiOptions);
     const mainBranch = branches.find(
       (b: Record<string, unknown>) => b.name === "main",
@@ -268,7 +293,7 @@ app.post("/neon-provisioner", async (c) => {
 
     const branchId = mainBranch.id as string;
 
-    // Step 5: Get database_name from databases list
+    // Step 4: Get database_name from databases list
     const databases = await listDatabases(projectId, branchId, apiOptions);
 
     if (!databases || databases.length === 0) {
@@ -280,8 +305,15 @@ app.post("/neon-provisioner", async (c) => {
 
     const databaseName = databases[0].name as string;
 
-    // Step 6: Create data API with external auth
-    await createDataApi(
+    // Step 5: Delete existing authenticator role if present, then create data API
+    const roles = await listRoles(projectId, branchId, apiOptions);
+    for (const name of ["authenticator", "authenticated", "anonymous"]) {
+      if (roles.some((r: Record<string, unknown>) => r.name === name)) {
+        await deleteRole(projectId, branchId, name, apiOptions);
+      }
+    }
+
+    const dataApiResult = await createDataApi(
       projectId,
       branchId,
       databaseName,
@@ -290,11 +322,17 @@ app.post("/neon-provisioner", async (c) => {
       apiOptions,
     );
 
+    // Step 6: Run migrations using the connection URI (defaults to _core only)
+    const connectionUri = (connection.connection_uri ?? connection.uri) as string;
+    const modules = body.modules && body.modules.length > 0 ? body.modules : ["_core"];
+    await migrate(connectionUri, modules, { verbose: true });
+
     // Success response
     return c.json({
       success: true,
       project_id: projectId,
-      connection: connectionUri,
+      connection,
+      data_api: dataApiResult,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

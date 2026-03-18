@@ -13,13 +13,16 @@ interface NeonApiOptions {
   apiKey: string;
 }
 
+const MAX_RETRIES = 10;
+const RETRY_BASE_MS = 1000;
+
 async function neonFetch(
   path: string,
   options: NeonApiOptions,
   init?: RequestInit,
 ): Promise<Response> {
   const url = `${NEON_API_BASE}${path}`;
-  const res = await fetch(url, {
+  const fetchInit = {
     ...init,
     headers: {
       Authorization: `Bearer ${options.apiKey}`,
@@ -27,8 +30,19 @@ async function neonFetch(
       Accept: "application/json",
       ...((init?.headers as Record<string, string>) ?? {}),
     },
-  });
-  return res;
+  };
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, fetchInit);
+    if (res.status !== 423 || attempt === MAX_RETRIES) {
+      return res;
+    }
+    const delay = RETRY_BASE_MS * Math.pow(2, attempt);
+    console.log(`[neon-api] 423 Locked on ${path}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+
+  throw new Error("Unreachable");
 }
 
 /**
@@ -77,13 +91,20 @@ export async function createProject(
 }
 
 /**
- * Get full project details (including connection_uris) for an existing project.
+ * Get the connection URI for an existing project.
+ * Requires database_name as a query parameter per the Neon API spec.
  */
-export async function getProjectDetails(
+export async function getProjectConnectionUri(
   projectId: string,
+  databaseName: string,
+  roleName: string,
   options: NeonApiOptions,
 ): Promise<Record<string, unknown>> {
-  const res = await neonFetch(`/projects/${projectId}/connection_uri`, options);
+  const params = new URLSearchParams({ database_name: databaseName, role_name: roleName });
+  const res = await neonFetch(
+    `/projects/${projectId}/connection_uri?${params}`,
+    options,
+  );
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to get project connection URI (HTTP ${res.status}): ${body}`);
@@ -121,6 +142,7 @@ export async function addProjectJwks(
     body: JSON.stringify({
       jwks_url: jwksUrl,
       jwt_audience: jwtAudience,
+      provider_name: "external",
     }),
   });
   if (!res.ok) {
@@ -128,6 +150,46 @@ export async function addProjectJwks(
     throw new Error(`Failed to add JWKS (HTTP ${res.status}): ${body}`);
   }
   return (await res.json()) as Record<string, unknown>;
+}
+
+/**
+ * List roles on a branch. Returns the array of role objects.
+ */
+export async function listRoles(
+  projectId: string,
+  branchId: string,
+  options: NeonApiOptions,
+): Promise<Array<Record<string, unknown>>> {
+  const res = await neonFetch(
+    `/projects/${projectId}/branches/${branchId}/roles`,
+    options,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to list roles (HTTP ${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { roles: Array<Record<string, unknown>> };
+  return data.roles ?? [];
+}
+
+/**
+ * Delete a role on a branch by name.
+ */
+export async function deleteRole(
+  projectId: string,
+  branchId: string,
+  roleName: string,
+  options: NeonApiOptions,
+): Promise<void> {
+  const res = await neonFetch(
+    `/projects/${projectId}/branches/${branchId}/roles/${roleName}`,
+    options,
+    { method: "DELETE" },
+  );
+  if (!res.ok && res.status !== 404) {
+    const body = await res.text();
+    throw new Error(`Failed to delete role ${roleName} (HTTP ${res.status}): ${body}`);
+  }
 }
 
 /**

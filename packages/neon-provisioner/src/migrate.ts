@@ -12,7 +12,7 @@
  * the @semantius/core package (ensureVersionsTable, executeMigrations).
  */
 
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 import {
   ensureVersionsTable,
   executeMigrations,
@@ -71,19 +71,19 @@ export async function migrate(
     logVerbose(`Modules to migrate: ${appsToMigrate.join(", ")}`);
   }
 
-  // Use neon's HTTP client - compatible with Cloudflare Workers
-  const sql = neon(databaseUrl);
+  // Use neon's WebSocket-based Pool - supports multi-statement queries
+  const pool = new Pool({ connectionString: databaseUrl });
 
-  // Wrap neon client to match the DatabaseClient interface expected by core
+  // Wrap pool client to match the DatabaseClient interface expected by core
   const dbClient = {
     queryObject: async (
       query: string,
       params?: unknown[],
     ): Promise<{ rows: Record<string, unknown>[] }> => {
-      const rows = params && params.length > 0
-        ? await sql(query, params as unknown[])
-        : await sql(query);
-      return { rows: rows as Record<string, unknown>[] };
+      const result = params && params.length > 0
+        ? await pool.query(query, params as unknown[])
+        : await pool.query(query);
+      return { rows: result.rows as Record<string, unknown>[] };
     },
   };
 
@@ -131,6 +131,7 @@ export async function migrate(
           : String(unlockError),
       );
     }
+    await pool.end();
   }
 
   return {

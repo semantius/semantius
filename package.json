@@ -19,8 +19,8 @@
     "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build",
     "provisioning:dev": "deno task bundle-sql && pnpm --filter @semantius/provisioning dev",
     "provisioning:deploy": "deno task bundle-sql && pnpm --filter @semantius/provisioning deploy",
-    "neon-provisioner:dev": "deno task bundle-sql && pnpm --filter @semantius/neon-provisioner dev",
-    "neon-provisioner:deploy": "deno task bundle-sql && pnpm --filter @semantius/neon-provisioner deploy"
+    "neon-provisioner:dev": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/neon-provisioner dev",
+    "neon-provisioner:deploy": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/neon-provisioner deploy"
   },
   "engines": {
     "pnpm": ">=8.0.0"
