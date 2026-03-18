@@ -146,12 +146,16 @@ dropall.sql
 # The placeholder src/migrations-bundle.ts files are committed; the generated versions are not.
 packages/triggerdev/src/migrations-bundle.ts
 packages/provisioning/src/migrations-bundle.ts
+packages/neon-provisioner/src/migrations-bundle.ts
 
 # TriggerDev build output
 packages/triggerdev/dist/
 
 # Provisioning build output
 packages/provisioning/dist/
+
+# Neon Provisioner build output
+packages/neon-provisioner/dist/
 
 # Core package build output
 packages/core/dist/

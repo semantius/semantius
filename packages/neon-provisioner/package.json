@@ -1,0 +1,25 @@
+{
+  "name": "@semantius/neon-provisioner",
+  "version": "0.1.0",
+  "description": "Semantius Neon Provisioner - Hono server for Cloudflare Workers that provisions Neon databases and runs migrations",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "@semantius/core": "workspace:*",
+    "hono": "^4.12.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250408.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "src/migrations-bundle.ts"
+  ]
+}
