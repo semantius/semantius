@@ -3,7 +3,6 @@
  *
  * Routes:
  *   POST /migrate           — Run database migrations
- *   POST /neonnew           — Provision a new Neon database and run migrations
  *   POST /neon-provisioner  — Full Neon provisioning: project, JWKS, migration, data API
  */
 
@@ -67,78 +66,6 @@ app.post("/migrate", async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return c.json({ success: false, error: message }, 500);
-  }
-});
-
-/**
- * POST /neonnew
- *
- * Accepts an optional JSON body with:
- *   - modules: string[] (optional, defaults to all bundled apps)
- *
- * Provisions a new Neon database via https://neon.new/api/v1/database,
- * then runs migrations against the returned data_url.
- *
- * Returns the full response from https://neon.new/api/v1/database.
- */
-app.post("/neonnew", async (c) => {
-  let body: { modules?: string[] } = {};
-
-  try {
-    body = await c.req.json();
-  } catch {
-    // body is optional
-  }
-
-  let neonResponse: Record<string, unknown>;
-
-  try {
-    const res = await fetch("https://neon.new/api/v1/database", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ref: "semantius" }),
-    });
-    neonResponse = (await res.json()) as Record<string, unknown>;
-    if (!res.ok) {
-      return c.json(
-        {
-          success: false,
-          error: `Neon provisioning returned HTTP ${res.status}`,
-          ...neonResponse,
-        },
-        500,
-      );
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return c.json(
-      { success: false, error: `Failed to provision Neon database: ${message}` },
-      500,
-    );
-  }
-
-  const databaseUrl = neonResponse.data_url as string | undefined;
-
-  if (!databaseUrl) {
-    return c.json(
-      {
-        success: false,
-        error: "No data_url returned from Neon provisioning",
-        ...neonResponse,
-      },
-      500,
-    );
-  }
-
-  try {
-    const result = await migrate(databaseUrl, body.modules, { verbose: true });
-    return c.json({ ...neonResponse, migrate: result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return c.json(
-      { success: false, error: `Migration failed after successful provisioning: ${message}`, ...neonResponse },
-      500,
-    );
   }
 });
 
@@ -327,10 +254,18 @@ app.post("/neon-provisioner", async (c) => {
     const modules = body.modules && body.modules.length > 0 ? body.modules : ["_core"];
     await migrate(connectionUri, modules, { verbose: true });
 
+    // Build pooler URL from connection parameters
+    const params = (connection.connection_parameters ?? {}) as Record<string, string>;
+    const poolerHost = params.pooler_host ?? params.host;
+    const databaseUrl = poolerHost
+      ? `postgresql://${params.role}:${params.password}@${poolerHost}/${params.database}?sslmode=require`
+      : connectionUri;
+
     // Success response
     return c.json({
       success: true,
       project_id: projectId,
+      database_url: databaseUrl,
       connection,
       data_api: dataApiResult,
     });

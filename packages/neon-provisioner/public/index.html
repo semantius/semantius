@@ -40,7 +40,6 @@
   <div class="tabs">
     <button type="button" class="active" data-tab="provisioner">Neon Provisioner</button>
     <button type="button" data-tab="migrate">Migrate</button>
-    <button type="button" data-tab="neonnew">Neon New</button>
   </div>
 
   <!-- Neon Provisioner Tab -->
@@ -78,16 +77,6 @@
     </form>
   </div>
 
-  <!-- Neon New Tab -->
-  <div id="tab-neonnew" class="tab-content">
-    <form id="form-neonnew">
-      <label for="modules_new">Modules <small style="font-weight:normal">(comma-separated, e.g. _core,nwind)</small></label>
-      <input type="text" id="modules_new" name="modules_new" placeholder="_core" />
-
-      <button type="submit" id="submit-neonnew">Provision New</button>
-    </form>
-  </div>
-
   <div id="response"></div>
 
   <script>
@@ -101,9 +90,17 @@
       });
     });
 
-    function showResponse(data, isError) {
+    function clearResponse() {
       var el = document.getElementById('response');
-      el.textContent = JSON.stringify(data, null, 2);
+      el.style.display = 'none';
+      el.textContent = '';
+      el.className = '';
+    }
+
+    function showResponse(data, isError, elapsedMs) {
+      var el = document.getElementById('response');
+      var prefix = '// Completed in ' + elapsedMs + ' ms\n';
+      el.textContent = prefix + JSON.stringify(data, null, 2);
       el.className = isError ? 'error' : 'success';
       el.style.display = 'block';
     }
@@ -127,7 +124,9 @@
     document.getElementById('form-provisioner').addEventListener('submit', async function(e) {
       e.preventDefault();
       var btn = document.getElementById('submit-provisioner');
+      clearResponse();
       setButtonState(btn, true);
+      var start = performance.now();
 
       try {
         var res = await fetch('/neon-provisioner', {
@@ -142,9 +141,9 @@
           })
         });
         var data = await res.json();
-        showResponse(data, !data.success);
+        showResponse(data, !data.success, Math.round(performance.now() - start));
       } catch (err) {
-        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true, Math.round(performance.now() - start));
       } finally {
         setButtonState(btn, false);
       }
@@ -154,7 +153,9 @@
     document.getElementById('form-migrate').addEventListener('submit', async function(e) {
       e.preventDefault();
       var btn = document.getElementById('submit-migrate');
+      clearResponse();
       setButtonState(btn, true);
+      var start = performance.now();
 
       var databaseUrl = document.getElementById('database_url').value.trim();
       var modules = parseModules(document.getElementById('modules').value.trim());
@@ -166,32 +167,9 @@
           body: JSON.stringify({ database_url: databaseUrl, modules: modules })
         });
         var data = await res.json();
-        showResponse(data, !data.success);
+        showResponse(data, !data.success, Math.round(performance.now() - start));
       } catch (err) {
-        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
-      } finally {
-        setButtonState(btn, false);
-      }
-    });
-
-    // Neon New form
-    document.getElementById('form-neonnew').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      var btn = document.getElementById('submit-neonnew');
-      setButtonState(btn, true);
-
-      var modules = parseModules(document.getElementById('modules_new').value.trim());
-
-      try {
-        var res = await fetch('/neonnew', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ modules: modules })
-        });
-        var data = await res.json();
-        showResponse(data, !data.success);
-      } catch (err) {
-        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true, Math.round(performance.now() - start));
       } finally {
         setButtonState(btn, false);
       }
