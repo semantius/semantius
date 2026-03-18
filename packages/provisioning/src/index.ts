@@ -3,6 +3,7 @@
  *
  * Routes:
  *   POST /migrate  — Run database migrations
+ *   POST /neonnew  — Provision a new Neon database and run migrations
  *   GET  /test     — Interactive HTML form to trigger migrations
  */
 
@@ -56,11 +57,84 @@ app.post("/migrate", async (c) => {
 });
 
 /**
+ * POST /neonnew
+ *
+ * Accepts an optional JSON body with:
+ *   - modules: string[] (optional, defaults to all bundled apps)
+ *
+ * Provisions a new Neon database via https://neon.new/api/v1/database,
+ * then runs migrations against the returned data_url.
+ *
+ * Returns the full response from https://neon.new/api/v1/database.
+ */
+app.post("/neonnew", async (c) => {
+  let body: { modules?: string[] } = {};
+
+  try {
+    body = await c.req.json();
+  } catch {
+    // body is optional
+  }
+
+  let neonResponse: Record<string, unknown>;
+
+  try {
+    const res = await fetch("https://neon.new/api/v1/database", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "semantius" }),
+    });
+    neonResponse = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      return c.json(
+        {
+          success: false,
+          error: `Neon provisioning returned HTTP ${res.status}`,
+          ...neonResponse,
+        },
+        500,
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json(
+      { success: false, error: `Failed to provision Neon database: ${message}` },
+      500,
+    );
+  }
+
+  const databaseUrl = neonResponse.data_url as string | undefined;
+
+  if (!databaseUrl) {
+    return c.json(
+      {
+        success: false,
+        error: "No data_url returned from Neon provisioning",
+        ...neonResponse,
+      },
+      500,
+    );
+  }
+
+  try {
+    const result = await migrate(databaseUrl, body.modules, { verbose: true });
+    return c.json({ ...neonResponse, migrate: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json(
+      { success: false, error: `Migration failed after successful provisioning: ${message}`, ...neonResponse },
+      500,
+    );
+  }
+});
+
+/**
  * GET /test
  *
  * Returns a static HTML form for interactively triggering migrations.
- * Modules are entered as a comma-separated list and converted to an array
- * before POSTing to /migrate.
+ * Modules are entered as a comma-separated list and converted to an array.
+ * When a database_url is provided the form POSTs to /migrate; when omitted
+ * the form POSTs to /neonnew to provision a new Neon database automatically.
  */
 app.get("/test", (c) => {
   const html = `<!DOCTYPE html>
@@ -97,8 +171,8 @@ app.get("/test", (c) => {
 <body>
   <h1>Semantius Provisioning</h1>
   <form id="form">
-    <label for="database_url">Database URL</label>
-    <textarea id="database_url" name="database_url" placeholder="postgresql://user:password@host:5432/database" required></textarea>
+    <label for="database_url">Database URL <small style="font-weight:normal">(leave blank to provision a new Neon database)</small></label>
+    <textarea id="database_url" name="database_url" placeholder="postgresql://user:password@host:5432/database"></textarea>
 
     <label for="modules">Modules <small style="font-weight:normal">(comma-separated, e.g. _core,nwind)</small></label>
     <input type="text" id="modules" name="modules" placeholder="_core" />
@@ -127,11 +201,20 @@ app.get("/test", (c) => {
       responseEl.className = '';
 
       try {
-        const res = await fetch('/migrate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ database_url: databaseUrl, modules })
-        });
+        let res;
+        if (databaseUrl) {
+          res = await fetch('/migrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ database_url: databaseUrl, modules })
+          });
+        } else {
+          res = await fetch('/neonnew', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modules })
+          });
+        }
 
         const data = await res.json();
         responseEl.textContent = JSON.stringify(data, null, 2);
