@@ -157,6 +157,7 @@ app.post("/neonnew", async (c) => {
  *   - jwt_audience: string  (required)
  *   - region_id: string     (required)
  *   - neon_api_key: string  (optional, falls back to NEON_API_KEY env)
+ *   - modules: string[]     (optional, defaults to ["_core"])
  *
  * Returns JSON with project_id and connection on success.
  */
@@ -167,6 +168,7 @@ app.post("/neon-provisioner", async (c) => {
     jwt_audience?: string;
     region_id?: string;
     neon_api_key?: string;
+    modules?: string[];
   };
 
   try {
@@ -247,8 +249,9 @@ app.post("/neon-provisioner", async (c) => {
       await addProjectJwks(projectId, jwks_url, jwt_audience, apiOptions);
     }
 
-    // Step 3: Run _core migrations using the connection URI
-    await migrate(connectionUri, ["_core"], { verbose: true });
+    // Step 3: Run migrations using the connection URI (defaults to _core only)
+    const modules = body.modules && body.modules.length > 0 ? body.modules : ["_core"];
+    await migrate(connectionUri, modules, { verbose: true });
 
     // Step 4: Get branch_id for "main" branch
     const branches = await listBranches(projectId, apiOptions);
