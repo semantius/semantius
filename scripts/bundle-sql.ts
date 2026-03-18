@@ -31,6 +31,7 @@ const EXCLUDED_APPS = new Set(["test"]);
 const OUTPUT_PATHS = [
   "./packages/triggerdev/src/migrations-bundle.ts",
   "./packages/provisioning/src/migrations-bundle.ts",
+  "./packages/neon-provisioner/src/migrations-bundle.ts",
 ];
 
 interface AppMigrations {

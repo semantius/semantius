@@ -1,0 +1,13 @@
+name = "semantius-neon-provisioner"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+# Set DATABASE_URL and NEON_API_KEY via wrangler secret or environment variables
+# wrangler secret put DATABASE_URL
+# wrangler secret put NEON_API_KEY

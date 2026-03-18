@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Semantius Neon Provisioner</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; }
+    textarea, input[type="text"], input[type="password"] {
+      width: 100%; box-sizing: border-box; padding: 8px;
+      border: 1px solid #ccc; border-radius: 4px;
+      font-family: monospace; font-size: 0.875rem; margin-bottom: 16px;
+    }
+    textarea { height: 80px; resize: vertical; }
+    button {
+      padding: 10px 24px; background: #2563eb; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer; font-size: 1rem;
+    }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    #response {
+      margin-top: 24px; padding: 16px; background: #f8fafc;
+      border: 1px solid #e2e8f0; border-radius: 4px;
+      white-space: pre-wrap; font-family: monospace; font-size: 0.875rem;
+      display: none;
+    }
+    #response.error { border-color: #fca5a5; background: #fff1f2; }
+    #response.success { border-color: #86efac; background: #f0fdf4; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; }
+    .tabs button { background: #e2e8f0; color: #334155; border-radius: 4px 4px 0 0; }
+    .tabs button.active { background: #2563eb; color: #fff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Semantius Neon Provisioner</h1>
+
+  <div class="tabs">
+    <button type="button" class="active" data-tab="provisioner">Neon Provisioner</button>
+    <button type="button" data-tab="migrate">Migrate</button>
+    <button type="button" data-tab="neonnew">Neon New</button>
+  </div>
+
+  <!-- Neon Provisioner Tab -->
+  <div id="tab-provisioner" class="tab-content active">
+    <form id="form-provisioner">
+      <label for="neon_api_key">Neon API Key</label>
+      <input type="password" id="neon_api_key" name="neon_api_key" placeholder="Enter your Neon API key" />
+
+      <label for="project_name">Project Name <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="project_name" name="project_name" placeholder="my-project" />
+
+      <label for="jwks_url">JWKS URL <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="jwks_url" name="jwks_url" placeholder="https://example.com/.well-known/jwks.json" />
+
+      <label for="jwt_audience">JWT Audience <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="jwt_audience" name="jwt_audience" placeholder="https://api.example.com" />
+
+      <label for="region_id">Region ID <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="region_id" name="region_id" placeholder="aws-us-east-2" value="aws-us-east-2" />
+
+      <button type="submit" id="submit-provisioner">Provision</button>
+    </form>
+  </div>
+
+  <!-- Migrate Tab -->
+  <div id="tab-migrate" class="tab-content">
+    <form id="form-migrate">
+      <label for="database_url">Database URL</label>
+      <textarea id="database_url" name="database_url" placeholder="postgresql://user:password@host:5432/database"></textarea>
+
+      <label for="modules">Modules <small style="font-weight:normal">(comma-separated, e.g. _core,nwind)</small></label>
+      <input type="text" id="modules" name="modules" placeholder="_core" />
+
+      <button type="submit" id="submit-migrate">Migrate</button>
+    </form>
+  </div>
+
+  <!-- Neon New Tab -->
+  <div id="tab-neonnew" class="tab-content">
+    <form id="form-neonnew">
+      <label for="modules_new">Modules <small style="font-weight:normal">(comma-separated, e.g. _core,nwind)</small></label>
+      <input type="text" id="modules_new" name="modules_new" placeholder="_core" />
+
+      <button type="submit" id="submit-neonnew">Provision New</button>
+    </form>
+  </div>
+
+  <div id="response"></div>
+
+  <script>
+    // Tab switching
+    document.querySelectorAll('.tabs button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.tabs button').forEach(function(b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    function showResponse(data, isError) {
+      var el = document.getElementById('response');
+      el.textContent = JSON.stringify(data, null, 2);
+      el.className = isError ? 'error' : 'success';
+      el.style.display = 'block';
+    }
+
+    function setButtonState(btn, loading) {
+      if (loading) {
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'Working...';
+        btn.disabled = true;
+      } else {
+        btn.textContent = btn.dataset.originalText || btn.textContent;
+        btn.disabled = false;
+      }
+    }
+
+    function parseModules(raw) {
+      return raw ? raw.split(',').map(function(m) { return m.trim(); }).filter(function(m) { return m.length > 0; }) : [];
+    }
+
+    // Neon Provisioner form
+    document.getElementById('form-provisioner').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('submit-provisioner');
+      setButtonState(btn, true);
+
+      try {
+        var res = await fetch('/neon-provisioner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            neon_api_key: document.getElementById('neon_api_key').value.trim() || undefined,
+            project_name: document.getElementById('project_name').value.trim(),
+            jwks_url: document.getElementById('jwks_url').value.trim(),
+            jwt_audience: document.getElementById('jwt_audience').value.trim(),
+            region_id: document.getElementById('region_id').value.trim()
+          })
+        });
+        var data = await res.json();
+        showResponse(data, !data.success);
+      } catch (err) {
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
+      } finally {
+        setButtonState(btn, false);
+      }
+    });
+
+    // Migrate form
+    document.getElementById('form-migrate').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('submit-migrate');
+      setButtonState(btn, true);
+
+      var databaseUrl = document.getElementById('database_url').value.trim();
+      var modules = parseModules(document.getElementById('modules').value.trim());
+
+      try {
+        var res = await fetch('/migrate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ database_url: databaseUrl, modules: modules })
+        });
+        var data = await res.json();
+        showResponse(data, !data.success);
+      } catch (err) {
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
+      } finally {
+        setButtonState(btn, false);
+      }
+    });
+
+    // Neon New form
+    document.getElementById('form-neonnew').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('submit-neonnew');
+      setButtonState(btn, true);
+
+      var modules = parseModules(document.getElementById('modules_new').value.trim());
+
+      try {
+        var res = await fetch('/neonnew', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modules: modules })
+        });
+        var data = await res.json();
+        showResponse(data, !data.success);
+      } catch (err) {
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true);
+      } finally {
+        setButtonState(btn, false);
+      }
+    });
+  </script>
+</body>
+</html>
