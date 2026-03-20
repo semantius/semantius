@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Semantius Neon Provisioner</title>
+  <title>Semantius - Migrate &amp; Refresh Cache</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
     h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
@@ -35,37 +35,15 @@
   </style>
 </head>
 <body>
-  <h1>Semantius Neon Provisioner</h1>
+  <h1>Semantius - Migrate &amp; Refresh Cache</h1>
 
   <div class="tabs">
-    <button type="button" class="active" data-tab="provisioner">Neon Provisioner</button>
-    <button type="button" data-tab="migrate">Migrate</button>
-  </div>
-
-  <!-- Neon Provisioner Tab -->
-  <div id="tab-provisioner" class="tab-content active">
-    <form id="form-provisioner">
-      <label for="neon_api_key">Neon API Key</label>
-      <input type="password" id="neon_api_key" name="neon_api_key" placeholder="Enter your Neon API key" />
-
-      <label for="project_name">Project Name <small style="font-weight:normal">(required)</small></label>
-      <input type="text" id="project_name" name="project_name" placeholder="my-project" />
-
-      <label for="jwks_url">JWKS URL <small style="font-weight:normal">(required)</small></label>
-      <input type="text" id="jwks_url" name="jwks_url" placeholder="https://example.com/.well-known/jwks.json" />
-
-      <label for="jwt_audience">JWT Audience <small style="font-weight:normal">(required)</small></label>
-      <input type="text" id="jwt_audience" name="jwt_audience" placeholder="https://api.example.com" />
-
-      <label for="region_id">Region ID <small style="font-weight:normal">(required)</small></label>
-      <input type="text" id="region_id" name="region_id" placeholder="aws-us-east-2" value="aws-us-east-2" />
-
-      <button type="submit" id="submit-provisioner">Provision</button>
-    </form>
+    <button type="button" class="active" data-tab="migrate">Migrate</button>
+    <button type="button" data-tab="refresh">Reset Cache</button>
   </div>
 
   <!-- Migrate Tab -->
-  <div id="tab-migrate" class="tab-content">
+  <div id="tab-migrate" class="tab-content active">
     <form id="form-migrate">
       <label for="migrate_api_key">API Key</label>
       <input type="password" id="migrate_api_key" name="migrate_api_key" placeholder="Enter NEON_PROVISIONER_API_KEY" />
@@ -80,6 +58,28 @@
     </form>
   </div>
 
+  <!-- Reset Cache Tab -->
+  <div id="tab-refresh" class="tab-content">
+    <form id="form-refresh">
+      <label for="refresh_api_key">API Key</label>
+      <input type="password" id="refresh_api_key" name="refresh_api_key" placeholder="Enter NEON_PROVISIONER_API_KEY" />
+
+      <label for="project_id">Project ID <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="project_id" name="project_id" placeholder="e.g. morning-lake-12345678" />
+
+      <label for="branch_id">Branch ID <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="branch_id" name="branch_id" placeholder="e.g. br-cool-name-12345678" />
+
+      <label for="database_name">Database Name <small style="font-weight:normal">(required)</small></label>
+      <input type="text" id="database_name" name="database_name" placeholder="e.g. neondb" />
+
+      <label for="refresh_database_url">Database URL <small style="font-weight:normal">(required)</small></label>
+      <textarea id="refresh_database_url" name="refresh_database_url" placeholder="postgresql://user:password@host:5432/database"></textarea>
+
+      <button type="submit" id="submit-refresh">Reset Cache</button>
+    </form>
+  </div>
+
   <div id="response"></div>
 
   <script>
@@ -90,6 +90,7 @@
         document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
         btn.classList.add('active');
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        clearResponse();
       });
     });
 
@@ -123,35 +124,6 @@
       return raw ? raw.split(',').map(function(m) { return m.trim(); }).filter(function(m) { return m.length > 0; }) : [];
     }
 
-    // Neon Provisioner form
-    document.getElementById('form-provisioner').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      var btn = document.getElementById('submit-provisioner');
-      clearResponse();
-      setButtonState(btn, true);
-      var start = performance.now();
-
-      try {
-        var res = await fetch('/neon-provisioner', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            neon_api_key: document.getElementById('neon_api_key').value.trim() || undefined,
-            project_name: document.getElementById('project_name').value.trim(),
-            jwks_url: document.getElementById('jwks_url').value.trim(),
-            jwt_audience: document.getElementById('jwt_audience').value.trim(),
-            region_id: document.getElementById('region_id').value.trim()
-          })
-        });
-        var data = await res.json();
-        showResponse(data, !data.success, Math.round(performance.now() - start));
-      } catch (err) {
-        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true, Math.round(performance.now() - start));
-      } finally {
-        setButtonState(btn, false);
-      }
-    });
-
     // Migrate form
     document.getElementById('form-migrate').addEventListener('submit', async function(e) {
       e.preventDefault();
@@ -172,6 +144,43 @@
             'Authorization': 'Bearer ' + apiKey
           },
           body: JSON.stringify({ database_url: databaseUrl, modules: modules })
+        });
+        var data = await res.json();
+        showResponse(data, !data.success, Math.round(performance.now() - start));
+      } catch (err) {
+        showResponse({ error: 'Request failed: ' + (err instanceof Error ? err.message : String(err)) }, true, Math.round(performance.now() - start));
+      } finally {
+        setButtonState(btn, false);
+      }
+    });
+
+    // Reset Cache form
+    document.getElementById('form-refresh').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('submit-refresh');
+      clearResponse();
+      setButtonState(btn, true);
+      var start = performance.now();
+
+      var apiKey = document.getElementById('refresh_api_key').value.trim();
+      var projectId = document.getElementById('project_id').value.trim();
+      var branchId = document.getElementById('branch_id').value.trim();
+      var databaseName = document.getElementById('database_name').value.trim();
+      var databaseUrl = document.getElementById('refresh_database_url').value.trim();
+
+      try {
+        var res = await fetch('/refresh_cache', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify({
+            project_id: projectId,
+            branch_id: branchId,
+            database_name: databaseName,
+            database_url: databaseUrl
+          })
         });
         var data = await res.json();
         showResponse(data, !data.success, Math.round(performance.now() - start));

@@ -229,6 +229,31 @@ export async function listDatabases(
 }
 
 /**
+ * Patch (refresh) the data API for a database on a branch.
+ * Sends PATCH with an empty JSON body to trigger a cache reset.
+ */
+export async function patchDataApi(
+  projectId: string,
+  branchId: string,
+  databaseName: string,
+  options: NeonApiOptions,
+): Promise<Record<string, unknown>> {
+  const res = await neonFetch(
+    `/projects/${projectId}/branches/${branchId}/data-api/${databaseName}`,
+    options,
+    {
+      method: "PATCH",
+      body: JSON.stringify({}),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to patch data API (HTTP ${res.status}): ${body}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+/**
  * Create (enable) the data API for a database on a branch.
  */
 export async function createDataApi(
