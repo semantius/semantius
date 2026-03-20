@@ -24,10 +24,40 @@ import {
 type Bindings = {
   DATABASE_URL?: string;
   NEON_API_KEY?: string;
+  NEON_PROVISIONER_API_KEY?: string;
   ASSETS?: Fetcher;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+// Require NEON_PROVISIONER_API_KEY to be configured — refuse all requests if missing
+app.use("*", async (c, next) => {
+  const provisionerKey = c.env?.NEON_PROVISIONER_API_KEY;
+  if (!provisionerKey) {
+    return c.json(
+      {
+        success: false,
+        error: "Service misconfigured: NEON_PROVISIONER_API_KEY environment variable is not set",
+      },
+      500,
+    );
+  }
+  const authHeader = c.req.header("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  // Use constant-time byte comparison to prevent timing attacks
+  const enc = new TextEncoder();
+  const a = enc.encode(token);
+  const b = enc.encode(provisionerKey);
+  let mismatch = a.byteLength !== b.byteLength ? 1 : 0;
+  const len = Math.min(a.byteLength, b.byteLength);
+  for (let i = 0; i < len; i++) {
+    mismatch |= a[i] ^ b[i];
+  }
+  if (mismatch !== 0) {
+    return c.json({ success: false, error: "Unauthorized" }, 401);
+  }
+  return next();
+});
 
 /**
  * POST /migrate
@@ -85,7 +115,6 @@ app.post("/migrate", async (c) => {
  *   - jwks_url: string      (required)
  *   - jwt_audience: string  (required)
  *   - region_id: string     (required)
- *   - neon_api_key: string  (optional, falls back to NEON_API_KEY env)
  *   - modules: string[]     (optional, defaults to ["_core"])
  *
  * Returns JSON with project_id and connection on success.
@@ -96,7 +125,6 @@ app.post("/neon-provisioner", async (c) => {
     jwks_url?: string;
     jwt_audience?: string;
     region_id?: string;
-    neon_api_key?: string;
     modules?: string[];
   };
 
@@ -118,15 +146,15 @@ app.post("/neon-provisioner", async (c) => {
     );
   }
 
-  const apiKey = body.neon_api_key ?? c.env?.NEON_API_KEY;
+  const apiKey = c.env?.NEON_API_KEY;
 
   if (!apiKey) {
     return c.json(
       {
         success: false,
-        error: "neon_api_key must be provided in the request body or set as the NEON_API_KEY environment variable",
+        error: "NEON_API_KEY environment variable must be set",
       },
-      400,
+      500,
     );
   }
 

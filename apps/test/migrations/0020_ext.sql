@@ -43,6 +43,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             perform set_config('request.jwt.claim.sub', external_id, true);
             perform set_config('request.jwt.claim.email', user_email, true);
             perform set_config('request.jwt.claim.role', 'authenticated', true);
+            perform set_config('request.jwt.claim.aud', '', true);
 
             -- Clear all app context variables set by ensure_context_initialized
             PERFORM set_config('app.current_user_id', NULL, false);

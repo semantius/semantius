@@ -115,45 +115,46 @@ DECLARE
     supabase_claims jsonb;
     claim_key TEXT;
     claim_value TEXT;
+    v_required_aud TEXT;
+    v_jwt_aud TEXT;
+    v_aud_json JSONB;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
     sub_value := current_setting('request.jwt.claim.sub', true);
 
-    IF v_role = 'authenticated' AND sub_value IS NOT NULL AND sub_value != '' THEN
-        RETURN sub_value;
-    END IF;
+    -- Step 2: If not Neon format, fall back to Supabase format (single JSON blob)
+    IF NOT (v_role = 'authenticated' AND sub_value IS NOT NULL AND sub_value != '') THEN
+        IF v_role IS NULL OR v_role = '' THEN
+            BEGIN
+                supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
+                        USING ERRCODE = 'insufficient_privilege';
+            END;
 
-    -- Step 2: Fallback — Supabase format (single JSON blob)
-    IF v_role IS NULL OR v_role = '' THEN
-        BEGIN
-            supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
-        EXCEPTION
-            WHEN OTHERS THEN
+            IF supabase_claims IS NULL THEN
                 RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
                     USING ERRCODE = 'insufficient_privilege';
-        END;
+            END IF;
 
-        IF supabase_claims IS NULL THEN
-            RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                USING ERRCODE = 'insufficient_privilege';
+            -- Normalize: convert all Supabase JSON properties to Neon-style settings
+            FOR claim_key, claim_value IN
+                SELECT key, value::text
+                FROM jsonb_each_text(supabase_claims)
+            LOOP
+                BEGIN
+                    PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
+                EXCEPTION
+                    WHEN OTHERS THEN NULL;
+                END;
+            END LOOP;
+
+            -- Read normalized values
+            v_role := current_setting('request.jwt.claim.role', true);
+            sub_value := current_setting('request.jwt.claim.sub', true);
         END IF;
-
-        -- Normalize: convert all Supabase JSON properties to Neon-style settings
-        FOR claim_key, claim_value IN
-            SELECT key, value::text
-            FROM jsonb_each_text(supabase_claims)
-        LOOP
-            BEGIN
-                PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
-            EXCEPTION
-                WHEN OTHERS THEN NULL;
-            END;
-        END LOOP;
-
-        -- Read normalized values
-        v_role := current_setting('request.jwt.claim.role', true);
-        sub_value := current_setting('request.jwt.claim.sub', true);
     END IF;
 
     -- Validate role
@@ -168,12 +169,55 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Validate JWT audience against _settings if a jwt_aud entry is configured.
+    -- This function is SECURITY DEFINER so it bypasses RLS and can always read _settings.
+    SELECT value INTO v_required_aud
+    FROM _settings
+    WHERE name = 'jwt_aud';
+
+    IF v_required_aud IS NOT NULL AND v_required_aud != '' THEN
+        v_jwt_aud := current_setting('request.jwt.claim.aud', true);
+
+        IF v_jwt_aud IS NULL OR v_jwt_aud = '' THEN
+            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+
+        -- Try to parse aud as JSON (array or string).
+        -- Neon sets array aud values as JSON (e.g. '["myapp","other"]');
+        -- a plain string audience is not valid JSON and falls to the exception handler.
+        BEGIN
+            v_aud_json := v_jwt_aud::jsonb;
+        EXCEPTION WHEN invalid_text_representation THEN
+            -- Plain (non-JSON) string — compare directly
+            IF v_jwt_aud != v_required_aud THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+            RETURN sub_value;
+        END;
+
+        IF jsonb_typeof(v_aud_json) = 'array' THEN
+            -- aud is a JSON array — the required audience must be one of the elements
+            IF NOT (v_aud_json ? v_required_aud) THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        ELSE
+            -- aud is a JSON scalar string — extract text and compare
+            IF v_aud_json #>> '{}' != v_required_aud THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        END IF;
+    END IF;
+
     RETURN sub_value;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. STABLE — cached per transaction.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE — cached per transaction.';
 
 -- =====================================================
 -- USER MANAGEMENT
