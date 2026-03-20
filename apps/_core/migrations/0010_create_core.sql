@@ -62,3 +62,25 @@ $$ LANGUAGE plpgsql SET search_path = common;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
 
+-- =====================================================
+-- _SETTINGS TABLE
+-- =====================================================
+-- Stores system-level configuration key/value pairs.
+-- RLS is enabled with an explicit deny-all policy so that
+-- the table is never exposed through PostgREST / the Data API.
+-- SECURITY DEFINER functions (e.g. rbac.uid(), common.refresh_schema_cache())
+-- can still read and write it because they run as the function owner
+-- who has BYPASSRLS privilege.
+
+CREATE TABLE _settings (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE _settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY settings_deny_all ON _settings
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
