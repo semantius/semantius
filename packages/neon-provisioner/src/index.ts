@@ -30,24 +30,31 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// Authenticate all incoming requests against NEON_PROVISIONER_API_KEY when set
+// Require NEON_PROVISIONER_API_KEY to be configured — refuse all requests if missing
 app.use("*", async (c, next) => {
   const provisionerKey = c.env?.NEON_PROVISIONER_API_KEY;
-  if (provisionerKey) {
-    const authHeader = c.req.header("Authorization") ?? "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    // Use constant-time byte comparison to prevent timing attacks
-    const enc = new TextEncoder();
-    const a = enc.encode(token);
-    const b = enc.encode(provisionerKey);
-    let mismatch = a.byteLength !== b.byteLength ? 1 : 0;
-    const len = Math.min(a.byteLength, b.byteLength);
-    for (let i = 0; i < len; i++) {
-      mismatch |= a[i] ^ b[i];
-    }
-    if (mismatch !== 0) {
-      return c.json({ success: false, error: "Unauthorized" }, 401);
-    }
+  if (!provisionerKey) {
+    return c.json(
+      {
+        success: false,
+        error: "Service misconfigured: NEON_PROVISIONER_API_KEY environment variable is not set",
+      },
+      500,
+    );
+  }
+  const authHeader = c.req.header("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  // Use constant-time byte comparison to prevent timing attacks
+  const enc = new TextEncoder();
+  const a = enc.encode(token);
+  const b = enc.encode(provisionerKey);
+  let mismatch = a.byteLength !== b.byteLength ? 1 : 0;
+  const len = Math.min(a.byteLength, b.byteLength);
+  for (let i = 0; i < len; i++) {
+    mismatch |= a[i] ^ b[i];
+  }
+  if (mismatch !== 0) {
+    return c.json({ success: false, error: "Unauthorized" }, 401);
   }
   return next();
 });

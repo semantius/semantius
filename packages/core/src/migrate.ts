@@ -24,7 +24,7 @@ export interface DatabaseClient {
   ): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
-/** Returns the SQL to create the _versions tracking table. */
+/** Returns the SQL to create the _versions tracking table and the _settings config table. */
 export function getVersionsTableSql(): string {
   return `CREATE TABLE IF NOT EXISTS _versions (
   name TEXT PRIMARY KEY,
@@ -33,10 +33,17 @@ export function getVersionsTableSql(): string {
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
 
-ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
+ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS _settings (
+  name  TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE _settings ENABLE ROW LEVEL SECURITY;`;
 }
 
-/** Ensures the _versions table exists, creating it if needed. */
+/** Ensures the _versions and _settings tables exist, creating them if needed. */
 export async function ensureVersionsTable(
   client: DatabaseClient,
 ): Promise<void> {

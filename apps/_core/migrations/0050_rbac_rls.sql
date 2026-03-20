@@ -218,6 +218,16 @@ CREATE POLICY versions_select_policy ON _versions
 -- No INSERT, UPDATE, or DELETE policies - these operations are denied to all semantius_user roles
 
 -- =====================================================
+-- _SETTINGS - no access for semantius_user (internal config only)
+-- =====================================================
+
+CREATE POLICY settings_deny_all ON _settings
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
+
+-- =====================================================
 -- GRANT TABLE ACCESS TO semantius_user ROLE
 -- =====================================================
 -- Grant usage on public schema
