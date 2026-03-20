@@ -7,8 +7,7 @@
     "directory": "./public",
     "binding": "ASSETS"
   },
-  // Set DATABASE_URL, NEON_API_KEY, and NEON_PROVISIONER_API_KEY via wrangler secret or environment variables
-  // wrangler secret put DATABASE_URL
+  // Set NEON_API_KEY and NEON_PROVISIONER_API_KEY via wrangler secret or environment variables
   // wrangler secret put NEON_API_KEY
   // wrangler secret put NEON_PROVISIONER_API_KEY
   "observability": {

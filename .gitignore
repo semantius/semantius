@@ -160,6 +160,9 @@ packages/neon-provisioner/dist/
 # Core package build output
 packages/core/dist/
 
+# Wrangler local secrets
+.dev.vars
+
 # Wrangler local state
 .wrangler/
 

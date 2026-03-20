@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-03-18T17:24:45.441Z
+ * Generated: 2026-03-20T22:02:27.537Z
  * Apps: 2  |  Migrations: 15
  */
 
@@ -91,6 +91,28 @@ $$ LANGUAGE plpgsql SET search_path = common;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
 
+-- =====================================================
+-- _SETTINGS TABLE
+-- =====================================================
+-- Stores system-level configuration key/value pairs.
+-- RLS is enabled with an explicit deny-all policy so that
+-- the table is never exposed through PostgREST / the Data API.
+-- SECURITY DEFINER functions (e.g. rbac.uid(), common.refresh_schema_cache())
+-- can still read and write it because they run as the function owner
+-- who has BYPASSRLS privilege.
+
+CREATE TABLE _settings (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE _settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY settings_deny_all ON _settings
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
 `,
     "0012_create_cache": `-- Create generic cache table for storing key-value pairs with expiration
 -- This eliminates the need for Redis and provides persistent caching across all function instances
@@ -269,6 +291,7 @@ CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     external_id TEXT UNIQUE NOT NULL DEFAULT '',
     email TEXT DEFAULT '',
+    display_name TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -505,45 +528,46 @@ DECLARE
     supabase_claims jsonb;
     claim_key TEXT;
     claim_value TEXT;
+    v_required_aud TEXT;
+    v_jwt_aud TEXT;
+    v_aud_json JSONB;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
     sub_value := current_setting('request.jwt.claim.sub', true);
 
-    IF v_role = 'authenticated' AND sub_value IS NOT NULL AND sub_value != '' THEN
-        RETURN sub_value;
-    END IF;
+    -- Step 2: If not Neon format, fall back to Supabase format (single JSON blob)
+    IF NOT (v_role = 'authenticated' AND sub_value IS NOT NULL AND sub_value != '') THEN
+        IF v_role IS NULL OR v_role = '' THEN
+            BEGIN
+                supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
+                        USING ERRCODE = 'insufficient_privilege';
+            END;
 
-    -- Step 2: Fallback — Supabase format (single JSON blob)
-    IF v_role IS NULL OR v_role = '' THEN
-        BEGIN
-            supabase_claims := current_setting('request.jwt.claims', true)::jsonb;
-        EXCEPTION
-            WHEN OTHERS THEN
+            IF supabase_claims IS NULL THEN
                 RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
                     USING ERRCODE = 'insufficient_privilege';
-        END;
+            END IF;
 
-        IF supabase_claims IS NULL THEN
-            RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                USING ERRCODE = 'insufficient_privilege';
+            -- Normalize: convert all Supabase JSON properties to Neon-style settings
+            FOR claim_key, claim_value IN
+                SELECT key, value::text
+                FROM jsonb_each_text(supabase_claims)
+            LOOP
+                BEGIN
+                    PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
+                EXCEPTION
+                    WHEN OTHERS THEN NULL;
+                END;
+            END LOOP;
+
+            -- Read normalized values
+            v_role := current_setting('request.jwt.claim.role', true);
+            sub_value := current_setting('request.jwt.claim.sub', true);
         END IF;
-
-        -- Normalize: convert all Supabase JSON properties to Neon-style settings
-        FOR claim_key, claim_value IN
-            SELECT key, value::text
-            FROM jsonb_each_text(supabase_claims)
-        LOOP
-            BEGIN
-                PERFORM set_config('request.jwt.claim.' || claim_key, claim_value, true);
-            EXCEPTION
-                WHEN OTHERS THEN NULL;
-            END;
-        END LOOP;
-
-        -- Read normalized values
-        v_role := current_setting('request.jwt.claim.role', true);
-        sub_value := current_setting('request.jwt.claim.sub', true);
     END IF;
 
     -- Validate role
@@ -558,12 +582,55 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Validate JWT audience against _settings if a jwt_aud entry is configured.
+    -- This function is SECURITY DEFINER so it bypasses RLS and can always read _settings.
+    SELECT value INTO v_required_aud
+    FROM _settings
+    WHERE name = 'jwt_aud';
+
+    IF v_required_aud IS NOT NULL AND v_required_aud != '' THEN
+        v_jwt_aud := current_setting('request.jwt.claim.aud', true);
+
+        IF v_jwt_aud IS NULL OR v_jwt_aud = '' THEN
+            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing'
+                USING ERRCODE = 'insufficient_privilege';
+        END IF;
+
+        -- Try to parse aud as JSON (array or string).
+        -- Neon sets array aud values as JSON (e.g. '["myapp","other"]');
+        -- a plain string audience is not valid JSON and falls to the exception handler.
+        BEGIN
+            v_aud_json := v_jwt_aud::jsonb;
+        EXCEPTION WHEN invalid_text_representation THEN
+            -- Plain (non-JSON) string — compare directly
+            IF v_jwt_aud != v_required_aud THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+            RETURN sub_value;
+        END;
+
+        IF jsonb_typeof(v_aud_json) = 'array' THEN
+            -- aud is a JSON array — the required audience must be one of the elements
+            IF NOT (v_aud_json ? v_required_aud) THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        ELSE
+            -- aud is a JSON scalar string — extract text and compare
+            IF v_aud_json #>> '{}' != v_required_aud THEN
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+        END IF;
+    END IF;
+
     RETURN sub_value;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. STABLE — cached per transaction.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE — cached per transaction.';
 
 -- =====================================================
 -- USER MANAGEMENT
@@ -2052,7 +2119,7 @@ BEGIN
   -- All field definitions for the fields table are consolidated here with NO duplication
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES 
-      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
+      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
       ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, 'entities', 'cascade'),
       ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
       ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, NULL, '', ''),
@@ -2085,7 +2152,7 @@ END $$;
 -- Insert fields metadata for entities table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 0, 'default', 'default', 'id', TRUE, TRUE, '', ''),
+    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 1, 'default', 'default', 'id', TRUE, TRUE, '', ''),
     ('entities', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, '', ''),
     ('entities', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
     ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, '', ''),
@@ -2106,9 +2173,10 @@ VALUES
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
     ('users', 'email', 'Email', 'User email address', 'email', FALSE, FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
+    ('users', 'display_name', 'Display Name', 'Display name for the user', 'text', FALSE, FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -2118,7 +2186,7 @@ VALUES
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
@@ -2133,7 +2201,7 @@ VALUES
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
@@ -2143,7 +2211,7 @@ VALUES
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
@@ -2153,7 +2221,7 @@ VALUES
 -- Insert fields metadata for user_roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
     ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -2165,7 +2233,7 @@ UPDATE fields SET singular_label_parent = 'User',  plural_label_parent = 'Users'
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -2177,7 +2245,7 @@ UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'P
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
@@ -2430,7 +2498,7 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search
     INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
@@ -2456,6 +2524,37 @@ CREATE TRIGGER create_table_trigger
     AFTER INSERT ON entities
     FOR EACH ROW
     EXECUTE FUNCTION create_dd_table();
+
+-- =====================================================
+-- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
+-- =====================================================
+-- When a new field is inserted with field_order = 0 (the default),
+-- automatically assign it to max(field_order) + 10 for that table,
+-- so new fields are always appended to the end of the fields list.
+
+CREATE OR REPLACE FUNCTION auto_set_field_order()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.field_order = 0 THEN
+        SELECT COALESCE(MAX(field_order), 0) + 10
+        INTO NEW.field_order
+        FROM fields
+        WHERE table_name = NEW.table_name;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_field_order IS
+'Trigger function that auto-assigns field_order to max(field_order)+10 when field_order=0 is inserted.';
+
+-- Apply trigger BEFORE INSERT on fields (must run before add_dd_field)
+CREATE TRIGGER auto_set_field_order_trigger
+    BEFORE INSERT ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_field_order();
+
+REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
 -- =====================================================
 -- TRIGGER FUNCTION: ADD FIELD ON INSERT
@@ -4145,9 +4244,41 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
     "0090_notify_triggers": `-- =====================================================
 -- POSTGREST SCHEMA RELOAD NOTIFICATIONS
 -- =====================================================
--- Send NOTIFY pgrst commands when tables or fields are modified
--- This ensures PostgREST automatically reloads its schema cache
+-- Send NOTIFY pgrst commands when tables or fields are modified.
+-- All notifications go through common.refresh_schema_cache() which
+-- also keeps the db_version timestamp in _settings up to date.
 -- =====================================================
+
+-- =====================================================
+-- COMMON: SCHEMA CACHE REFRESH
+-- =====================================================
+-- Central function called by all DDL and DML triggers.
+-- Sends NOTIFY pgrst, 'reload schema' and writes the current
+-- timestamp into _settings(name='db_version') so clients can
+-- detect that the schema has changed without polling PostgREST.
+
+CREATE OR REPLACE FUNCTION common.refresh_schema_cache() RETURNS void AS $$
+DECLARE
+    v_db_version_ts TEXT;
+    v_current       TEXT;
+BEGIN
+    -- ISO 8601 datetime without JSON quoting
+    v_db_version_ts := clock_timestamp()::text;
+
+    -- Update db_version only when the stored value is outdated (or missing)
+    SELECT value INTO v_current FROM _settings WHERE name = 'db_version';
+    IF NOT FOUND OR v_current < v_db_version_ts THEN
+        INSERT INTO _settings (name, value) VALUES ('db_version', v_db_version_ts)
+        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+    END IF;
+
+    -- Notify PostgREST to reload its schema cache
+    NOTIFY pgrst, 'reload schema';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION common.refresh_schema_cache() IS
+'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: NOTIFY ON TABLES CHANGES
@@ -4156,9 +4287,8 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 CREATE OR REPLACE FUNCTION notify_pgrst_tables()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Notify PostgREST to reload schema when tables metadata changes
-    PERFORM pg_notify('pgrst', 'reload schema');
-    
+    PERFORM common.refresh_schema_cache();
+
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
     ELSE
@@ -4167,7 +4297,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-COMMENT ON FUNCTION notify_pgrst_tables IS 
+COMMENT ON FUNCTION notify_pgrst_tables IS
 'Trigger function that notifies PostgREST to reload schema when entities are modified.';
 
 -- Apply trigger on entities table
@@ -4183,9 +4313,8 @@ CREATE TRIGGER notify_pgrst_on_tables_change
 CREATE OR REPLACE FUNCTION notify_pgrst_fields()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Notify PostgREST to reload schema when fields metadata changes
-    PERFORM pg_notify('pgrst', 'reload schema');
-    
+    PERFORM common.refresh_schema_cache();
+
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
     ELSE
@@ -4194,7 +4323,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-COMMENT ON FUNCTION notify_pgrst_fields IS 
+COMMENT ON FUNCTION notify_pgrst_fields IS
 'Trigger function that notifies PostgREST to reload schema when fields are modified.';
 
 -- Apply trigger on fields table
@@ -4203,9 +4332,86 @@ CREATE TRIGGER notify_pgrst_on_fields_change
     FOR EACH ROW
     EXECUTE FUNCTION notify_pgrst_fields();
 
+-- =====================================================
+-- DDL EVENT TRIGGERS: NOTIFY ON SCHEMA CHANGES
+-- =====================================================
+-- Fire on every DDL command that PostgREST cares about so its
+-- schema cache stays in sync automatically.
+
+-- Watch CREATE and ALTER commands
+CREATE OR REPLACE FUNCTION pgrst_ddl_watch() RETURNS event_trigger AS $$
+DECLARE
+    cmd record;
+BEGIN
+    FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
+    LOOP
+        IF cmd.command_tag IN (
+          'CREATE SCHEMA', 'ALTER SCHEMA'
+        , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+        , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+        , 'CREATE VIEW', 'ALTER VIEW'
+        , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+        , 'CREATE FUNCTION', 'ALTER FUNCTION'
+        , 'CREATE TRIGGER'
+        , 'CREATE TYPE', 'ALTER TYPE'
+        , 'CREATE RULE'
+        , 'COMMENT'
+        )
+        -- don't notify for CREATE TEMP table or other pg_temp objects
+        AND cmd.schema_name IS DISTINCT FROM 'pg_temp'
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Watch DROP commands
+CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
+DECLARE
+    obj record;
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
+    LOOP
+        IF obj.object_type IN (
+          'schema'
+        , 'table'
+        , 'foreign table'
+        , 'view'
+        , 'materialized view'
+        , 'function'
+        , 'trigger'
+        , 'type'
+        , 'rule'
+        )
+        AND obj.is_temporary IS false -- no pg_temp objects
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE EVENT TRIGGER pgrst_ddl_watch
+    ON ddl_command_end
+    EXECUTE PROCEDURE pgrst_ddl_watch();
+
+CREATE EVENT TRIGGER pgrst_drop_watch
+    ON sql_drop
+    EXECUTE PROCEDURE pgrst_drop_watch();
+
 -- Revoke default PUBLIC execute on notify trigger functions
 REVOKE EXECUTE ON FUNCTION notify_pgrst_tables() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
+
+-- Allow semantius_user to call common.refresh_schema_cache() so that DML
+-- triggers on entities/fields (which fire in the session user's context) can
+-- invoke the function.  The function itself is SECURITY DEFINER, so it
+-- always runs as the owner and is the only code that touches _settings.
+GRANT USAGE ON SCHEMA common TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.refresh_schema_cache() TO semantius_user;
 `,
     "0100_webhook_receiver": `-- =====================================================
 -- WEBHOOK RECEIVER TABLES

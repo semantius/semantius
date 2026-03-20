@@ -19,8 +19,8 @@ DECLARE
     v_db_version_ts TEXT;
     v_current       TEXT;
 BEGIN
-    -- ISO 8601 datetime without JSON quoting
-    v_db_version_ts := clock_timestamp()::text;
+    -- ISO 8601 datetime (e.g. 2026-03-20T22:21:49.813267+00:00)
+    v_db_version_ts := to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"');
 
     -- Update db_version only when the stored value is outdated (or missing)
     SELECT value INTO v_current FROM _settings WHERE name = 'db_version';
