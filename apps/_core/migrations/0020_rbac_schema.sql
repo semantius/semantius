@@ -58,6 +58,7 @@ CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     external_id TEXT UNIQUE NOT NULL DEFAULT '',
     email TEXT DEFAULT '',
+    display_name TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

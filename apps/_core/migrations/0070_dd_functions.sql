@@ -243,7 +243,7 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search
     INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
@@ -269,6 +269,37 @@ CREATE TRIGGER create_table_trigger
     AFTER INSERT ON entities
     FOR EACH ROW
     EXECUTE FUNCTION create_dd_table();
+
+-- =====================================================
+-- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
+-- =====================================================
+-- When a new field is inserted with field_order = 0 (the default),
+-- automatically assign it to max(field_order) + 10 for that table,
+-- so new fields are always appended to the end of the fields list.
+
+CREATE OR REPLACE FUNCTION auto_set_field_order()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.field_order = 0 THEN
+        SELECT COALESCE(MAX(field_order), 0) + 10
+        INTO NEW.field_order
+        FROM fields
+        WHERE table_name = NEW.table_name;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_field_order IS
+'Trigger function that auto-assigns field_order to max(field_order)+10 when field_order=0 is inserted.';
+
+-- Apply trigger BEFORE INSERT on fields (must run before add_dd_field)
+CREATE TRIGGER auto_set_field_order_trigger
+    BEFORE INSERT ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_field_order();
+
+REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
 -- =====================================================
 -- TRIGGER FUNCTION: ADD FIELD ON INSERT
