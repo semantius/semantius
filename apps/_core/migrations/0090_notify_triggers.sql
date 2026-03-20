@@ -19,8 +19,8 @@ DECLARE
     v_db_version_ts TEXT;
     v_current       TEXT;
 BEGIN
-    -- ISO 8601 datetime with millisecond precision as a JSON string
-    v_db_version_ts := to_json(clock_timestamp())::text;
+    -- ISO 8601 datetime without JSON quoting
+    v_db_version_ts := clock_timestamp()::text;
 
     -- Update db_version only when the stored value is outdated (or missing)
     SELECT value INTO v_current FROM _settings WHERE name = 'db_version';

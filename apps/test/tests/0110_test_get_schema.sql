@@ -329,8 +329,8 @@ SELECT ok(
 
 SELECT is(
     ((public.get_schema('customers_test')::jsonb)->'properties'->'id'->>'field_order')::INTEGER,
-    0,
-    'get_schema() should return correct field_order for id field (0)'
+    1,
+    'get_schema() should return correct field_order for id field (1)'
 );
 
 SELECT is(

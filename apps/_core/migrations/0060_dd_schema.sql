@@ -351,7 +351,7 @@ BEGIN
   -- All field definitions for the fields table are consolidated here with NO duplication
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES 
-      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
+      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
       ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, 'entities', 'cascade'),
       ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
       ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, NULL, '', ''),
@@ -384,7 +384,7 @@ END $$;
 -- Insert fields metadata for entities table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 0, 'default', 'default', 'id', TRUE, TRUE, '', ''),
+    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 1, 'default', 'default', 'id', TRUE, TRUE, '', ''),
     ('entities', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, '', ''),
     ('entities', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
     ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, '', ''),
@@ -405,9 +405,10 @@ VALUES
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
     ('users', 'email', 'Email', 'User email address', 'email', FALSE, FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
+    ('users', 'display_name', 'Display Name', 'Display name for the user', 'text', FALSE, FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
     ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -417,7 +418,7 @@ VALUES
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
@@ -432,7 +433,7 @@ VALUES
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
@@ -442,7 +443,7 @@ VALUES
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
@@ -452,7 +453,7 @@ VALUES
 -- Insert fields metadata for user_roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
     ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -464,7 +465,7 @@ UPDATE fields SET singular_label_parent = 'User',  plural_label_parent = 'Users'
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
     ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -476,7 +477,7 @@ UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'P
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 0, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
