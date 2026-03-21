@@ -1,5 +1,6 @@
 {
   "name": "semantius-neon-provisioner",
+  "workers_dev": true,
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": [
