@@ -44,6 +44,7 @@ route.post("/", async (c) => {
     jwt_audience?: string;
     region_id?: string;
     modules?: string[];
+    name?: string;
   };
 
   try {
@@ -52,7 +53,7 @@ route.post("/", async (c) => {
     return c.json({ success: false, error: "Invalid JSON body" }, 400);
   }
 
-  const { project_name, jwks_url, jwt_audience, region_id } = body;
+  const { project_name, jwks_url, jwt_audience, region_id, name } = body;
 
   if (!project_name || !jwks_url || !jwt_audience || !region_id) {
     return c.json(
@@ -210,6 +211,20 @@ route.post("/", async (c) => {
       );
     } finally {
       await pool.end();
+    }
+
+    // Step 8: Save slug to _settings if provided
+    if (name) {
+      const slugPool = new Pool({ connectionString: connectionUri });
+      try {
+        await slugPool.query(
+          `INSERT INTO _settings (name, value) VALUES ('slug', $1)
+           ON CONFLICT (name) DO UPDATE SET value = $1`,
+          [name],
+        );
+      } finally {
+        await slugPool.end();
+      }
     }
 
     // Build pooler URL from connection parameters

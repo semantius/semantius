@@ -2,11 +2,20 @@
   "name": "semantius-neon-provisioner",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
+  "routes": [
+    {
+      "pattern": "capi.semantius.cloud/*",
+      "zone_name": "semantius.cloud"
+    }
+  ],
   // Set NEON_API_KEY and NEON_PROVISIONER_API_KEY via wrangler secret or environment variables
   // wrangler secret put NEON_API_KEY
   // wrangler secret put NEON_PROVISIONER_API_KEY
