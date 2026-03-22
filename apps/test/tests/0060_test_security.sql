@@ -82,7 +82,8 @@ SELECT is(
             'update_search_vector_column',
             'update_table_searchable_flag',
             'update_table_is_child_flag',
-            'validate_permission_exists'
+            'validate_permission_exists',
+            'validate_api_key'
         )
     ),
     NULL::text,
