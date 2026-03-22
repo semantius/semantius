@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"refresh.cache\\\\|refresh_cache\\\\|refreshCache\\\\|cache_version\" c:/dev/semantius-core --include=*.ts --include=*.js --include=*.json -i -l)"
+    ]
+  }
+}

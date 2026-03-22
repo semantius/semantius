@@ -29,7 +29,10 @@ const requireApiKey: MiddlewareHandler<{ Bindings: Bindings }> = async (c, next)
     );
   }
   const authHeader = c.req.header("Authorization") ?? "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return c.json({ success: false, error: "Unauthorized: missing Bearer token" }, 401);
+  }
+  const token = authHeader.slice(7);
   // Use constant-time byte comparison to prevent timing attacks
   const enc = new TextEncoder();
   const a = enc.encode(token);
@@ -40,7 +43,7 @@ const requireApiKey: MiddlewareHandler<{ Bindings: Bindings }> = async (c, next)
     mismatch |= a[i] ^ b[i];
   }
   if (mismatch !== 0) {
-    return c.json({ success: false, error: "Unauthorized" }, 401);
+    return c.json({ success: false, error: "Unauthorized: invalid API key" }, 401);
   }
   return next();
 };

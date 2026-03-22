@@ -70,7 +70,7 @@ route.post("/", async (c) => {
       await pool.query(
         `INSERT INTO _settings (name, value) VALUES ('cache_version', $1)
          ON CONFLICT (name) DO UPDATE SET value = $1`,
-        [JSON.stringify(cache_reset_ts)],
+        [cache_reset_ts],
       );
     } finally {
       await pool.end();
