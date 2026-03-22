@@ -121,7 +121,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 -- Watch DROP commands
 CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
@@ -147,7 +147,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 CREATE EVENT TRIGGER pgrst_ddl_watch
     ON ddl_command_end

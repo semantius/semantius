@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -r \"refresh.cache\\\\|refresh_cache\\\\|refreshCache\\\\|cache_version\" c:/dev/semantius-core --include=*.ts --include=*.js --include=*.json -i -l)"
+      "Bash(grep -r \"refresh.cache\\\\|refresh_cache\\\\|refreshCache\\\\|cache_version\" c:/dev/semantius-core --include=*.ts --include=*.js --include=*.json -i -l)",
+      "Bash(npm test:*)",
+      "Bash(grep -r \"pgrst_ddl_watch\\\\|pgrst_drop_watch\" c:/dev/semantius-core/ --include=*.sql -l)",
+      "Bash(pnpm test:*)"
     ]
   }
 }

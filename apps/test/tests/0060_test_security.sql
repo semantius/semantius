@@ -51,6 +51,12 @@ SELECT is(
         JOIN pg_namespace n ON p.pronamespace = n.oid
         WHERE n.nspname IN ('public', 'rbac')
         AND pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE')
+        -- pgcrypto extension functions are intentionally public
+        AND NOT EXISTS (
+            SELECT 1 FROM pg_extension e
+            JOIN pg_depend d ON d.refobjid = e.oid AND d.classid = 'pg_catalog.pg_proc'::regclass AND d.objid = p.oid
+            WHERE e.extname = 'pgcrypto'
+        )
     ),
     NULL::text,
     'No functions in public and rbac schemas should be executable by public role'

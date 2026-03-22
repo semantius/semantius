@@ -2,6 +2,10 @@
 -- COMMON SCHEMA - Reusable Database Functions
 -- =====================================================
 
+-- Enable pgcrypto for gen_random_bytes()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+
 -- Ensure the authenticated role exists (abort if it doesn't)
 DO $$
 BEGIN
