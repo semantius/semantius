@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS entities (
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
     edit_mode TEXT NOT NULL DEFAULT 'auto',
+    cube_mode TEXT NOT NULL DEFAULT '1',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS fields (
     singular_label_parent TEXT NOT NULL DEFAULT '',
     plural_label_parent TEXT NOT NULL DEFAULT '',
     unique_value BOOLEAN NOT NULL DEFAULT FALSE,
+    cube_type TEXT NOT NULL DEFAULT '0',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -319,6 +321,8 @@ DECLARE
   ctype_values TEXT[] := ARRAY['', 'id', 'label'];
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
+  cube_mode_values TEXT[] := ARRAY['0', '1'];
+  cube_type_values TEXT[] := ARRAY['0', '1', '2', '6'];
 BEGIN
   -- Add enum constraints
   EXECUTE format(
@@ -344,6 +348,16 @@ BEGIN
   EXECUTE format(
     'ALTER TABLE entities ADD CONSTRAINT valid_edit_mode CHECK (edit_mode = ANY(%L))',
     edit_mode_values
+  );
+
+  EXECUTE format(
+    'ALTER TABLE entities ADD CONSTRAINT valid_cube_mode CHECK (cube_mode = ANY(%L))',
+    cube_mode_values
+  );
+
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_cube_type CHECK (cube_type = ANY(%L))',
+    cube_type_values
   );
   
   -- Insert field metadata for fields table using the same enum arrays
@@ -372,13 +386,15 @@ BEGIN
       ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'unique_value', 'Unique Value', 'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
+      ('fields', 'cube_type', 'Cube Type', 'Cube type: 0=disabled, 1=auto, 2=dimension, 6=measure', 'enum', FALSE, FALSE, 144, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_type_values), '', ''),
       ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES
-      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', '');
+      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
+      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode: 0=disabled, 1=auto', 'enum', FALSE, FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
 END $$;
 
 -- Insert fields metadata for entities table
@@ -399,8 +415,8 @@ VALUES
     ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)

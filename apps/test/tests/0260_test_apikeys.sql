@@ -1,0 +1,178 @@
+-- Test API key generation and validation
+BEGIN;
+
+SELECT plan(16);
+
+-- =====================================================
+-- TEST: _apikeys table exists
+-- =====================================================
+
+-- Test 1: _apikeys table exists in database
+SELECT ok(
+    (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_apikeys' AND table_schema = 'public')),
+    '_apikeys table should exist in database'
+);
+
+-- Test 2: _apikeys table has RLS enabled
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE relname = '_apikeys'),
+    '_apikeys table should have RLS enabled'
+);
+
+-- Test 3: _apikeys is NOT in entities metadata (internal table)
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM entities WHERE table_name = '_apikeys')),
+    '_apikeys should NOT be in entities metadata'
+);
+
+-- Test 4: _apikeys has key_id unique index
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'idx_apikeys_key_id'
+    )),
+    'Unique index on key_id should exist'
+);
+
+-- =====================================================
+-- TEST: cube_mode column on entities table
+-- =====================================================
+
+-- Test 5: entities table has cube_mode column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'entities' AND column_name = 'cube_mode'
+    )),
+    'entities table should have cube_mode column'
+);
+
+-- Test 6: cube_mode defaults to 1
+SELECT ok(
+    (SELECT cube_mode = '1' FROM entities WHERE table_name = 'customers_test'),
+    'cube_mode should default to 1 for existing entities'
+);
+
+-- Test 7: cube_mode field metadata exists
+SELECT ok(
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'entities' AND field_name = 'cube_mode')),
+    'cube_mode field metadata should exist in fields table'
+);
+
+-- =====================================================
+-- TEST: cube_type column on fields table
+-- =====================================================
+
+-- Test 8: fields table has cube_type column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'fields' AND column_name = 'cube_type'
+    )),
+    'fields table should have cube_type column'
+);
+
+-- Test 9: cube_type defaults to 0
+SELECT ok(
+    (SELECT cube_type = '0' FROM fields WHERE table_name = 'entities' AND field_name = 'table_name'),
+    'cube_type should default to 0 for existing fields'
+);
+
+-- Test 10: cube_type field metadata exists
+SELECT ok(
+    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'fields' AND field_name = 'cube_type')),
+    'cube_type field metadata should exist in fields table'
+);
+
+-- =====================================================
+-- TEST: generate_api_key for current user (user3 = admin)
+-- =====================================================
+
+-- Authenticate as admin user (user3 has Administrator role)
+SELECT authenticate_as('user3');
+
+-- Test 11: Generate API key for current user (p_user_id=0)
+SELECT ok(
+    (SELECT generate_api_key(0) LIKE 'uk-%'),
+    'generate_api_key(0) should return a key starting with uk-'
+);
+
+-- Test 12: Generated key is stored in _apikeys
+-- Reset to superuser to read _apikeys (RLS blocks semantius_user)
+RESET ROLE;
+SELECT ok(
+    (SELECT COUNT(*) >= 1 FROM _apikeys WHERE user_id = 1003),
+    'API key record should exist for user3 (id 1003)'
+);
+
+-- =====================================================
+-- TEST: generate_api_key for specific user (admin only)
+-- =====================================================
+
+-- Authenticate as admin again
+SELECT authenticate_as('user3');
+
+-- Test 13: Admin can generate key for another user
+SELECT ok(
+    (SELECT generate_api_key(1001) LIKE 'sk-%'),
+    'generate_api_key(1001) by admin should return a key starting with sk-'
+);
+
+-- =====================================================
+-- TEST: Non-admin cannot generate key for another user
+-- =====================================================
+
+-- Authenticate as non-admin user
+SELECT authenticate_as('user1');
+
+-- Test 14: Non-admin cannot generate key for another user
+SELECT throws_ok(
+    $$ SELECT generate_api_key(1002) $$,
+    '42501',
+    NULL,
+    'Non-admin should not be able to generate key for another user'
+);
+
+-- =====================================================
+-- TEST: validate_api_key
+-- =====================================================
+
+-- Authenticate as admin to generate a known key
+SELECT authenticate_as('user3');
+
+-- Generate a new key and validate it
+-- Need superuser to call validate_api_key (not granted to semantius_user)
+DO $$
+DECLARE
+    v_key TEXT;
+    v_user_id INTEGER;
+BEGIN
+    -- Generate key as authenticated user
+    v_key := generate_api_key(0);
+
+    -- Switch to superuser to call validate_api_key
+    RESET ROLE;
+
+    -- Validate the key
+    v_user_id := validate_api_key(v_key);
+
+    -- Store results for test assertions
+    PERFORM set_config('test.generated_key', v_key, true);
+    PERFORM set_config('test.validated_user_id', COALESCE(v_user_id::TEXT, ''), true);
+END $$;
+
+-- Test 15: validate_api_key returns correct user_id for valid key
+SELECT ok(
+    (SELECT current_setting('test.validated_user_id', true) = '1003'),
+    'validate_api_key should return user_id 1003 for a valid key generated by user3'
+);
+
+-- Test 16: validate_api_key returns NULL for invalid key
+RESET ROLE;
+SELECT ok(
+    (SELECT validate_api_key('uk-invalid-invalidinvalidinvalidinvalid') IS NULL),
+    'validate_api_key should return NULL for an invalid key'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
