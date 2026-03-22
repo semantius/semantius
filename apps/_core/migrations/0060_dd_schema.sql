@@ -321,8 +321,8 @@ DECLARE
   ctype_values TEXT[] := ARRAY['', 'id', 'label'];
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
-  cube_mode_values TEXT[] := ARRAY['0', '1'];
-  cube_type_values TEXT[] := ARRAY['0', '1', '2', '6'];
+  cube_mode_values TEXT[] := ARRAY['0', '1']; -- 0=disabled, 1=auto
+  cube_type_values TEXT[] := ARRAY['0', '1', '2', '6']; -- 0=disabled, 1=auto, 2=dimension, 6=measure
 BEGIN
   -- Add enum constraints
   EXECUTE format(

@@ -1,7 +1,7 @@
 -- Test API key generation and validation
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(19);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -172,6 +172,24 @@ RESET ROLE;
 SELECT ok(
     (SELECT validate_api_key('uk-invalid-invalidinvalidinvalidinvalid') IS NULL),
     'validate_api_key should return NULL for an invalid key'
+);
+
+-- Test 17: validate_api_key returns NULL for empty string
+SELECT ok(
+    (SELECT validate_api_key('') IS NULL),
+    'validate_api_key should return NULL for empty string'
+);
+
+-- Test 18: validate_api_key returns NULL for NULL input
+SELECT ok(
+    (SELECT validate_api_key(NULL) IS NULL),
+    'validate_api_key should return NULL for NULL input'
+);
+
+-- Test 19: validate_api_key returns NULL for key without dashes
+SELECT ok(
+    (SELECT validate_api_key('nodasheshere') IS NULL),
+    'validate_api_key should return NULL for key without dashes'
 );
 
 SELECT * FROM finish();

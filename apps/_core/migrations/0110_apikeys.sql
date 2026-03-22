@@ -86,7 +86,7 @@ BEGIN
 
             -- Attempt to insert with hashed secret
             INSERT INTO _apikeys (user_id, key_id, secret_hash)
-            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf')));
+            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)));
 
             -- If we reach here, insert was successful
             v_full_api_key := v_new_key_id || '-' || v_new_secret;
@@ -135,7 +135,7 @@ BEGIN
     -- e.g. "uk-abcdef012345-0123456789abcdef0123456789abcdef"
     v_last_dash := length(p_api_key) - position('-' IN reverse(p_api_key)) + 1;
 
-    IF v_last_dash <= 0 OR v_last_dash >= length(p_api_key) THEN
+    IF position('-' IN reverse(p_api_key)) = 0 OR v_last_dash >= length(p_api_key) THEN
         RETURN NULL;
     END IF;
 
