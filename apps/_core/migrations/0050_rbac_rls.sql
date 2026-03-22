@@ -295,6 +295,10 @@ BEGIN
     -- Check if attempting to delete role 1 (User role)
     -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     IF OLD.role_id = 1 THEN
+        -- Allow cascade when the user itself is being deleted
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
+            RETURN OLD;
+        END IF;
         RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
             USING ERRCODE = 'P0001';
     END IF;

@@ -416,6 +416,15 @@ VALUES
     (1, 1, 'gh-evt-67890', '2026-01-01 12:37:00'::timestamptz, '2026-01-01 12:37:01'::timestamptz, '{"action": "invalid"}'::jsonb, 90, 'Invalid action type');
 
 -- =====================================================
+-- SEED API KEY FOR USER 1002 (UAT)
+-- =====================================================
+-- Known API key for user 1002 (user2 / sales@test.com) for UAT testing:
+--   sk-seed001002-ab12cd340123456789abcdef01234567
+
+INSERT INTO _apikeys (user_id, key_id, secret_hash)
+VALUES (1002, 'sk-seed001002', crypt('ab12cd340123456789abcdef01234567', gen_salt('bf', 10)));
+
+-- =====================================================
 -- VERIFICATION QUERIES
 -- =====================================================
 -- Run these to verify the system is working
