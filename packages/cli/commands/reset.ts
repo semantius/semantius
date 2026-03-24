@@ -22,8 +22,8 @@ export async function resetCommand(databaseUrl: string, confirm: boolean = false
   await dropallCommand(databaseUrl, true, false);
 
   // Step 2: Migrate with test apps
-  console.log("\n--- Step 2/3: migrate --apps test ---");
-  await migrateCommand("test", databaseUrl, false);
+  console.log("\n--- Step 2/3: migrate --apps cloud,test ---");
+  await migrateCommand("cloud,test", databaseUrl, false);
 
   // Step 3: Run tests
   console.log("\n--- Step 3/3: test ---");
