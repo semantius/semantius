@@ -596,3 +596,45 @@ COMMENT ON FUNCTION public.has_public_read IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.has_public_read() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
+
+-- =====================================================
+-- GET MODULE CUBE
+-- =====================================================
+
+-- Returns distinct entity names that form the "cube" for a given module:
+--   1. All entities that directly belong to the module.
+--   2. All entities referenced via the reference_table field of any field
+--      that belongs to one of those module entities.
+-- The result is sorted alphabetically and deduplicated.
+CREATE OR REPLACE FUNCTION public.get_module_cube(p_module_name TEXT)
+RETURNS SETOF TEXT AS $$
+BEGIN
+    RETURN QUERY
+    SELECT DISTINCT name
+    FROM (
+        -- All entities belonging to the module
+        SELECT e.table_name AS name
+        FROM entities e
+        JOIN modules m ON m.id = e.module_id
+        WHERE m.module_name = p_module_name
+
+        UNION
+
+        -- All entities referenced via reference_table from fields of module entities
+        SELECT f.reference_table AS name
+        FROM fields f
+        JOIN entities e ON e.table_name = f.table_name
+        JOIN modules m ON m.id = e.module_id
+        WHERE m.module_name = p_module_name
+          AND f.reference_table != ''
+    ) AS names
+    ORDER BY name;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION public.get_module_cube IS
+'Returns the distinct set of entity table names that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_module_cube(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_module_cube(TEXT) TO semantius_user;
