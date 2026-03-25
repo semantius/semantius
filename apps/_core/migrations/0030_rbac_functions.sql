@@ -695,9 +695,9 @@ BEGIN
     FROM permission_tree pt
     ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.get_user_permissions IS 
+COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Returns all effective permissions for a user, including implied permissions.';
 
 -- Get current user's permissions (uses lazy initialization)

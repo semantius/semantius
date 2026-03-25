@@ -390,3 +390,28 @@ INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_or
 VALUES
     ('us_states', 'state_abbr',   'State Abbreviation', 'text', FALSE, 20, 'default', 'default', 'Two-letter state abbreviation',     '', TRUE,  ''),
     ('us_states', 'state_region', 'State Region',       'text', FALSE, 30, 'default', 'default', 'Geographic region the state is in', '', FALSE, '');
+
+-- =====================================================
+-- ROLE PERMISSIONS
+-- =====================================================
+
+-- Grant nwind:view and nwind:manage to role 2
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 2, p.id
+FROM permissions p
+WHERE p.permission_name IN ('nwind:view', 'nwind:manage')
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id = 2 AND rp.permission_id = p.id
+  );
+
+-- Grant nwind:view and nwind:manage to role 10001 (Sales User) if it exists
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+CROSS JOIN permissions p
+WHERE r.id = 10001
+  AND r.role_name = 'Sales User'
+  AND p.permission_name IN ('nwind:view', 'nwind:manage')
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  );

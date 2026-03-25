@@ -601,40 +601,64 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 -- GET MODULE CUBE
 -- =====================================================
 
--- Returns distinct entity names that form the "cube" for a given module:
+-- Returns schemas for all entities that form the "cube" for a given module:
 --   1. All entities that directly belong to the module.
 --   2. All entities referenced via the reference_table field of any field
 --      that belongs to one of those module entities.
--- The result is sorted alphabetically and deduplicated.
-CREATE OR REPLACE FUNCTION public.get_module_cube(p_module_name TEXT)
-RETURNS SETOF TEXT AS $$
+-- Entities are sorted alphabetically and deduplicated. Tables the current user
+-- lacks view permission for are silently skipped.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schemas JSON[] := '{}';
+    v_schema JSON;
 BEGIN
-    RETURN QUERY
-    SELECT DISTINCT name
-    FROM (
-        -- All entities belonging to the module
-        SELECT e.table_name AS name
-        FROM entities e
-        JOIN modules m ON m.id = e.module_id
-        WHERE m.module_name = p_module_name
+    PERFORM rbac.uid();
 
-        UNION
+    FOR v_table_name IN
+        SELECT DISTINCT name
+        FROM (
+            -- All entities belonging to the module
+            SELECT e.table_name AS name
+            FROM entities e
+            JOIN modules m ON m.id = e.module_id
+            WHERE m.module_name = p_module_name
 
-        -- All entities referenced via reference_table from fields of module entities
-        SELECT f.reference_table AS name
-        FROM fields f
-        JOIN entities e ON e.table_name = f.table_name
-        JOIN modules m ON m.id = e.module_id
-        WHERE m.module_name = p_module_name
-          AND f.reference_table != ''
-    ) AS names
-    ORDER BY name;
+            UNION
+
+            -- All entities referenced via reference_table from fields of module entities
+            SELECT f.reference_table AS name
+            FROM fields f
+            JOIN entities e ON e.table_name = f.table_name
+            JOIN modules m ON m.id = e.module_id
+            WHERE m.module_name = p_module_name
+              AND f.reference_table != ''
+        ) AS names
+        ORDER BY name
+    LOOP
+        -- Check if the table exists and the user has view permission; skip otherwise
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_name);
+            IF v_schema IS NOT NULL THEN
+                v_schemas := array_append(v_schemas, v_schema);
+            END IF;
+        END IF;
+    END LOOP;
+
+    RETURN array_to_json(v_schemas);
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION public.get_module_cube IS
-'Returns the distinct set of entity table names that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities.';
+COMMENT ON FUNCTION public.get_module_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. Tables the current user lacks view permission for are silently skipped.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_module_cube(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_module_cube(TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
