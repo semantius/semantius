@@ -123,6 +123,7 @@ export async function executeSQL(
           : `SQL execution failed in ${fileName}: ${sqlError.message}`;
         throw new Error(errorMsg);
       }
+
     }
 
     throw sqlError;

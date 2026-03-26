@@ -165,8 +165,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Internal use only - not exposed via PostgREST.';
+'Validates an API key and returns the user_id if valid, NULL otherwise. Called by semantius_user for API key authentication.';
 
--- Only revoke from PUBLIC, do NOT grant to semantius_user
--- This ensures the function is not reachable via PostgREST
-REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
+-- Grant to semantius_user so it can be used for API key auth flows
+GRANT EXECUTE ON FUNCTION public.validate_api_key(TEXT) TO semantius_user;

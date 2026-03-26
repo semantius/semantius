@@ -1,0 +1,22 @@
+ALTER TABLE orders FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY orders_select_employee_policy ON orders
+    FOR SELECT
+    TO semantius_user
+    USING (employee_id = (SELECT rbac.user_id()));
+
+CREATE POLICY orders_insert_employee_policy ON orders
+    FOR INSERT
+    TO semantius_user
+    WITH CHECK (employee_id = (SELECT rbac.user_id()));
+
+CREATE POLICY orders_update_employee_policy ON orders
+    FOR UPDATE
+    TO semantius_user
+    USING (employee_id = (SELECT rbac.user_id()))
+    WITH CHECK (employee_id = (SELECT rbac.user_id()));
+
+CREATE POLICY orders_delete_employee_policy ON orders
+    FOR DELETE
+    TO semantius_user
+    USING (employee_id = (SELECT rbac.user_id()));

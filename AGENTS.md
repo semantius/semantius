@@ -317,3 +317,7 @@ Tests are written in pgTAP and stored in `apps/test/tests/`. The testing workflo
 3. Comprehensive test execution via `test` command
 
 This prototyping approach allows rapid iteration without migration complexity.
+
+## Agent Rules
+
+- Never make code changes unless explicitly asked. Discussing a problem is not the same as requesting a fix.
