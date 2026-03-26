@@ -12,17 +12,16 @@ select authenticate_as('user1');
 -- customers_test references regions_test (already in CRM)
 -- Expected cube for CRM: customers_test, regions_test (2 schemas)
 
--- Test 1: get_module_cubes() returns a non-empty JSON array for a known module
+-- Test 1: get_module_cubes() returns at least one row for a known module
 SELECT ok(
-    json_array_length(public.get_module_cubes('CRM')) > 0,
-    'get_module_cubes(CRM) should return a non-empty JSON array'
+    EXISTS (SELECT 1 FROM public.get_module_cubes('CRM')),
+    'get_module_cubes(CRM) should return at least one row'
 );
 
 -- Test 2: CRM module cube contains schema for customers_test
 SELECT ok(
     EXISTS (
-        SELECT 1
-        FROM json_array_elements(public.get_module_cubes('CRM')) AS s
+        SELECT 1 FROM public.get_module_cubes('CRM') AS s
         WHERE s->'table'->>'table_name' = 'customers_test'
     ),
     'CRM module cube should include schema for customers_test'
@@ -31,8 +30,7 @@ SELECT ok(
 -- Test 3: CRM module cube contains schema for regions_test
 SELECT ok(
     EXISTS (
-        SELECT 1
-        FROM json_array_elements(public.get_module_cubes('CRM')) AS s
+        SELECT 1 FROM public.get_module_cubes('CRM') AS s
         WHERE s->'table'->>'table_name' = 'regions_test'
     ),
     'CRM module cube should include schema for regions_test (direct entity)'
@@ -40,7 +38,7 @@ SELECT ok(
 
 -- Test 4: CRM module cube returns exactly 2 schemas
 SELECT is(
-    json_array_length(public.get_module_cubes('CRM')),
+    (SELECT COUNT(*)::integer FROM public.get_module_cubes('CRM')),
     2,
     'CRM module cube should have exactly 2 schemas (customers_test and regions_test)'
 );
@@ -48,8 +46,7 @@ SELECT is(
 -- Test 5: HR module cube contains schema for employees_test
 SELECT ok(
     EXISTS (
-        SELECT 1
-        FROM json_array_elements(public.get_module_cubes('HR')) AS s
+        SELECT 1 FROM public.get_module_cubes('HR') AS s
         WHERE s->'table'->>'table_name' = 'employees_test'
     ),
     'HR module cube should include schema for employees_test'
@@ -58,28 +55,24 @@ SELECT ok(
 -- Test 6: HR module cube contains schema for departments (referenced by employees_test)
 SELECT ok(
     EXISTS (
-        SELECT 1
-        FROM json_array_elements(public.get_module_cubes('HR')) AS s
+        SELECT 1 FROM public.get_module_cubes('HR') AS s
         WHERE s->'table'->>'table_name' = 'departments'
     ),
     'HR module cube should include schema for departments'
 );
 
--- Test 7: get_module_cubes() returns an empty JSON array for unknown module
+-- Test 7: get_module_cubes() returns empty set for unknown module
 SELECT is(
-    json_array_length(public.get_module_cubes('NONEXISTENT_MODULE')),
+    (SELECT COUNT(*)::integer FROM public.get_module_cubes('NONEXISTENT_MODULE')),
     0,
-    'get_module_cubes() should return empty JSON array for unknown module name'
+    'get_module_cubes() should return empty set for unknown module name'
 );
 
 -- Test 8: Results are unique (no duplicates)
 -- customers_test references regions_test which is also in CRM — should only appear once
 SELECT is(
-    (
-        SELECT COUNT(*)::integer
-        FROM json_array_elements(public.get_module_cubes('CRM')) AS s
-        WHERE s->'table'->>'table_name' = 'regions_test'
-    ),
+    (SELECT COUNT(*)::integer FROM public.get_module_cubes('CRM') AS s
+     WHERE s->'table'->>'table_name' = 'regions_test'),
     1,
     'regions_test should appear exactly once in CRM cube even though it is referenced'
 );

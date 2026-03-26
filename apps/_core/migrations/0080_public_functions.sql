@@ -609,11 +609,10 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 -- lacks view permission for are silently skipped.
 -- Returns a JSON array of schemas in the same format as get_schema().
 CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
-RETURNS JSON AS $$
+RETURNS SETOF JSON AS $$
 DECLARE
     v_table_name TEXT;
     v_table_record RECORD;
-    v_schemas JSON[] := '{}';
     v_schema JSON;
 BEGIN
     PERFORM rbac.uid();
@@ -647,12 +646,10 @@ BEGIN
         IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
             v_schema := public.build_schema_for_table(v_table_name);
             IF v_schema IS NOT NULL THEN
-                v_schemas := array_append(v_schemas, v_schema);
+                RETURN NEXT v_schema;
             END IF;
         END IF;
     END LOOP;
-
-    RETURN array_to_json(v_schemas);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
