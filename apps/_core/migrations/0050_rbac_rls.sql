@@ -29,6 +29,7 @@ ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
@@ -177,6 +178,31 @@ CREATE POLICY role_permissions_update_policy ON role_permissions
     WITH CHECK ((select rbac.has_permission('admin')));
 
 CREATE POLICY role_permissions_delete_policy ON role_permissions
+    FOR DELETE
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')));
+
+-- =====================================================
+-- USER_PERMISSIONS - admin for all operations
+-- =====================================================
+
+CREATE POLICY user_permissions_select_policy ON user_permissions
+    FOR SELECT
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_insert_policy ON user_permissions
+    FOR INSERT
+    TO semantius_user
+    WITH CHECK ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_update_policy ON user_permissions
+    FOR UPDATE
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')))
+    WITH CHECK ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_delete_policy ON user_permissions
     FOR DELETE
     TO semantius_user
     USING ((select rbac.has_permission('admin')));
@@ -354,7 +380,42 @@ CREATE TRIGGER default_assigned_by_trigger
 COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 'Defaults assigned_by to the current session user when not provided on insert.';
 
+-- =====================================================
+-- TRIGGER: Default granted_by to current user for user_permissions
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION rbac.default_granted_by()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_current_user_id INTEGER;
+BEGIN
+    IF NEW.granted_by IS NULL THEN
+        BEGIN
+            v_current_user_id := rbac.user_id();
+        EXCEPTION WHEN OTHERS THEN
+            v_current_user_id := NULL;
+        END;
+        IF v_current_user_id IS NOT NULL THEN
+            NEW.granted_by := v_current_user_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.default_granted_by IS
+'Trigger function to default granted_by to the current user ID when not explicitly provided.';
+
+CREATE TRIGGER default_granted_by_trigger
+    BEFORE INSERT ON user_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.default_granted_by();
+
+COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
+'Defaults granted_by to the current session user when not provided on insert.';
+
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;

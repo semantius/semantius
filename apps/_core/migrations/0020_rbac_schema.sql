@@ -93,6 +93,18 @@ CREATE TABLE role_permissions (
 
 COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
 
+-- User-Permission mapping (direct per-user permissions)
+CREATE TABLE user_permissions (
+    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || permission_id) STORED PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    granted_by INTEGER REFERENCES users(id),
+    UNIQUE (user_id, permission_id)
+);
+
+COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and permissions for direct per-user permission grants';
+
 -- =====================================================
 -- PERMISSION HIERARCHY
 -- =====================================================
@@ -154,6 +166,14 @@ CREATE INDEX idx_roles_module ON roles(module_id);
 CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
 CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
+
+-- =====================================================
+-- INDEXES - User Permissions
+-- =====================================================
+
+CREATE INDEX idx_user_permissions_user ON user_permissions(user_id);
+CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
+CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
 -- =====================================================
 -- INDEXES - Users

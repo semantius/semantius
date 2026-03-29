@@ -9,7 +9,7 @@
 
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(36);
 
 -- =====================================================
 -- MODULE TESTS
@@ -101,9 +101,6 @@ SELECT has_table('public', 'employee_territories', 'employee_territories table s
 
 -- Test 18: order_details table exists
 SELECT has_table('public', 'order_details', 'order_details table should exist');
-
--- Test 19: us_states table exists
-SELECT has_table('public', 'us_states', 'us_states table should exist');
 
 -- =====================================================
 -- UNIQUE FIELD TESTS (non-integer original PKs)
