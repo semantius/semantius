@@ -20,3 +20,15 @@ CREATE POLICY orders_delete_employee_policy ON orders
     FOR DELETE
     TO semantius_user
     USING (employee_id = (SELECT rbac.user_id()));
+
+
+
+begin;
+SET ROLE authenticated;
+    SELECT set_config('role', 'semantius_user', true);
+    SELECT set_config('request.jwt.claim.sub', 'user2', true);
+    SELECT set_config('request.jwt.claim.role', 'authenticated', true);
+    SELECT set_config('request.jwt.claim.aud', '', true);
+
+select get_userinfo();
+commit;

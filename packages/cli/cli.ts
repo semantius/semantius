@@ -33,6 +33,7 @@ interface CliArgs {
   tap?: boolean;
   confirm?: boolean;
   script?: boolean;
+  failfast?: boolean;
   env?: string;
   "database-url"?: string;
   _: string[];
@@ -117,6 +118,7 @@ OPTIONS:
     --apps <APPS>           Comma-separated list of app names (for migrate command)
     --confirm               Skip confirmation prompt (for dropall and reset commands)
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
+    --failfast              Stop test execution after the first failed test file (for test and reset commands)
     --env <ENV>             Environment name to load (default: local, loads .env.<ENV> file)
     --database-url <URL>    Database connection URL (overrides DATABASE_URL env variable and .env file)
 
@@ -138,6 +140,7 @@ EXAMPLES:
     deno task connect --verbose
     deno task connect --database-url postgresql://user:pass@host:5432/db
     deno task test --tap
+    deno task test --failfast
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
@@ -147,6 +150,7 @@ EXAMPLES:
     deno task dropall --script
     deno task reset --confirm
     deno task reset --confirm --verbose
+    deno task reset --confirm --failfast
     deno task connect --env test
     deno task migrate --apps nwind --env staging
   `);
@@ -217,7 +221,7 @@ async function lintProject(): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    boolean: ["help", "version", "verbose", "tap", "confirm", "script"],
+    boolean: ["help", "version", "verbose", "tap", "confirm", "script", "failfast"],
     string: ["config", "output", "apps", "env", "database-url"],
     alias: {
       h: "help",
@@ -264,7 +268,7 @@ async function main(): Promise<void> {
       break;
       
     case "test":
-      await testCommand(databaseUrl!, args.tap);
+      await testCommand(databaseUrl!, args.tap, args.failfast);
       break;
       
     case "lint":
@@ -288,7 +292,7 @@ async function main(): Promise<void> {
       break;
 
     case "reset":
-      await resetCommand(databaseUrl!, args.confirm || false);
+      await resetCommand(databaseUrl!, args.confirm || false, args.failfast || false);
       break;
       
     case "docgen":

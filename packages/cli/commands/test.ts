@@ -21,7 +21,7 @@ interface TestResult {
 
 interface TapReporter {
   start(): void;
-  test(result: TestResult): void;
+  test(result: TestResult): boolean; // returns false if failFast should stop execution
   finish(results: TestResult[]): void;
 }
 
@@ -31,26 +31,32 @@ class DefaultReporter implements TapReporter {
   private totalFailed = 0;
   private totalPlanned = 0;
   private filesWithErrors = 0;
+  private failFast: boolean;
+
+  constructor(failFast = false) {
+    this.failFast = failFast;
+  }
 
   start(): void {
     console.log("TAP version 13");
   }
 
-  test(result: TestResult): void {
+  test(result: TestResult): boolean {
     // SQL execution errors are reported but don't abort the test run
     if (result.errors.length > 0) {
       console.log(`# FATAL ERROR in ${result.filename}`);
       console.log(`# Error: ${result.errors[0]}`);
       this.filesWithErrors++;
       this.totalFailed++; // Count the file error as a failure
-      return;
+      return !this.failFast;
     }
-    
+
     console.log(`# ${basename(result.filename)}, ${result.executionTimeMs} ms`);
-    
+
     const lines = result.content.split('\n').filter(line => line.trim());
     let testNum = 0;
-    
+    let fileFailed = false;
+
     for (const line of lines) {
       if (line.startsWith('1..')) {
         console.log(line);
@@ -63,12 +69,14 @@ class DefaultReporter implements TapReporter {
           this.totalPassed++;
         } else {
           this.totalFailed++;
+          fileFailed = true;
         }
       } else if (line.startsWith('#')) {
         console.log(line);
       }
     }
     this.totalTests += result.executed;
+    return !(this.failFast && fileFailed);
   }
 
   finish(results: TestResult[]): void {
@@ -110,14 +118,19 @@ class TapSpecReporter implements TapReporter {
   private currentTest = 0;
   private filesWithErrors = 0;
   private skippedFiles: string[] = [];
+  private failFast: boolean;
+
+  constructor(failFast = false) {
+    this.failFast = failFast;
+  }
 
   start(): void {
     console.log("\n");
   }
 
-  test(result: TestResult): void {
+  test(result: TestResult): boolean {
     console.log(`\n  ${basename(result.filename)}, ${result.executionTimeMs} ms`);
-    
+
     // SQL execution errors are reported but don't abort the test run
     if (result.errors.length > 0) {
       console.error(`    ✗ FATAL: SQL execution failed`);
@@ -125,13 +138,14 @@ class TapSpecReporter implements TapReporter {
       this.filesWithErrors++;
       this.totalFailed++;
       this.skippedFiles.push(basename(result.filename));
-      return;
+      return !this.failFast;
     }
-    
+
     const lines = result.content.split('\n').filter(line => line.trim());
     let planned = 0;
     let executed = 0;
-    
+    let fileFailed = false;
+
     for (const line of lines) {
       if (line.startsWith('1..')) {
         planned = parseInt(line.substring(3));
@@ -140,19 +154,20 @@ class TapSpecReporter implements TapReporter {
         executed++;
         const parts = line.split(' - ');
         const testName = parts[1] || `test ${this.currentTest}`;
-        
+
         if (line.startsWith('ok')) {
           console.log(`    ✓ ${testName}`);
           this.totalPassed++;
         } else {
           console.log(`    ✗ ${testName}`);
           this.totalFailed++;
+          fileFailed = true;
         }
       } else if (line.startsWith('#')) {
         // Filter out pgTAP internal messages and show clean diagnostic output
         const isFailedTestMessage = line.toLowerCase().includes('failed test');
         const isLooksLikeMessage = line.toLowerCase().includes('looks like you failed');
-        
+
         if (!isFailedTestMessage && !isLooksLikeMessage) {
           // Remove leading # and extra spaces, then display
           const cleanLine = line.substring(1).trim();
@@ -162,15 +177,17 @@ class TapSpecReporter implements TapReporter {
         }
       }
     }
-    
+
     // Check for plan vs execution mismatch per file
     if (planned > 0 && executed !== planned) {
       console.log(`    ✗ Test plan mismatch: planned ${planned} tests but ran ${executed}`);
       this.totalFailed++;
+      fileFailed = true;
     }
-    
+
     this.totalPlanned += planned;
     this.totalExecuted += executed;
+    return !(this.failFast && fileFailed);
   }
 
   finish(results: TestResult[]): void {
@@ -315,15 +332,19 @@ class PgTest {
 
   async runTests(testDir: string): Promise<TestResult[]> {
     const results: TestResult[] = [];
-    
+
     this.reporter.start();
-    
+
     for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
       const result = await this.runTest(entry.path);
       results.push(result);
-      this.reporter.test(result);
+      const shouldContinue = this.reporter.test(result);
+      if (!shouldContinue) {
+        console.log("\n# Stopping after first failure (--failfast)");
+        break;
+      }
     }
-    
+
     this.reporter.finish(results);
     return results;
   }
@@ -331,11 +352,11 @@ class PgTest {
 
 
 
-export async function testCommand(databaseUrl: string, tapFlag?: boolean): Promise<void> {
+export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFast = false): Promise<void> {
   console.log("Running test command...");
-  
+
   // Use plain TAP reporter when --tap flag is provided, otherwise use pretty formatted reporter
-  const reporter = tapFlag ? new DefaultReporter() : new TapSpecReporter();
+  const reporter = tapFlag ? new DefaultReporter(failFast) : new TapSpecReporter(failFast);
   const pgTest = new PgTest(databaseUrl, reporter);
 
   try {

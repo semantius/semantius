@@ -57,6 +57,8 @@ SELECT is(
             JOIN pg_depend d ON d.refobjid = e.oid AND d.classid = 'pg_catalog.pg_proc'::regclass AND d.objid = p.oid
             WHERE e.extname = 'pgcrypto'
         )
+        -- public.validate_api_key is intentionally public executable
+        AND NOT (n.nspname = 'public' AND p.proname = 'validate_api_key')
     ),
     NULL::text,
     'No functions in public and rbac schemas should be executable by public role'

@@ -7,7 +7,7 @@ import { dropallCommand } from "./dropall.ts";
 import { migrateCommand } from "./migrate.ts";
 import { testCommand } from "./test.ts";
 
-export async function resetCommand(databaseUrl: string, confirm: boolean = false): Promise<void> {
+export async function resetCommand(databaseUrl: string, confirm: boolean = false, failFast = false): Promise<void> {
   if (!confirm) {
     console.error("ERROR: --confirm flag is required to run the reset command");
     console.log("Usage: deno task reset --confirm");
@@ -27,7 +27,7 @@ export async function resetCommand(databaseUrl: string, confirm: boolean = false
 
   // Step 3: Run tests
   console.log("\n--- Step 3/3: test ---");
-  await testCommand(databaseUrl);
+  await testCommand(databaseUrl, false, failFast);
 
   console.log("\nReset completed successfully!");
 }
