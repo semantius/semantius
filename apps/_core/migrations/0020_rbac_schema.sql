@@ -17,6 +17,7 @@ CREATE TABLE modules (
     home_page TEXT DEFAULT '/' NOT NULL,
     alias TEXT DEFAULT '' NOT NULL,
     settings JSONB,
+    dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

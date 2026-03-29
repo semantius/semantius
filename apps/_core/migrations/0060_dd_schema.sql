@@ -443,9 +443,10 @@ VALUES
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 39, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
