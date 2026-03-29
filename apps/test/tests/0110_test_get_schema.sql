@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(137);
+SELECT plan(142);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -1118,6 +1118,45 @@ SELECT is(
      WHERE elem->>'id' = 'user_roles.user_id'),
     'Roles',
     'get_schema(users) children user_roles.user_id should have plural_label_parent "Roles"'
+);
+
+-- =====================================================
+-- TEST: cube_type included in field properties
+-- =====================================================
+
+-- Test that a field includes cube_type in its schema properties
+SELECT ok(
+    (SELECT public.get_schema('customers_test')::jsonb->'properties'->'id' ? 'cube_type'),
+    'get_schema(customers_test) id field should include cube_type'
+);
+
+SELECT ok(
+    (SELECT public.get_schema('customers_test')::jsonb->'properties'->'customer_name' ? 'cube_type'),
+    'get_schema(customers_test) customer_name field should include cube_type'
+);
+
+-- Test cube_type default value is "auto"
+SELECT is(
+    (SELECT public.get_schema('customers_test')::jsonb->'properties'->'id'->>'cube_type'),
+    'auto',
+    'get_schema(customers_test) id field cube_type should default to "auto"'
+);
+
+-- =====================================================
+-- TEST: cube_mode included in table object
+-- =====================================================
+
+-- Test that the table object includes cube_mode
+SELECT ok(
+    (SELECT public.get_schema('customers_test')::jsonb->'table' ? 'cube_mode'),
+    'get_schema(customers_test) table object should include cube_mode'
+);
+
+-- Test cube_mode default value is "auto"
+SELECT is(
+    (SELECT public.get_schema('customers_test')::jsonb->'table'->>'cube_mode'),
+    'auto',
+    'get_schema(customers_test) table object cube_mode should default to "auto"'
 );
 
 SELECT * FROM finish();

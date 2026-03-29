@@ -252,6 +252,7 @@ BEGIN
             f.ctype,
             f.is_core,
             f.searchable,
+            f.cube_type,
             f.singular_label_parent,
             f.plural_label_parent,
             -- Join with tables to get id_column and label_column when reference_table is set
@@ -293,6 +294,8 @@ BEGIN
             jsonb_build_object('is_core', is_core) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
+            -- Add cube_type field
+            jsonb_build_object('cube_type', cube_type) ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
             CASE 
                 WHEN format IS NOT NULL 
