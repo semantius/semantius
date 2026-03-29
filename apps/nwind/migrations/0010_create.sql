@@ -279,9 +279,9 @@ INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_or
 VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    FALSE, 40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
     ('products', 'unit_price',        'Unit Price',         'float',   FALSE, 50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
-    ('products', 'units_in_stock',    'Units In Stock',     'int32',   FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'dimension'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'dimension'),
-    ('products', 'reorder_level',     'Reorder Level',      'int32',   FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'dimension'),
+    ('products', 'units_in_stock',    'Units In Stock',     'int32',   FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'reorder_level',     'Reorder Level',      'int32',   FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
     ('products', 'discontinued',      'Discontinued',       'boolean', FALSE, 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
@@ -364,7 +364,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
     ('order_details', 'unit_price', 'Unit Price', 'float', FALSE, 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
-    ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'dimension'),
+    ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
     ('order_details', 'discount',   'Discount',   'float', FALSE, 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
 
