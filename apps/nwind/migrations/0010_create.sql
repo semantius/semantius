@@ -191,21 +191,6 @@ VALUES (
     'label'
 );
 
--- 12. us_states
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES (
-    'us_states',
-    'us_state',
-    'US State',
-    'US States',
-    'United States state reference data',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
-    'nwind:view',
-    'nwind:manage',
-    'id',
-    'state_name'
-);
-
 -- =====================================================
 -- FIELDS
 -- =====================================================
@@ -382,14 +367,7 @@ VALUES
     ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, ''),
     ('order_details', 'discount',   'Discount',   'float', FALSE, 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '');
 
--- -----------------------------------------------------
--- us_states fields
--- -----------------------------------------------------
--- (state_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
-VALUES
-    ('us_states', 'state_abbr',   'State Abbreviation', 'text', FALSE, 20, 'default', 'default', 'Two-letter state abbreviation',     '', TRUE,  ''),
-    ('us_states', 'state_region', 'State Region',       'text', FALSE, 30, 'default', 'default', 'Geographic region the state is in', '', FALSE, '');
+
 
 -- =====================================================
 -- ROLE PERMISSIONS
