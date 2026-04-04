@@ -294,7 +294,7 @@ Many-to-many mapping between users and roles
 
 ## Entity: users
 
-External users synchronized from JWT tokens
+Users and agents
 
 | field_name | label | value |
 |------------|-------|-------|
@@ -304,7 +304,7 @@ External users synchronized from JWT tokens
 | singular_label | Singular Label | User |
 | plural_label | Plural Label | Users |
 | icon_url | Icon URL | - |
-| description | Description | External users synchronized from JWT tokens |
+| description | Description | Users and agents |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `user:read` |
 | edit_permission | Edit Permission | `user:manage` |

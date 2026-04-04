@@ -67,7 +67,7 @@ CREATE TABLE users (
     last_seen TIMESTAMPTZ
 );
 
-COMMENT ON TABLE users IS 'External users synchronized from JWT tokens';
+COMMENT ON TABLE users IS 'Users and agents';
 COMMENT ON COLUMN users.external_id IS 'External identifier from authentication provider (e.g., Auth0, Firebase)';
 
 -- User-Role mapping

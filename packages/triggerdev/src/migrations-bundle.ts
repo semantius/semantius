@@ -2,8 +2,8 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-03-22T08:14:04.691Z
- * Apps: 2  |  Migrations: 15
+ * Generated: 2026-04-04T17:54:21.608Z
+ * Apps: 3  |  Migrations: 17
  */
 
 export interface MigrationFile {
@@ -30,6 +30,10 @@ const MIGRATIONS_BUNDLE: Record<string, Record<string, string>> = {
     "0010_create_core": `-- =====================================================
 -- COMMON SCHEMA - Reusable Database Functions
 -- =====================================================
+
+-- Enable pgcrypto for gen_random_bytes()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 
 -- Ensure the authenticated role exists (abort if it doesn't)
 DO $$
@@ -250,6 +254,7 @@ CREATE TABLE modules (
     home_page TEXT DEFAULT '/' NOT NULL,
     alias TEXT DEFAULT '' NOT NULL,
     settings JSONB,
+    dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -299,7 +304,7 @@ CREATE TABLE users (
     last_seen TIMESTAMPTZ
 );
 
-COMMENT ON TABLE users IS 'External users synchronized from JWT tokens';
+COMMENT ON TABLE users IS 'Users and agents';
 COMMENT ON COLUMN users.external_id IS 'External identifier from authentication provider (e.g., Auth0, Firebase)';
 
 -- User-Role mapping
@@ -325,6 +330,18 @@ CREATE TABLE role_permissions (
 );
 
 COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
+
+-- User-Permission mapping (direct per-user permissions)
+CREATE TABLE user_permissions (
+    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || permission_id) STORED PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    granted_by INTEGER REFERENCES users(id),
+    UNIQUE (user_id, permission_id)
+);
+
+COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and permissions for direct per-user permission grants';
 
 -- =====================================================
 -- PERMISSION HIERARCHY
@@ -387,6 +404,14 @@ CREATE INDEX idx_roles_module ON roles(module_id);
 CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
 CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
+
+-- =====================================================
+-- INDEXES - User Permissions
+-- =====================================================
+
+CREATE INDEX idx_user_permissions_user ON user_permissions(user_id);
+CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
+CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
 -- =====================================================
 -- INDEXES - Users
@@ -862,6 +887,16 @@ BEGIN
         
         UNION
         
+        -- Direct per-user permissions
+        SELECT DISTINCT p.id AS permission_id
+        FROM users u
+        JOIN user_permissions up ON u.id = up.user_id
+        JOIN permissions p ON up.permission_id = p.id
+        WHERE u.external_id = p_external_id
+          AND u.is_disabled = FALSE
+        
+        UNION
+        
         -- Add implied permissions (children in hierarchy)
         SELECT DISTINCT ph.child_permission_id
         FROM permission_tree pt
@@ -1086,13 +1121,23 @@ BEGIN
 
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
-        -- Direct permissions
+        -- Direct permissions from roles
         SELECT DISTINCT p.id AS permission_id, p.permission_name
         FROM users u
         JOIN user_roles ur ON u.id = ur.user_id
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
         JOIN permissions p ON rp.permission_id = p.id
+        WHERE u.external_id = p_external_id
+          AND u.is_disabled = FALSE
+        
+        UNION
+        
+        -- Direct per-user permissions
+        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        FROM users u
+        JOIN user_permissions up ON u.id = up.user_id
+        JOIN permissions p ON up.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
@@ -1108,9 +1153,9 @@ BEGIN
     FROM permission_tree pt
     ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.get_user_permissions IS 
+COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Returns all effective permissions for a user, including implied permissions.';
 
 -- Get current user's permissions (uses lazy initialization)
@@ -1400,7 +1445,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- =====================================================
 
 INSERT INTO modules (id, module_name, description, view_permission, logo_url, logo_color, home_page, alias) VALUES
-    (1, '_core', 'Core', 'admin', 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1zZXR0aW5ncy1pY29uIGx1Y2lkZS1zZXR0aW5ncyI+PHBhdGggZD0iTTkuNjcxIDQuMTM2YTIuMzQgMi4zNCAwIDAgMSA0LjY1OSAwIDIuMzQgMi4zNCAwIDAgMCAzLjMxOSAxLjkxNSAyLjM0IDIuMzQgMCAwIDEgMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAgMCAzLjgzMSAyLjM0IDIuMzQgMCAwIDEtMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAtMy4zMTkgMS45MTUgMi4zNCAyLjM0IDAgMCAxLTQuNjU5IDAgMi4zNCAyLjM0IDAgMCAwLTMuMzItMS45MTUgMi4zNCAyLjM0IDAgMCAxLTIuMzMtNC4wMzMgMi4zNCAyLjM0IDAgMCAwIDAtMy44MzFBMi4zNCAyLjM0IDAgMCAxIDYuMzUgNi4wNTFhMi4zNCAyLjM0IDAgMCAwIDMuMzE5LTEuOTE1Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIvPjwvc3ZnPg==', '#e42528', '/admin/users', 'admin'),
+    (1, '_core', 'Administration', 'admin', 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1zZXR0aW5ncy1pY29uIGx1Y2lkZS1zZXR0aW5ncyI+PHBhdGggZD0iTTkuNjcxIDQuMTM2YTIuMzQgMi4zNCAwIDAgMSA0LjY1OSAwIDIuMzQgMi4zNCAwIDAgMCAzLjMxOSAxLjkxNSAyLjM0IDIuMzQgMCAwIDEgMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAgMCAzLjgzMSAyLjM0IDIuMzQgMCAwIDEtMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAtMy4zMTkgMS45MTUgMi4zNCAyLjM0IDAgMCAxLTQuNjU5IDAgMi4zNCAyLjM0IDAgMCAwLTMuMzItMS45MTUgMi4zNCAyLjM0IDAgMCAxLTIuMzMtNC4wMzMgMi4zNCAyLjM0IDAgMCAwIDAtMy44MzFBMi4zNCAyLjM0IDAgMCAxIDYuMzUgNi4wNTFhMi4zNCAyLjM0IDAgMCAwIDMuMzE5LTEuOTE1Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIvPjwvc3ZnPg==', '#e42528', '/admin/users', 'admin'),
     (2, '_public', 'Public', 'user:read', '', '', '/', '');
 
 -- =====================================================
@@ -1441,6 +1486,7 @@ ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
@@ -1594,6 +1640,31 @@ CREATE POLICY role_permissions_delete_policy ON role_permissions
     USING ((select rbac.has_permission('admin')));
 
 -- =====================================================
+-- USER_PERMISSIONS - admin for all operations
+-- =====================================================
+
+CREATE POLICY user_permissions_select_policy ON user_permissions
+    FOR SELECT
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_insert_policy ON user_permissions
+    FOR INSERT
+    TO semantius_user
+    WITH CHECK ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_update_policy ON user_permissions
+    FOR UPDATE
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')))
+    WITH CHECK ((select rbac.has_permission('admin')));
+
+CREATE POLICY user_permissions_delete_policy ON user_permissions
+    FOR DELETE
+    TO semantius_user
+    USING ((select rbac.has_permission('admin')));
+
+-- =====================================================
 -- PERMISSION_HIERARCHY - admin for all operations
 -- =====================================================
 
@@ -1707,6 +1778,10 @@ BEGIN
     -- Check if attempting to delete role 1 (User role)
     -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     IF OLD.role_id = 1 THEN
+        -- Allow cascade when the user itself is being deleted
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
+            RETURN OLD;
+        END IF;
         RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
             USING ERRCODE = 'P0001';
     END IF;
@@ -1762,10 +1837,45 @@ CREATE TRIGGER default_assigned_by_trigger
 COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 'Defaults assigned_by to the current session user when not provided on insert.';
 
+-- =====================================================
+-- TRIGGER: Default granted_by to current user for user_permissions
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION rbac.default_granted_by()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_current_user_id INTEGER;
+BEGIN
+    IF NEW.granted_by IS NULL THEN
+        BEGIN
+            v_current_user_id := rbac.user_id();
+        EXCEPTION WHEN OTHERS THEN
+            v_current_user_id := NULL;
+        END;
+        IF v_current_user_id IS NOT NULL THEN
+            NEW.granted_by := v_current_user_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.default_granted_by IS
+'Trigger function to default granted_by to the current user ID when not explicitly provided.';
+
+CREATE TRIGGER default_granted_by_trigger
+    BEFORE INSERT ON user_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.default_granted_by();
+
+COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
+'Defaults granted_by to the current session user when not provided on insert.';
+
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;`,
+REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;`,
     "0060_dd_schema": `-- =====================================================
 -- DYNAMIC TABLE MANAGEMENT SCHEMA
 -- =====================================================
@@ -1795,6 +1905,7 @@ CREATE TABLE IF NOT EXISTS entities (
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
     edit_mode TEXT NOT NULL DEFAULT 'auto',
+    cube_mode TEXT NOT NULL DEFAULT 'auto',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -1853,6 +1964,7 @@ CREATE TABLE IF NOT EXISTS fields (
     singular_label_parent TEXT NOT NULL DEFAULT '',
     plural_label_parent TEXT NOT NULL DEFAULT '',
     unique_value BOOLEAN NOT NULL DEFAULT FALSE,
+    cube_type TEXT NOT NULL DEFAULT 'auto',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -2053,12 +2165,13 @@ INSERT INTO entities (table_name, singular, plural, singular_label, plural_label
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title'),
-    ('users', 'user', 'users', 'User', 'Users', 'External users synchronized from JWT tokens', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
+    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
     ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name'),
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
+    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id');
 
 -- =====================================================
@@ -2087,6 +2200,8 @@ DECLARE
   ctype_values TEXT[] := ARRAY['', 'id', 'label'];
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
+  cube_mode_values TEXT[] := ARRAY['disabled', 'auto'];
+  cube_type_values TEXT[] := ARRAY['disabled', 'auto', 'dimension', 'measure'];
 BEGIN
   -- Add enum constraints
   EXECUTE format(
@@ -2112,6 +2227,16 @@ BEGIN
   EXECUTE format(
     'ALTER TABLE entities ADD CONSTRAINT valid_edit_mode CHECK (edit_mode = ANY(%L))',
     edit_mode_values
+  );
+
+  EXECUTE format(
+    'ALTER TABLE entities ADD CONSTRAINT valid_cube_mode CHECK (cube_mode = ANY(%L))',
+    cube_mode_values
+  );
+
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_cube_type CHECK (cube_type = ANY(%L))',
+    cube_type_values
   );
   
   -- Insert field metadata for fields table using the same enum arrays
@@ -2140,13 +2265,15 @@ BEGIN
       ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'unique_value', 'Unique Value', 'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
+      ('fields', 'cube_type', 'Cube Type', 'Cube type for OLAP cube generation', 'enum', FALSE, FALSE, 144, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_type_values), '', ''),
       ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
       ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES
-      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', '');
+      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
+      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'enum', FALSE, FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
 END $$;
 
 -- Insert fields metadata for entities table
@@ -2167,8 +2294,8 @@ VALUES
     ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 120, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
@@ -2194,9 +2321,10 @@ VALUES
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 39, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
@@ -2241,6 +2369,18 @@ VALUES
 
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'role_id';
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_id';
+
+-- Insert fields metadata for user_permissions table
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+VALUES 
+    ('user_permissions', 'id', 'Id', 'Generated identifier (user_id.permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('user_permissions', 'user_id', 'User Id', 'User this permission is granted to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
+    ('user_permissions', 'permission_id', 'Permission Id', 'Permission granted to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('user_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('user_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
+
+UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'user_permissions' AND field_name = 'user_id';
+UPDATE fields SET singular_label_parent = 'User', plural_label_parent = 'Users' WHERE table_name = 'user_permissions' AND field_name = 'permission_id';
 
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
@@ -3896,6 +4036,7 @@ BEGIN
             f.ctype,
             f.is_core,
             f.searchable,
+            f.cube_type,
             f.singular_label_parent,
             f.plural_label_parent,
             -- Join with tables to get id_column and label_column when reference_table is set
@@ -3937,6 +4078,8 @@ BEGIN
             jsonb_build_object('is_core', is_core) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
+            -- Add cube_type field
+            jsonb_build_object('cube_type', cube_type) ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
             CASE 
                 WHEN format IS NOT NULL 
@@ -4240,6 +4383,107 @@ COMMENT ON FUNCTION public.has_public_read IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.has_public_read() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
+
+-- =====================================================
+-- GET MODULE CUBE
+-- =====================================================
+
+-- Returns schemas for all entities that form the "cube" for a given module:
+--   1. All entities that directly belong to the module.
+--   2. All entities referenced via the reference_table field of any field
+--      that belongs to one of those module entities.
+-- Entities are sorted alphabetically and deduplicated. Tables the current user
+-- lacks view permission for are silently skipped.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOR v_table_name IN
+        SELECT DISTINCT name
+        FROM (
+            -- All entities belonging to the module
+            SELECT e.table_name AS name
+            FROM entities e
+            JOIN modules m ON m.id = e.module_id
+            WHERE m.module_name = p_module_name
+
+            UNION
+
+            -- All entities referenced via reference_table from fields of module entities
+            SELECT f.reference_table AS name
+            FROM fields f
+            JOIN entities e ON e.table_name = f.table_name
+            JOIN modules m ON m.id = e.module_id
+            WHERE m.module_name = p_module_name
+              AND f.reference_table != ''
+        ) AS names
+        ORDER BY name
+    LOOP
+        -- Check if the table exists and the user has view permission; skip otherwise
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_module_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. Tables the current user lacks view permission for are silently skipped.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET USER CUBES
+-- =====================================================
+
+-- Returns schemas for all entities across all modules that the current user
+-- has view permission for. Referenced tables are not additionally included —
+-- they will already appear when the user has view permission on them directly.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_user_cubes()
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOR v_table_record IN
+        SELECT *
+        FROM entities
+        ORDER BY table_name
+    LOOP
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 `,
     "0090_notify_triggers": `-- =====================================================
 -- POSTGREST SCHEMA RELOAD NOTIFICATIONS
@@ -4364,7 +4608,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 -- Watch DROP commands
 CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
@@ -4390,7 +4634,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 CREATE EVENT TRIGGER pgrst_ddl_watch
     ON ddl_command_end
@@ -4413,7 +4657,215 @@ REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 GRANT USAGE ON SCHEMA common TO semantius_user;
 GRANT EXECUTE ON FUNCTION common.refresh_schema_cache() TO semantius_user;
 `,
-    "0100_webhook_receiver": `-- =====================================================
+    "0110_apikeys": `-- =====================================================
+-- API KEYS TABLE AND FUNCTIONS
+-- =====================================================
+-- Internal table for storing API keys with hashed secrets.
+-- RLS is enabled with no policies so it is only accessible
+-- internally via SECURITY DEFINER functions (same pattern as _settings).
+-- No entries in entities/fields - not exposed in the UI.
+
+-- =====================================================
+-- _APIKEYS TABLE
+-- =====================================================
+
+CREATE TABLE _apikeys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_id TEXT NOT NULL UNIQUE,
+    secret_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_apikeys_user_id ON _apikeys(user_id);
+CREATE UNIQUE INDEX idx_apikeys_key_id ON _apikeys(key_id);
+
+ALTER TABLE _apikeys ENABLE ROW LEVEL SECURITY;
+
+-- Deny-all policy so the table is never exposed through PostgREST / the Data API.
+-- SECURITY DEFINER functions can still read and write it.
+CREATE POLICY apikeys_deny_all ON _apikeys
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON _apikeys TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
+
+-- =====================================================
+-- GENERATE API KEY FUNCTION
+-- =====================================================
+-- Generates a new API key for a user.
+-- When p_user_id = 0, uses the current session user id and prefix "uk-".
+-- When p_user_id <> 0, validates user exists and requires admin permission,
+-- uses prefix "sk-".
+-- Returns the full API key (only time the secret is visible in plaintext).
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER)
+RETURNS TEXT AS $$
+DECLARE
+    v_target_user_id INTEGER;
+    v_key_prefix TEXT;
+    v_new_key_id TEXT;
+    v_new_secret TEXT;
+    v_full_api_key TEXT;
+    v_done BOOLEAN := FALSE;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+
+    IF p_user_id = 0 THEN
+        -- Use the current session user id
+        v_target_user_id := rbac.user_id();
+        v_key_prefix := 'uk-';
+    ELSE
+        -- Require admin permission for generating keys for other users
+        PERFORM rbac.require_permission('admin');
+
+        -- Validate the target user exists
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
+            RAISE EXCEPTION 'User with id % does not exist', p_user_id
+                USING ERRCODE = 'invalid_parameter_value';
+        END IF;
+
+        v_target_user_id := p_user_id;
+        v_key_prefix := 'sk-';
+    END IF;
+
+    -- Loop until we generate a unique key_id
+    WHILE NOT v_done LOOP
+        BEGIN
+            -- Generate a 12-char random public ID (6 bytes = 12 hex chars)
+            v_new_key_id := v_key_prefix || encode(gen_random_bytes(6), 'hex');
+
+            -- Generate a 32-char random secret (16 bytes = 32 hex chars)
+            v_new_secret := encode(gen_random_bytes(16), 'hex');
+
+            -- Attempt to insert with hashed secret
+            INSERT INTO _apikeys (user_id, key_id, secret_hash)
+            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)));
+
+            -- If we reach here, insert was successful
+            v_full_api_key := v_new_key_id || '-' || v_new_secret;
+            v_done := TRUE;
+
+        EXCEPTION WHEN unique_violation THEN
+            -- If key_id already exists, loop again to generate a new one
+            NULL;
+        END;
+    END LOOP;
+
+    RETURN v_full_api_key;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.generate_api_key IS
+'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Returns the full key only once.';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER) TO semantius_user;
+
+-- =====================================================
+-- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
+-- =====================================================
+-- Validates an API key by splitting it into key_id and secret,
+-- looking up the record, and verifying the bcrypt hash.
+-- Returns the user_id if valid, NULL if invalid.
+-- NOT accessible via PostgREST (no GRANT to semantius_user).
+
+CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+    v_key_id TEXT;
+    v_secret TEXT;
+    v_last_dash INTEGER;
+    v_record RECORD;
+BEGIN
+    -- Validate input
+    IF p_api_key IS NULL OR p_api_key = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Split the key: everything up to the last '-' is key_id, the rest is secret
+    -- Key format: prefix + public_id + '-' + secret
+    -- e.g. "uk-abcdef012345-0123456789abcdef0123456789abcdef"
+    v_last_dash := length(p_api_key) - position('-' IN reverse(p_api_key)) + 1;
+
+    IF position('-' IN reverse(p_api_key)) = 0 OR v_last_dash >= length(p_api_key) THEN
+        RETURN NULL;
+    END IF;
+
+    v_key_id := substring(p_api_key FROM 1 FOR v_last_dash - 1);
+    v_secret := substring(p_api_key FROM v_last_dash + 1);
+
+    IF v_key_id = '' OR v_secret = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Look up the record by key_id
+    SELECT * INTO v_record
+    FROM _apikeys
+    WHERE key_id = v_key_id;
+
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Verify the secret against the stored bcrypt hash
+    IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
+        RETURN v_record.user_id;
+    ELSE
+        RETURN NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.validate_api_key IS
+'Validates an API key and returns the user_id if valid, NULL otherwise. Called by semantius_user for API key authentication.';
+
+-- Grant to semantius_user so it can be used for API key auth flows
+GRANT EXECUTE ON FUNCTION public.validate_api_key(TEXT) TO semantius_user;
+`,
+    "0130_create_tables_view_compat": `-- =====================================================
+-- BACKWARD COMPATIBILITY VIEW
+-- =====================================================
+-- Create an updatable view named "tables" that maps to "entities" table
+-- This ensures external applications using the old "tables" name continue to work
+-- Goal: semantius-core uses "entities", but old apps can still use "tables" view
+-- =====================================================
+
+-- Create a simple view that maps to entities table
+-- PostgreSQL automatically makes this view updatable because:
+-- 1. It selects from a single table (entities)
+-- 2. It uses only simple column references (no expressions, aggregates, etc.)
+-- 3. It doesn't use GROUP BY, HAVING, LIMIT, OFFSET, DISTINCT, UNION, etc.
+-- This means INSERT, UPDATE, and DELETE operations work transparently without INSTEAD OF triggers
+CREATE OR REPLACE VIEW tables AS
+SELECT * FROM entities;
+
+COMMENT ON VIEW tables IS 
+'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius-core uses "entities".';
+-- =====================================================
+-- SECURITY: Enable RLS and Grant Permissions
+-- =====================================================
+-- Views don't automatically inherit RLS from underlying tables
+-- We must explicitly enable RLS and grant permissions
+
+-- Enable Row Level Security on the view
+ALTER VIEW tables SET (security_invoker = true);
+
+-- Grant permissions to semantius_user role
+GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
+
+-- Note: The view will use the RLS policies from the underlying entities table
+-- because we set security_invoker = true, which makes the view execute with
+-- the permissions of the invoking user rather than the view owner`,
+  },
+  "cloud": {
+    "0010_webhook_receiver": `-- =====================================================
 -- WEBHOOK RECEIVER TABLES
 -- =====================================================
 -- Create tables for webhook receivers and webhook receiver logs
@@ -4516,40 +4968,52 @@ VALUES
 -- via the DD trigger when the table_name field is inserted with format='parent'
 -- (constraint name: webhook_receivers_table_name_fkey)
 `,
-    "0130_create_tables_view_compat": `-- =====================================================
--- BACKWARD COMPATIBILITY VIEW
+    "0020_dashboard": `-- =====================================================
+-- DASHBOARD TABLE
 -- =====================================================
--- Create an updatable view named "tables" that maps to "entities" table
--- This ensures external applications using the old "tables" name continue to work
--- Goal: semantius-core uses "entities", but old apps can still use "tables" view
+-- Create table for user-configured dashboards
 -- =====================================================
 
--- Create a simple view that maps to entities table
--- PostgreSQL automatically makes this view updatable because:
--- 1. It selects from a single table (entities)
--- 2. It uses only simple column references (no expressions, aggregates, etc.)
--- 3. It doesn't use GROUP BY, HAVING, LIMIT, OFFSET, DISTINCT, UNION, etc.
--- This means INSERT, UPDATE, and DELETE operations work transparently without INSTEAD OF triggers
-CREATE OR REPLACE VIEW tables AS
-SELECT * FROM entities;
-
-COMMENT ON VIEW tables IS 
-'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius-core uses "entities".';
 -- =====================================================
--- SECURITY: Enable RLS and Grant Permissions
+-- CREATE dashboards TABLE
 -- =====================================================
--- Views don't automatically inherit RLS from underlying tables
--- We must explicitly enable RLS and grant permissions
 
--- Enable Row Level Security on the view
-ALTER VIEW tables SET (security_invoker = true);
+INSERT INTO entities (
+    table_name,
+    singular,
+    singular_label,
+    plural_label,
+    description,
+    module_id,
+    view_permission,
+    edit_permission,
+    id_column,
+    label_column
+)
+VALUES (
+    'dashboards',
+    'dashboard',
+    'Dashboard',
+    'Dashboards',
+    'User-configured dashboard layouts and configurations',
+    1, -- _core module
+    'admin',
+    'admin',
+    'id',
+    'label'
+);
 
--- Grant permissions to semantius_user role
-GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
+-- Add fields to dashboards table
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
+VALUES
+    ('dashboards', 'config',   'Configuration', 'json',  FALSE, 10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
+    ('dashboards', 'position', 'Position',      'int32', FALSE, 20, 'default', 'default', 'Display order position', '0', '', '');
 
--- Note: The view will use the RLS policies from the underlying entities table
--- because we set security_invoker = true, which makes the view execute with
--- the permissions of the invoking user rather than the view owner`,
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode)
+VALUES
+    ('dashboards', 'module_id',       'Module',          'reference', FALSE, 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
+    ('dashboards', 'view_permission', 'View Permission',  'reference', TRUE,  40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
+`,
   },
   "nwind": {
     "0010_create": `-- =====================================================
@@ -4745,21 +5209,6 @@ VALUES (
     'label'
 );
 
--- 12. us_states
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES (
-    'us_states',
-    'us_state',
-    'US State',
-    'US States',
-    'United States state reference data',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
-    'nwind:view',
-    'nwind:manage',
-    'id',
-    'state_name'
-);
-
 -- =====================================================
 -- FIELDS
 -- =====================================================
@@ -4844,14 +5293,14 @@ VALUES
 -- products fields
 -- -----------------------------------------------------
 -- (product_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',  FALSE, 40, 'default',  'default', 'Quantity and unit of measure per package',    '', FALSE, ''),
-    ('products', 'unit_price',        'Unit Price',         'float', FALSE, 50, 'default',  'default', '',                                            '0.0', FALSE, ''),
-    ('products', 'units_in_stock',    'Units In Stock',     'int32', FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',   FALSE, ''),
-    ('products', 'units_on_order',    'Units On Order',     'int32', FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',   FALSE, ''),
-    ('products', 'reorder_level',     'Reorder Level',      'int32', FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',   FALSE, ''),
-    ('products', 'discontinued',      'Discontinued',       'int32', FALSE, 90, 'default',  'default', 'Whether the product is discontinued (1=yes)', '0',   FALSE, '');
+    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    FALSE, 40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
+    ('products', 'unit_price',        'Unit Price',         'float',   FALSE, 50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
+    ('products', 'units_in_stock',    'Units In Stock',     'int32',   FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'reorder_level',     'Reorder Level',      'int32',   FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
+    ('products', 'discontinued',      'Discontinued',       'boolean', FALSE, 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
 INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
@@ -4930,20 +5379,38 @@ VALUES
     ('order_details', 'order_id',   'Order',   'parent', FALSE, 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE),
     ('order_details', 'product_id', 'Product', 'parent', FALSE, 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE);
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('order_details', 'unit_price', 'Unit Price', 'float', FALSE, 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, ''),
-    ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, ''),
-    ('order_details', 'discount',   'Discount',   'float', FALSE, 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '');
+    ('order_details', 'unit_price', 'Unit Price', 'float', FALSE, 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
+    ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
+    ('order_details', 'discount',   'Discount',   'float', FALSE, 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
--- -----------------------------------------------------
--- us_states fields
--- -----------------------------------------------------
--- (state_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
-VALUES
-    ('us_states', 'state_abbr',   'State Abbreviation', 'text', FALSE, 20, 'default', 'default', 'Two-letter state abbreviation',     '', TRUE,  ''),
-    ('us_states', 'state_region', 'State Region',       'text', FALSE, 30, 'default', 'default', 'Geographic region the state is in', '', FALSE, '');
+
+
+-- =====================================================
+-- ROLE PERMISSIONS
+-- =====================================================
+
+-- Grant nwind:view and nwind:manage to role 2
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 2, p.id
+FROM permissions p
+WHERE p.permission_name IN ('nwind:view', 'nwind:manage')
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id = 2 AND rp.permission_id = p.id
+  );
+
+-- Grant nwind:view and nwind:manage to role 10001 (Sales User) if it exists
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+CROSS JOIN permissions p
+WHERE r.id = 10001
+  AND r.role_name = 'Sales User'
+  AND p.permission_name IN ('nwind:view', 'nwind:manage')
+  AND NOT EXISTS (
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  );
 `,
     "0020_load_data": `-- =====================================================
 -- NORTHWIND SAMPLE DATA
@@ -6088,83 +6555,83 @@ INSERT INTO suppliers (id, company_name, contact_name, contact_title, address, c
 
 -- products
 INSERT INTO products (id, product_name, supplier_id, category_id, quantity_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued) VALUES
-    (1, 'Chai', 8, 1, '10 boxes x 30 bags', 18, 39, 0, 10, 1),
-    (2, 'Chang', 1, 1, '24 - 12 oz bottles', 19, 17, 40, 25, 1),
-    (3, 'Aniseed Syrup', 1, 2, '12 - 550 ml bottles', 10, 13, 70, 25, 0),
-    (4, 'Chef Anton''s Cajun Seasoning', 2, 2, '48 - 6 oz jars', 22, 53, 0, 0, 0),
-    (5, 'Chef Anton''s Gumbo Mix', 2, 2, '36 boxes', 21.35, 0, 0, 0, 1),
-    (6, 'Grandma''s Boysenberry Spread', 3, 2, '12 - 8 oz jars', 25, 120, 0, 25, 0),
-    (7, 'Uncle Bob''s Organic Dried Pears', 3, 7, '12 - 1 lb pkgs.', 30, 15, 0, 10, 0),
-    (8, 'Northwoods Cranberry Sauce', 3, 2, '12 - 12 oz jars', 40, 6, 0, 0, 0),
-    (9, 'Mishi Kobe Niku', 4, 6, '18 - 500 g pkgs.', 97, 29, 0, 0, 1),
-    (10, 'Ikura', 4, 8, '12 - 200 ml jars', 31, 31, 0, 0, 0),
-    (11, 'Queso Cabrales', 5, 4, '1 kg pkg.', 21, 22, 30, 30, 0),
-    (12, 'Queso Manchego La Pastora', 5, 4, '10 - 500 g pkgs.', 38, 86, 0, 0, 0),
-    (13, 'Konbu', 6, 8, '2 kg box', 6, 24, 0, 5, 0),
-    (14, 'Tofu', 6, 7, '40 - 100 g pkgs.', 23.25, 35, 0, 0, 0),
-    (15, 'Genen Shouyu', 6, 2, '24 - 250 ml bottles', 13, 39, 0, 5, 0),
-    (16, 'Pavlova', 7, 3, '32 - 500 g boxes', 17.45, 29, 0, 10, 0),
-    (17, 'Alice Mutton', 7, 6, '20 - 1 kg tins', 39, 0, 0, 0, 1),
-    (18, 'Carnarvon Tigers', 7, 8, '16 kg pkg.', 62.5, 42, 0, 0, 0),
-    (19, 'Teatime Chocolate Biscuits', 8, 3, '10 boxes x 12 pieces', 9.2, 25, 0, 5, 0),
-    (20, 'Sir Rodney''s Marmalade', 8, 3, '30 gift boxes', 81, 40, 0, 0, 0),
-    (21, 'Sir Rodney''s Scones', 8, 3, '24 pkgs. x 4 pieces', 10, 3, 40, 5, 0),
-    (22, 'Gustaf''s Knäckebröd', 9, 5, '24 - 500 g pkgs.', 21, 104, 0, 25, 0),
-    (23, 'Tunnbröd', 9, 5, '12 - 250 g pkgs.', 9, 61, 0, 25, 0),
-    (24, 'Guaraná Fantástica', 10, 1, '12 - 355 ml cans', 4.5, 20, 0, 0, 1),
-    (25, 'NuNuCa Nuß-Nougat-Creme', 11, 3, '20 - 450 g glasses', 14, 76, 0, 30, 0),
-    (26, 'Gumbär Gummibärchen', 11, 3, '100 - 250 g bags', 31.23, 15, 0, 0, 0),
-    (27, 'Schoggi Schokolade', 11, 3, '100 - 100 g pieces', 43.9, 49, 0, 30, 0),
-    (28, 'Rössle Sauerkraut', 12, 7, '25 - 825 g cans', 45.6, 26, 0, 0, 1),
-    (29, 'Thüringer Rostbratwurst', 12, 6, '50 bags x 30 sausgs.', 123.79, 0, 0, 0, 1),
-    (30, 'Nord-Ost Matjeshering', 13, 8, '10 - 200 g glasses', 25.89, 10, 0, 15, 0),
-    (31, 'Gorgonzola Telino', 14, 4, '12 - 100 g pkgs', 12.5, 0, 70, 20, 0),
-    (32, 'Mascarpone Fabioli', 14, 4, '24 - 200 g pkgs.', 32, 9, 40, 25, 0),
-    (33, 'Geitost', 15, 4, '500 g', 2.5, 112, 0, 20, 0),
-    (34, 'Sasquatch Ale', 16, 1, '24 - 12 oz bottles', 14, 111, 0, 15, 0),
-    (35, 'Steeleye Stout', 16, 1, '24 - 12 oz bottles', 18, 20, 0, 15, 0),
-    (36, 'Inlagd Sill', 17, 8, '24 - 250 g  jars', 19, 112, 0, 20, 0),
-    (37, 'Gravad lax', 17, 8, '12 - 500 g pkgs.', 26, 11, 50, 25, 0),
-    (38, 'Côte de Blaye', 18, 1, '12 - 75 cl bottles', 263.5, 17, 0, 15, 0),
-    (39, 'Chartreuse verte', 18, 1, '750 cc per bottle', 18, 69, 0, 5, 0),
-    (40, 'Boston Crab Meat', 19, 8, '24 - 4 oz tins', 18.4, 123, 0, 30, 0),
-    (41, 'Jack''s New England Clam Chowder', 19, 8, '12 - 12 oz cans', 9.65, 85, 0, 10, 0),
-    (42, 'Singaporean Hokkien Fried Mee', 20, 5, '32 - 1 kg pkgs.', 14, 26, 0, 0, 1),
-    (43, 'Ipoh Coffee', 20, 1, '16 - 500 g tins', 46, 17, 10, 25, 0),
-    (44, 'Gula Malacca', 20, 2, '20 - 2 kg bags', 19.45, 27, 0, 15, 0),
-    (45, 'Rogede sild', 21, 8, '1k pkg.', 9.5, 5, 70, 15, 0),
-    (46, 'Spegesild', 21, 8, '4 - 450 g glasses', 12, 95, 0, 0, 0),
-    (47, 'Zaanse koeken', 22, 3, '10 - 4 oz boxes', 9.5, 36, 0, 0, 0),
-    (48, 'Chocolade', 22, 3, '10 pkgs.', 12.75, 15, 70, 25, 0),
-    (49, 'Maxilaku', 23, 3, '24 - 50 g pkgs.', 20, 10, 60, 15, 0),
-    (50, 'Valkoinen suklaa', 23, 3, '12 - 100 g bars', 16.25, 65, 0, 30, 0),
-    (51, 'Manjimup Dried Apples', 24, 7, '50 - 300 g pkgs.', 53, 20, 0, 10, 0),
-    (52, 'Filo Mix', 24, 5, '16 - 2 kg boxes', 7, 38, 0, 25, 0),
-    (53, 'Perth Pasties', 24, 6, '48 pieces', 32.8, 0, 0, 0, 1),
-    (54, 'Tourtière', 25, 6, '16 pies', 7.45, 21, 0, 10, 0),
-    (55, 'Pâté chinois', 25, 6, '24 boxes x 2 pies', 24, 115, 0, 20, 0),
-    (56, 'Gnocchi di nonna Alice', 26, 5, '24 - 250 g pkgs.', 38, 21, 10, 30, 0),
-    (57, 'Ravioli Angelo', 26, 5, '24 - 250 g pkgs.', 19.5, 36, 0, 20, 0),
-    (58, 'Escargots de Bourgogne', 27, 8, '24 pieces', 13.25, 62, 0, 20, 0),
-    (59, 'Raclette Courdavault', 28, 4, '5 kg pkg.', 55, 79, 0, 0, 0),
-    (60, 'Camembert Pierrot', 28, 4, '15 - 300 g rounds', 34, 19, 0, 0, 0),
-    (61, 'Sirop d''érable', 29, 2, '24 - 500 ml bottles', 28.5, 113, 0, 25, 0),
-    (62, 'Tarte au sucre', 29, 3, '48 pies', 49.3, 17, 0, 0, 0),
-    (63, 'Vegie-spread', 7, 2, '15 - 625 g jars', 43.9, 24, 0, 5, 0),
-    (64, 'Wimmers gute Semmelknödel', 12, 5, '20 bags x 4 pieces', 33.25, 22, 80, 30, 0),
-    (65, 'Louisiana Fiery Hot Pepper Sauce', 2, 2, '32 - 8 oz bottles', 21.05, 76, 0, 0, 0),
-    (66, 'Louisiana Hot Spiced Okra', 2, 2, '24 - 8 oz jars', 17, 4, 100, 20, 0),
-    (67, 'Laughing Lumberjack Lager', 16, 1, '24 - 12 oz bottles', 14, 52, 0, 10, 0),
-    (68, 'Scottish Longbreads', 8, 3, '10 boxes x 8 pieces', 12.5, 6, 10, 15, 0),
-    (69, 'Gudbrandsdalsost', 15, 4, '10 kg pkg.', 36, 26, 0, 15, 0),
-    (70, 'Outback Lager', 7, 1, '24 - 355 ml bottles', 15, 15, 10, 30, 0),
-    (71, 'Flotemysost', 15, 4, '10 - 500 g pkgs.', 21.5, 26, 0, 0, 0),
-    (72, 'Mozzarella di Giovanni', 14, 4, '24 - 200 g pkgs.', 34.8, 14, 0, 0, 0),
-    (73, 'Röd Kaviar', 17, 8, '24 - 150 g jars', 15, 101, 0, 5, 0),
-    (74, 'Longlife Tofu', 4, 7, '5 kg pkg.', 10, 4, 20, 5, 0),
-    (75, 'Rhönbräu Klosterbier', 12, 1, '24 - 0.5 l bottles', 7.75, 125, 0, 25, 0),
-    (76, 'Lakkalikööri', 23, 1, '500 ml', 18, 57, 0, 20, 0),
-    (77, 'Original Frankfurter grüne Soße', 12, 2, '12 boxes', 13, 32, 0, 15, 0);
+    (1, 'Chai', 8, 1, '10 boxes x 30 bags', 18, 39, 0, 10, TRUE),
+    (2, 'Chang', 1, 1, '24 - 12 oz bottles', 19, 17, 40, 25, TRUE),
+    (3, 'Aniseed Syrup', 1, 2, '12 - 550 ml bottles', 10, 13, 70, 25, FALSE),
+    (4, 'Chef Anton''s Cajun Seasoning', 2, 2, '48 - 6 oz jars', 22, 53, 0, 0, FALSE),
+    (5, 'Chef Anton''s Gumbo Mix', 2, 2, '36 boxes', 21.35, 0, 0, 0, TRUE),
+    (6, 'Grandma''s Boysenberry Spread', 3, 2, '12 - 8 oz jars', 25, 120, 0, 25, FALSE),
+    (7, 'Uncle Bob''s Organic Dried Pears', 3, 7, '12 - 1 lb pkgs.', 30, 15, 0, 10, FALSE),
+    (8, 'Northwoods Cranberry Sauce', 3, 2, '12 - 12 oz jars', 40, 6, 0, 0, FALSE),
+    (9, 'Mishi Kobe Niku', 4, 6, '18 - 500 g pkgs.', 97, 29, 0, 0, TRUE),
+    (10, 'Ikura', 4, 8, '12 - 200 ml jars', 31, 31, 0, 0, FALSE),
+    (11, 'Queso Cabrales', 5, 4, '1 kg pkg.', 21, 22, 30, 30, FALSE),
+    (12, 'Queso Manchego La Pastora', 5, 4, '10 - 500 g pkgs.', 38, 86, 0, 0, FALSE),
+    (13, 'Konbu', 6, 8, '2 kg box', 6, 24, 0, 5, FALSE),
+    (14, 'Tofu', 6, 7, '40 - 100 g pkgs.', 23.25, 35, 0, 0, FALSE),
+    (15, 'Genen Shouyu', 6, 2, '24 - 250 ml bottles', 13, 39, 0, 5, FALSE),
+    (16, 'Pavlova', 7, 3, '32 - 500 g boxes', 17.45, 29, 0, 10, FALSE),
+    (17, 'Alice Mutton', 7, 6, '20 - 1 kg tins', 39, 0, 0, 0, TRUE),
+    (18, 'Carnarvon Tigers', 7, 8, '16 kg pkg.', 62.5, 42, 0, 0, FALSE),
+    (19, 'Teatime Chocolate Biscuits', 8, 3, '10 boxes x 12 pieces', 9.2, 25, 0, 5, FALSE),
+    (20, 'Sir Rodney''s Marmalade', 8, 3, '30 gift boxes', 81, 40, 0, 0, FALSE),
+    (21, 'Sir Rodney''s Scones', 8, 3, '24 pkgs. x 4 pieces', 10, 3, 40, 5, FALSE),
+    (22, 'Gustaf''s Knäckebröd', 9, 5, '24 - 500 g pkgs.', 21, 104, 0, 25, FALSE),
+    (23, 'Tunnbröd', 9, 5, '12 - 250 g pkgs.', 9, 61, 0, 25, FALSE),
+    (24, 'Guaraná Fantástica', 10, 1, '12 - 355 ml cans', 4.5, 20, 0, 0, TRUE),
+    (25, 'NuNuCa Nuß-Nougat-Creme', 11, 3, '20 - 450 g glasses', 14, 76, 0, 30, FALSE),
+    (26, 'Gumbär Gummibärchen', 11, 3, '100 - 250 g bags', 31.23, 15, 0, 0, FALSE),
+    (27, 'Schoggi Schokolade', 11, 3, '100 - 100 g pieces', 43.9, 49, 0, 30, FALSE),
+    (28, 'Rössle Sauerkraut', 12, 7, '25 - 825 g cans', 45.6, 26, 0, 0, TRUE),
+    (29, 'Thüringer Rostbratwurst', 12, 6, '50 bags x 30 sausgs.', 123.79, 0, 0, 0, TRUE),
+    (30, 'Nord-Ost Matjeshering', 13, 8, '10 - 200 g glasses', 25.89, 10, 0, 15, FALSE),
+    (31, 'Gorgonzola Telino', 14, 4, '12 - 100 g pkgs', 12.5, 0, 70, 20, FALSE),
+    (32, 'Mascarpone Fabioli', 14, 4, '24 - 200 g pkgs.', 32, 9, 40, 25, FALSE),
+    (33, 'Geitost', 15, 4, '500 g', 2.5, 112, 0, 20, FALSE),
+    (34, 'Sasquatch Ale', 16, 1, '24 - 12 oz bottles', 14, 111, 0, 15, FALSE),
+    (35, 'Steeleye Stout', 16, 1, '24 - 12 oz bottles', 18, 20, 0, 15, FALSE),
+    (36, 'Inlagd Sill', 17, 8, '24 - 250 g  jars', 19, 112, 0, 20, FALSE),
+    (37, 'Gravad lax', 17, 8, '12 - 500 g pkgs.', 26, 11, 50, 25, FALSE),
+    (38, 'Côte de Blaye', 18, 1, '12 - 75 cl bottles', 263.5, 17, 0, 15, FALSE),
+    (39, 'Chartreuse verte', 18, 1, '750 cc per bottle', 18, 69, 0, 5, FALSE),
+    (40, 'Boston Crab Meat', 19, 8, '24 - 4 oz tins', 18.4, 123, 0, 30, FALSE),
+    (41, 'Jack''s New England Clam Chowder', 19, 8, '12 - 12 oz cans', 9.65, 85, 0, 10, FALSE),
+    (42, 'Singaporean Hokkien Fried Mee', 20, 5, '32 - 1 kg pkgs.', 14, 26, 0, 0, TRUE),
+    (43, 'Ipoh Coffee', 20, 1, '16 - 500 g tins', 46, 17, 10, 25, FALSE),
+    (44, 'Gula Malacca', 20, 2, '20 - 2 kg bags', 19.45, 27, 0, 15, FALSE),
+    (45, 'Rogede sild', 21, 8, '1k pkg.', 9.5, 5, 70, 15, FALSE),
+    (46, 'Spegesild', 21, 8, '4 - 450 g glasses', 12, 95, 0, 0, FALSE),
+    (47, 'Zaanse koeken', 22, 3, '10 - 4 oz boxes', 9.5, 36, 0, 0, FALSE),
+    (48, 'Chocolade', 22, 3, '10 pkgs.', 12.75, 15, 70, 25, FALSE),
+    (49, 'Maxilaku', 23, 3, '24 - 50 g pkgs.', 20, 10, 60, 15, FALSE),
+    (50, 'Valkoinen suklaa', 23, 3, '12 - 100 g bars', 16.25, 65, 0, 30, FALSE),
+    (51, 'Manjimup Dried Apples', 24, 7, '50 - 300 g pkgs.', 53, 20, 0, 10, FALSE),
+    (52, 'Filo Mix', 24, 5, '16 - 2 kg boxes', 7, 38, 0, 25, FALSE),
+    (53, 'Perth Pasties', 24, 6, '48 pieces', 32.8, 0, 0, 0, TRUE),
+    (54, 'Tourtière', 25, 6, '16 pies', 7.45, 21, 0, 10, FALSE),
+    (55, 'Pâté chinois', 25, 6, '24 boxes x 2 pies', 24, 115, 0, 20, FALSE),
+    (56, 'Gnocchi di nonna Alice', 26, 5, '24 - 250 g pkgs.', 38, 21, 10, 30, FALSE),
+    (57, 'Ravioli Angelo', 26, 5, '24 - 250 g pkgs.', 19.5, 36, 0, 20, FALSE),
+    (58, 'Escargots de Bourgogne', 27, 8, '24 pieces', 13.25, 62, 0, 20, FALSE),
+    (59, 'Raclette Courdavault', 28, 4, '5 kg pkg.', 55, 79, 0, 0, FALSE),
+    (60, 'Camembert Pierrot', 28, 4, '15 - 300 g rounds', 34, 19, 0, 0, FALSE),
+    (61, 'Sirop d''érable', 29, 2, '24 - 500 ml bottles', 28.5, 113, 0, 25, FALSE),
+    (62, 'Tarte au sucre', 29, 3, '48 pies', 49.3, 17, 0, 0, FALSE),
+    (63, 'Vegie-spread', 7, 2, '15 - 625 g jars', 43.9, 24, 0, 5, FALSE),
+    (64, 'Wimmers gute Semmelknödel', 12, 5, '20 bags x 4 pieces', 33.25, 22, 80, 30, FALSE),
+    (65, 'Louisiana Fiery Hot Pepper Sauce', 2, 2, '32 - 8 oz bottles', 21.05, 76, 0, 0, FALSE),
+    (66, 'Louisiana Hot Spiced Okra', 2, 2, '24 - 8 oz jars', 17, 4, 100, 20, FALSE),
+    (67, 'Laughing Lumberjack Lager', 16, 1, '24 - 12 oz bottles', 14, 52, 0, 10, FALSE),
+    (68, 'Scottish Longbreads', 8, 3, '10 boxes x 8 pieces', 12.5, 6, 10, 15, FALSE),
+    (69, 'Gudbrandsdalsost', 15, 4, '10 kg pkg.', 36, 26, 0, 15, FALSE),
+    (70, 'Outback Lager', 7, 1, '24 - 355 ml bottles', 15, 15, 10, 30, FALSE),
+    (71, 'Flotemysost', 15, 4, '10 - 500 g pkgs.', 21.5, 26, 0, 0, FALSE),
+    (72, 'Mozzarella di Giovanni', 14, 4, '24 - 200 g pkgs.', 34.8, 14, 0, 0, FALSE),
+    (73, 'Röd Kaviar', 17, 8, '24 - 150 g jars', 15, 101, 0, 5, FALSE),
+    (74, 'Longlife Tofu', 4, 7, '5 kg pkg.', 10, 4, 20, 5, FALSE),
+    (75, 'Rhönbräu Klosterbier', 12, 1, '24 - 0.5 l bottles', 7.75, 125, 0, 25, FALSE),
+    (76, 'Lakkalikööri', 23, 1, '500 ml', 18, 57, 0, 20, FALSE),
+    (77, 'Original Frankfurter grüne Soße', 12, 2, '12 boxes', 13, 32, 0, 15, FALSE);
 
 -- order_details
 INSERT INTO order_details (order_id, product_id, unit_price, quantity, discount) VALUES
@@ -8324,60 +8791,6 @@ INSERT INTO order_details (order_id, product_id, unit_price, quantity, discount)
     (11077, 75, 7.75, 4, 0),
     (11077, 77, 13, 2, 0);
 
--- us_states
-INSERT INTO us_states (id, state_name, state_abbr, state_region) VALUES
-    (1, 'Alabama', 'AL', 'south'),
-    (2, 'Alaska', 'AK', 'north'),
-    (3, 'Arizona', 'AZ', 'west'),
-    (4, 'Arkansas', 'AR', 'south'),
-    (5, 'California', 'CA', 'west'),
-    (6, 'Colorado', 'CO', 'west'),
-    (7, 'Connecticut', 'CT', 'east'),
-    (8, 'Delaware', 'DE', 'east'),
-    (9, 'District of Columbia', 'DC', 'east'),
-    (10, 'Florida', 'FL', 'south'),
-    (11, 'Georgia', 'GA', 'south'),
-    (12, 'Hawaii', 'HI', 'west'),
-    (13, 'Idaho', 'ID', 'midwest'),
-    (14, 'Illinois', 'IL', 'midwest'),
-    (15, 'Indiana', 'IN', 'midwest'),
-    (16, 'Iowa', 'IO', 'midwest'),
-    (17, 'Kansas', 'KS', 'midwest'),
-    (18, 'Kentucky', 'KY', 'south'),
-    (19, 'Louisiana', 'LA', 'south'),
-    (20, 'Maine', 'ME', 'north'),
-    (21, 'Maryland', 'MD', 'east'),
-    (22, 'Massachusetts', 'MA', 'north'),
-    (23, 'Michigan', 'MI', 'north'),
-    (24, 'Minnesota', 'MN', 'north'),
-    (25, 'Mississippi', 'MS', 'south'),
-    (26, 'Missouri', 'MO', 'south'),
-    (27, 'Montana', 'MT', 'west'),
-    (28, 'Nebraska', 'NE', 'midwest'),
-    (29, 'Nevada', 'NV', 'west'),
-    (30, 'New Hampshire', 'NH', 'east'),
-    (31, 'New Jersey', 'NJ', 'east'),
-    (32, 'New Mexico', 'NM', 'west'),
-    (33, 'New York', 'NY', 'east'),
-    (34, 'North Carolina', 'NC', 'east'),
-    (35, 'North Dakota', 'ND', 'midwest'),
-    (36, 'Ohio', 'OH', 'midwest'),
-    (37, 'Oklahoma', 'OK', 'midwest'),
-    (38, 'Oregon', 'OR', 'west'),
-    (39, 'Pennsylvania', 'PA', 'east'),
-    (40, 'Rhode Island', 'RI', 'east'),
-    (41, 'South Carolina', 'SC', 'east'),
-    (42, 'South Dakota', 'SD', 'midwest'),
-    (43, 'Tennessee', 'TN', 'midwest'),
-    (44, 'Texas', 'TX', 'west'),
-    (45, 'Utah', 'UT', 'west'),
-    (46, 'Vermont', 'VT', 'east'),
-    (47, 'Virginia', 'VA', 'east'),
-    (48, 'Washington', 'WA', 'west'),
-    (49, 'West Virginia', 'WV', 'south'),
-    (50, 'Wisconsin', 'WI', 'midwest'),
-    (51, 'Wyoming', 'WY', 'west');
-
 -- Reset sequences to avoid conflicts with future auto-increment inserts
 SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories), true);
 SELECT setval('suppliers_id_seq', (SELECT MAX(id) FROM suppliers), true);
@@ -8386,7 +8799,6 @@ SELECT setval('products_id_seq', (SELECT MAX(id) FROM products), true);
 SELECT setval('regions_id_seq', (SELECT MAX(id) FROM regions), true);
 SELECT setval('shippers_id_seq', (SELECT MAX(id) FROM shippers), true);
 SELECT setval('orders_id_seq', (SELECT MAX(id) FROM orders), true);
-SELECT setval('us_states_id_seq', (SELECT MAX(id) FROM us_states), true);
 `,
   },
 };

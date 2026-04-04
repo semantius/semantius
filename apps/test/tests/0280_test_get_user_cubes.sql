@@ -13,10 +13,10 @@ SELECT authenticate_as('user1');
 
 SELECT ok(
     NOT EXISTS (
-        SELECT 1 FROM public.get_user_cubes('_core') AS s
+        SELECT 1 FROM public.get_user_cubes() AS s
         WHERE s->'table'->>'table_name' = 'role_permissions'
     ),
-    'user1 should not see role_permissions in _core cube (requires admin permission)'
+    'user1 should not see role_permissions (requires admin permission)'
 );
 
 -- =====================================================
@@ -29,10 +29,10 @@ SELECT authenticate_as('user3');
 
 SELECT ok(
     EXISTS (
-        SELECT 1 FROM public.get_user_cubes('_core') AS s
+        SELECT 1 FROM public.get_user_cubes() AS s
         WHERE s->'table'->>'table_name' = 'role_permissions'
     ),
-    'user3 should see role_permissions in _core cube (has admin permission)'
+    'user3 should see role_permissions (has admin permission)'
 );
 
 SELECT * FROM finish();
