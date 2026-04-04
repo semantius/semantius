@@ -227,11 +227,15 @@ route.post("/", async (c) => {
       }
     }
 
-    // Build pooler URL from connection parameters
+    // Build pooler URL and direct URL from connection parameters
     const params = (connection.connection_parameters ?? {}) as Record<string, string>;
     const poolerHost = params.pooler_host ?? params.host;
     const databaseUrl = poolerHost
       ? `postgresql://${params.role}:${params.password}@${poolerHost}/${params.database}?sslmode=require`
+      : connectionUri;
+    const directHost = params.host;
+    const databaseUrlDirect = directHost
+      ? `postgresql://${params.role}:${params.password}@${directHost}/${params.database}?sslmode=require`
       : connectionUri;
 
     // Success response
@@ -241,6 +245,7 @@ route.post("/", async (c) => {
       branch_id: branchId,
       database_name: databaseName,
       database_url: databaseUrl,
+      database_url_direct: databaseUrlDirect,
       connection,
       data_api: dataApiResult,
     });

@@ -662,3 +662,51 @@ COMMENT ON FUNCTION public.get_module_cubes IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET USER CUBES
+-- =====================================================
+
+-- Returns schemas for all entities that belong to a given module and that
+-- the current user has view permission for. Unlike get_module_cubes(), this
+-- function does not include entities referenced via reference_table — those
+-- will already be included when the user has view permission on them through
+-- their own module.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_user_cubes(p_module_name TEXT)
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOR v_table_name IN
+        SELECT e.table_name
+        FROM entities e
+        JOIN modules m ON m.id = e.module_id
+        WHERE m.module_name = p_module_name
+        ORDER BY e.table_name
+    LOOP
+        -- Check if the table exists and the user has view permission; skip otherwise
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for entities that belong to the given module and that the current user has view permission for. Unlike get_module_cubes(), referenced tables are not additionally included — they will already appear when the user has view permission on them through their own module.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_cubes(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_cubes(TEXT) TO semantius_user;
