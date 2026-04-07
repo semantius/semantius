@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-04-04T17:54:21.608Z
+ * Generated: 2026-04-07T09:00:52.874Z
  * Apps: 3  |  Migrations: 17
  */
 

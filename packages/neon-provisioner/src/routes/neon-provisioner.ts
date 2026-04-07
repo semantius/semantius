@@ -187,6 +187,15 @@ route.post("/", async (c) => {
       }
     }
 
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const roles2 = await listRoles(projectId, branchId, apiOptions);
+    for (const name of ["authenticator", "authenticated", "anonymous"]) {
+      if (roles2.some((r: Record<string, unknown>) => r.name === name)) {
+        console.error(`Role still exists after deletion: ${name}`);
+        await deleteRole(projectId, branchId, name, apiOptions);
+      }
+    }
+
     const dataApiResult = await createDataApi(
       projectId,
       branchId,
