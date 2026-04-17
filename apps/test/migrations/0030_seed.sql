@@ -424,6 +424,12 @@ VALUES
 INSERT INTO _apikeys (user_id, key_id, secret_hash)
 VALUES (1002, 'sk-seed001002', crypt('ab12cd340123456789abcdef01234567', gen_salt('bf', 10)));
 
+-- Known API key for user 1003 for UAT testing:
+--   sk-seed001003-ad22cd340123456789abcdef01234567
+
+INSERT INTO _apikeys (user_id, key_id, secret_hash)
+VALUES (1003, 'sk-seed001003', crypt('ad22cd340123456789abcdef01234567', gen_salt('bf', 10)));
+
 -- =====================================================
 -- VERIFICATION QUERIES
 -- =====================================================

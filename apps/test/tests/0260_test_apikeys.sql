@@ -1,10 +1,12 @@
 -- Test API key generation and validation
 -- Seeded UAT key for user 1002: sk-seed001002-ab12cd340123456789abcdef01234567
+-- Seeded UAT key for user 1003: sk-seed001003-ad22cd340123456789abcdef01234567
 SELECT 'Seeded API key for user 1002 (UAT): sk-seed001002-ab12cd340123456789abcdef01234567' AS info;
+SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcdef01234567' AS info;
 
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(16);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -53,6 +55,18 @@ SELECT ok(
 SELECT ok(
     (SELECT validate_api_key('sk-seed001002-ab12cd340123456789abcdef01234567') = 1002),
     'validate_api_key should return 1002 for the seeded UAT key'
+);
+
+-- Test 6b: seeded key record exists in _apikeys for user 1003
+SELECT ok(
+    (SELECT EXISTS (SELECT 1 FROM _apikeys WHERE user_id = 1003 AND key_id = 'sk-seed001003')),
+    'Seeded API key record should exist for user 1003'
+);
+
+-- Test 6c: seeded key validates correctly and returns user_id 1003
+SELECT ok(
+    (SELECT validate_api_key('sk-seed001003-ad22cd340123456789abcdef01234567') = 1003),
+    'validate_api_key should return 1003 for the seeded UAT key'
 );
 
 -- =====================================================

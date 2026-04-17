@@ -15,6 +15,7 @@
     "migrate": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts migrate",
     "dropall": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts dropall",
     "reset": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts reset",
+    "retest": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts retest",
     "docgen": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts docgen",
     "check": "deno check packages/cli/cli.ts",
     "bundle-sql": "deno run --allow-read --allow-write scripts/bundle-sql.ts"

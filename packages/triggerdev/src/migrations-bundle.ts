@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-04-07T09:00:52.874Z
+ * Generated: 2026-04-10T15:57:44.264Z
  * Apps: 3  |  Migrations: 17
  */
 
@@ -4911,7 +4911,7 @@ ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL 
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode)
 VALUES 
-    ('webhook_receivers', 'table_name', 'Table', 'parent', FALSE, FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
+    ('webhook_receivers', 'table_name', 'Table', 'reference', FALSE, FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
     ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL, '', ''),
     ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb, '', ''),
     ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'default', 'Secret for webhook authentication', '', NULL, '', ''),

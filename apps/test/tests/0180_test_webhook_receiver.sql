@@ -27,8 +27,8 @@ SELECT ok(
 
 -- Test 4: table_name field has correct format
 SELECT ok(
-    (SELECT format = 'parent' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'table_name'),
-    'table_name field should have parent format'
+    (SELECT format = 'reference' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'table_name'),
+    'table_name field should have reference format'
 );
 
 -- Test 5: webhook_receivers has description field

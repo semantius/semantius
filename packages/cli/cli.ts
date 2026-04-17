@@ -10,6 +10,7 @@ import { testCommand } from "./commands/test.ts";
 import { dropallCommand } from "./commands/dropall.ts";
 import { docgenCommand } from "./commands/docgen.ts";
 import { resetCommand } from "./commands/reset.ts";
+import { retestCommand } from "./commands/retest.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -116,7 +117,7 @@ OPTIONS:
     --config <FILE>         Specify config file path
     --output <DIR>          Specify output directory
     --apps <APPS>           Comma-separated list of app names (for migrate command)
-    --confirm               Skip confirmation prompt (for dropall and reset commands)
+    --confirm               Skip confirmation prompt (for dropall, reset, and retest commands)
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
     --failfast              Stop test execution after the first failed test file (for test and reset commands)
     --env <ENV>             Environment name to load (default: local, loads .env.<ENV> file)
@@ -131,7 +132,8 @@ COMMANDS:
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
-    reset            ⚠️ Drop all, migrate --apps test, and run tests (requires --confirm)
+    reset            ⚠️ Drop all and migrate --apps _core,cloud (requires --confirm)
+    retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
 
 EXAMPLES:
@@ -150,7 +152,8 @@ EXAMPLES:
     deno task dropall --script
     deno task reset --confirm
     deno task reset --confirm --verbose
-    deno task reset --confirm --failfast
+    deno task retest --confirm
+    deno task retest --confirm --failfast
     deno task connect --env test
     deno task migrate --apps nwind --env staging
   `);
@@ -292,7 +295,11 @@ async function main(): Promise<void> {
       break;
 
     case "reset":
-      await resetCommand(databaseUrl!, args.confirm || false, args.failfast || false);
+      await resetCommand(databaseUrl!, args.confirm || false);
+      break;
+
+    case "retest":
+      await retestCommand(databaseUrl!, args.confirm || false, args.failfast || false);
       break;
       
     case "docgen":
