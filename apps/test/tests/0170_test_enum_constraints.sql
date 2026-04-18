@@ -14,28 +14,28 @@ SELECT authenticate_as('user3');
 -- Test 1: Insert valid enum value 'none' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products_test', 'Test webhook with none auth', 'none')$$,
+      VALUES ('customers_test', 'Test webhook with none auth', 'none')$$,
     'Should allow valid enum value "none" for auth_type'
 );
 
 -- Test 2: Insert valid enum value 'hmac' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products_test', 'Test webhook with hmac auth', 'hmac')$$,
+      VALUES ('customers_test', 'Test webhook with hmac auth', 'hmac')$$,
     'Should allow valid enum value "hmac" for auth_type'
 );
 
 -- Test 3: Insert valid enum value 'header' should succeed
 SELECT lives_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products_test', 'Test webhook with header auth', 'header')$$,
+      VALUES ('customers_test', 'Test webhook with header auth', 'header')$$,
     'Should allow valid enum value "header" for auth_type'
 );
 
 -- Test 4: Insert invalid enum value should fail
 SELECT throws_ok(
     $$INSERT INTO webhook_receivers (table_name, description, auth_type) 
-      VALUES ('products_test', 'Test webhook with invalid auth', 'invalid_value')$$,
+      VALUES ('customers_test', 'Test webhook with invalid auth', 'invalid_value')$$,
     '23514',
     NULL,
     'Should reject invalid enum value "invalid_value" for auth_type'

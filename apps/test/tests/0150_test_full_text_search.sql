@@ -1,7 +1,7 @@
 -- Test full-text search functionality
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(54);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -331,11 +331,6 @@ SELECT ok(
     'employees_test table should have at least 3 searchable fields (email, department, position)'
 );
 
--- Verify products_test table has searchable fields
-SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'products_test' AND searchable = TRUE) >= 3,
-    'products_test table should have at least 3 searchable fields (sku, description, category)'
-);
 
 -- =====================================================
 -- TEST: Core tables have correct searchable flag

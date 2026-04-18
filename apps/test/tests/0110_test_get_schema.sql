@@ -234,9 +234,6 @@ SELECT throws_ok(
 -- TEST: get_schema() raises error when user lacks view permission
 -- =====================================================
 
--- Test case: user1 has the User role (public:read, user:read) but NOT sales:read
--- user1 should not be able to access products_test table which requires sales:read
-
 select authenticate_as('user1');
 
 -- Verify user1 doesn't have admin permission

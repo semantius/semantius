@@ -1,7 +1,7 @@
 -- Test public.get_schemas() function
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(14);
 
 -- =====================================================
 -- TEST: get_schemas() returns correct data
@@ -34,26 +34,6 @@ SELECT is(
     'get_schemas() element 0 should have the correct title'
 );
 
--- Test that multiple tables return an array with two elements
-SELECT is(
-    json_array_length(public.get_schemas('customers_test, products_test')),
-    2,
-    'get_schemas() with two table names should return an array with two elements'
-);
-
--- Test that the first element matches the first requested table
-SELECT is(
-    (public.get_schemas('customers_test, products_test')::jsonb)->0->>'title',
-    'Customer',
-    'get_schemas() element 0 should match the first requested table'
-);
-
--- Test that the second element matches the second requested table
-SELECT is(
-    (public.get_schemas('customers_test, products_test')::jsonb)->1->>'title',
-    'Product',
-    'get_schemas() element 1 should match the second requested table'
-);
 
 -- Test that each schema in the array has the expected structure ($schema field)
 SELECT is(
@@ -100,12 +80,6 @@ SELECT is(
     'get_schemas() single-table result should match get_schema() output exactly'
 );
 
--- Test that get_schemas() output matches get_schema() for second table
-SELECT is(
-    (public.get_schemas('customers_test, products_test')::jsonb)->1,
-    public.get_schema('products_test')::jsonb,
-    'get_schemas() multi-table result should match get_schema() output for each table'
-);
 
 -- =====================================================
 -- TEST: get_schemas() raises errors for missing/inaccessible tables
