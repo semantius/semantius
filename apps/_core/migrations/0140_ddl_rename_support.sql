@@ -204,6 +204,44 @@ COMMENT ON TRIGGER rename_table_trigger ON entities IS
 'Renames the physical database table when entities.table_name is updated';
 
 -- =====================================================
+-- STEP 2b: TRIGGER FUNCTION: CASCADE reference_table ON entities.table_name UPDATE
+-- =====================================================
+-- Fires AFTER UPDATE on entities when table_name changes.
+-- Updates fields.reference_table in every field across ALL tables that currently
+-- points at the old table name.  Must run AFTER (not BEFORE) the entities row is
+-- committed so that validate_reference_table_trigger can find the new name.
+-- The update cascades through update_dd_field() which drops and recreates the
+-- physical FK constraint to reference the renamed table.
+
+CREATE OR REPLACE FUNCTION rename_dd_reference_tables()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update every field in any table that references the old entity name.
+    -- update_dd_field() (AFTER trigger on fields) will detect the reference_table
+    -- change and rebuild the FK constraint to point at NEW.table_name.
+    UPDATE fields
+    SET reference_table = NEW.table_name
+    WHERE reference_table = OLD.table_name;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION rename_dd_reference_tables IS
+'AFTER UPDATE trigger on entities: when table_name changes, updates fields.reference_table
+in all fields across all tables that referenced the old name.  Cascades through
+update_dd_field() to rebuild the physical FK constraint on the referencing table.';
+
+CREATE TRIGGER rename_reference_tables_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_reference_tables();
+
+COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
+'Updates fields.reference_table and rebuilds FK constraints when entities.table_name is renamed';
+
+-- =====================================================
 -- STEP 3: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
 -- =====================================================
 -- Fires BEFORE UPDATE on fields.
@@ -677,4 +715,5 @@ format changes that alter the underlying data type are rejected by the BEFORE tr
 
 -- Revoke default PUBLIC execute on the new functions
 REVOKE EXECUTE ON FUNCTION rename_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rename_dd_reference_tables() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;

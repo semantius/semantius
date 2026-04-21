@@ -3,14 +3,21 @@
 -- Uses deliberately unique / unmistakable names:
 --   table  : qwertz1  (renamed to qwertz2)
 --   field  : rtzup2   (renamed to rtzup3)
+--   second table (cross-reference scenario): quakq2
+--     field fkref1 in quakq2 references qwertz1
 --
 -- After each rename the postgres catalog is scanned end-to-end so that any
 -- forgotten artifact (sequence, PK constraint, FK constraint, FK index, check
 -- constraint, unique index, trigger, RLS policy, GIN index, …) is caught as a
 -- test failure rather than silent leftover noise.
+--
+-- Cross-reference scenario verifies that when qwertz1 is renamed:
+--   • fields.reference_table in quakq2.fkref1 is updated to qwertz2
+--   • no fields row retains reference_table = 'qwertz1'
+--   • the physical FK on quakq2 now references the qwertz2 table by OID
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(24);
 
 SELECT authenticate_as('user3');
 
@@ -23,6 +30,9 @@ SELECT authenticate_as('user3');
 --   • plain text field "other_col"
 --   • email field "contact_field" (for format-change tests)
 --   • text field "type_chg_field" (for incompatible format-change test)
+--
+-- Create entity "quakq2" with a field fkref1 that references qwertz1
+-- so we can verify cross-table reference_table update on rename.
 -- =====================================================
 
 INSERT INTO entities (
@@ -66,6 +76,26 @@ INSERT INTO fields (
 ) VALUES (
     'qwertz1', 'type_chg_field', 'Type Change', 'text',
     FALSE, 40, 'default', 'default', ''
+);
+
+-- quakq2: a second entity with a field fkref1 that references qwertz1
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'quakq2', 'entry', 'Entry', 'Entries',
+    'Cross-reference rename test entity',
+    1001, 'public:read', 'sales:manage', 'id', 'entry_name'
+);
+
+-- fkref1 references qwertz1 → creates quakq2_fkref1_fkey + idx_quakq2_fkref1
+INSERT INTO fields (
+    table_name, field_name, title, format, reference_table, reference_delete_mode,
+    is_nullable, field_order, input_type, width, default_value
+) VALUES (
+    'quakq2', 'fkref1', 'Item Reference', 'reference', 'qwertz1', 'restrict',
+    TRUE, 10, 'default', 'default', ''
 );
 
 -- =====================================================
@@ -183,6 +213,43 @@ SELECT is(
 );
 
 -- =====================================================
+-- TEST 4b: cross-table reference_table cascade
+-- After renaming qwertz1 → qwertz2, fields in quakq2 that
+-- previously had reference_table='qwertz1' must be updated.
+-- =====================================================
+
+-- fields.reference_table for quakq2.fkref1 must now say 'qwertz2'
+SELECT is(
+    (SELECT reference_table FROM fields
+     WHERE table_name = 'quakq2' AND field_name = 'fkref1'),
+    'qwertz2',
+    'fields.reference_table for quakq2.fkref1 should be qwertz2 after renaming qwertz1'
+);
+
+-- No field anywhere must still say reference_table = 'qwertz1'
+SELECT is(
+    (SELECT count(*)::integer FROM fields WHERE reference_table = 'qwertz1'),
+    0,
+    'No fields row should retain reference_table = qwertz1 after rename'
+);
+
+-- The physical FK on quakq2 must reference the qwertz2 table by OID,
+-- confirming update_dd_field() rebuilt it to point at the renamed table.
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM   pg_constraint c
+        JOIN   pg_class src  ON c.conrelid  = src.oid
+        JOIN   pg_class tgt  ON c.confrelid = tgt.oid
+        WHERE  src.relname   = 'quakq2'
+          AND  src.relnamespace  = 'public'::regnamespace
+          AND  c.conname     = 'quakq2_fkref1_fkey'
+          AND  tgt.relname   = 'qwertz2'
+    ),
+    'FK quakq2_fkref1_fkey must physically reference qwertz2 after rename'
+);
+
+-- =====================================================
 -- TEST 5: table rename — FAILURE
 -- Renaming to an already-existing table name must fail.
 -- =====================================================
@@ -268,4 +335,3 @@ SELECT is(
 
 SELECT * FROM finish();
 ROLLBACK;
-
