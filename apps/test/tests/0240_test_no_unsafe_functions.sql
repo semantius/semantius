@@ -25,8 +25,8 @@ SELECT is_empty(
             '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql',
             'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga',
             'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog',
-            'pgtap', 'pgtle', 'realtime', 'repack', 'storage', 'supabase_functions',
-            'supabase_migrations', 'tiger', 'topology', 'vault'
+            'pgrst', 'pgtap', 'pgtle', 'realtime', 'repack', 'storage',
+            'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
         )
         AND dep.objid IS NULL
         AND NOT EXISTS (

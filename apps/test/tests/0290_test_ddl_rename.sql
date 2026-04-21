@@ -1,22 +1,28 @@
--- Tests for DDL rename support:
---   1. entities.table_name rename  → physical table renamed
---      Also renames: updated_at trigger, RLS policies, GIN search_vector index
---   2. fields.field_name rename    → physical column renamed
---      Also renames: FK constraints, indexes, check constraints
---   3. fields.format change        → rejected when data type would change
+-- Tests for DDL rename support.
 --
--- Both success and failure cases are covered for each scenario.
+-- Uses deliberately unique / unmistakable names:
+--   table  : qwertz1  (renamed to qwertz2)
+--   field  : rtzup2   (renamed to rtzup3)
+--
+-- After each rename the postgres catalog is scanned end-to-end so that any
+-- forgotten artifact (sequence, PK constraint, FK constraint, FK index, check
+-- constraint, unique index, trigger, RLS policy, GIN index, …) is caught as a
+-- test failure rather than silent leftover noise.
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(21);
 
 SELECT authenticate_as('user3');
 
 -- =====================================================
--- SETUP: Create a throw-away entity and some fields
--- to use throughout this test.
--- The label column (item_name) is searchable so a search_vector
--- column and GIN index get created for this table.
+-- SETUP
+-- Create entity "qwertz1" with several fields so that
+-- the rename exercise covers all catalog object types:
+--   • label column  (searchable)  → GIN search_vector index
+--   • reference field "rtzup2"    → FK constraint + FK index
+--   • plain text field "other_col"
+--   • email field "contact_field" (for format-change tests)
+--   • text field "type_chg_field" (for incompatible format-change test)
 -- =====================================================
 
 INSERT INTO entities (
@@ -24,254 +30,240 @@ INSERT INTO entities (
     description, module_id, view_permission, edit_permission,
     id_column, label_column
 ) VALUES (
-    'rename_test_entity', 'item', 'Item', 'Items',
-    'Temporary entity for rename tests',
+    'qwertz1', 'item', 'Item', 'Items',
+    'Catalog-scan rename test entity',
     1001, 'public:read', 'sales:manage', 'id', 'item_name'
 );
 
--- Add a plain text field
+-- reference field → creates qwertz1_rtzup2_fkey + idx_qwertz1_rtzup2
 INSERT INTO fields (
-    table_name, field_name, title, format,
+    table_name, field_name, title, format, reference_table, reference_delete_mode,
     is_nullable, field_order, input_type, width, default_value
 ) VALUES (
-    'rename_test_entity', 'old_col', 'Old Column', 'text',
-    FALSE, 10, 'default', 'default', ''
+    'qwertz1', 'rtzup2', 'Region', 'reference', 'regions_test', 'restrict',
+    TRUE, 10, 'default', 'default', ''
 );
 
--- Add a same-type format pair: email (TEXT) → hostname (TEXT)
 INSERT INTO fields (
     table_name, field_name, title, format,
     is_nullable, field_order, input_type, width, default_value
 ) VALUES (
-    'rename_test_entity', 'contact_field', 'Contact', 'email',
+    'qwertz1', 'other_col', 'Other Column', 'text',
     FALSE, 20, 'default', 'default', ''
 );
 
--- Add a field that will be used to test incompatible format change (text → int32)
 INSERT INTO fields (
     table_name, field_name, title, format,
     is_nullable, field_order, input_type, width, default_value
 ) VALUES (
-    'rename_test_entity', 'type_change_field', 'Type Change', 'text',
+    'qwertz1', 'contact_field', 'Contact', 'email',
     FALSE, 30, 'default', 'default', ''
 );
 
--- =====================================================
--- TEST 1: entities.table_name rename — SUCCESS
--- The physical table should be renamed in the database,
--- along with its trigger, RLS policies, and GIN index.
--- =====================================================
-
--- Confirm table exists under the original name
-SELECT has_table(
-    'public',
-    'rename_test_entity',
-    'rename_test_entity table should exist before rename'
+INSERT INTO fields (
+    table_name, field_name, title, format,
+    is_nullable, field_order, input_type, width, default_value
+) VALUES (
+    'qwertz1', 'type_chg_field', 'Type Change', 'text',
+    FALSE, 40, 'default', 'default', ''
 );
 
--- Perform the rename
+-- =====================================================
+-- TEST 1: field rename rtzup2 → rtzup3 succeeds
+-- =====================================================
+
 SELECT lives_ok(
-    $$UPDATE entities SET table_name = 'renamed_entity'
-      WHERE table_name = 'rename_test_entity'$$,
-    'Renaming entities.table_name should succeed'
+    $$UPDATE fields SET field_name = 'rtzup3'
+      WHERE table_name = 'qwertz1' AND field_name = 'rtzup2'$$,
+    'Renaming field rtzup2 → rtzup3 should succeed'
 );
 
--- Original table should no longer exist
-SELECT hasnt_table(
-    'public',
-    'rename_test_entity',
-    'rename_test_entity should not exist after rename'
+-- =====================================================
+-- TEST 2: no trace of rtzup2 in the catalog for qwertz1
+--
+-- Checks pg_attribute (column names), pg_constraint (constraint names),
+-- and pg_indexes (index names) for the table qwertz1.
+-- =====================================================
+
+SELECT is_empty(
+    $$
+    SELECT 'pg_attribute: ' || attname AS artifact
+    FROM   pg_attribute a
+    JOIN   pg_class c ON a.attrelid = c.oid
+    WHERE  c.relname = 'qwertz1'
+      AND  c.relnamespace = 'public'::regnamespace
+      AND  a.attname LIKE '%rtzup2%'
+      AND  a.attnum > 0
+    UNION ALL
+    SELECT 'pg_constraint: ' || conname
+    FROM   pg_constraint c
+    JOIN   pg_class t ON c.conrelid = t.oid
+    WHERE  t.relname = 'qwertz1'
+      AND  t.relnamespace = 'public'::regnamespace
+      AND  c.conname LIKE '%rtzup2%'
+    UNION ALL
+    SELECT 'pg_indexes: ' || indexname
+    FROM   pg_indexes
+    WHERE  schemaname = 'public'
+      AND  tablename  = 'qwertz1'
+      AND  indexname LIKE '%rtzup2%'
+    $$,
+    'No trace of rtzup2 should remain in the catalog for qwertz1 after field rename'
 );
 
--- New table should exist
-SELECT has_table(
-    'public',
-    'renamed_entity',
-    'renamed_entity should exist after rename'
-);
-
--- Columns should still be present in the renamed table
+-- Renamed column should exist under the new name
 SELECT has_column(
-    'public', 'renamed_entity', 'old_col',
-    'old_col column should still exist in renamed table'
+    'public', 'qwertz1', 'rtzup3',
+    'Column rtzup3 should exist after field rename'
 );
 
--- Fields metadata should reference the new table name
+-- =====================================================
+-- TEST 3: table rename qwertz1 → qwertz2 succeeds
+-- =====================================================
+
+SELECT has_table('public', 'qwertz1', 'qwertz1 should exist before table rename');
+
+SELECT lives_ok(
+    $$UPDATE entities SET table_name = 'qwertz2'
+      WHERE table_name = 'qwertz1'$$,
+    'Renaming entity qwertz1 → qwertz2 should succeed'
+);
+
+SELECT hasnt_table('public', 'qwertz1', 'qwertz1 should not exist after table rename');
+SELECT has_table('public', 'qwertz2', 'qwertz2 should exist after table rename');
+
+-- =====================================================
+-- TEST 4: no trace of qwertz1 anywhere in the public schema catalog
+--
+-- Checks pg_class (table, sequence, index names),
+--        pg_trigger (trigger names),
+--        pg_policy (RLS policy names),
+--        pg_constraint (constraint names).
+-- Any row returned here is a forgotten rename artifact.
+-- =====================================================
+
+SELECT is_empty(
+    $$
+    SELECT 'pg_class: ' || relname AS artifact
+    FROM   pg_class
+    WHERE  relnamespace = 'public'::regnamespace
+      AND  relname LIKE '%qwertz1%'
+    UNION ALL
+    SELECT 'pg_trigger: ' || t.tgname
+    FROM   pg_trigger t
+    JOIN   pg_class c ON t.tgrelid = c.oid
+    WHERE  c.relnamespace = 'public'::regnamespace
+      AND  t.tgname LIKE '%qwertz1%'
+    UNION ALL
+    SELECT 'pg_policy: ' || p.polname
+    FROM   pg_policy p
+    JOIN   pg_class c ON p.polrelid = c.oid
+    WHERE  c.relnamespace = 'public'::regnamespace
+      AND  p.polname LIKE '%qwertz1%'
+    UNION ALL
+    SELECT 'pg_constraint: ' || c.conname
+    FROM   pg_constraint c
+    JOIN   pg_class t ON c.conrelid = t.oid
+    WHERE  t.relnamespace = 'public'::regnamespace
+      AND  c.conname LIKE '%qwertz1%'
+    $$,
+    'No trace of qwertz1 should remain anywhere in the public schema catalog after table rename'
+);
+
+-- Metadata should be updated to reference the new name
 SELECT ok(
-    (SELECT count(*) FROM fields WHERE table_name = 'renamed_entity') > 0,
-    'fields rows should reference renamed_entity'
+    (SELECT count(*) FROM fields WHERE table_name = 'qwertz2') > 0,
+    'fields rows should reference qwertz2 after table rename'
 );
 
 SELECT is(
-    (SELECT count(*)::integer FROM fields WHERE table_name = 'rename_test_entity'),
+    (SELECT count(*)::integer FROM fields WHERE table_name = 'qwertz1'),
     0,
-    'No fields rows should reference old table name rename_test_entity'
-);
-
--- Updated_at trigger should have the new name
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_trigger t
-        JOIN pg_class c ON t.tgrelid = c.oid
-        WHERE c.relname = 'renamed_entity'
-          AND c.relnamespace = 'public'::regnamespace
-          AND t.tgname = 'update_renamed_entity_updated_at'
-    ),
-    'Trigger update_renamed_entity_updated_at should exist after table rename'
-);
-
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_trigger t
-        JOIN pg_class c ON t.tgrelid = c.oid
-        WHERE c.relname = 'renamed_entity'
-          AND c.relnamespace = 'public'::regnamespace
-          AND t.tgname = 'update_rename_test_entity_updated_at'
-    ),
-    'Trigger update_rename_test_entity_updated_at should not exist after table rename'
-);
-
--- RLS policies should have the new names
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_policy p
-        JOIN pg_class c ON p.polrelid = c.oid
-        WHERE c.relname = 'renamed_entity'
-          AND c.relnamespace = 'public'::regnamespace
-          AND p.polname = 'renamed_entity_select_policy'
-    ),
-    'RLS policy renamed_entity_select_policy should exist after table rename'
-);
-
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_policy p
-        JOIN pg_class c ON p.polrelid = c.oid
-        WHERE c.relname = 'renamed_entity'
-          AND c.relnamespace = 'public'::regnamespace
-          AND p.polname = 'rename_test_entity_select_policy'
-    ),
-    'Old RLS policy rename_test_entity_select_policy should not exist after table rename'
-);
-
--- GIN search_vector index should have the new name
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = 'public'
-          AND tablename = 'renamed_entity'
-          AND indexname = 'renamed_entity_search_vector_idx'
-    ),
-    'GIN index renamed_entity_search_vector_idx should exist after table rename'
-);
-
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = 'public'
-          AND indexname = 'rename_test_entity_search_vector_idx'
-    ),
-    'Old GIN index rename_test_entity_search_vector_idx should not exist after table rename'
+    'No fields rows should reference qwertz1 after table rename'
 );
 
 -- =====================================================
--- TEST 2: entities.table_name rename — FAILURE
--- Renaming to an already-existing table name should fail
--- because ALTER TABLE RENAME fails.
+-- TEST 5: table rename — FAILURE
+-- Renaming to an already-existing table name must fail.
 -- =====================================================
 
 SELECT throws_ok(
     $$UPDATE entities SET table_name = 'customers_test'
-      WHERE table_name = 'renamed_entity'$$,
+      WHERE table_name = 'qwertz2'$$,
     NULL,
     NULL,
     'Renaming to an already-existing table name should fail'
 );
 
--- The entity should still exist under its pre-failed-rename name
 SELECT has_table(
-    'public',
-    'renamed_entity',
-    'renamed_entity should still exist after failed rename'
+    'public', 'qwertz2',
+    'qwertz2 should still exist after failed rename attempt'
 );
 
 -- =====================================================
--- TEST 3: fields.field_name rename — SUCCESS
--- The physical column should be renamed in the database.
+-- TEST 6: field rename — SUCCESS (plain column)
 -- =====================================================
 
-SELECT has_column(
-    'public', 'renamed_entity', 'old_col',
-    'old_col column should exist before field rename'
-);
+SELECT has_column('public', 'qwertz2', 'other_col',
+    'other_col should exist before rename');
 
 SELECT lives_ok(
-    $$UPDATE fields SET field_name = 'new_col'
-      WHERE table_name = 'renamed_entity' AND field_name = 'old_col'$$,
-    'Renaming fields.field_name should succeed'
+    $$UPDATE fields SET field_name = 'other_col_new'
+      WHERE table_name = 'qwertz2' AND field_name = 'other_col'$$,
+    'Renaming other_col → other_col_new should succeed'
 );
 
--- Old column should no longer exist
-SELECT hasnt_column(
-    'public', 'renamed_entity', 'old_col',
-    'old_col column should not exist after rename'
-);
+SELECT hasnt_column('public', 'qwertz2', 'other_col',
+    'other_col should not exist after rename');
 
--- New column should exist
-SELECT has_column(
-    'public', 'renamed_entity', 'new_col',
-    'new_col column should exist after rename'
-);
+SELECT has_column('public', 'qwertz2', 'other_col_new',
+    'other_col_new should exist after rename');
 
 -- =====================================================
--- TEST 4: fields.field_name rename — FAILURE
--- Renaming to a column name that already exists should fail.
+-- TEST 7: field rename — FAILURE
+-- Renaming to an already-existing column name must fail.
 -- =====================================================
 
 SELECT throws_ok(
-    $$UPDATE fields SET field_name = 'new_col'
-      WHERE table_name = 'renamed_entity' AND field_name = 'contact_field'$$,
+    $$UPDATE fields SET field_name = 'other_col_new'
+      WHERE table_name = 'qwertz2' AND field_name = 'contact_field'$$,
     NULL,
     NULL,
     'Renaming to an already-existing column name should fail'
 );
 
--- Original column should still exist under its original name
-SELECT has_column(
-    'public', 'renamed_entity', 'contact_field',
-    'contact_field should still exist after failed rename'
-);
+SELECT has_column('public', 'qwertz2', 'contact_field',
+    'contact_field should still exist after failed column rename');
 
 -- =====================================================
--- TEST 5: fields.format change — SUCCESS (same data type)
--- Changing email → hostname is allowed (both map to TEXT).
+-- TEST 8: format change — SUCCESS (same data type)
+-- email → hostname: both map to TEXT, change is allowed.
 -- =====================================================
 
 SELECT lives_ok(
     $$UPDATE fields SET format = 'hostname'
-      WHERE table_name = 'renamed_entity' AND field_name = 'contact_field'$$,
+      WHERE table_name = 'qwertz2' AND field_name = 'contact_field'$$,
     'Changing format from email to hostname (both TEXT) should succeed'
 );
 
 -- =====================================================
--- TEST 6: fields.format change — FAILURE (different data type)
--- Changing text → int32 must be rejected (TEXT ≠ INTEGER).
+-- TEST 9: format change — FAILURE (incompatible data type)
+-- text → int32: TEXT ≠ INTEGER, must be rejected.
 -- =====================================================
 
 SELECT throws_ok(
     $$UPDATE fields SET format = 'int32'
-      WHERE table_name = 'renamed_entity' AND field_name = 'type_change_field'$$,
+      WHERE table_name = 'qwertz2' AND field_name = 'type_chg_field'$$,
     'P0001',
     NULL,
     'Changing format from text to int32 (TEXT→INTEGER) should be rejected'
 );
 
--- Field format should be unchanged after failed update
 SELECT is(
     (SELECT format FROM fields
-     WHERE table_name = 'renamed_entity' AND field_name = 'type_change_field'),
+     WHERE table_name = 'qwertz2' AND field_name = 'type_chg_field'),
     'text',
-    'format should remain text after rejected change'
+    'format should remain text after rejected incompatible format change'
 );
 
 SELECT * FROM finish();

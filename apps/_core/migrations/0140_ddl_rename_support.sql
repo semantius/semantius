@@ -31,6 +31,10 @@ ALTER TABLE fields
 
 CREATE OR REPLACE FUNCTION rename_dd_table()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_suffix    TEXT;
+    v_old_name  TEXT;
+    v_new_name  TEXT;
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
         -- Mark that a cascade rename is in progress (transaction-local)
@@ -55,34 +59,26 @@ BEGIN
                     NEW.table_name,
                     'update_' || NEW.table_name || '_updated_at'
                 );
-                RAISE NOTICE 'Renamed trigger "update_%_updated_at" to "update_%_updated_at"',
-                    OLD.table_name, NEW.table_name;
             END IF;
 
             -- Rename RLS policies (name patterns: <table>_select/insert/update/delete_policy)
-            DECLARE
-                v_suffix TEXT;
-            BEGIN
-                FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']
-                LOOP
-                    IF EXISTS (
-                        SELECT 1 FROM pg_policy p
-                        JOIN pg_class c ON p.polrelid = c.oid
-                        WHERE c.relname = NEW.table_name
-                          AND c.relnamespace = 'public'::regnamespace
-                          AND p.polname = OLD.table_name || '_' || v_suffix
-                    ) THEN
-                        EXECUTE format(
-                            'ALTER POLICY %I ON %I RENAME TO %I',
-                            OLD.table_name || '_' || v_suffix,
-                            NEW.table_name,
-                            NEW.table_name || '_' || v_suffix
-                        );
-                        RAISE NOTICE 'Renamed policy "%_%" to "%_%"',
-                            OLD.table_name, v_suffix, NEW.table_name, v_suffix;
-                    END IF;
-                END LOOP;
-            END;
+            FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']
+            LOOP
+                IF EXISTS (
+                    SELECT 1 FROM pg_policy p
+                    JOIN pg_class c ON p.polrelid = c.oid
+                    WHERE c.relname = NEW.table_name
+                      AND c.relnamespace = 'public'::regnamespace
+                      AND p.polname = OLD.table_name || '_' || v_suffix
+                ) THEN
+                    EXECUTE format(
+                        'ALTER POLICY %I ON %I RENAME TO %I',
+                        OLD.table_name || '_' || v_suffix,
+                        NEW.table_name,
+                        NEW.table_name || '_' || v_suffix
+                    );
+                END IF;
+            END LOOP;
 
             -- Rename GIN search_vector index if it exists
             -- (name pattern: <table>_search_vector_idx)
@@ -96,9 +92,93 @@ BEGIN
                     OLD.table_name || '_search_vector_idx',
                     NEW.table_name || '_search_vector_idx'
                 );
-                RAISE NOTICE 'Renamed index "%_search_vector_idx" to "%_search_vector_idx"',
-                    OLD.table_name, NEW.table_name;
             END IF;
+
+            -- Rename id sequence (<table>_<id_col>_seq)
+            IF EXISTS (
+                SELECT 1 FROM pg_class
+                WHERE relname = OLD.table_name || '_' || OLD.id_column || '_seq'
+                  AND relnamespace = 'public'::regnamespace
+                  AND relkind = 'S'
+            ) THEN
+                EXECUTE format(
+                    'ALTER SEQUENCE %I RENAME TO %I',
+                    OLD.table_name || '_' || OLD.id_column || '_seq',
+                    NEW.table_name || '_' || NEW.id_column || '_seq'
+                );
+            END IF;
+
+            -- Rename primary key constraint (<table>_pkey)
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = OLD.table_name || '_pkey'
+                  AND t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.contype = 'p'
+            ) THEN
+                EXECUTE format(
+                    'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name,
+                    OLD.table_name || '_pkey',
+                    NEW.table_name || '_pkey'
+                );
+            END IF;
+
+            -- Rename all FK constraints named <old_table>_<field>_fkey
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\_%\_fkey') ESCAPE '\'
+                  AND c.contype = 'f'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all FK indexes named idx_<old_table>_<field>
+            FOR v_old_name IN
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = NEW.table_name
+                  AND indexname LIKE ('idx\_' || OLD.table_name || '\_%') ESCAPE '\'
+            LOOP
+                v_new_name := 'idx_' || NEW.table_name || substring(v_old_name FROM length('idx_' || OLD.table_name) + 1);
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all check constraints named <old_table>_<field>_check
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\_%\_check') ESCAPE '\'
+                  AND c.contype = 'c'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all unique indexes named <old_table>_<field>_unique
+            FOR v_old_name IN
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = NEW.table_name
+                  AND indexname LIKE (OLD.table_name || '\_%\_unique') ESCAPE '\'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
+            END LOOP;
+
         END IF;
     END IF;
 
@@ -107,10 +187,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION rename_dd_table IS
-'BEFORE UPDATE trigger on entities: renames the physical table and all associated named
-objects (updated_at trigger, RLS policies, GIN search_vector index) when table_name changes.
-Sets a transaction-local session variable so the cascaded update to fields.table_name
-is allowed by update_dd_field without raising an exception.';
+'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
+objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
+index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
+and unique indexes.  Sets a transaction-local session variable so the cascaded update to
+fields.table_name is allowed by update_dd_field without raising an exception.';
 
 -- Apply trigger BEFORE UPDATE on entities (only when table_name changes)
 CREATE TRIGGER rename_table_trigger
