@@ -28,28 +28,28 @@ INSERT INTO entities (
 -- Add a plain text field
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width
+    is_nullable, field_order, input_type, width, default_value
 ) VALUES (
     'rename_test_entity', 'old_col', 'Old Column', 'text',
-    TRUE, 10, 'default', 'default'
+    FALSE, 10, 'default', 'default', ''
 );
 
 -- Add a same-type format pair: email (TEXT) → hostname (TEXT)
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width
+    is_nullable, field_order, input_type, width, default_value
 ) VALUES (
     'rename_test_entity', 'contact_field', 'Contact', 'email',
-    TRUE, 20, 'default', 'default'
+    FALSE, 20, 'default', 'default', ''
 );
 
 -- Add a field that will be used to test incompatible format change (text → int32)
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width
+    is_nullable, field_order, input_type, width, default_value
 ) VALUES (
     'rename_test_entity', 'type_change_field', 'Type Change', 'text',
-    TRUE, 30, 'default', 'default'
+    FALSE, 30, 'default', 'default', ''
 );
 
 -- =====================================================

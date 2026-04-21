@@ -410,8 +410,6 @@ BEGIN
                 -- Determine ON DELETE behavior
                 IF NEW.reference_delete_mode = 'clear' THEN
                     v_on_delete := 'SET NULL';
-                ELSIF NEW.reference_delete_mode = 'cascade' THEN
-                    v_on_delete := 'CASCADE';
                 ELSE
                     v_on_delete := 'RESTRICT';
                 END IF;
