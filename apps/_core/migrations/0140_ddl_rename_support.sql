@@ -36,10 +36,69 @@ BEGIN
         -- Mark that a cascade rename is in progress (transaction-local)
         PERFORM set_config('dd.table_rename', OLD.table_name || ':' || NEW.table_name, TRUE);
 
-        -- Rename the physical table when the entity is managed
+        -- Rename the physical table and all associated named objects when managed
         IF OLD.managed THEN
             EXECUTE format('ALTER TABLE %I RENAME TO %I', OLD.table_name, NEW.table_name);
             RAISE NOTICE 'Renamed table "%" to "%"', OLD.table_name, NEW.table_name;
+
+            -- Rename updated_at trigger (name pattern: update_<table>_updated_at)
+            IF EXISTS (
+                SELECT 1 FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                WHERE c.relname = NEW.table_name
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND t.tgname = 'update_' || OLD.table_name || '_updated_at'
+            ) THEN
+                EXECUTE format(
+                    'ALTER TRIGGER %I ON %I RENAME TO %I',
+                    'update_' || OLD.table_name || '_updated_at',
+                    NEW.table_name,
+                    'update_' || NEW.table_name || '_updated_at'
+                );
+                RAISE NOTICE 'Renamed trigger "update_%_updated_at" to "update_%_updated_at"',
+                    OLD.table_name, NEW.table_name;
+            END IF;
+
+            -- Rename RLS policies (name patterns: <table>_select/insert/update/delete_policy)
+            DECLARE
+                v_suffix TEXT;
+            BEGIN
+                FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']
+                LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM pg_policy p
+                        JOIN pg_class c ON p.polrelid = c.oid
+                        WHERE c.relname = NEW.table_name
+                          AND c.relnamespace = 'public'::regnamespace
+                          AND p.polname = OLD.table_name || '_' || v_suffix
+                    ) THEN
+                        EXECUTE format(
+                            'ALTER POLICY %I ON %I RENAME TO %I',
+                            OLD.table_name || '_' || v_suffix,
+                            NEW.table_name,
+                            NEW.table_name || '_' || v_suffix
+                        );
+                        RAISE NOTICE 'Renamed policy "%_%" to "%_%"',
+                            OLD.table_name, v_suffix, NEW.table_name, v_suffix;
+                    END IF;
+                END LOOP;
+            END;
+
+            -- Rename GIN search_vector index if it exists
+            -- (name pattern: <table>_search_vector_idx)
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = OLD.table_name || '_search_vector_idx'
+            ) THEN
+                EXECUTE format(
+                    'ALTER INDEX %I RENAME TO %I',
+                    OLD.table_name || '_search_vector_idx',
+                    NEW.table_name || '_search_vector_idx'
+                );
+                RAISE NOTICE 'Renamed index "%_search_vector_idx" to "%_search_vector_idx"',
+                    OLD.table_name, NEW.table_name;
+            END IF;
         END IF;
     END IF;
 
@@ -48,7 +107,8 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION rename_dd_table IS
-'BEFORE UPDATE trigger on entities: renames the physical table when table_name changes.
+'BEFORE UPDATE trigger on entities: renames the physical table and all associated named
+objects (updated_at trigger, RLS policies, GIN search_vector index) when table_name changes.
 Sets a transaction-local session variable so the cascaded update to fields.table_name
 is allowed by update_dd_field without raising an exception.';
 

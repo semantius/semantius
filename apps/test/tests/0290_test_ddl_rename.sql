@@ -1,18 +1,22 @@
 -- Tests for DDL rename support:
 --   1. entities.table_name rename  → physical table renamed
+--      Also renames: updated_at trigger, RLS policies, GIN search_vector index
 --   2. fields.field_name rename    → physical column renamed
+--      Also renames: FK constraints, indexes, check constraints
 --   3. fields.format change        → rejected when data type would change
 --
 -- Both success and failure cases are covered for each scenario.
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(24);
 
 SELECT authenticate_as('user3');
 
 -- =====================================================
 -- SETUP: Create a throw-away entity and some fields
 -- to use throughout this test.
+-- The label column (item_name) is searchable so a search_vector
+-- column and GIN index get created for this table.
 -- =====================================================
 
 INSERT INTO entities (
@@ -54,7 +58,8 @@ INSERT INTO fields (
 
 -- =====================================================
 -- TEST 1: entities.table_name rename — SUCCESS
--- The physical table should be renamed in the database.
+-- The physical table should be renamed in the database,
+-- along with its trigger, RLS policies, and GIN index.
 -- =====================================================
 
 -- Confirm table exists under the original name
@@ -91,7 +96,7 @@ SELECT has_column(
     'old_col column should still exist in renamed table'
 );
 
--- More precise check: fields for old name should be 0, for new name > 0
+-- Fields metadata should reference the new table name
 SELECT ok(
     (SELECT count(*) FROM fields WHERE table_name = 'renamed_entity') > 0,
     'fields rows should reference renamed_entity'
@@ -101,6 +106,72 @@ SELECT is(
     (SELECT count(*)::integer FROM fields WHERE table_name = 'rename_test_entity'),
     0,
     'No fields rows should reference old table name rename_test_entity'
+);
+
+-- Updated_at trigger should have the new name
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relname = 'renamed_entity'
+          AND c.relnamespace = 'public'::regnamespace
+          AND t.tgname = 'update_renamed_entity_updated_at'
+    ),
+    'Trigger update_renamed_entity_updated_at should exist after table rename'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relname = 'renamed_entity'
+          AND c.relnamespace = 'public'::regnamespace
+          AND t.tgname = 'update_rename_test_entity_updated_at'
+    ),
+    'Trigger update_rename_test_entity_updated_at should not exist after table rename'
+);
+
+-- RLS policies should have the new names
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policy p
+        JOIN pg_class c ON p.polrelid = c.oid
+        WHERE c.relname = 'renamed_entity'
+          AND c.relnamespace = 'public'::regnamespace
+          AND p.polname = 'renamed_entity_select_policy'
+    ),
+    'RLS policy renamed_entity_select_policy should exist after table rename'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_policy p
+        JOIN pg_class c ON p.polrelid = c.oid
+        WHERE c.relname = 'renamed_entity'
+          AND c.relnamespace = 'public'::regnamespace
+          AND p.polname = 'rename_test_entity_select_policy'
+    ),
+    'Old RLS policy rename_test_entity_select_policy should not exist after table rename'
+);
+
+-- GIN search_vector index should have the new name
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'renamed_entity'
+          AND indexname = 'renamed_entity_search_vector_idx'
+    ),
+    'GIN index renamed_entity_search_vector_idx should exist after table rename'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND indexname = 'rename_test_entity_search_vector_idx'
+    ),
+    'Old GIN index rename_test_entity_search_vector_idx should not exist after table rename'
 );
 
 -- =====================================================
@@ -205,3 +276,4 @@ SELECT is(
 
 SELECT * FROM finish();
 ROLLBACK;
+
