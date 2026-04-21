@@ -364,80 +364,80 @@ BEGIN
   -- Insert field metadata for fields table using the same enum arrays
   -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
   -- All field definitions for the fields table are consolidated here with NO duplication
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
+  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES 
-      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
-      ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, 'entities', 'cascade'),
-      ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
-      ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, NULL, '', ''),
-      ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL, '', ''),
-      ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'enum', FALSE, FALSE, 50, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(format_values), '', ''),
-      ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(input_type_values), '', ''),
-      ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(width_values), '', ''),
-      ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(ctype_values), '', ''),
-      ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict, clear, or cascade', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
-      ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'unique_value', 'Unique Value', 'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'cube_type', 'Cube Type', 'Cube type for OLAP cube generation', 'enum', FALSE, FALSE, 144, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_type_values), '', ''),
-      ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
+      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  FALSE, 1,   'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, FALSE, 10,  'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade'),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, FALSE, 20,  'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, FALSE, 30,  'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, FALSE, 40,  'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, FALSE, 50,  'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          ''),
+      ('fields', 'is_pk',               'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, FALSE, 60,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'is_nullable',         'Is Nullable',          '',                                                                       'true',     'boolean',   FALSE, FALSE, 70,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'default_value',       'Default Value',        '',                                                                       '',         'text',      FALSE, FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'field_order',         'Field Order',          '',                                                                       '',         'int32',     FALSE, FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'input_type',          'Input Type',           '',                                                                       'default',  'enum',      FALSE, FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          ''),
+      ('fields', 'width',               'Width',                '',                                                                       'default',  'enum',      FALSE, FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          ''),
+      ('fields', 'ctype',               'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, FALSE, 120, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          ''),
+      ('fields', 'is_core',             'Is Core',              '',                                                                       '',         'boolean',   FALSE, FALSE, 130, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'searchable',          'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, FALSE, 135, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'enum_values',         'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, TRUE,  137, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'reference_table',     'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                       'restrict', 'enum',      FALSE, FALSE, 139, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', ''),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, FALSE, 141, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'plural_label_parent', 'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, FALSE, 142, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'unique_value',        'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL,                           '',          ''),
+      ('fields', 'cube_type',           'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, FALSE, 144, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          ''),
+      ('fields', 'created_at',          'Created At',           '',                                                                       '',         'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'updated_at',          'Updated At',           '',                                                                       '',         'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
+  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES
-      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
-      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'enum', FALSE, FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
+      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
+      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
 END $$;
 
 -- Insert fields metadata for entities table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 1, 'default', 'default', 'id', TRUE, TRUE, '', ''),
-    ('entities', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('entities', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'text', FALSE, FALSE, 40, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'module_id', 'Module Id', 'Module this table belongs to', 'reference', FALSE, TRUE, 70, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('entities', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'text', FALSE, FALSE, 80, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  FALSE, 1,   'default',  'default', 'id',   TRUE,  TRUE,  '', ''),
+    ('entities', 'singular',       'Singular',       'Singular form of table name',                           '',             'text',      FALSE, FALSE, 10,  'default',  'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, FALSE, 20,  'readonly', 'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports',          '',             'text',      FALSE, FALSE, 30,  'required', 'default', 'label',TRUE,  TRUE,  '', ''),
+    ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports',            '',             'text',      FALSE, FALSE, 40,  'default',  'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, FALSE, 50,  'default',  'w',       NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, FALSE, 60,  'default',  'w',       NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, TRUE,  70,  'default',  'default', NULL,   TRUE,  FALSE, 'modules', 'clear'),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'text',      FALSE, FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'text',      FALSE, FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, FALSE, 115, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, FALSE, 117, 'disabled', 'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, FALSE, 118, 'disabled', 'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL,  TRUE,  FALSE, '', ''),
+    ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '');
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('users', 'id', 'Id', '', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
-    ('users', 'email', 'Email', 'User email address', 'email', FALSE, FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
-    ('users', 'display_name', 'Display Name', 'Display name for the user', 'text', FALSE, FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'email', 'Email', '', 'email', FALSE, FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
+    ('users', 'display_name', 'Display Name', '', 'text', FALSE, FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
+    ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'created_at', 'Created At', '', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('modules', 'id', 'Id', '', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('modules', 'description', 'Description', '', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
@@ -445,28 +445,28 @@ VALUES
     ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('roles', 'id', 'Id', '', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('roles', 'description', 'Description', '', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('roles', 'created_at', 'Created At', '', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('roles', 'updated_at', 'Updated At', '', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permissions', 'id', 'Id', '', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('permissions', 'description', 'Description', '', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
     ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('permissions', 'created_at', 'Created At', '', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('permissions', 'updated_at', 'Updated At', '', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for user_roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
@@ -510,7 +510,7 @@ VALUES
     ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
     ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
-    ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('permission_hierarchy', 'created_at', 'Created At', '', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
