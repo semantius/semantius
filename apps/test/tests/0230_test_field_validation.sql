@@ -100,13 +100,15 @@ SELECT throws_ok(
     'Should reject UPDATE when reference_table is cleared on a field with format "reference"'
 );
 
--- Test 8: Update a reference field to change format to text (while reference_table remains set) should fail
+-- Test 8: Update a reference field to change format to text (while reference_table remains set) should fail.
+-- The BEFORE UPDATE trigger rejects this first (type change: INTEGER → TEXT, error P0001)
+-- before the check constraint (23514) can fire.
 SELECT throws_ok(
     $$UPDATE fields SET format = 'text'
       WHERE table_name = 'customers_test' AND field_name = 'test_valid_ref'$$,
-    '23514',
+    'P0001',
     NULL,
-    'Should reject UPDATE when format is changed from "reference" to "text" while reference_table is still set'
+    'Should reject UPDATE when format is changed from "reference" to "text" (type change INTEGER→TEXT)'
 );
 
 SELECT * FROM finish();
