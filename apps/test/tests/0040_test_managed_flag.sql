@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(19);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -125,6 +125,63 @@ DELETE FROM entities WHERE table_name = 'test_managed_false';
 SELECT ok(
     NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_managed_false'),
     'Table metadata should be deleted from entities table for managed=false'
+);
+
+-- =====================================================
+-- TEST: Toggle managed=false → managed=true
+-- =====================================================
+
+-- Test 14: Create table with managed=false and add a custom field
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
+VALUES ('test_toggle_managed', 'test_toggle_managed', 'Test Toggle', 'Test Toggles', 'Toggle managed test', 1, 'public:read', 'admin', 'id', 'label', FALSE);
+
+INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
+VALUES ('test_toggle_managed', 'custom_field', 'Custom Field', 'text', FALSE, FALSE, 10, 'default', 'default', 'A custom field');
+
+-- Verify table was NOT created yet
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_toggle_managed'),
+    'Table should NOT exist in database before toggling managed to true'
+);
+
+-- Test 15: Toggle managed to true — physical table should now be created
+UPDATE entities SET managed = TRUE WHERE table_name = 'test_toggle_managed';
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'test_toggle_managed'),
+    'Table should be created in database after toggling managed to true'
+);
+
+-- Test 16: Custom field column should exist after toggle
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'test_toggle_managed' AND column_name = 'custom_field'
+    ),
+    'Custom field column should exist in database after toggling managed to true'
+);
+
+-- Test 17: Core field records (id, label, created_at, updated_at) should be created
+SELECT ok(
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'test_toggle_managed' AND field_name IN ('id', 'label', 'created_at', 'updated_at')) = 4,
+    'Core field records (id, label, created_at, updated_at) should exist after toggling managed to true'
+);
+
+-- Test 18: After toggle, updating a field's metadata should work correctly
+-- (column exists after toggle, update runs without error)
+UPDATE fields SET title = 'Custom Field Updated' WHERE table_name = 'test_toggle_managed' AND field_name = 'custom_field';
+
+SELECT ok(
+    (SELECT title = 'Custom Field Updated' FROM fields WHERE table_name = 'test_toggle_managed' AND field_name = 'custom_field'),
+    'Field metadata update should work correctly after table has been toggled to managed=true'
+);
+
+-- Test 19: Cleanup
+DELETE FROM entities WHERE table_name = 'test_toggle_managed';
+
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_toggle_managed'),
+    'Test toggle managed table should be cleaned up'
 );
 
 SELECT * FROM finish();

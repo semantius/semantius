@@ -91,7 +91,8 @@ SELECT is(
             'update_table_searchable_flag',
             'update_table_is_child_flag',
             'validate_permission_exists',
-            'validate_api_key'
+            'validate_api_key',
+            'apply_field_ddl'
         )
     ),
     NULL::text,
