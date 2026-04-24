@@ -393,3 +393,21 @@ WHERE r.id = 10001
   AND NOT EXISTS (
     SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
   );
+
+-- =====================================================
+-- ENABLE AUDIT LOGGING FOR KEY TABLES
+-- =====================================================
+-- Enable DML audit logging for customers and products tables.
+-- The audit_log column is added by _core/0150_audit_log.sql.
+-- Other nwind tables can be enabled later as needed.
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'entities' AND column_name = 'audit_log'
+    ) THEN
+        UPDATE entities SET audit_log = TRUE
+        WHERE table_name IN ('customers', 'products');
+    END IF;
+END $$;

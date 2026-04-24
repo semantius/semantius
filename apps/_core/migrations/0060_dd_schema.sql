@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS entities (
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
     edit_mode TEXT NOT NULL DEFAULT 'auto',
     cube_mode TEXT NOT NULL DEFAULT 'auto',
+    audit_log BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -58,6 +59,7 @@ COMMENT ON COLUMN entities.edit_permission IS 'Permission required to INSERT/UPD
 COMMENT ON COLUMN entities.id_column IS 'Name of primary key column (created automatically)';
 COMMENT ON COLUMN entities.label_column IS 'Name of label/display column (created automatically)';
 COMMENT ON COLUMN entities.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
+COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
 
 -- =====================================================
 -- FIELDS TABLE
