@@ -15,8 +15,8 @@ VALUES ('test_table', 'Test Table', FALSE);
 
 -- Test that we CAN insert a field with reference_delete_mode='' when reference_table is empty
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_field1', 'Test Field 1', 'text', FALSE, 10, '', '')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_field1', 'Test Field 1', 'text', 10, '', '')$$,
     'Can insert field with reference_delete_mode=empty string when reference_table is empty'
 );
 
@@ -29,8 +29,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_field1
 
 -- Test that we CAN insert a field with reference_delete_mode='restrict' when reference_table is empty
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_field2', 'Test Field 2', 'text', FALSE, 10, '', 'restrict')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_field2', 'Test Field 2', 'text', 10, '', 'restrict')$$,
     'Can insert field with reference_delete_mode=restrict when reference_table is empty (value ignored)'
 );
 
@@ -47,8 +47,8 @@ VALUES ('test_ref_table', 'Test Ref Table', FALSE);
 
 -- Test that we CAN insert a field with reference_delete_mode='restrict' when reference_table is non-empty
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_ref_field1', 'Test Ref Field 1', 'reference', FALSE, 20, 'test_ref_table', 'restrict')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_ref_field1', 'Test Ref Field 1', 'reference', 20, 'test_ref_table', 'restrict')$$,
     'Can insert field with reference_delete_mode=restrict when reference_table is non-empty'
 );
 
@@ -68,8 +68,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_ref_fi
 
 -- Test that we CAN insert a field with reference_delete_mode='clear' when reference_table is non-empty
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_ref_field2', 'Test Ref Field 2', 'reference', FALSE, 30, 'test_ref_table', 'clear')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_ref_field2', 'Test Ref Field 2', 'reference', 30, 'test_ref_table', 'clear')$$,
     'Can insert field with reference_delete_mode=clear when reference_table is non-empty'
 );
 
@@ -89,8 +89,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_ref_fi
 
 -- Test that we CANNOT insert a field with invalid reference_delete_mode='xxx' when reference_table is non-empty
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_ref_field3', 'Test Ref Field 3', 'reference', FALSE, 40, 'test_ref_table', 'xxx')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_ref_field3', 'Test Ref Field 3', 'reference', 40, 'test_ref_table', 'xxx')$$,
     23514, -- CHECK constraint violation
     NULL,
     'Cannot insert field with reference_delete_mode=xxx when reference_table is non-empty'
@@ -102,8 +102,8 @@ SELECT throws_ok(
 
 -- Test that we CANNOT insert a field with invalid reference_delete_mode='xxx' when reference_table is empty
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_field3', 'Test Field 3', 'text', FALSE, 50, '', 'xxx')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_field3', 'Test Field 3', 'text', 50, '', 'xxx')$$,
     23514, -- CHECK constraint violation
     NULL,
     'Cannot insert field with reference_delete_mode=xxx when reference_table is empty'
@@ -114,8 +114,8 @@ SELECT throws_ok(
 -- =====================================================
 
 -- Insert a field without specifying reference_delete_mode to test DEFAULT
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table)
-VALUES ('test_table', 'test_default_field', 'Test Default Field', 'reference', FALSE, 60, 'test_ref_table');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table)
+VALUES ('test_table', 'test_default_field', 'Test Default Field', 'reference', 60, 'test_ref_table');
 
 -- Verify DEFAULT is 'restrict'
 SELECT is(
@@ -134,8 +134,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_defaul
 -- Test that we CAN insert a field with reference_delete_mode='' when reference_table is non-empty
 -- Empty string should be treated as 'restrict' when generating foreign key SQL
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_empty_mode', 'Test Empty Mode', 'reference', FALSE, 70, 'test_ref_table', '')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_empty_mode', 'Test Empty Mode', 'reference', 70, 'test_ref_table', '')$$,
     'Can insert field with reference_delete_mode=empty string when reference_table is non-empty (treated as restrict)'
 );
 
@@ -151,8 +151,8 @@ INSERT INTO entities (table_name, singular_label, managed)
 VALUES ('test_ref_table2', 'Test Ref Table 2', FALSE);
 
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_cascade_field', 'Test Cascade Field', 'reference', FALSE, 80, 'test_ref_table2', 'cascade')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_cascade_field', 'Test Cascade Field', 'reference', 80, 'test_ref_table2', 'cascade')$$,
     'Can insert field with reference_delete_mode=cascade'
 );
 
@@ -169,8 +169,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_cascad
 -- =====================================================
 
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_parent_no_ref', 'Test Parent No Ref', 'parent', FALSE, 90, '', 'cascade')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_parent_no_ref', 'Test Parent No Ref', 'parent', 90, '', 'cascade')$$,
     23514, -- CHECK constraint violation (reference_requires_table)
     NULL,
     'Cannot insert parent format field without reference_table'
@@ -181,8 +181,8 @@ SELECT throws_ok(
 -- =====================================================
 
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, reference_table, reference_delete_mode) 
-      VALUES ('test_table', 'test_parent_field', 'Test Parent Field', 'parent', FALSE, 95, 'test_ref_table2', 'cascade')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
+      VALUES ('test_table', 'test_parent_field', 'Test Parent Field', 'parent', 95, 'test_ref_table2', 'cascade')$$,
     'Can insert field with parent format and cascade delete mode'
 );
 

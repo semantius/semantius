@@ -19,8 +19,8 @@ SELECT authenticate_as('user3');
 
 -- Test 1: Insert field with reference_table set but format='text' should fail
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, is_nullable, reference_table)
-      VALUES ('customers_test', 'bad_ref_field', 'Bad Ref Field', 'text', 99, 'default', 'default', '', FALSE, 'regions_test')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, reference_table)
+      VALUES ('customers_test', 'bad_ref_field', 'Bad Ref Field', 'text', 99, 'default', 'default', '', 'regions_test')$$,
     '23514',
     NULL,
     'Should reject INSERT when reference_table is set but format is not "reference" or "parent"'
@@ -28,8 +28,8 @@ SELECT throws_ok(
 
 -- Test 2: Insert field with reference_table set but format='integer' should fail
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, is_nullable, reference_table)
-      VALUES ('customers_test', 'bad_ref_field2', 'Bad Ref Field 2', 'integer', 99, 'default', 'default', '', FALSE, 'regions_test')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, reference_table)
+      VALUES ('customers_test', 'bad_ref_field2', 'Bad Ref Field 2', 'integer', 99, 'default', 'default', '', 'regions_test')$$,
     '23514',
     NULL,
     'Should reject INSERT when reference_table is set but format is "integer" (not reference/parent)'
@@ -43,8 +43,8 @@ SELECT throws_ok(
 
 -- Test 3: Insert field with format='reference' but no reference_table (empty string default) should fail
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, is_nullable)
-      VALUES ('customers_test', 'bad_ref_field3', 'Bad Ref Field 3', 'reference', 99, 'default', 'default', '', FALSE)$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype)
+      VALUES ('customers_test', 'bad_ref_field3', 'Bad Ref Field 3', 'reference', 99, 'default', 'default', '')$$,
     '23514',
     NULL,
     'Should reject INSERT when format is "reference" but reference_table is empty (default)'
@@ -52,8 +52,8 @@ SELECT throws_ok(
 
 -- Test 4: Insert field with format='parent' but no reference_table (empty string default) should fail
 SELECT throws_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, is_nullable)
-      VALUES ('regions_test', 'bad_parent_field', 'Bad Parent Field', 'parent', 99, 'default', 'default', '', TRUE)$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype)
+      VALUES ('regions_test', 'bad_parent_field', 'Bad Parent Field', 'parent', 99, 'default', 'default', '')$$,
     '23514',
     NULL,
     'Should reject INSERT when format is "parent" but reference_table is empty (default)'
@@ -65,8 +65,8 @@ SELECT throws_ok(
 
 -- Test 5: Insert field with format='reference' and valid reference_table should succeed
 SELECT lives_ok(
-    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, is_nullable, reference_table, reference_delete_mode)
-      VALUES ('customers_test', 'test_valid_ref', 'Test Valid Ref', 'reference', 99, 'default', 'default', '', TRUE, 'regions_test', 'restrict')$$,
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, reference_table, reference_delete_mode)
+      VALUES ('customers_test', 'test_valid_ref', 'Test Valid Ref', 'reference', 99, 'default', 'default', '', 'regions_test', 'restrict')$$,
     'Should allow INSERT when format is "reference" and reference_table is set'
 );
 

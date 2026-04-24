@@ -124,22 +124,23 @@ SELECT lives_ok(
 );
 
 -- =====================================================
--- TEST: NULL values are rejected for non-nullable foreign keys
+-- TEST: NULL values are allowed for reference fields (all references are nullable)
 -- =====================================================
 
 -- Switch to admin for employee tests
 select authenticate_as('user3');
 
--- Test that inserting an employee with NULL department_id fails (department_id is NOT NULL)
-SELECT throws_ok(
+-- Test that inserting an employee with NULL department_id succeeds (reference fields are nullable)
+SELECT lives_ok(
     $$
     INSERT INTO employees_test (full_name, email, department_id, position, hire_date, salary, is_active)
     VALUES ('No Dept Employee', 'nodept.employee@company.com', NULL, 'No Dept Position', '2023-01-01', 50000, TRUE)
     $$,
-    '23502',
-    NULL,
-    'Should not be able to insert employee with NULL department_id (NOT NULL)'
+    'Should be able to insert employee with NULL department_id (reference fields are nullable)'
 );
+
+-- Clean up
+DELETE FROM employees_test WHERE full_name = 'No Dept Employee';
 
 -- =====================================================
 -- TEST: ON DELETE RESTRICT behavior for employees_test-departments

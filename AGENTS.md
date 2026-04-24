@@ -181,8 +181,12 @@ deno task test
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
 - **ABSOLUTELY NO NULL VALUES ALLOWED** unless explicitly instructed otherwise
-- **ALWAYS set is_nullable=FALSE** for all columns unless there's a specific business requirement for NULL
-- **ALWAYS provide DEFAULT values for all columns** to avoid NULL values:
+- **Nullability is auto-computed** by the `is_nullable(format)` function based on the field's format:
+  - `reference` format → nullable (FK can be unset)
+  - `date` format → nullable (date may be unknown)
+  - `date-time` format → nullable (timestamp may not have occurred)
+  - All other formats → NOT NULL with appropriate defaults
+- **ALWAYS provide DEFAULT values for all NOT NULL columns** to avoid NULL values:
   - **TEXT/VARCHAR**: `DEFAULT ''` (empty string) - NEVER use NULL for text fields
   - **INTEGER/SMALLINT/BIGINT**: `DEFAULT 0`
   - **BOOLEAN**: `DEFAULT FALSE`
@@ -192,8 +196,8 @@ deno task test
   - **Foreign key columns** that are part of composite primary keys or junction tables
   - **Composite primary key components** in many-to-many relationship tables
   - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
-- **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead
-- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause and is_nullable=FALSE unless it's an exception
+- **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead (unless the format auto-computes to nullable)
+- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
 
 **CRITICAL: Schema vs Sample Data Placement**
 - **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code
@@ -277,7 +281,7 @@ The `public.get_schema()` function returns JSON Schema with:
 - **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
 - **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
-- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at) even if they have is_nullable=FALSE
+- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at). Nullability is computed from format via `is_nullable()` — nullable formats (reference, date, date-time) are excluded from the required array.
 - **created_at and updated_at fields**: 
   - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
   - NOT included in the required array since they are auto-maintained by database triggers

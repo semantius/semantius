@@ -34,12 +34,12 @@ VALUES (
 );
 
 -- Add fields to dashboards table
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'config',   'Configuration', 'json',  FALSE, 10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
-    ('dashboards', 'position', 'Position',      'int32', FALSE, 20, 'default', 'default', 'Display order position', '0', '', '');
+    ('dashboards', 'config',   'Configuration', 'json',  10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
+    ('dashboards', 'position', 'Position',      'int32', 20, 'default', 'default', 'Display order position', '0', '', '');
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'module_id',       'Module',          'reference', FALSE, 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
-    ('dashboards', 'view_permission', 'View Permission',  'reference', TRUE,  40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
+    ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
+    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');

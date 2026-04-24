@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(142);
+SELECT plan(141);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -541,14 +541,6 @@ SELECT throws_ok(
     'P0001',
     'Cannot change format of core system field "created_at"',
     'Changing format of created_at field should raise an exception'
-);
-
--- Test that attempting to change nullable constraint of a core field raises an error
-SELECT throws_ok(
-    'UPDATE fields SET is_nullable = TRUE WHERE table_name = ''customers_test'' AND field_name = ''id''',
-    'P0001',
-    'Cannot change nullable constraint of core system field "id"',
-    'Changing nullable constraint of id field should raise an exception'
 );
 
 -- Test that metadata updates to core fields are allowed (title, description)

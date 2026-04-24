@@ -48,34 +48,34 @@ INSERT INTO entities (
 -- reference field → creates qwertz1_rtzup2_fkey + idx_qwertz1_rtzup2
 INSERT INTO fields (
     table_name, field_name, title, format, reference_table, reference_delete_mode,
-    is_nullable, field_order, input_type, width, default_value
+    field_order, input_type, width, default_value
 ) VALUES (
     'qwertz1', 'rtzup2', 'Region', 'reference', 'regions_test', 'restrict',
-    TRUE, 10, 'default', 'default', ''
+    10, 'default', 'default', ''
 );
 
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width, default_value
+    field_order, input_type, width, default_value
 ) VALUES (
     'qwertz1', 'other_col', 'Other Column', 'text',
-    FALSE, 20, 'default', 'default', ''
+    20, 'default', 'default', ''
 );
 
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width, default_value
+    field_order, input_type, width, default_value
 ) VALUES (
     'qwertz1', 'contact_field', 'Contact', 'email',
-    FALSE, 30, 'default', 'default', ''
+    30, 'default', 'default', ''
 );
 
 INSERT INTO fields (
     table_name, field_name, title, format,
-    is_nullable, field_order, input_type, width, default_value
+    field_order, input_type, width, default_value
 ) VALUES (
     'qwertz1', 'type_chg_field', 'Type Change', 'text',
-    FALSE, 40, 'default', 'default', ''
+    40, 'default', 'default', ''
 );
 
 -- quakq2: a second entity with a field fkref1 that references qwertz1
@@ -92,10 +92,10 @@ INSERT INTO entities (
 -- fkref1 references qwertz1 → creates quakq2_fkref1_fkey + idx_quakq2_fkref1
 INSERT INTO fields (
     table_name, field_name, title, format, reference_table, reference_delete_mode,
-    is_nullable, field_order, input_type, width, default_value
+    field_order, input_type, width, default_value
 ) VALUES (
     'quakq2', 'fkref1', 'Item Reference', 'reference', 'qwertz1', 'restrict',
-    TRUE, 10, 'default', 'default', ''
+    10, 'default', 'default', ''
 );
 
 -- =====================================================
