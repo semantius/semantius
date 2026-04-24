@@ -474,20 +474,31 @@ CREATE POLICY ddl_history_insert ON audit.ddl_history
     TO semantius_user
     WITH CHECK (true);
 
--- Deny SELECT/UPDATE/DELETE (only SECURITY DEFINER functions can read)
-CREATE POLICY record_version_deny_select ON audit.record_version
+-- Allow SELECT so admin users can view audit records
+CREATE POLICY record_version_select ON audit.record_version
     FOR SELECT
     TO semantius_user
-    USING (false);
+    USING (true);
 
-CREATE POLICY ddl_history_deny_select ON audit.ddl_history
+CREATE POLICY ddl_history_select ON audit.ddl_history
     FOR SELECT
     TO semantius_user
-    USING (false);
+    USING (true);
+
+-- Allow DELETE for audit record cleanup
+CREATE POLICY record_version_delete ON audit.record_version
+    FOR DELETE
+    TO semantius_user
+    USING (true);
+
+CREATE POLICY ddl_history_delete ON audit.ddl_history
+    FOR DELETE
+    TO semantius_user
+    USING (true);
 
 -- Grant necessary table permissions to semantius_user
-GRANT INSERT ON audit.record_version TO semantius_user;
-GRANT INSERT ON audit.ddl_history TO semantius_user;
+GRANT SELECT, INSERT, DELETE ON audit.record_version TO semantius_user;
+GRANT SELECT, INSERT, DELETE ON audit.ddl_history TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE audit.record_version_id_seq TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE audit.ddl_history_id_seq TO semantius_user;
 
