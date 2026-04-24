@@ -7,6 +7,8 @@
 -- Based on the supa_audit pattern (https://github.com/supabase/supa_audit)
 -- but integrated directly into _core rather than as an extension.
 --
+-- All audit tables live in public schema (no separate audit namespace).
+--
 -- Features:
 --   1. Per-table DML audit: enabled/disabled via entities.audit_log toggle
 --   2. DDL audit: captures schema changes via event trigger
@@ -14,15 +16,17 @@
 --   4. Audit trigger renamed when entities are renamed
 
 -- =====================================================
--- STEP 1: Create audit schema and types
+-- STEP 1: Create audit schema (internal functions only)
 -- =====================================================
+-- The audit schema is used ONLY for internal helper functions and types.
+-- The actual audit tables live in public schema for standard API access.
 
 CREATE SCHEMA IF NOT EXISTS audit;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA audit
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-COMMENT ON SCHEMA audit IS 'Audit logging schema for DML and DDL change tracking';
+COMMENT ON SCHEMA audit IS 'Internal audit helper functions and types (tables are in public schema)';
 
 -- Create enum type for SQL operations to reduce disk/memory usage vs text
 DO $$
@@ -38,15 +42,17 @@ BEGIN
 END $$;
 
 -- =====================================================
--- STEP 2: Create DML audit table (record_version)
+-- STEP 2: Create DML audit table (audit_record_logs)
 -- =====================================================
 
-CREATE TABLE IF NOT EXISTS audit.record_version (
+CREATE TABLE IF NOT EXISTS public.audit_record_logs (
     id             BIGSERIAL PRIMARY KEY,
     record_id      UUID,
     old_record_id  UUID,
+    record_pk      TEXT NOT NULL DEFAULT '',
     op             audit.operation NOT NULL,
     ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    user_id        INTEGER NOT NULL DEFAULT 0,
     table_oid      OID NOT NULL,
     table_schema   NAME NOT NULL,
     table_name     NAME NOT NULL,
@@ -63,45 +69,54 @@ CREATE TABLE IF NOT EXISTS audit.record_version (
     CHECK ((op IN ('UPDATE', 'DELETE')) = (old_record IS NOT NULL))
 );
 
-COMMENT ON TABLE audit.record_version IS
+COMMENT ON TABLE public.audit_record_logs IS
 'Stores DML audit records for entity tables with audit_log enabled.
 Each row captures the operation type, the full record (new/old), and metadata.';
 
+COMMENT ON COLUMN public.audit_record_logs.record_pk IS 'Primary key value of the affected record for easy lookup';
+COMMENT ON COLUMN public.audit_record_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context.';
+
 -- Indexes for efficient querying
-CREATE INDEX IF NOT EXISTS record_version_record_id
-    ON audit.record_version(record_id)
+CREATE INDEX IF NOT EXISTS audit_record_logs_record_id
+    ON public.audit_record_logs(record_id)
     WHERE record_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS record_version_old_record_id
-    ON audit.record_version(old_record_id)
+CREATE INDEX IF NOT EXISTS audit_record_logs_old_record_id
+    ON public.audit_record_logs(old_record_id)
     WHERE old_record_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS record_version_ts
-    ON audit.record_version
+CREATE INDEX IF NOT EXISTS audit_record_logs_ts
+    ON public.audit_record_logs
     USING BRIN(ts);
 
-CREATE INDEX IF NOT EXISTS record_version_table_oid
-    ON audit.record_version(table_oid);
+CREATE INDEX IF NOT EXISTS audit_record_logs_table_oid
+    ON public.audit_record_logs(table_oid);
+
+CREATE INDEX IF NOT EXISTS audit_record_logs_record_pk
+    ON public.audit_record_logs(record_pk)
+    WHERE record_pk != '';
 
 -- =====================================================
--- STEP 3: Create DDL audit table (ddl_history)
+-- STEP 3: Create DDL audit table (audit_ddl_logs)
 -- =====================================================
 
-CREATE TABLE IF NOT EXISTS audit.ddl_history (
+CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
     id              BIGSERIAL PRIMARY KEY,
     event_time      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_name       TEXT NOT NULL DEFAULT '',
+    user_id         INTEGER NOT NULL DEFAULT 0,
     command_tag     TEXT NOT NULL DEFAULT '',
     object_type     TEXT NOT NULL DEFAULT '',
     object_identity TEXT NOT NULL DEFAULT '',
     query_text      TEXT NOT NULL DEFAULT ''
 );
 
-COMMENT ON TABLE audit.ddl_history IS
+COMMENT ON TABLE public.audit_ddl_logs IS
 'Stores DDL schema change events captured by the ddl_command_end event trigger.';
 
-CREATE INDEX IF NOT EXISTS ddl_history_event_time
-    ON audit.ddl_history
+COMMENT ON COLUMN public.audit_ddl_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context (e.g. migrations).';
+
+CREATE INDEX IF NOT EXISTS audit_ddl_logs_event_time
+    ON public.audit_ddl_logs
     USING BRIN(event_time);
 
 -- =====================================================
@@ -155,8 +170,57 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION audit.to_record_id IS
-'Computes a deterministic UUID v5 from a table OID and primary key values, enabling
+'Computes a deterministic UUID from a table OID and primary key values, enabling
 indexed lookup of a record''s full version history.';
+
+-- Helper: extract primary key value as text from a jsonb record
+CREATE OR REPLACE FUNCTION audit.extract_record_pk(pkey_cols TEXT[], rec JSONB)
+    RETURNS TEXT
+    STABLE
+    LANGUAGE sql
+    SET search_path = public
+AS $$
+    SELECT
+        CASE
+            WHEN rec IS NULL THEN ''
+            WHEN pkey_cols = ARRAY[]::TEXT[] THEN ''
+            WHEN array_length(pkey_cols, 1) = 1 THEN COALESCE(rec ->> pkey_cols[1], '')
+            ELSE COALESCE(
+                (SELECT string_agg(COALESCE(rec ->> key_, ''), ':' ORDER BY ord)
+                 FROM unnest(pkey_cols) WITH ORDINALITY AS x(key_, ord)),
+                ''
+            )
+        END
+$$;
+
+COMMENT ON FUNCTION audit.extract_record_pk IS
+'Extracts the primary key value(s) from a JSONB record as a text string.
+For single-column PKs, returns the value directly. For composite PKs, returns colon-separated values.';
+
+-- Helper: safely get current user_id from JWT context, returning 0 when unavailable
+CREATE OR REPLACE FUNCTION audit.current_user_id()
+    RETURNS INTEGER
+    STABLE
+    LANGUAGE plpgsql
+    SET search_path = public
+AS $$
+DECLARE
+    v_user_id INTEGER;
+BEGIN
+    -- Try to get the user_id from the app context (set by rbac.ensure_context_initialized)
+    v_user_id := current_setting('app.current_user_id', true)::INTEGER;
+    IF v_user_id IS NOT NULL THEN
+        RETURN v_user_id;
+    END IF;
+    RETURN 0;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN 0;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.current_user_id IS
+'Safely returns the current JWT user_id from app context, or 0 when no JWT context is available (e.g. during migrations).';
 
 -- =====================================================
 -- STEP 5: DML audit trigger functions
@@ -174,11 +238,19 @@ DECLARE
     record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, record_jsonb);
     old_record_jsonb JSONB = to_jsonb(OLD);
     old_record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
+    v_record_pk TEXT;
+    v_user_id INTEGER;
 BEGIN
-    INSERT INTO audit.record_version(
+    -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
+    v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
+    v_user_id := audit.current_user_id();
+
+    INSERT INTO public.audit_record_logs(
         record_id,
         old_record_id,
+        record_pk,
         op,
+        user_id,
         table_oid,
         table_schema,
         table_name,
@@ -188,7 +260,9 @@ BEGIN
     SELECT
         record_id,
         old_record_id,
+        v_record_pk,
         TG_OP::audit.operation,
+        v_user_id,
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -201,7 +275,7 @@ $$;
 
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
 'Row-level AFTER trigger function that logs INSERT, UPDATE, and DELETE operations
-to audit.record_version. Computes deterministic record_id from primary key.';
+to audit_record_logs. Captures the JWT user_id and primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     RETURNS TRIGGER
@@ -210,14 +284,16 @@ CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO audit.record_version(
+    INSERT INTO public.audit_record_logs(
         op,
+        user_id,
         table_oid,
         table_schema,
         table_name
     )
     SELECT
         TG_OP::audit.operation,
+        audit.current_user_id(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME;
@@ -227,7 +303,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.truncate_trigger IS
-'Statement-level AFTER trigger function that logs TRUNCATE operations to audit.record_version.';
+'Statement-level AFTER trigger function that logs TRUNCATE operations to audit_record_logs.';
 
 -- =====================================================
 -- STEP 6: Enable/disable audit tracking functions
@@ -312,31 +388,33 @@ SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
     obj RECORD;
+    v_user_id INTEGER;
 BEGIN
+    v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
-        INSERT INTO audit.ddl_history (user_name, command_tag, object_type, object_identity, query_text)
-        VALUES (session_user::TEXT, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''), current_query());
+        INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
+        VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''), current_query());
     END LOOP;
 END;
 $$;
 
 COMMENT ON FUNCTION audit.log_ddl_event IS
-'Event trigger function that captures DDL commands and logs them to audit.ddl_history.';
+'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
     EXECUTE FUNCTION audit.log_ddl_event();
 
 COMMENT ON EVENT TRIGGER track_ddl_changes IS
-'Event trigger that fires after any DDL command completes, logging the change to audit.ddl_history.';
+'Event trigger that fires after any DDL command completes, logging the change to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: Add audit_log column to entities table
+-- STEP 8: Add audit_log column to entities table (default FALSE)
 -- =====================================================
 
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS audit_log BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS audit_log BOOLEAN NOT NULL DEFAULT FALSE;
 
-COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit.record_version';
+COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
 
 -- =====================================================
 -- STEP 9: Add field metadata for audit_log column
@@ -344,10 +422,49 @@ COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table
 
 INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES
-    ('entities', 'audit_log', 'Audit Log', 'When enabled, DML operations on this table are logged to the audit log', 'true', 'boolean', FALSE, 122, 'default', 'default', NULL, TRUE, FALSE, '', '');
+    ('entities', 'audit_log', 'Audit Log', 'When enabled, DML operations on this table are logged to the audit log', 'false', 'boolean', FALSE, 122, 'default', 'default', NULL, TRUE, FALSE, '', '');
 
 -- =====================================================
--- STEP 10: Trigger to manage audit tracking on entity changes
+-- STEP 10: Register audit tables as entities (managed=false)
+-- =====================================================
+-- These are core system tables. managed=false means no DDL triggers fire
+-- when inserting into entities, but having entries in entities/fields makes
+-- them queryable through the standard API (get_schema, etc.).
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
+VALUES
+    ('audit_record_logs', 'audit_record_log', 'Audit Record Log', 'Audit Record Logs', 'DML audit trail for entity table records', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'table_name', FALSE),
+    ('audit_ddl_logs', 'audit_ddl_log', 'Audit DDL Log', 'Audit DDL Logs', 'DDL audit trail for schema change events', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'command_tag', FALSE);
+
+-- Field metadata for audit_record_logs
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+VALUES
+    ('audit_record_logs', 'id',            'Id',            '',                                                                  'int64',     TRUE,  1,   'readonly', 'default', 'id',    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'record_id',     'Record Id',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'old_record_id', 'Old Record Id', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'record_pk',     'Record PK',     'Primary key value of the affected record',                          'text',      FALSE, 25,  'readonly', 'default', NULL,    TRUE, TRUE,  '', ''),
+    ('audit_record_logs', 'op',            'Operation',     'DML operation type: INSERT, UPDATE, DELETE, TRUNCATE',               'text',      FALSE, 30,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'ts',            'Timestamp',     'When the operation occurred',                                        'date-time', FALSE, 40,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'user_id',       'User Id',       'Internal user id from JWT context (0 when unavailable)',             'int32',     FALSE, 50,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'table_oid',     'Table OID',     'PostgreSQL internal object identifier for the table',                'int32',     FALSE, 60,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'table_schema',  'Table Schema',  'Schema containing the table',                                       'text',      FALSE, 70,  'readonly', 'default', NULL,    TRUE, TRUE,  '', ''),
+    ('audit_record_logs', 'table_name',    'Table Name',    'Name of the affected table',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE, TRUE,  '', ''),
+    ('audit_record_logs', 'record',        'Record',        'Full record after INSERT/UPDATE (JSONB)',                            'json',      FALSE, 90,  'readonly', 'w',       NULL,    TRUE, FALSE, '', ''),
+    ('audit_record_logs', 'old_record',    'Old Record',    'Previous record before UPDATE/DELETE (JSONB)',                       'json',      FALSE, 100, 'readonly', 'w',       NULL,    TRUE, FALSE, '', '');
+
+-- Field metadata for audit_ddl_logs
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+VALUES
+    ('audit_ddl_logs', 'id',              'Id',              '',                                                                'int64',     TRUE,  1,   'readonly', 'default', 'id',    TRUE, FALSE, '', ''),
+    ('audit_ddl_logs', 'event_time',      'Event Time',      'When the DDL command completed',                                  'date-time', FALSE, 10,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_ddl_logs', 'user_id',         'User Id',         'Internal user id from JWT context (0 when unavailable)',           'int32',     FALSE, 20,  'readonly', 'default', NULL,    TRUE, FALSE, '', ''),
+    ('audit_ddl_logs', 'command_tag',     'Command Tag',     'DDL command type (e.g. CREATE TABLE, ALTER TABLE)',                'text',      FALSE, 30,  'readonly', 'default', 'label', TRUE, TRUE,  '', ''),
+    ('audit_ddl_logs', 'object_type',     'Object Type',     'Type of database object affected',                                'text',      FALSE, 40,  'readonly', 'default', NULL,    TRUE, TRUE,  '', ''),
+    ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       NULL,    TRUE, TRUE,  '', ''),
+    ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       NULL,    TRUE, FALSE, '', '');
+
+-- =====================================================
+-- STEP 11: Trigger to manage audit tracking on entity changes
 -- =====================================================
 -- Handles three scenarios:
 --   A) INSERT: enable audit on newly created managed tables
@@ -421,86 +538,85 @@ COMMENT ON TRIGGER manage_audit_log_trigger ON entities IS
 'Manages audit trigger lifecycle when entities are created or modified.';
 
 -- =====================================================
--- STEP 11: Enable audit on existing managed entity tables
+-- STEP 12: Enable audit for _core tables
 -- =====================================================
--- For all managed tables that have audit_log=TRUE (which is all, since
--- the column defaults to TRUE), enable audit tracking now.
+-- Enable audit_log on all _core entities (system tables).
+-- These don't have physical audit triggers added yet because
+-- audit_log was default FALSE and they were inserted in earlier
+-- migrations, but they DO have physical tables.
 
+UPDATE entities SET audit_log = TRUE
+WHERE table_name IN (
+    'entities', 'fields', 'users', 'modules', 'roles', 'permissions',
+    'user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy'
+);
+
+-- Now enable tracking on those tables that are managed and have physical tables
 DO $$
 DECLARE
     v_rec RECORD;
 BEGIN
     FOR v_rec IN
         SELECT e.table_name FROM entities e
-        WHERE e.managed = TRUE
+        WHERE e.managed = FALSE  -- _core tables are managed=false
           AND e.audit_log = TRUE
     LOOP
-        -- Only enable if the table physically exists in public schema
         IF EXISTS (
             SELECT 1 FROM information_schema.tables t
             WHERE t.table_schema = 'public'
               AND t.table_name = v_rec.table_name
         ) THEN
             PERFORM audit.enable_tracking(v_rec.table_name::REGCLASS);
-            RAISE NOTICE 'Enabled audit tracking for existing table "%"', v_rec.table_name;
+            RAISE NOTICE 'Enabled audit tracking for core table "%"', v_rec.table_name;
         END IF;
     END LOOP;
 END $$;
 
 -- =====================================================
--- STEP 12: RLS on audit tables
+-- STEP 13: RLS on audit tables
 -- =====================================================
--- Audit tables should only be readable by admin users via SECURITY DEFINER
--- functions. Block direct SELECT/UPDATE/DELETE through PostgREST.
--- INSERT is allowed for semantius_user because:
---   - DML audit triggers run as SECURITY DEFINER (function owner), so they
---     bypass RLS.  But granting INSERT is harmless and future-proofs things.
---   - DDL event triggers always run in the session security context, so
---     semantius_user needs INSERT on ddl_history when DDL is triggered by
---     SECURITY DEFINER entity management functions.
+-- Audit tables are in public schema, so PostgREST can expose them.
+-- RLS ensures only admin users can access audit data.
 
-ALTER TABLE audit.record_version ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit.ddl_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_record_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_ddl_logs ENABLE ROW LEVEL SECURITY;
 
--- Allow INSERT so that audit trigger functions (which may fire in
--- semantius_user context) can write audit records.
-CREATE POLICY record_version_insert ON audit.record_version
+-- Allow all operations for admin users
+CREATE POLICY audit_record_logs_select ON public.audit_record_logs
+    FOR SELECT
+    TO semantius_user
+    USING (rbac.has_permission('admin'));
+
+CREATE POLICY audit_record_logs_insert ON public.audit_record_logs
     FOR INSERT
     TO semantius_user
     WITH CHECK (true);
 
-CREATE POLICY ddl_history_insert ON audit.ddl_history
+CREATE POLICY audit_record_logs_delete ON public.audit_record_logs
+    FOR DELETE
+    TO semantius_user
+    USING (rbac.has_permission('admin'));
+
+CREATE POLICY audit_ddl_logs_select ON public.audit_ddl_logs
+    FOR SELECT
+    TO semantius_user
+    USING (rbac.has_permission('admin'));
+
+CREATE POLICY audit_ddl_logs_insert ON public.audit_ddl_logs
     FOR INSERT
     TO semantius_user
     WITH CHECK (true);
 
--- Allow SELECT so admin users can view audit records
-CREATE POLICY record_version_select ON audit.record_version
-    FOR SELECT
-    TO semantius_user
-    USING (true);
-
-CREATE POLICY ddl_history_select ON audit.ddl_history
-    FOR SELECT
-    TO semantius_user
-    USING (true);
-
--- Allow DELETE for audit record cleanup
-CREATE POLICY record_version_delete ON audit.record_version
+CREATE POLICY audit_ddl_logs_delete ON public.audit_ddl_logs
     FOR DELETE
     TO semantius_user
-    USING (true);
-
-CREATE POLICY ddl_history_delete ON audit.ddl_history
-    FOR DELETE
-    TO semantius_user
-    USING (true);
+    USING (rbac.has_permission('admin'));
 
 -- Grant necessary table permissions to semantius_user
-GRANT SELECT, INSERT, DELETE ON audit.record_version TO semantius_user;
-GRANT SELECT, INSERT, DELETE ON audit.ddl_history TO semantius_user;
-GRANT USAGE, SELECT ON SEQUENCE audit.record_version_id_seq TO semantius_user;
-GRANT USAGE, SELECT ON SEQUENCE audit.ddl_history_id_seq TO semantius_user;
+GRANT SELECT, INSERT, DELETE ON public.audit_record_logs TO semantius_user;
+GRANT SELECT, INSERT, DELETE ON public.audit_ddl_logs TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
 
 -- Grant usage on the audit schema to semantius_user (needed for trigger execution)
 GRANT USAGE ON SCHEMA audit TO semantius_user;
@@ -508,6 +624,8 @@ GRANT USAGE ON SCHEMA audit TO semantius_user;
 -- Revoke default PUBLIC execute on audit functions
 REVOKE EXECUTE ON FUNCTION audit.primary_key_columns(OID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.to_record_id(OID, TEXT[], JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
