@@ -2,8 +2,8 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-04-10T15:57:44.264Z
- * Apps: 3  |  Migrations: 17
+ * Generated: 2026-04-24T15:00:36.930Z
+ * Apps: 3  |  Migrations: 19
  */
 
 export interface MigrationFile {
@@ -1950,7 +1950,6 @@ CREATE TABLE IF NOT EXISTS fields (
     description TEXT DEFAULT '',
     format TEXT NOT NULL DEFAULT 'text',
     is_pk BOOLEAN NOT NULL DEFAULT FALSE,
-    is_nullable BOOLEAN NOT NULL DEFAULT TRUE,
     default_value TEXT DEFAULT '',
     field_order INTEGER NOT NULL DEFAULT 0,
     input_type TEXT NOT NULL DEFAULT 'default',
@@ -2021,7 +2020,6 @@ COMMENT ON COLUMN fields.title IS 'Human-readable display name for the field';
 COMMENT ON COLUMN fields.description IS 'Detailed description of the field (used for COMMENT ON COLUMN)';
 COMMENT ON COLUMN fields.format IS 'JSON Schema format or primitive type for the field';
 COMMENT ON COLUMN fields.is_pk IS 'Whether this field is the primary key';
-COMMENT ON COLUMN fields.is_nullable IS 'Whether this field allows NULL values';
 COMMENT ON COLUMN fields.default_value IS 'Default value for the field (as SQL expression)';
 COMMENT ON COLUMN fields.field_order IS 'Display order for the field';
 COMMENT ON COLUMN fields.input_type IS 'Input type for UI rendering: default, required, readonly, disabled, or hidden';
@@ -2242,153 +2240,152 @@ BEGIN
   -- Insert field metadata for fields table using the same enum arrays
   -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
   -- All field definitions for the fields table are consolidated here with NO duplication
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
+  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES 
-      ('fields', 'id', 'Id', 'Generated identifier (table_name.field_name)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, NULL, '', ''),
-      ('fields', 'table_name', 'Table Name', 'Table this field belongs to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, NULL, 'entities', 'cascade'),
-      ('fields', 'field_name', 'Field Name', 'Physical column name in database', 'text', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, TRUE, NULL, '', ''),
-      ('fields', 'title', 'Title', 'Human-readable display name for the field', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, NULL, '', ''),
-      ('fields', 'description', 'Description', 'Detailed description of the field', 'text', FALSE, FALSE, 40, 'default', 'w', NULL, TRUE, TRUE, NULL, '', ''),
-      ('fields', 'format', 'Format', 'JSON Schema format or primitive type', 'enum', FALSE, FALSE, 50, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(format_values), '', ''),
-      ('fields', 'is_pk', 'Is Primary Key', 'Whether this field is the primary key', 'boolean', FALSE, FALSE, 60, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'is_nullable', 'Is Nullable', 'Whether this field allows NULL values', 'boolean', FALSE, FALSE, 70, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'default_value', 'Default Value', 'Default value for the field', 'text', FALSE, FALSE, 80, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'field_order', 'Field Order', 'Display order for the field', 'int32', FALSE, FALSE, 90, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'input_type', 'Input Type', 'Input type for UI rendering', 'enum', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(input_type_values), '', ''),
-      ('fields', 'width', 'Width', 'Display width for UI rendering', 'enum', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(width_values), '', ''),
-      ('fields', 'ctype', 'Column Type', 'Special column type (id, label, etc.)', 'enum', FALSE, FALSE, 120, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(ctype_values), '', ''),
-      ('fields', 'is_core', 'Is Core', 'Whether this is a core system field', 'boolean', FALSE, FALSE, 130, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'searchable', 'Searchable', 'Whether field is included in full-text search', 'boolean', FALSE, FALSE, 135, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'enum_values', 'Enum Values', 'JSON array of allowed enum values', 'json', FALSE, TRUE, 137, 'default', 'w', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'reference_table', 'Reference Table', 'Table name for foreign key relationships', 'text', FALSE, FALSE, 138, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'reference_delete_mode', 'Reference Delete Mode', 'ON DELETE behavior: restrict, clear, or cascade', 'enum', FALSE, FALSE, 139, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(reference_delete_mode_values), '', ''),
-      ('fields', 'singular_label_parent', 'Singular Label Parent', 'Custom singular label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 141, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'plural_label_parent', 'Plural Label Parent', 'Custom plural label for the parent entity (overrides default when set)', 'text', FALSE, FALSE, 142, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'unique_value', 'Unique Value', 'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', 'boolean', FALSE, FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'cube_type', 'Cube Type', 'Cube type for OLAP cube generation', 'enum', FALSE, FALSE, 144, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_type_values), '', ''),
-      ('fields', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', ''),
-      ('fields', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 150, 'disabled', 'default', NULL, TRUE, FALSE, NULL, '', '');
+      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  1,   'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 10,  'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade'),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 20,  'required', 'default', NULL,   TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 30,  'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 40,  'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          ''),
+      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'string',   'enum',      FALSE, 50,  'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          ''),
+      ('fields', 'is_pk',               'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 60,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'default_value',       'Default Value',        '',                                                                       '',         'text',      FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'field_order',         'Field Order',          '',                                                                       '',         'int32',     FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'input_type',          'Input Type',           '',                                                                       'default',  'enum',      FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          ''),
+      ('fields', 'width',               'Width',                '',                                                                       'default',  'enum',      FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          ''),
+      ('fields', 'ctype',               'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 120, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          ''),
+      ('fields', 'is_core',             'Is Core',              '',                                                                       '',         'boolean',   FALSE, 130, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'searchable',          'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 135, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'enum_values',         'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 137, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'reference_table',     'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                       'restrict', 'enum',      FALSE, 139, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', ''),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 141, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'plural_label_parent', 'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 142, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'unique_value',        'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL,                           '',          ''),
+      ('fields', 'cube_type',           'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 144, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          ''),
+      ('fields', 'created_at',          'Created At',           '',                                                                       '',         'date-time', FALSE, 140, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          ''),
+      ('fields', 'updated_at',          'Updated At',           '',                                                                       '',         'date-time', FALSE, 150, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
-  INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
+  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode)
   VALUES
-      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'enum', FALSE, FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
-      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'enum', FALSE, FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
+      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', ''),
+      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '');
 END $$;
 
 -- Insert fields metadata for entities table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('entities', 'table_name', 'Table Name', 'Physical table name in database', 'text', TRUE, FALSE, 1, 'default', 'default', 'id', TRUE, TRUE, '', ''),
-    ('entities', 'singular', 'Singular', 'Singular form of table name', 'text', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'plural', 'Plural', 'Plural form of table name, auto-assigned to table_name', 'text', FALSE, FALSE, 20, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports', 'text', FALSE, FALSE, 30, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('entities', 'plural_label', 'Plural Label', 'Human-readable plural label for UI/reports', 'text', FALSE, FALSE, 40, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'icon_url', 'Icon URL', 'Optional URL or path to icon for this table', 'url', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'description', 'Description', 'Detailed description of the table', 'text', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, TRUE, '', ''),
-    ('entities', 'module_id', 'Module Id', 'Module this table belongs to', 'reference', FALSE, TRUE, 70, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('entities', 'view_permission', 'View Permission', 'Permission required to SELECT from this table', 'text', FALSE, FALSE, 80, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'edit_permission', 'Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'text', FALSE, FALSE, 90, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'id_column', 'Id Column', 'Name of primary key column', 'text', FALSE, FALSE, 100, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'label_column', 'Label Column', 'Name of label/display column', 'text', FALSE, FALSE, 110, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'managed', 'Managed', 'When false, automatic DDL execution is disabled', 'boolean', FALSE, FALSE, 115, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'searchable', 'Searchable', 'Whether table is included in full-text search (auto-computed)', 'boolean', FALSE, FALSE, 117, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'is_child', 'Is Child', 'Whether table has any parent relationships (auto-computed)', 'boolean', FALSE, FALSE, 118, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 130, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('entities', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 140, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  1,   'required', 'default', 'id',   TRUE,  TRUE,  '', ''),
+    ('entities', 'singular',       'Singular',       'Singular form of table name',                           '',             'text',      FALSE, 10,  'required', 'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, 20,  'readonly', 'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports',          '',             'text',      FALSE, 30,  'default',  'default', 'label',TRUE,  TRUE,  '', ''),
+    ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports',            '',             'text',      FALSE, 40,  'default',  'default', NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       NULL,   TRUE,  TRUE,  '', ''),
+    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'default',  'default', NULL,   TRUE,  FALSE, 'modules', 'clear'),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'text',      FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'text',      FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', NULL,   TRUE,  FALSE, '', ''),
+    ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', NULL,  TRUE,  FALSE, '', ''),
+    ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '');
 
 -- Insert fields metadata for users table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('users', 'id', 'Id', 'Internal user identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, FALSE, 10, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
-    ('users', 'email', 'Email', 'User email address', 'email', FALSE, FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
-    ('users', 'display_name', 'Display Name', 'Display name for the user', 'text', FALSE, FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('users', 'is_disabled', 'Is Disabled', 'Whether user account is disabled', 'boolean', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('users', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('users', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, TRUE, 60, 'readonly', 'default', NULL, TRUE, FALSE, '', '');
+    ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, 10, 'readonly', 'default', NULL, TRUE, TRUE, '', ''),
+    ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, TRUE, '', ''),
+    ('users', 'display_name', 'Display Name', '', 'text', FALSE, 25, 'default', 'default', NULL, TRUE, TRUE, '', ''),
+    ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('users', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, 60, 'readonly', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for modules table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('modules', 'id', 'Id', 'Internal module identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('modules', 'description', 'Description', 'Description of the module', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+    ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for roles table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('roles', 'id', 'Id', 'Internal role identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('roles', 'description', 'Description', 'Description of the role', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
-    ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('roles', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('roles', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('roles', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('roles', 'role_name', 'Role Name', 'Unique role name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+    ('roles', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('roles', 'module_id', 'Module Id', 'Module this role belongs to', 'reference', FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
+    ('roles', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('roles', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permissions', 'id', 'Id', 'Internal permission identifier', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-    ('permissions', 'description', 'Description', 'Description of the permission', 'text', FALSE, FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
-    ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'reference', FALSE, TRUE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
-    ('permissions', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('permissions', 'updated_at', 'Updated At', 'Timestamp when record was last updated', 'date-time', FALSE, FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('permissions', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permissions', 'permission_name', 'Permission Name', 'Unique permission name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+    ('permissions', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('permissions', 'module_id', 'Module Id', 'Module this permission belongs to', 'reference', FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, 'modules', 'clear'),
+    ('permissions', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('permissions', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Insert fields metadata for user_roles table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
-    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
-    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
+    ('user_roles', 'id', 'Id', 'Generated identifier (user_id.role_id)', 'text', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('user_roles', 'user_id', 'User Id', 'User this role is assigned to', 'parent', FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
+    ('user_roles', 'role_id', 'Role Id', 'Role assigned to the user', 'parent', FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
+    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned', 'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
 UPDATE fields SET singular_label_parent = 'Role',  plural_label_parent = 'Roles'  WHERE table_name = 'user_roles' AND field_name = 'user_id';
 UPDATE fields SET singular_label_parent = 'User',  plural_label_parent = 'Users'  WHERE table_name = 'user_roles' AND field_name = 'role_id';
 
 -- Insert fields metadata for role_permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
-    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
-    ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
+    ('role_permissions', 'id', 'Id', 'Generated identifier (role_id.permission_id)', 'text', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('role_permissions', 'role_id', 'Role Id', 'Role this permission is granted to', 'parent', FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'cascade'),
+    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role', 'parent', FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('role_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('role_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'role_id';
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_id';
 
 -- Insert fields metadata for user_permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('user_permissions', 'id', 'Id', 'Generated identifier (user_id.permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('user_permissions', 'user_id', 'User Id', 'User this permission is granted to', 'parent', FALSE, FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
-    ('user_permissions', 'permission_id', 'Permission Id', 'Permission granted to the user', 'parent', FALSE, FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
-    ('user_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
-    ('user_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, TRUE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
+    ('user_permissions', 'id', 'Id', 'Generated identifier (user_id.permission_id)', 'text', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('user_permissions', 'user_id', 'User Id', 'User this permission is granted to', 'parent', FALSE, 10, 'required', 'default', NULL, TRUE, FALSE, 'users', 'cascade'),
+    ('user_permissions', 'permission_id', 'Permission Id', 'Permission granted to the user', 'parent', FALSE, 20, 'required', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('user_permissions', 'granted_at', 'Granted At', 'Timestamp when permission was granted', 'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
+    ('user_permissions', 'granted_by', 'Granted By', 'User who granted this permission', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'users', 'clear');
 
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'user_permissions' AND field_name = 'user_id';
 UPDATE fields SET singular_label_parent = 'User', plural_label_parent = 'Users' WHERE table_name = 'user_permissions' AND field_name = 'permission_id';
 
 -- Insert fields metadata for permission_hierarchy table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
-    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
-    ('permission_hierarchy', 'created_at', 'Created At', 'Timestamp when record was created', 'date-time', FALSE, FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+    ('permission_hierarchy', 'id', 'Id', 'Generated identifier (parent_permission_id.child_permission_id)', 'text', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+    ('permission_hierarchy', 'parent_permission_id', 'Parent Permission Id', 'Parent permission that implies child permissions', 'parent', FALSE, 10, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('permission_hierarchy', 'child_permission_id', 'Child Permission Id', 'Child permission implied by parent', 'parent', FALSE, 20, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'cascade'),
+    ('permission_hierarchy', 'created_at', 'Created At', '', 'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
@@ -2476,6 +2473,24 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
+
+-- =====================================================
+-- COMPUTE_IS_NULLABLE FUNCTION
+-- =====================================================
+-- Determines whether a column should allow NULL values based on its format.
+-- This replaces the old is_nullable flag on the fields table.
+-- Nullable formats: reference (optional FK), date (unknown date), date-time (not-yet timestamps)
+-- All other formats use NOT NULL with appropriate defaults.
+
+CREATE OR REPLACE FUNCTION compute_is_nullable(p_format TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN p_format IN ('reference', 'date', 'date-time');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION compute_is_nullable IS
+'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
 
 -- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
@@ -2636,12 +2651,12 @@ BEGIN
     -- Insert field records for id, label, created_at, and updated_at columns
     -- All these are core fields that cannot be deleted or renamed (is_core = TRUE)
     -- The label column is marked as searchable=TRUE for full-text search
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
@@ -2745,8 +2760,8 @@ BEGIN
     -- Convert format to PostgreSQL data type
     v_data_type := format_to_data_type(NEW.format);
     
-    -- Build nullable clause
-    IF NEW.is_nullable THEN
+    -- Build nullable clause based on format
+    IF compute_is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -2755,7 +2770,7 @@ BEGIN
     -- Build default clause with sensible defaults based on data type
     IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
         v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
-    ELSIF NOT NEW.is_nullable THEN
+    ELSIF NOT compute_is_nullable(NEW.format) THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
         -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
         IF v_data_type IN ('JSONB', 'JSON') THEN
@@ -2980,10 +2995,6 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
         
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            RAISE EXCEPTION 'Cannot change nullable constraint of core system field "%"', OLD.field_name;
-        END IF;
-        
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
         END IF;
@@ -3049,24 +3060,26 @@ BEGIN
             NEW.field_name, v_new_data_type, NEW.format, NEW.table_name;
     END IF;
     
-    -- Allow updating nullable constraint
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
+    -- Handle nullable change when format changes (e.g., text→reference would change nullability)
+    IF OLD.format <> NEW.format THEN
+        IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
+            IF compute_is_nullable(NEW.format) THEN
+                v_alter_sql := format(
+                    'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            ELSE
+                v_alter_sql := format(
+                    'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            END IF;
+            EXECUTE v_alter_sql;
+            RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+                NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
         END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
     END IF;
     
     -- Allow updating default value
@@ -3733,6 +3746,7 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION compute_is_nullable(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
@@ -4023,7 +4037,6 @@ BEGIN
         SELECT 
             f.field_name,
             f.format,
-            f.is_nullable,
             f.title,
             f.description,
             f.default_value,
@@ -4152,14 +4165,14 @@ BEGIN
     INTO v_properties
     FROM properties_with_defaults;
     
-    -- Build required fields array (fields where is_nullable = false)
+    -- Build required fields array (fields where nullability is false based on format)
     -- Exclude the id_column since it's auto-generated and not required for INSERT
     -- Exclude created_at and updated_at since they are auto-maintained by triggers
     WITH required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable = FALSE
+          AND compute_is_nullable(format) = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL
@@ -4863,6 +4876,1332 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
 -- Note: The view will use the RLS policies from the underlying entities table
 -- because we set security_invoker = true, which makes the view execute with
 -- the permissions of the invoking user rather than the view owner`,
+    "0140_ddl_rename_support": `-- =====================================================
+-- DDL RENAME SUPPORT
+-- =====================================================
+-- Adds support for renaming:
+--   1. entities.table_name  → ALTER TABLE ... RENAME TO ...
+--   2. fields.field_name    → ALTER TABLE ... RENAME COLUMN ... TO ...
+-- Adds validation:
+--   3. fields.format change → reject when underlying data type would change
+
+-- =====================================================
+-- STEP 1: Add ON UPDATE CASCADE to fields → entities FK
+-- =====================================================
+-- Required so that renaming entities.table_name automatically cascades
+-- the metadata update to all related fields rows.
+
+ALTER TABLE fields DROP CONSTRAINT IF EXISTS fields_table_name_fkey;
+
+ALTER TABLE fields
+    ADD CONSTRAINT fields_table_name_fkey
+    FOREIGN KEY (table_name)
+    REFERENCES entities(table_name)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE;
+
+-- =====================================================
+-- STEP 2: TRIGGER FUNCTION: RENAME TABLE ON entities.table_name UPDATE
+-- =====================================================
+-- Fires BEFORE UPDATE on entities when table_name changes.
+-- Renames the physical table and sets a transaction-local session variable
+-- so the cascaded update to fields.table_name is allowed by update_dd_field.
+
+CREATE OR REPLACE FUNCTION rename_dd_table()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_suffix    TEXT;
+    v_old_name  TEXT;
+    v_new_name  TEXT;
+BEGIN
+    IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        -- Mark that a cascade rename is in progress (transaction-local)
+        PERFORM set_config('dd.table_rename', OLD.table_name || ':' || NEW.table_name, TRUE);
+
+        -- Rename the physical table and all associated named objects when managed
+        IF OLD.managed THEN
+            EXECUTE format('ALTER TABLE %I RENAME TO %I', OLD.table_name, NEW.table_name);
+            RAISE NOTICE 'Renamed table "%" to "%"', OLD.table_name, NEW.table_name;
+
+            -- Rename updated_at trigger (name pattern: update_<table>_updated_at)
+            IF EXISTS (
+                SELECT 1 FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                WHERE c.relname = NEW.table_name
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND t.tgname = 'update_' || OLD.table_name || '_updated_at'
+            ) THEN
+                EXECUTE format(
+                    'ALTER TRIGGER %I ON %I RENAME TO %I',
+                    'update_' || OLD.table_name || '_updated_at',
+                    NEW.table_name,
+                    'update_' || NEW.table_name || '_updated_at'
+                );
+            END IF;
+
+            -- Rename RLS policies (name patterns: <table>_select/insert/update/delete_policy)
+            FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']
+            LOOP
+                IF EXISTS (
+                    SELECT 1 FROM pg_policy p
+                    JOIN pg_class c ON p.polrelid = c.oid
+                    WHERE c.relname = NEW.table_name
+                      AND c.relnamespace = 'public'::regnamespace
+                      AND p.polname = OLD.table_name || '_' || v_suffix
+                ) THEN
+                    EXECUTE format(
+                        'ALTER POLICY %I ON %I RENAME TO %I',
+                        OLD.table_name || '_' || v_suffix,
+                        NEW.table_name,
+                        NEW.table_name || '_' || v_suffix
+                    );
+                END IF;
+            END LOOP;
+
+            -- Rename GIN search_vector index if it exists
+            -- (name pattern: <table>_search_vector_idx)
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = OLD.table_name || '_search_vector_idx'
+            ) THEN
+                EXECUTE format(
+                    'ALTER INDEX %I RENAME TO %I',
+                    OLD.table_name || '_search_vector_idx',
+                    NEW.table_name || '_search_vector_idx'
+                );
+            END IF;
+
+            -- Rename id sequence (<table>_<id_col>_seq)
+            IF EXISTS (
+                SELECT 1 FROM pg_class
+                WHERE relname = OLD.table_name || '_' || OLD.id_column || '_seq'
+                  AND relnamespace = 'public'::regnamespace
+                  AND relkind = 'S'
+            ) THEN
+                EXECUTE format(
+                    'ALTER SEQUENCE %I RENAME TO %I',
+                    OLD.table_name || '_' || OLD.id_column || '_seq',
+                    NEW.table_name || '_' || NEW.id_column || '_seq'
+                );
+            END IF;
+
+            -- Rename primary key constraint (<table>_pkey)
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = OLD.table_name || '_pkey'
+                  AND t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.contype = 'p'
+            ) THEN
+                EXECUTE format(
+                    'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name,
+                    OLD.table_name || '_pkey',
+                    NEW.table_name || '_pkey'
+                );
+            END IF;
+
+            -- Rename all FK constraints named <old_table>_<field>_fkey
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\\_%\\_fkey') ESCAPE '\\'
+                  AND c.contype = 'f'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all FK indexes named idx_<old_table>_<field>
+            FOR v_old_name IN
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = NEW.table_name
+                  AND indexname LIKE ('idx\\_' || OLD.table_name || '\\_%') ESCAPE '\\'
+            LOOP
+                v_new_name := 'idx_' || NEW.table_name || substring(v_old_name FROM length('idx_' || OLD.table_name) + 1);
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all check constraints named <old_table>_<field>_check
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\\_%\\_check') ESCAPE '\\'
+                  AND c.contype = 'c'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all unique indexes named <old_table>_<field>_unique
+            FOR v_old_name IN
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = NEW.table_name
+                  AND indexname LIKE (OLD.table_name || '\\_%\\_unique') ESCAPE '\\'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
+            END LOOP;
+
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION rename_dd_table IS
+'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
+objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
+index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
+and unique indexes.  Sets a transaction-local session variable so the cascaded update to
+fields.table_name is allowed by update_dd_field without raising an exception.';
+
+-- Apply trigger BEFORE UPDATE on entities (only when table_name changes)
+CREATE TRIGGER rename_table_trigger
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_table();
+
+COMMENT ON TRIGGER rename_table_trigger ON entities IS
+'Renames the physical database table when entities.table_name is updated';
+
+-- =====================================================
+-- STEP 2b: TRIGGER FUNCTION: CASCADE reference_table ON entities.table_name UPDATE
+-- =====================================================
+-- Fires AFTER UPDATE on entities when table_name changes.
+-- Updates fields.reference_table in every field across ALL tables that currently
+-- points at the old table name.  Must run AFTER (not BEFORE) the entities row is
+-- committed so that validate_reference_table_trigger can find the new name.
+-- The update cascades through update_dd_field() which drops and recreates the
+-- physical FK constraint to reference the renamed table.
+
+CREATE OR REPLACE FUNCTION rename_dd_reference_tables()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update every field in any table that references the old entity name.
+    -- update_dd_field() (AFTER trigger on fields) will detect the reference_table
+    -- change and rebuild the FK constraint to point at NEW.table_name.
+    UPDATE fields
+    SET reference_table = NEW.table_name
+    WHERE reference_table = OLD.table_name;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION rename_dd_reference_tables IS
+'AFTER UPDATE trigger on entities: when table_name changes, updates fields.reference_table
+in all fields across all tables that referenced the old name.  Cascades through
+update_dd_field() to rebuild the physical FK constraint on the referencing table.';
+
+CREATE TRIGGER rename_reference_tables_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_reference_tables();
+
+COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
+'Updates fields.reference_table and rebuilds FK constraints when entities.table_name is renamed';
+
+-- =====================================================
+-- STEP 3: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
+-- =====================================================
+-- Fires BEFORE UPDATE on fields.
+-- Handles two things:
+--   A) field_name rename  → ALTER TABLE ... RENAME COLUMN ... TO ...
+--      Also renames associated FK constraints, indexes, and check constraints.
+--   B) format validation  → reject if the new format maps to a different data type.
+
+CREATE OR REPLACE FUNCTION validate_field_rename_and_format()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_is_managed  BOOLEAN;
+    v_old_type    TEXT;
+    v_new_type    TEXT;
+    v_old_fk      TEXT;
+    v_new_fk      TEXT;
+    v_old_idx     TEXT;
+    v_new_idx     TEXT;
+    v_old_check   TEXT;
+    v_new_check   TEXT;
+    v_old_unique  TEXT;
+    v_new_unique  TEXT;
+BEGIN
+    -- Resolve parent entity's managed flag
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
+
+    -- --------------------------------------------------
+    -- A) Handle field_name rename
+    -- --------------------------------------------------
+    IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
+        -- Core fields cannot be renamed
+        IF OLD.is_core THEN
+            RAISE EXCEPTION 'Cannot rename core system field "%"', OLD.field_name;
+        END IF;
+
+        IF v_is_managed THEN
+            -- Rename the physical column
+            EXECUTE format(
+                'ALTER TABLE %I RENAME COLUMN %I TO %I',
+                OLD.table_name, OLD.field_name, NEW.field_name
+            );
+            RAISE NOTICE 'Renamed column "%" to "%" in table "%"',
+                OLD.field_name, NEW.field_name, OLD.table_name;
+
+            -- Build old and new names for associated constraints / indexes
+            v_old_fk     := format('%s_%s_fkey',   OLD.table_name, OLD.field_name);
+            v_new_fk     := format('%s_%s_fkey',   OLD.table_name, NEW.field_name);
+            v_old_idx    := format('idx_%s_%s',    OLD.table_name, OLD.field_name);
+            v_new_idx    := format('idx_%s_%s',    OLD.table_name, NEW.field_name);
+            v_old_check  := format('%s_%s_check',  OLD.table_name, OLD.field_name);
+            v_new_check  := format('%s_%s_check',  OLD.table_name, NEW.field_name);
+            v_old_unique := format('%s_%s_unique', OLD.table_name, OLD.field_name);
+            v_new_unique := format('%s_%s_unique', OLD.table_name, NEW.field_name);
+
+            -- Rename FK constraint if it exists
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = v_old_fk
+                  AND t.relname = OLD.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+            ) THEN
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    OLD.table_name, v_old_fk, v_new_fk);
+                RAISE NOTICE 'Renamed FK constraint "%" to "%"', v_old_fk, v_new_fk;
+            END IF;
+
+            -- Rename FK index if it exists
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = v_old_idx
+            ) THEN
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_idx, v_new_idx);
+                RAISE NOTICE 'Renamed index "%" to "%"', v_old_idx, v_new_idx;
+            END IF;
+
+            -- Rename check constraint if it exists
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = v_old_check
+                  AND t.relname = OLD.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+            ) THEN
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    OLD.table_name, v_old_check, v_new_check);
+                RAISE NOTICE 'Renamed check constraint "%" to "%"', v_old_check, v_new_check;
+            END IF;
+
+            -- Rename unique index if it exists
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = v_old_unique
+            ) THEN
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_unique, v_new_unique);
+                RAISE NOTICE 'Renamed unique index "%" to "%"', v_old_unique, v_new_unique;
+            END IF;
+        END IF;
+    END IF;
+
+    -- --------------------------------------------------
+    -- B) Validate format change (only for managed tables)
+    -- --------------------------------------------------
+    -- For managed tables, the format maps to a physical column type.
+    -- Changing format is valid only when the new format maps to the same
+    -- underlying PostgreSQL data type (e.g. email → hostname is fine because
+    -- both are TEXT, but email → json is not because TEXT ≠ JSONB).
+    -- Unmanaged tables have no physical columns, so any format change is allowed.
+    IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
+        -- Core field formats cannot be changed (existing rule, enforced here too)
+        IF OLD.is_core THEN
+            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+        END IF;
+
+        v_old_type := format_to_data_type(OLD.format);
+        v_new_type := format_to_data_type(NEW.format);
+
+        IF v_old_type <> v_new_type THEN
+            RAISE EXCEPTION
+                'Cannot change format of field "%" from "%" to "%" because it would require '
+                'changing the column type from % to %. Drop and recreate the field instead.',
+                OLD.field_name, OLD.format, NEW.format, v_old_type, v_new_type;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION validate_field_rename_and_format IS
+'BEFORE UPDATE trigger on fields.
+Renames the physical column (and associated constraints/indexes) when field_name changes.
+Rejects format changes that would alter the underlying PostgreSQL data type.';
+
+-- Apply trigger BEFORE UPDATE on fields
+CREATE TRIGGER validate_field_rename_and_format_trigger
+    BEFORE UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_field_rename_and_format();
+
+COMMENT ON TRIGGER validate_field_rename_and_format_trigger ON fields IS
+'Renames column and validates format compatibility on field updates';
+
+-- =====================================================
+-- STEP 4: Update update_dd_field() to handle the new semantics
+-- =====================================================
+-- Changes:
+--   • table_name change: allow when the session variable set by rename_dd_table
+--     confirms this is a cascade from an entity rename; reject otherwise.
+--   • field_name change: no longer raise an exception — the BEFORE trigger
+--     already renamed the physical column.  The AFTER trigger must use
+--     NEW.field_name (already the renamed column name) for all subsequent DDL.
+--   • format change: skip ALTER COLUMN TYPE when the data type is unchanged
+--     (same-type format changes like email→hostname).  Incompatible type
+--     changes are blocked by the BEFORE trigger before this code is reached.
+
+CREATE OR REPLACE FUNCTION update_dd_field()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_alter_sql TEXT;
+    v_old_data_type TEXT;
+    v_new_data_type TEXT;
+    v_is_managed BOOLEAN;
+    v_ref_id_column TEXT;
+    v_fk_name TEXT;
+    v_idx_name TEXT;
+    v_on_delete TEXT;
+BEGIN
+    -- Check if the parent table is managed
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
+
+    -- Prevent changing critical attributes
+    IF OLD.table_name <> NEW.table_name THEN
+        -- Allow only when this is a cascade triggered by rename_dd_table()
+        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+            RAISE EXCEPTION 'Cannot change table_name of a field';
+        END IF;
+        -- Cascade rename: metadata has been updated; no DDL needed here
+        RETURN NEW;
+    END IF;
+
+    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
+    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
+
+    IF OLD.is_pk <> NEW.is_pk THEN
+        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+    END IF;
+
+    -- Prevent changing structural attributes of core fields
+    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
+    IF OLD.is_core THEN
+        IF OLD.format <> NEW.format THEN
+            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+        END IF;
+
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+        END IF;
+
+        IF OLD.is_core <> NEW.is_core THEN
+            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
+        END IF;
+    END IF;
+
+    -- Skip DDL operations if table is not managed (but allow metadata updates like description)
+    IF NOT v_is_managed THEN
+        -- Still allow updating column comments even if not managed
+        IF OLD.description IS DISTINCT FROM NEW.description THEN
+            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS %L',
+                    NEW.table_name,
+                    NEW.field_name,
+                    NEW.description
+                );
+            ELSE
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            END IF;
+        END IF;
+
+        RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+
+    -- Update column comment if description changed
+    IF OLD.description IS DISTINCT FROM NEW.description THEN
+        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+            EXECUTE format(
+                'COMMENT ON COLUMN %I.%I IS %L',
+                NEW.table_name,
+                NEW.field_name,
+                NEW.description
+            );
+        ELSE
+            EXECUTE format(
+                'COMMENT ON COLUMN %I.%I IS NULL',
+                NEW.table_name,
+                NEW.field_name
+            );
+        END IF;
+    END IF;
+
+    -- Handle format change
+    -- The BEFORE trigger already rejected incompatible type changes, so at this
+    -- point OLD and NEW formats always map to the same data type.
+    -- Only execute ALTER COLUMN TYPE when the mapped type actually differs
+    -- (this guards against edge cases and keeps DDL minimal).
+    IF OLD.format <> NEW.format THEN
+        v_old_data_type := format_to_data_type(OLD.format);
+        v_new_data_type := format_to_data_type(NEW.format);
+
+        IF v_old_data_type <> v_new_data_type THEN
+            -- Defensive check: BEFORE trigger should have prevented this
+            RAISE EXCEPTION
+                'Cannot change format of field "%" from "%" to "%" because it would require '
+                'changing the column type from % to %.',
+                NEW.field_name, OLD.format, NEW.format, v_old_data_type, v_new_data_type;
+        END IF;
+
+        -- Same underlying type — no ALTER needed; log the format change only
+        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
+            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
+    END IF;
+
+    -- Allow updating nullable constraint (derived from format)
+    IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
+        IF compute_is_nullable(NEW.format) THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                NEW.table_name,
+                NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                NEW.table_name,
+                NEW.field_name
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+            NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
+    END IF;
+
+    -- Allow updating default value
+    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+        IF NEW.default_value IS NULL THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
+                NEW.table_name,
+                NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
+                NEW.table_name,
+                NEW.field_name,
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" default value in table "%"',
+            NEW.field_name, NEW.table_name;
+    END IF;
+
+    -- Handle foreign key reference changes
+    IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
+        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
+
+        -- Check if reference_table or reference_delete_mode changed
+        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
+           (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
+           (OLD.format <> NEW.format) THEN
+
+            -- Drop existing foreign key constraint if it exists
+            IF OLD.format IN ('reference', 'parent') THEN
+                EXECUTE format(
+                    'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                    NEW.table_name,
+                    v_fk_name
+                );
+                RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
+            END IF;
+
+            -- Add new foreign key constraint if format is now 'reference' or 'parent'
+            IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
+                -- Get the id_column of the referenced table
+                SELECT id_column INTO v_ref_id_column
+                FROM entities
+                WHERE table_name = NEW.reference_table;
+
+                IF v_ref_id_column IS NULL THEN
+                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                END IF;
+
+                -- Determine ON DELETE behavior
+                IF NEW.reference_delete_mode = 'clear' THEN
+                    v_on_delete := 'SET NULL';
+                ELSE
+                    v_on_delete := 'RESTRICT';
+                END IF;
+
+                -- Add foreign key constraint
+                v_alter_sql := format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    NEW.table_name,
+                    v_fk_name,
+                    NEW.field_name,
+                    NEW.reference_table,
+                    v_ref_id_column,
+                    v_on_delete
+                );
+                EXECUTE v_alter_sql;
+
+                -- Create index for foreign key if it doesn't exist
+                v_alter_sql := format(
+                    'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
+                    v_idx_name,
+                    NEW.table_name,
+                    NEW.field_name
+                );
+                EXECUTE v_alter_sql;
+
+                RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
+                    v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
+            ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
+                -- Drop index if format changed from reference/parent to something else
+                EXECUTE format(
+                    'DROP INDEX IF EXISTS %I',
+                    v_idx_name
+                );
+                RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END IF;
+    END IF;
+
+    -- Handle enum CHECK constraint changes
+    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
+        DECLARE
+            v_check_name TEXT;
+            v_enum_values_sql TEXT;
+        BEGIN
+            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+
+            -- Check if enum_values changed or format changed
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+
+                -- Drop existing CHECK constraint if it exists
+                IF OLD.format = 'enum' THEN
+                    EXECUTE format(
+                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                        NEW.table_name,
+                        v_check_name
+                    );
+                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
+                END IF;
+
+                -- Add new CHECK constraint if format is now 'enum'
+                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                    -- Build SQL array from JSONB array for IN clause
+                    v_enum_values_sql := (
+                        SELECT string_agg(quote_literal(value::text), ', ')
+                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                    );
+
+                    -- Add CHECK constraint
+                    v_alter_sql := format(
+                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
+                        NEW.table_name,
+                        v_check_name,
+                        NEW.field_name,
+                        v_enum_values_sql
+                    );
+                    EXECUTE v_alter_sql;
+
+                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
+                        v_check_name, NEW.table_name, NEW.field_name;
+                END IF;
+            END IF;
+        END;
+    END IF;
+
+    -- Handle unique_value changes
+    IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
+        DECLARE
+            v_unique_idx_name TEXT;
+            v_where_clause TEXT;
+        BEGIN
+            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            IF NEW.unique_value THEN
+                -- Create partial unique index
+                IF format_to_json_type(NEW.format)::text = '"string"' THEN
+                    v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
+                ELSE
+                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
+                END IF;
+                EXECUTE format(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
+                    v_unique_idx_name,
+                    NEW.table_name,
+                    NEW.field_name,
+                    v_where_clause
+                );
+                RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+            ELSE
+                -- Drop unique index
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
+                RAISE NOTICE 'Dropped unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION update_dd_field IS
+'Trigger function that updates column properties when a field is updated.
+table_name changes are allowed only as part of a cascade from rename_dd_table().
+field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
+format changes that alter the underlying data type are rejected by the BEFORE trigger.';
+
+-- Revoke default PUBLIC execute on the new functions
+REVOKE EXECUTE ON FUNCTION rename_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rename_dd_reference_tables() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
+`,
+    "0145_managed_enable": `-- =====================================================
+-- MANAGED ENABLE SUPPORT
+-- =====================================================
+-- Adds support for:
+--   1. Toggling entities.managed from FALSE to TRUE:
+--      Creates the physical table (if missing) with full DDL setup
+--      (RLS policies, updated_at trigger), then adds any missing
+--      columns for existing field records.
+--   2. Updating a field in a managed table when the column does not
+--      yet exist in the database: column is created on-the-fly.
+
+-- =====================================================
+-- HELPER FUNCTION: apply_field_ddl
+-- =====================================================
+-- Applies all DDL for a single field record to the physical table.
+-- Uses IF NOT EXISTS / exception guards so it is safe to call on
+-- columns that already exist (idempotent).
+-- Called by:
+--   • enable_dd_table() trigger  – for each existing field when
+--     managed is first enabled
+--   • update_dd_field() trigger  – when the column is found to be
+--     missing from an otherwise-managed table
+
+CREATE OR REPLACE FUNCTION apply_field_ddl(p_field fields)
+RETURNS VOID AS $$
+DECLARE
+    v_alter_sql      TEXT;
+    v_nullable_clause TEXT;
+    v_default_clause  TEXT;
+    v_data_type       TEXT;
+    v_ref_id_column   TEXT;
+    v_fk_name         TEXT;
+    v_idx_name        TEXT;
+    v_on_delete       TEXT;
+BEGIN
+    SET LOCAL client_min_messages = WARNING;
+
+    -- Convert format to PostgreSQL data type
+    v_data_type := format_to_data_type(p_field.format);
+
+    -- Build nullable clause
+    IF compute_is_nullable(p_field.format) THEN
+        v_nullable_clause := 'NULL';
+    ELSE
+        v_nullable_clause := 'NOT NULL';
+    END IF;
+
+    -- Build default clause with sensible fallbacks for NOT NULL columns
+    IF p_field.default_value IS NOT NULL AND trim(p_field.default_value) != '' THEN
+        v_default_clause := format('DEFAULT %s', quote_default_value(p_field.default_value, v_data_type));
+    ELSIF NOT compute_is_nullable(p_field.format) THEN
+        IF v_data_type IN ('JSONB', 'JSON') THEN
+            v_default_clause := 'DEFAULT ''{}''::jsonb';
+        ELSE
+            CASE v_data_type
+                WHEN 'TEXT'                                    THEN v_default_clause := 'DEFAULT ''''';
+                WHEN 'INTEGER', 'BIGINT', 'SMALLINT'           THEN v_default_clause := 'DEFAULT 0';
+                WHEN 'NUMERIC', 'DECIMAL', 'REAL',
+                     'DOUBLE PRECISION'                        THEN v_default_clause := 'DEFAULT 0.0';
+                WHEN 'BOOLEAN'                                 THEN v_default_clause := 'DEFAULT FALSE';
+                WHEN 'TIMESTAMP', 'TIMESTAMPTZ'               THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                WHEN 'DATE'                                    THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                ELSE v_default_clause := '';
+            END CASE;
+        END IF;
+    ELSE
+        v_default_clause := '';
+    END IF;
+
+    -- Add column (IF NOT EXISTS makes this idempotent)
+    v_alter_sql := format(
+        'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
+        p_field.table_name, p_field.field_name,
+        v_data_type, v_nullable_clause, v_default_clause
+    );
+    EXECUTE v_alter_sql;
+
+    -- Add / refresh column comment
+    IF p_field.description IS NOT NULL AND trim(p_field.description) != '' THEN
+        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
+            p_field.table_name, p_field.field_name, p_field.description);
+    END IF;
+
+    -- Foreign key (reference / parent format)
+    IF p_field.format IN ('reference', 'parent')
+       AND p_field.reference_table IS NOT NULL
+       AND p_field.reference_table != ''
+    THEN
+        SELECT id_column INTO v_ref_id_column
+        FROM entities WHERE table_name = p_field.reference_table;
+
+        IF v_ref_id_column IS NOT NULL THEN
+            IF p_field.reference_delete_mode = 'clear' THEN
+                v_on_delete := 'SET NULL';
+            ELSIF p_field.reference_delete_mode = 'cascade' THEN
+                v_on_delete := 'CASCADE';
+            ELSE
+                v_on_delete := 'RESTRICT';
+            END IF;
+
+            v_fk_name  := format('%s_%s_fkey', p_field.table_name, p_field.field_name);
+            v_idx_name := format('idx_%s_%s',  p_field.table_name, p_field.field_name);
+
+            BEGIN
+                EXECUTE format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    p_field.table_name, v_fk_name, p_field.field_name,
+                    p_field.reference_table, v_ref_id_column, v_on_delete
+                );
+            EXCEPTION WHEN duplicate_object THEN
+                RAISE NOTICE 'FK "%" already exists on "%.%", skipping',
+                    v_fk_name, p_field.table_name, p_field.field_name;
+            END;
+
+            EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
+                v_idx_name, p_field.table_name, p_field.field_name);
+        END IF;
+    END IF;
+
+    -- Enum CHECK constraint
+    IF p_field.format = 'enum'
+       AND p_field.enum_values IS NOT NULL
+       AND jsonb_array_length(p_field.enum_values) > 0
+    THEN
+        DECLARE
+            v_check_name      TEXT;
+            v_enum_values_sql TEXT;
+        BEGIN
+            v_check_name := format('%s_%s_check', p_field.table_name, p_field.field_name);
+            v_enum_values_sql := (
+                SELECT string_agg(quote_literal(value::text), ', ')
+                FROM jsonb_array_elements_text(p_field.enum_values) AS value
+            );
+            BEGIN
+                EXECUTE format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
+                    p_field.table_name, v_check_name, p_field.field_name, v_enum_values_sql
+                );
+            EXCEPTION WHEN duplicate_object THEN
+                RAISE NOTICE 'CHECK constraint "%" already exists, skipping', v_check_name;
+            END;
+        END;
+    END IF;
+
+    -- Partial unique index
+    IF p_field.unique_value THEN
+        DECLARE
+            v_unique_idx_name TEXT;
+            v_where_clause    TEXT;
+        BEGIN
+            v_unique_idx_name := format('%s_%s_unique', p_field.table_name, p_field.field_name);
+            IF format_to_json_type(p_field.format)::text = '"string"' THEN
+                v_where_clause := format('%I IS NOT NULL AND %I != ''''',
+                    p_field.field_name, p_field.field_name);
+            ELSE
+                v_where_clause := format('%I IS NOT NULL', p_field.field_name);
+            END IF;
+            EXECUTE format(
+                'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
+                v_unique_idx_name, p_field.table_name, p_field.field_name, v_where_clause
+            );
+        END;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION apply_field_ddl(fields) IS
+'Idempotent helper: applies ADD COLUMN + FK + CHECK + unique-index DDL for a
+single field record.  Called by enable_dd_table() and update_dd_field() to
+create columns that were defined while managed=false.';
+
+-- =====================================================
+-- TRIGGER FUNCTION: ENABLE TABLE WHEN managed F→T
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION enable_dd_table()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_create_sql TEXT;
+    v_field      fields%ROWTYPE;
+BEGIN
+    -- Guard: only proceed when managed transitions FALSE → TRUE
+    IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
+        RETURN NEW;
+    END IF;
+
+    SET LOCAL client_min_messages = WARNING;
+
+    -- ── Create the physical table if it does not yet exist ──────────────
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = NEW.table_name
+    ) THEN
+        v_create_sql := format(
+            'CREATE TABLE IF NOT EXISTS public.%I (
+                %I SERIAL PRIMARY KEY,
+                %I TEXT NOT NULL DEFAULT '''',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )',
+            NEW.table_name, NEW.id_column, NEW.label_column
+        );
+        EXECUTE v_create_sql;
+
+        -- Table comment
+        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, NEW.description);
+        END IF;
+
+        -- updated_at maintenance trigger
+        EXECUTE format(
+            'CREATE TRIGGER update_%I_updated_at
+                BEFORE UPDATE ON %I
+                FOR EACH ROW
+                EXECUTE FUNCTION common.update_updated_at_column()',
+            NEW.table_name, NEW.table_name
+        );
+
+        -- Row Level Security
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
+
+        EXECUTE format(
+            'CREATE POLICY %I_select_policy ON %I
+                FOR SELECT TO semantius_user
+                USING (rbac.has_permission(%L))',
+            NEW.table_name, NEW.table_name, NEW.view_permission
+        );
+        EXECUTE format(
+            'CREATE POLICY %I_insert_policy ON %I
+                FOR INSERT TO semantius_user
+                WITH CHECK (rbac.has_permission(%L))',
+            NEW.table_name, NEW.table_name, NEW.edit_permission
+        );
+        EXECUTE format(
+            'CREATE POLICY %I_update_policy ON %I
+                FOR UPDATE TO semantius_user
+                USING (rbac.has_permission(%L))
+                WITH CHECK (rbac.has_permission(%L))',
+            NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
+        );
+        EXECUTE format(
+            'CREATE POLICY %I_delete_policy ON %I
+                FOR DELETE TO semantius_user
+                USING (rbac.has_permission(%L))',
+            NEW.table_name, NEW.table_name, NEW.edit_permission
+        );
+
+        RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
+    END IF;
+
+    -- ── Insert core field records if they were never created ─────────────
+    -- create_dd_table inserts these when managed=true on INSERT, but when
+    -- an entity was created with managed=false those records do not exist.
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''
+    WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
+
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''
+    WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
+
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'created_at');
+
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'updated_at');
+
+    -- ── Add any missing columns for existing field records ───────────────
+    FOR v_field IN
+        SELECT * FROM fields WHERE table_name = NEW.table_name
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name    = NEW.table_name
+              AND column_name   = v_field.field_name
+        ) THEN
+            PERFORM apply_field_ddl(v_field);
+            RAISE NOTICE 'Added missing column "%" to table "%" (managed changed to true)',
+                v_field.field_name, NEW.table_name;
+        END IF;
+    END LOOP;
+
+    -- Update searchable flag in case any searchable fields exist
+    UPDATE entities
+    SET searchable = EXISTS (
+        SELECT 1 FROM fields
+        WHERE table_name = NEW.table_name AND searchable = TRUE
+    )
+    WHERE table_name = NEW.table_name;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION enable_dd_table IS
+'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
+creates the physical table (with RLS policies and updated_at trigger) if it does
+not already exist, then adds any columns that were defined as field records while
+the table was unmanaged.';
+
+-- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
+CREATE TRIGGER enable_table_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.managed = FALSE AND NEW.managed = TRUE)
+    EXECUTE FUNCTION enable_dd_table();
+
+COMMENT ON TRIGGER enable_table_trigger ON entities IS
+'Creates the physical table and adds missing columns when managed changes from false to true.';
+
+-- =====================================================
+-- UPDATE update_dd_field: create missing column first
+-- =====================================================
+-- When a field belonging to a managed table is updated but the physical
+-- column does not yet exist, create it via apply_field_ddl() before
+-- attempting any ALTER operations.
+
+CREATE OR REPLACE FUNCTION update_dd_field()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_alter_sql      TEXT;
+    v_old_data_type  TEXT;
+    v_new_data_type  TEXT;
+    v_is_managed     BOOLEAN;
+    v_ref_id_column  TEXT;
+    v_fk_name        TEXT;
+    v_idx_name       TEXT;
+    v_on_delete      TEXT;
+BEGIN
+    -- Check if the parent table is managed
+    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
+
+    -- Prevent changing critical attributes
+    IF OLD.table_name <> NEW.table_name THEN
+        -- Allow only when this is a cascade triggered by rename_dd_table()
+        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+            RAISE EXCEPTION 'Cannot change table_name of a field';
+        END IF;
+        -- Cascade rename: metadata has been updated; no DDL needed here
+        RETURN NEW;
+    END IF;
+
+    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
+    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
+
+    IF OLD.is_pk <> NEW.is_pk THEN
+        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+    END IF;
+
+    -- Prevent changing structural attributes of core fields
+    IF OLD.is_core THEN
+        IF OLD.format <> NEW.format THEN
+            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+        END IF;
+
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+        END IF;
+
+        IF OLD.is_core <> NEW.is_core THEN
+            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
+        END IF;
+    END IF;
+
+    -- Skip DDL operations if table is not managed (but allow metadata updates like description)
+    IF NOT v_is_managed THEN
+        -- Still allow updating column comments even if not managed
+        IF OLD.description IS DISTINCT FROM NEW.description THEN
+            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS %L',
+                    NEW.table_name, NEW.field_name, NEW.description
+                );
+            ELSE
+                EXECUTE format(
+                    'COMMENT ON COLUMN %I.%I IS NULL',
+                    NEW.table_name, NEW.field_name
+                );
+            END IF;
+        END IF;
+
+        RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+
+    -- If the physical column is missing from a managed table (e.g. it was defined
+    -- while managed=false), create it now with the new field values and return.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.field_name
+    ) THEN
+        PERFORM apply_field_ddl(NEW);
+        RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+
+    -- Update column comment if description changed
+    IF OLD.description IS DISTINCT FROM NEW.description THEN
+        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
+            EXECUTE format(
+                'COMMENT ON COLUMN %I.%I IS %L',
+                NEW.table_name, NEW.field_name, NEW.description
+            );
+        ELSE
+            EXECUTE format(
+                'COMMENT ON COLUMN %I.%I IS NULL',
+                NEW.table_name, NEW.field_name
+            );
+        END IF;
+    END IF;
+
+    -- Handle format change
+    IF OLD.format <> NEW.format THEN
+        v_old_data_type := format_to_data_type(OLD.format);
+        v_new_data_type := format_to_data_type(NEW.format);
+
+        IF v_old_data_type <> v_new_data_type THEN
+            RAISE EXCEPTION
+                'Cannot change format of field "%" from "%" to "%" because it would require '
+                'changing the column type from % to %.',
+                NEW.field_name, OLD.format, NEW.format, v_old_data_type, v_new_data_type;
+        END IF;
+
+        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
+            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
+    END IF;
+
+    -- Allow updating nullable constraint (derived from format)
+    IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
+        IF compute_is_nullable(NEW.format) THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+            NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
+    END IF;
+
+    -- Allow updating default value
+    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+        IF NEW.default_value IS NULL THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
+                NEW.table_name, NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
+                NEW.table_name, NEW.field_name,
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" default value in table "%"',
+            NEW.field_name, NEW.table_name;
+    END IF;
+
+    -- Handle foreign key reference changes
+    IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
+        v_fk_name  := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s',  NEW.table_name, NEW.field_name);
+
+        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
+           (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
+           (OLD.format <> NEW.format)
+        THEN
+            -- Drop existing FK constraint if it exists
+            IF OLD.format IN ('reference', 'parent') THEN
+                EXECUTE format(
+                    'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                    NEW.table_name, v_fk_name
+                );
+                RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
+            END IF;
+
+            -- Add new FK constraint
+            IF NEW.format IN ('reference', 'parent')
+               AND NEW.reference_table IS NOT NULL
+               AND NEW.reference_table != ''
+            THEN
+                SELECT id_column INTO v_ref_id_column
+                FROM entities WHERE table_name = NEW.reference_table;
+
+                IF v_ref_id_column IS NULL THEN
+                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                END IF;
+
+                IF NEW.reference_delete_mode = 'clear' THEN
+                    v_on_delete := 'SET NULL';
+                ELSIF NEW.reference_delete_mode = 'cascade' THEN
+                    v_on_delete := 'CASCADE';
+                ELSE
+                    v_on_delete := 'RESTRICT';
+                END IF;
+
+                v_alter_sql := format(
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    NEW.table_name, v_fk_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete
+                );
+                EXECUTE v_alter_sql;
+
+                v_alter_sql := format(
+                    'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
+                    v_idx_name, NEW.table_name, NEW.field_name
+                );
+                EXECUTE v_alter_sql;
+
+                RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
+                    v_fk_name, NEW.table_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete;
+            ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_idx_name);
+                RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END IF;
+    END IF;
+
+    -- Handle enum CHECK constraint changes
+    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
+        DECLARE
+            v_check_name      TEXT;
+            v_enum_values_sql TEXT;
+        BEGIN
+            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+                IF OLD.format = 'enum' THEN
+                    EXECUTE format(
+                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                        NEW.table_name, v_check_name
+                    );
+                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
+                END IF;
+
+                IF NEW.format = 'enum'
+                   AND NEW.enum_values IS NOT NULL
+                   AND jsonb_array_length(NEW.enum_values) > 0
+                THEN
+                    v_enum_values_sql := (
+                        SELECT string_agg(quote_literal(value::text), ', ')
+                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                    );
+                    v_alter_sql := format(
+                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
+                        NEW.table_name, v_check_name, NEW.field_name, v_enum_values_sql
+                    );
+                    EXECUTE v_alter_sql;
+                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
+                        v_check_name, NEW.table_name, NEW.field_name;
+                END IF;
+            END IF;
+        END;
+    END IF;
+
+    -- Handle unique_value changes
+    IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
+        DECLARE
+            v_unique_idx_name TEXT;
+            v_where_clause    TEXT;
+        BEGIN
+            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            IF NEW.unique_value THEN
+                IF format_to_json_type(NEW.format)::text = '"string"' THEN
+                    v_where_clause := format('%I IS NOT NULL AND %I != ''''',
+                        NEW.field_name, NEW.field_name);
+                ELSE
+                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
+                END IF;
+                EXECUTE format(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name, v_where_clause
+                );
+                RAISE NOTICE 'Created unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
+            ELSE
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
+                RAISE NOTICE 'Dropped unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
+            END IF;
+        END;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION update_dd_field IS
+'Trigger function that updates column properties when a field is updated.
+table_name changes are allowed only as part of a cascade from rename_dd_table().
+field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
+format changes that alter the underlying data type are rejected by the BEFORE trigger.
+When the physical column is missing from a managed table (e.g. defined while managed=false),
+the column is created via apply_field_ddl() and the function returns early.';
+
+REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
+`,
   },
   "cloud": {
     "0010_webhook_receiver": `-- =====================================================
@@ -4909,15 +6248,15 @@ VALUES (
 ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
 
 -- Add fields to webhook_receivers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode)
 VALUES 
-    ('webhook_receivers', 'table_name', 'Table', 'reference', FALSE, FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
-    ('webhook_receivers', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL, '', ''),
-    ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb, '', ''),
-    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, FALSE, 40, 'default', 'default', 'Secret for webhook authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, FALSE, 45, 'default', 'default', 'Custom header name for authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, FALSE, 46, 'default', 'default', 'Expected value for custom header authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '', NULL, '', '');
+    ('webhook_receivers', 'table_name', 'Table', 'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
+    ('webhook_receivers', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL, '', ''),
+    ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb, '', ''),
+    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, 40, 'default', 'default', 'Secret for webhook authentication', '', NULL, '', ''),
+    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, 45, 'default', 'default', 'Custom header name for authentication', '', NULL, '', ''),
+    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, 46, 'default', 'default', 'Expected value for custom header authentication', '', NULL, '', ''),
+    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '', NULL, '', '');
 
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
@@ -4951,15 +6290,15 @@ VALUES (
 -- Add fields to webhook_receiver_logs table
 -- Note: 'label' is the label_column and is automatically created by the create_dd_table trigger
 -- webhook_id is an explicit parent reference to webhook_receivers (ON DELETE CASCADE)
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode)
 VALUES 
-    ('webhook_receiver_logs', 'webhook_id', 'Webhook Receiver', 'parent', FALSE, FALSE, 5, 'default', 'default', 'Parent webhook receiver this log belongs to', NULL, NULL, NULL, 'webhook_receivers', 'cascade'),
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'reference', FALSE, FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration', NULL, NULL, NULL, 'webhook_receivers', 'clear'),
-    ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, FALSE, 30, 'default', 'default', 'Timestamp from webhook source', NULL, NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, FALSE, 40, 'disabled', 'default', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, FALSE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'result', 'Result', 'enum', FALSE, FALSE, 60, 'default', 'default', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL, '', ''),
-    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, FALSE, 70, 'default', 'w', 'Error message if processing failed', '', NULL, NULL, '', '');
+    ('webhook_receiver_logs', 'webhook_id', 'Webhook Receiver', 'parent', FALSE, 5, 'default', 'default', 'Parent webhook receiver this log belongs to', NULL, NULL, NULL, 'webhook_receivers', 'cascade'),
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'reference', FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration', NULL, NULL, NULL, 'webhook_receivers', 'clear'),
+    ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source', NULL, NULL, NULL, '', ''),
+    ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, 40, 'disabled', 'default', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL, '', ''),
+    ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL, '', ''),
+    ('webhook_receiver_logs', 'result', 'Result', 'enum', FALSE, 60, 'default', 'default', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL, '', ''),
+    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, 70, 'default', 'w', 'Error message if processing failed', '', NULL, NULL, '', '');
 
 -- =====================================================
 -- ADD INDEX
@@ -5004,15 +6343,15 @@ VALUES (
 );
 
 -- Add fields to dashboards table
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'config',   'Configuration', 'json',  FALSE, 10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
-    ('dashboards', 'position', 'Position',      'int32', FALSE, 20, 'default', 'default', 'Display order position', '0', '', '');
+    ('dashboards', 'config',   'Configuration', 'json',  10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
+    ('dashboards', 'position', 'Position',      'int32', 20, 'default', 'default', 'Display order position', '0', '', '');
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'module_id',       'Module',          'reference', FALSE, 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
-    ('dashboards', 'view_permission', 'View Permission',  'reference', TRUE,  40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
+    ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
+    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
 `,
   },
   "nwind": {
@@ -5217,95 +6556,95 @@ VALUES (
 -- categories fields
 -- -----------------------------------------------------
 -- (category_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('categories', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of the product category', '', TRUE, '');
+    ('categories', 'description', 'Description', 'text', 20, 'default', 'w', 'Description of the product category', '', TRUE, '');
 
 -- -----------------------------------------------------
 -- customers fields
 -- -----------------------------------------------------
 -- (company_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('customers', 'customer_id',    'Customer ID',    'text', FALSE, 10, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
-    ('customers', 'contact_name',   'Contact Name',   'text', FALSE, 30, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
-    ('customers', 'contact_title',  'Contact Title',  'text', FALSE, 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
-    ('customers', 'address',        'Street Address', 'text', FALSE, 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
-    ('customers', 'city',           'City',           'text', FALSE, 60, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
-    ('customers', 'region',         'Region',         'text', FALSE, 70, 'default',  'default', 'State or province',                         '', FALSE, FALSE, ''),
-    ('customers', 'postal_code',    'Postal Code',    'text', FALSE, 80, 'default',  'default', 'Postal or ZIP code',                        '', FALSE, FALSE, ''),
-    ('customers', 'country',        'Country',        'text', FALSE, 90, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
-    ('customers', 'phone',          'Phone',          'text', FALSE, 100, 'default', 'default', 'Primary phone number',                      '', FALSE, FALSE, ''),
-    ('customers', 'fax',            'Fax',            'text', FALSE, 110, 'default', 'default', '',                                          '', FALSE, FALSE, '');
+    ('customers', 'customer_id',    'Customer ID',    'text', 10, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
+    ('customers', 'contact_name',   'Contact Name',   'text', 30, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
+    ('customers', 'contact_title',  'Contact Title',  'text', 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
+    ('customers', 'address',        'Street Address', 'text', 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
+    ('customers', 'city',           'City',           'text', 60, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
+    ('customers', 'region',         'Region',         'text', 70, 'default',  'default', 'State or province',                         '', FALSE, FALSE, ''),
+    ('customers', 'postal_code',    'Postal Code',    'text', 80, 'default',  'default', 'Postal or ZIP code',                        '', FALSE, FALSE, ''),
+    ('customers', 'country',        'Country',        'text', 90, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
+    ('customers', 'phone',          'Phone',          'text', 100, 'default', 'default', 'Primary phone number',                      '', FALSE, FALSE, ''),
+    ('customers', 'fax',            'Fax',            'text', 110, 'default', 'default', '',                                          '', FALSE, FALSE, '');
 
 -- -----------------------------------------------------
 -- employees fields
 -- -----------------------------------------------------
 -- (last_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('employees', 'first_name',         'First Name',         'text', FALSE, 20,  'required', 'default', '',                                        '', TRUE,  ''),
-    ('employees', 'title',              'Title',              'text', FALSE, 30,  'default',  'default', 'Job title',                               '', FALSE, ''),
-    ('employees', 'title_of_courtesy',  'Title of Courtesy',  'text', FALSE, 40,  'default',  'default', 'Courtesy title (Mr., Ms., Dr., etc.)',    '', FALSE, ''),
-    ('employees', 'address',            'Street Address',     'text', FALSE, 60,  'default',  'w',       '',                                        '', FALSE, ''),
-    ('employees', 'city',               'City',               'text', FALSE, 70,  'default',  'default', '',                                        '', TRUE,  ''),
-    ('employees', 'region',             'Region',             'text', FALSE, 80,  'default',  'default', 'State or province',                       '', FALSE, ''),
-    ('employees', 'postal_code',        'Postal Code',        'text', FALSE, 90,  'default',  'default', 'Postal or ZIP code',                      '', FALSE, ''),
-    ('employees', 'country',            'Country',            'text', FALSE, 100, 'default',  'default', '',                                        '', TRUE,  ''),
-    ('employees', 'home_phone',         'Home Phone',         'text', FALSE, 110, 'default',  'default', '',                                        '', FALSE, ''),
-    ('employees', 'extension',          'Extension',          'text', FALSE, 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
-    ('employees', 'notes',              'Notes',              'text', FALSE, 130, 'default',  'w',       '',                                        '', FALSE, ''),
-    ('employees', 'photo_path',         'Photo Path',         'text', FALSE, 140, 'default',  'default', '',                                        '', FALSE, '');
+    ('employees', 'first_name',         'First Name',         'text', 20,  'required', 'default', '',                                        '', TRUE,  ''),
+    ('employees', 'title',              'Title',              'text', 30,  'default',  'default', 'Job title',                               '', FALSE, ''),
+    ('employees', 'title_of_courtesy',  'Title of Courtesy',  'text', 40,  'default',  'default', 'Courtesy title (Mr., Ms., Dr., etc.)',    '', FALSE, ''),
+    ('employees', 'address',            'Street Address',     'text', 60,  'default',  'w',       '',                                        '', FALSE, ''),
+    ('employees', 'city',               'City',               'text', 70,  'default',  'default', '',                                        '', TRUE,  ''),
+    ('employees', 'region',             'Region',             'text', 80,  'default',  'default', 'State or province',                       '', FALSE, ''),
+    ('employees', 'postal_code',        'Postal Code',        'text', 90,  'default',  'default', 'Postal or ZIP code',                      '', FALSE, ''),
+    ('employees', 'country',            'Country',            'text', 100, 'default',  'default', '',                                        '', TRUE,  ''),
+    ('employees', 'home_phone',         'Home Phone',         'text', 110, 'default',  'default', '',                                        '', FALSE, ''),
+    ('employees', 'extension',          'Extension',          'text', 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
+    ('employees', 'notes',              'Notes',              'text', 130, 'default',  'w',       '',                                        '', FALSE, ''),
+    ('employees', 'photo_path',         'Photo Path',         'text', 140, 'default',  'default', '',                                        '', FALSE, '');
 
 -- birth_date: nullable (no sensible default)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, searchable, ctype)
 VALUES
-    ('employees', 'birth_date', 'Birth Date', 'date', TRUE, 50, 'default', 'default', '', FALSE, '');
+    ('employees', 'birth_date', 'Birth Date', 'date', 50, 'default', 'default', '', FALSE, '');
 
 -- hire_date: not nullable with default
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('employees', 'hire_date', 'Hire Date', 'date', FALSE, 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
+    ('employees', 'hire_date', 'Hire Date', 'date', 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
 -- reports_to: self-reference, nullable
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('employees', 'reports_to', 'Reports To', 'reference', TRUE, 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE);
+    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- suppliers fields
 -- -----------------------------------------------------
 -- (company_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('suppliers', 'contact_name',  'Contact Name',  'text', FALSE, 20,  'default',  'default', '',                               '', TRUE,  ''),
-    ('suppliers', 'contact_title', 'Contact Title', 'text', FALSE, 30,  'default',  'default', 'Job title of the primary contact', '', FALSE, ''),
-    ('suppliers', 'address',       'Street Address','text', FALSE, 40,  'default',  'w',       '',                               '', FALSE, ''),
-    ('suppliers', 'city',          'City',          'text', FALSE, 50,  'default',  'default', '',                               '', TRUE,  ''),
-    ('suppliers', 'region',        'Region',        'text', FALSE, 60,  'default',  'default', 'State or province',              '', FALSE, ''),
-    ('suppliers', 'postal_code',   'Postal Code',   'text', FALSE, 70,  'default',  'default', 'Postal or ZIP code',             '', FALSE, ''),
-    ('suppliers', 'country',       'Country',       'text', FALSE, 80,  'default',  'default', '',                               '', TRUE,  ''),
-    ('suppliers', 'phone',         'Phone',         'text', FALSE, 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
-    ('suppliers', 'fax',           'Fax',           'text', FALSE, 100, 'default',  'default', '',                               '', FALSE, ''),
-    ('suppliers', 'homepage',      'Homepage',      'text', FALSE, 110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
+    ('suppliers', 'contact_name',  'Contact Name',  'text', 20,  'default',  'default', '',                               '', TRUE,  ''),
+    ('suppliers', 'contact_title', 'Contact Title', 'text', 30,  'default',  'default', 'Job title of the primary contact', '', FALSE, ''),
+    ('suppliers', 'address',       'Street Address','text', 40,  'default',  'w',       '',                               '', FALSE, ''),
+    ('suppliers', 'city',          'City',          'text', 50,  'default',  'default', '',                               '', TRUE,  ''),
+    ('suppliers', 'region',        'Region',        'text', 60,  'default',  'default', 'State or province',              '', FALSE, ''),
+    ('suppliers', 'postal_code',   'Postal Code',   'text', 70,  'default',  'default', 'Postal or ZIP code',             '', FALSE, ''),
+    ('suppliers', 'country',       'Country',       'text', 80,  'default',  'default', '',                               '', TRUE,  ''),
+    ('suppliers', 'phone',         'Phone',         'text', 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
+    ('suppliers', 'fax',           'Fax',           'text', 100, 'default',  'default', '',                               '', FALSE, ''),
+    ('suppliers', 'homepage',      'Homepage',      'text', 110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
 
 -- -----------------------------------------------------
 -- products fields
 -- -----------------------------------------------------
 -- (product_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    FALSE, 40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
-    ('products', 'unit_price',        'Unit Price',         'float',   FALSE, 50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
-    ('products', 'units_in_stock',    'Units In Stock',     'int32',   FALSE, 60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   FALSE, 70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
-    ('products', 'reorder_level',     'Reorder Level',      'int32',   FALSE, 80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
-    ('products', 'discontinued',      'Discontinued',       'boolean', FALSE, 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
+    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
+    ('products', 'unit_price',        'Unit Price',         'float',   50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
+    ('products', 'units_in_stock',    'Units In Stock',     'int32',   60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'reorder_level',     'Reorder Level',      'int32',   80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
+    ('products', 'discontinued',      'Discontinued',       'boolean', 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('products', 'supplier_id', 'Supplier', 'reference', FALSE, 20, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE),
-    ('products', 'category_id', 'Category', 'reference', FALSE, 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE);
+    ('products', 'supplier_id', 'Supplier', 'reference', 20, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE),
+    ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- regions fields
@@ -5316,74 +6655,74 @@ VALUES
 -- shippers fields
 -- -----------------------------------------------------
 -- (company_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('shippers', 'phone', 'Phone', 'text', FALSE, 20, 'default', 'default', '', '', FALSE, '');
+    ('shippers', 'phone', 'Phone', 'text', 20, 'default', 'default', '', '', FALSE, '');
 
 -- -----------------------------------------------------
 -- orders fields
 -- -----------------------------------------------------
 -- (ship_name is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('orders', 'ship_address',    'Ship Address',     'text',  FALSE, 50,  'default', 'w',       '',                                         '', FALSE, ''),
-    ('orders', 'ship_city',       'Ship City',        'text',  FALSE, 60,  'default', 'default', '',                                         '', TRUE,  ''),
-    ('orders', 'ship_region',     'Ship Region',      'text',  FALSE, 70,  'default', 'default', 'State or province for shipment',           '', FALSE, ''),
-    ('orders', 'ship_postal_code','Ship Postal Code', 'text',  FALSE, 80,  'default', 'default', '',                                         '', FALSE, ''),
-    ('orders', 'ship_country',    'Ship Country',     'text',  FALSE, 90,  'default', 'default', '',                                         '', TRUE,  ''),
-    ('orders', 'freight',         'Freight',          'float', FALSE, 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
+    ('orders', 'ship_address',    'Ship Address',     'text',  50,  'default', 'w',       '',                                         '', FALSE, ''),
+    ('orders', 'ship_city',       'Ship City',        'text',  60,  'default', 'default', '',                                         '', TRUE,  ''),
+    ('orders', 'ship_region',     'Ship Region',      'text',  70,  'default', 'default', 'State or province for shipment',           '', FALSE, ''),
+    ('orders', 'ship_postal_code','Ship Postal Code', 'text',  80,  'default', 'default', '',                                         '', FALSE, ''),
+    ('orders', 'ship_country',    'Ship Country',     'text',  90,  'default', 'default', '',                                         '', TRUE,  ''),
+    ('orders', 'freight',         'Freight',          'float', 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
 
 -- order_date and required_date: not nullable with defaults
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('orders', 'order_date',    'Order Date',    'date', FALSE, 110, 'default', 'default', '',    'CURRENT_DATE', FALSE, ''),
-    ('orders', 'required_date', 'Required Date', 'date', FALSE, 120, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
+    ('orders', 'order_date',    'Order Date',    'date', 110, 'default', 'default', '',    'CURRENT_DATE', FALSE, ''),
+    ('orders', 'required_date', 'Required Date', 'date', 120, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
 -- shipped_date: nullable (order may not yet be shipped)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, searchable, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, searchable, ctype)
 VALUES
-    ('orders', 'shipped_date', 'Shipped Date', 'date', TRUE, 130, 'default', 'default', '', FALSE, '');
+    ('orders', 'shipped_date', 'Shipped Date', 'date', 130, 'default', 'default', '', FALSE, '');
 
 -- FK references on orders (not parent — orders is not a junction/child table)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('orders', 'customer_id',  'Customer',  'reference', FALSE, 10, 'default', 'default', 'Customer who placed the order', 'customers',  'restrict', FALSE),
-    ('orders', 'employee_id',  'Employee',  'reference', FALSE, 20, 'default', 'default', 'Employee who handled the order', 'employees',  'restrict', FALSE),
-    ('orders', 'ship_via',     'Shipped Via', 'reference', FALSE, 30, 'default', 'default', 'Shipper used for this order',   'shippers',   'restrict', FALSE);
+    ('orders', 'customer_id',  'Customer',  'reference', 10, 'default', 'default', 'Customer who placed the order', 'customers',  'restrict', FALSE),
+    ('orders', 'employee_id',  'Employee',  'reference', 20, 'default', 'default', 'Employee who handled the order', 'employees',  'restrict', FALSE),
+    ('orders', 'ship_via',     'Shipped Via', 'reference', 30, 'default', 'default', 'Shipper used for this order',   'shippers',   'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- territories fields
 -- -----------------------------------------------------
 -- (territory_description is auto-created as the label_column)
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('territories', 'territory_id', 'Territory ID', 'text', FALSE, 10, 'required', 'default', 'Unique code identifying the territory', '', TRUE, TRUE, '');
+    ('territories', 'territory_id', 'Territory ID', 'text', 10, 'required', 'default', 'Unique code identifying the territory', '', TRUE, TRUE, '');
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('territories', 'region_id', 'Region', 'reference', FALSE, 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE);
+    ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- employee_territories fields (junction)
 -- -----------------------------------------------------
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('employee_territories', 'employee_id',  'Employee',  'parent', FALSE, 10, 'required', 'default', 'Reference to the employee',  'employees',  'restrict', FALSE),
-    ('employee_territories', 'territory_id', 'Territory', 'parent', FALSE, 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE);
+    ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',  'restrict', FALSE),
+    ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE);
 
 -- -----------------------------------------------------
 -- order_details fields (junction)
 -- -----------------------------------------------------
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES
-    ('order_details', 'order_id',   'Order',   'parent', FALSE, 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE),
-    ('order_details', 'product_id', 'Product', 'parent', FALSE, 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE);
+    ('order_details', 'order_id',   'Order',   'parent', 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE),
+    ('order_details', 'product_id', 'Product', 'parent', 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE);
 
-INSERT INTO fields (table_name, field_name, title, format, is_nullable, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('order_details', 'unit_price', 'Unit Price', 'float', FALSE, 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
-    ('order_details', 'quantity',   'Quantity',   'int32', FALSE, 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
-    ('order_details', 'discount',   'Discount',   'float', FALSE, 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
+    ('order_details', 'unit_price', 'Unit Price', 'float', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
+    ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
+    ('order_details', 'discount',   'Discount',   'float', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
 
 

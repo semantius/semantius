@@ -408,7 +408,7 @@ VALUES (1003, 'sk-seed001003', crypt('ad22cd340123456789abcdef01234567', gen_sal
 -- SELECT table_name, label, view_permission, edit_permission FROM tables;
 
 -- View all fields for a specific table
--- SELECT f.field_name, f.label, f.data_type, f.is_pk, f.is_nullable
+-- SELECT f.field_name, f.label, f.data_type, f.is_pk
 -- FROM fields f
 -- JOIN tables t ON f.table_id = t.table_id
 -- WHERE t.table_name = 'customers_test'

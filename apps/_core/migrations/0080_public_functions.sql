@@ -239,7 +239,6 @@ BEGIN
         SELECT 
             f.field_name,
             f.format,
-            compute_is_nullable(f.format) AS is_nullable,
             f.title,
             f.description,
             f.default_value,

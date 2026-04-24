@@ -32,7 +32,6 @@ interface FieldRecord {
   description: string;
   format: string;
   is_pk: boolean;
-  is_nullable: boolean;
   default_value: string;
   field_order: number;
   input_type: string;
