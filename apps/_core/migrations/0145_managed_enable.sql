@@ -39,7 +39,7 @@ BEGIN
     v_data_type := format_to_data_type(p_field.format);
 
     -- Build nullable clause
-    IF compute_is_nullable(p_field.format) THEN
+    IF p_field.is_nullable THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -48,7 +48,7 @@ BEGIN
     -- Build default clause with sensible fallbacks for NOT NULL columns
     IF p_field.default_value IS NOT NULL AND trim(p_field.default_value) != '' THEN
         v_default_clause := format('DEFAULT %s', quote_default_value(p_field.default_value, v_data_type));
-    ELSIF NOT compute_is_nullable(p_field.format) THEN
+    ELSIF NOT p_field.is_nullable THEN
         IF v_data_type IN ('JSONB', 'JSON') THEN
             v_default_clause := 'DEFAULT ''{}''::jsonb';
         ELSE
@@ -431,8 +431,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
-        IF compute_is_nullable(NEW.format) THEN
+    IF OLD.is_nullable <> NEW.is_nullable THEN
+        IF NEW.is_nullable THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name, NEW.field_name
@@ -445,7 +445,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
+            NEW.field_name, NEW.is_nullable, NEW.table_name;
     END IF;
 
     -- Allow updating default value

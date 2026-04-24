@@ -83,22 +83,27 @@ COMMENT ON FUNCTION format_to_json_type IS
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
 
 -- =====================================================
--- COMPUTE_IS_NULLABLE FUNCTION
+-- IS_NULLABLE FUNCTION
 -- =====================================================
 -- Determines whether a column should allow NULL values based on its format.
--- This replaces the old is_nullable flag on the fields table.
 -- Nullable formats: reference (optional FK), date (unknown date), date-time (not-yet timestamps)
 -- All other formats use NOT NULL with appropriate defaults.
 
-CREATE OR REPLACE FUNCTION compute_is_nullable(p_format TEXT)
+CREATE OR REPLACE FUNCTION is_nullable(p_format TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN p_format IN ('reference', 'date', 'date-time');
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
-COMMENT ON FUNCTION compute_is_nullable IS
+COMMENT ON FUNCTION is_nullable IS
 'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
+
+-- Add is_nullable as a computed read-only column on the fields table.
+-- It is derived from the format column via the is_nullable() function above.
+-- GENERATED ALWAYS means the value cannot be manually written.
+ALTER TABLE fields ADD COLUMN is_nullable BOOLEAN GENERATED ALWAYS AS (is_nullable(format)) STORED;
+COMMENT ON COLUMN fields.is_nullable IS 'Whether this field allows NULL values (computed from format: reference, date, date-time are nullable)';
 
 -- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
@@ -369,7 +374,7 @@ BEGIN
     v_data_type := format_to_data_type(NEW.format);
     
     -- Build nullable clause based on format
-    IF compute_is_nullable(NEW.format) THEN
+    IF NEW.is_nullable THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -378,7 +383,7 @@ BEGIN
     -- Build default clause with sensible defaults based on data type
     IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
         v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
-    ELSIF NOT compute_is_nullable(NEW.format) THEN
+    ELSIF NOT NEW.is_nullable THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
         -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
         IF v_data_type IN ('JSONB', 'JSON') THEN
@@ -670,8 +675,8 @@ BEGIN
     
     -- Handle nullable change when format changes (e.g., text→reference would change nullability)
     IF OLD.format <> NEW.format THEN
-        IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
-            IF compute_is_nullable(NEW.format) THEN
+        IF OLD.is_nullable <> NEW.is_nullable THEN
+            IF NEW.is_nullable THEN
                 v_alter_sql := format(
                     'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                     NEW.table_name,
@@ -686,7 +691,7 @@ BEGIN
             END IF;
             EXECUTE v_alter_sql;
             RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
+                NEW.field_name, NEW.is_nullable, NEW.table_name;
         END IF;
     END IF;
     
@@ -1354,7 +1359,10 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION compute_is_nullable(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
+-- Grant is_nullable to semantius_user: GENERATED ALWAYS columns evaluate their formula in the
+-- inserting user's context, so semantius_user needs EXECUTE to insert rows into the fields table.
+GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;

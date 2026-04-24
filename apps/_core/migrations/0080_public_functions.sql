@@ -374,7 +374,7 @@ BEGIN
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND compute_is_nullable(format) = FALSE
+          AND is_nullable = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL

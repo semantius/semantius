@@ -511,8 +511,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
-        IF compute_is_nullable(NEW.format) THEN
+    IF OLD.is_nullable <> NEW.is_nullable THEN
+        IF NEW.is_nullable THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name,
@@ -527,7 +527,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
+            NEW.field_name, NEW.is_nullable, NEW.table_name;
     END IF;
 
     -- Allow updating default value

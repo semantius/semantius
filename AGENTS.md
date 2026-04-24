@@ -181,7 +181,7 @@ deno task test
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
 - **ABSOLUTELY NO NULL VALUES ALLOWED** unless explicitly instructed otherwise
-- **Nullability is auto-computed** by the `compute_is_nullable(format)` function based on the field's format:
+- **Nullability is auto-computed** by the `is_nullable(format)` function based on the field's format:
   - `reference` format → nullable (FK can be unset)
   - `date` format → nullable (date may be unknown)
   - `date-time` format → nullable (timestamp may not have occurred)
@@ -281,7 +281,7 @@ The `public.get_schema()` function returns JSON Schema with:
 - **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
 - **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
-- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at). Nullability is computed from format via `compute_is_nullable()` — nullable formats (reference, date, date-time) are excluded from the required array.
+- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at). Nullability is computed from format via `is_nullable()` — nullable formats (reference, date, date-time) are excluded from the required array.
 - **created_at and updated_at fields**: 
   - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
   - NOT included in the required array since they are auto-maintained by database triggers
