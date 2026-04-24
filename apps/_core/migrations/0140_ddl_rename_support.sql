@@ -437,10 +437,6 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            RAISE EXCEPTION 'Cannot change nullable constraint of core system field "%"', OLD.field_name;
-        END IF;
-
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
         END IF;
@@ -514,9 +510,9 @@ BEGIN
             NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
     END IF;
 
-    -- Allow updating nullable constraint
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    -- Allow updating nullable constraint (derived from format)
+    IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
+        IF compute_is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name,
@@ -531,7 +527,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value

@@ -133,55 +133,55 @@ VALUES (
 -- so we only add additional custom fields here
 
 -- Add fields to customers_test table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, enum_values, searchable, reference_table, reference_delete_mode, unique_value)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, searchable, reference_table, reference_delete_mode, unique_value)
 VALUES 
-    ('customers_test', 'email', 'Email Address', 'email', FALSE, TRUE, 10, 'default', 'default', 'Customer primary email address', '', NULL, TRUE, '', '', TRUE),
-    ('customers_test', 'company', 'Company Name', 'text', FALSE, FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', '', FALSE),
-    ('customers_test', 'phone', 'Phone Number', 'text', FALSE, FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', '', FALSE),
-    ('customers_test', 'status', 'Status', 'enum', FALSE, FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', '', FALSE),
-    ('customers_test', 'total_orders', 'Total Orders', 'int32', FALSE, FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '', FALSE);
+    ('customers_test', 'email', 'Email Address', 'email', FALSE, 10, 'default', 'default', 'Customer primary email address', '', NULL, TRUE, '', '', TRUE),
+    ('customers_test', 'company', 'Company Name', 'text', FALSE, 20, 'default', 'default', 'Company or organization name', '', NULL, TRUE, '', '', FALSE),
+    ('customers_test', 'phone', 'Phone Number', 'text', FALSE, 30, 'default', 'default', 'Customer contact phone number', '', NULL, TRUE, '', '', FALSE),
+    ('customers_test', 'status', 'Status', 'enum', FALSE, 40, 'default', 'default', 'Customer account status (active, inactive, etc.)', 'active', '["active", "inactive", "pending", "suspended"]'::jsonb, TRUE, '', '', FALSE),
+    ('customers_test', 'total_orders', 'Total Orders', 'int32', FALSE, 50, 'readonly', 'default', 'Total number of orders placed by customer', '0', NULL, FALSE, '', '', FALSE);
 
 -- Add reference field from customers_test to regions_test (not required, default restrict mode)
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES 
-    ('customers_test', 'region_id', 'Region', 'reference', FALSE, TRUE, 35, 'default', 'default', 'Geographic region for this customer', 'regions_test', 'restrict', FALSE);
+    ('customers_test', 'region_id', 'Region', 'reference', FALSE, 35, 'default', 'default', 'Geographic region for this customer', 'regions_test', 'restrict', FALSE);
 
 -- Add fields to employees_test table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('employees_test', 'email', 'Email Address', 'email', FALSE, FALSE, 10, 'required', 'default', 'Employee work email address', '', TRUE, '', ''),
-    ('employees_test', 'position', 'Position', 'text', FALSE, FALSE, 30, 'default', 'default', 'Job title or position', '', TRUE, '', ''),
-    ('employees_test', 'hire_date', 'Hire Date', 'date', FALSE, FALSE, 40, 'default', 'default', 'Date employee was hired', 'CURRENT_DATE', FALSE, '', ''),
-    ('employees_test', 'salary', 'Salary', 'double', FALSE, FALSE, 50, 'default', 'default', 'Annual salary amount', '0.0', FALSE, '', ''),
-    ('employees_test', 'is_active', 'Active', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether employee is currently active', 'TRUE', FALSE, '', '');
+    ('employees_test', 'email', 'Email Address', 'email', FALSE, 10, 'required', 'default', 'Employee work email address', '', TRUE, '', ''),
+    ('employees_test', 'position', 'Position', 'text', FALSE, 30, 'default', 'default', 'Job title or position', '', TRUE, '', ''),
+    ('employees_test', 'hire_date', 'Hire Date', 'date', FALSE, 40, 'default', 'default', 'Date employee was hired', 'CURRENT_DATE', FALSE, '', ''),
+    ('employees_test', 'salary', 'Salary', 'double', FALSE, 50, 'default', 'default', 'Annual salary amount', '0.0', FALSE, '', ''),
+    ('employees_test', 'is_active', 'Active', 'boolean', FALSE, 60, 'default', 'default', 'Whether employee is currently active', 'TRUE', FALSE, '', '');
 
 -- Add reference field from employees_test to departments (required, restrict mode)
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
 VALUES 
-    ('employees_test', 'department_id', 'Department', 'reference', FALSE, FALSE, 20, 'required', 'default', 'Department this employee belongs to', 'departments', 'restrict', FALSE);
+    ('employees_test', 'department_id', 'Department', 'reference', FALSE, 20, 'required', 'default', 'Department this employee belongs to', 'departments', 'restrict', FALSE);
 
 -- Add fields to products_test table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('products_test', 'sku', 'SKU', 'text', FALSE, FALSE, 10, 'required', 'default', 'Stock keeping unit - unique product identifier', '', TRUE, '', ''),
-    ('products_test', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE, '', ''),
-    ('products_test', 'price', 'Price', 'double', FALSE, FALSE, 30, 'default', 'default', 'Product price in base currency', '0.0', FALSE, '', ''),
-    ('products_test', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, FALSE, 40, 'default', 'default', 'Current inventory quantity', '0', FALSE, '', ''),
-    ('products_test', 'is_discontinued', 'Discontinued', 'boolean', FALSE, FALSE, 60, 'default', 'default', 'Whether product is no longer available', 'FALSE', FALSE, '', '');
+    ('products_test', 'sku', 'SKU', 'text', FALSE, 10, 'required', 'default', 'Stock keeping unit - unique product identifier', '', TRUE, '', ''),
+    ('products_test', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Detailed product description', '', TRUE, '', ''),
+    ('products_test', 'price', 'Price', 'double', FALSE, 30, 'default', 'default', 'Product price in base currency', '0.0', FALSE, '', ''),
+    ('products_test', 'quantity_in_stock', 'Quantity in Stock', 'int32', FALSE, 40, 'default', 'default', 'Current inventory quantity', '0', FALSE, '', ''),
+    ('products_test', 'is_discontinued', 'Discontinued', 'boolean', FALSE, 60, 'default', 'default', 'Whether product is no longer available', 'FALSE', FALSE, '', '');
 
 
 -- Add fields to regions_test table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('regions_test', 'code', 'Region Code', 'text', FALSE, FALSE, 10, 'required', 'default', 'Short code for the region', '', TRUE, '', ''),
-    ('regions_test', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the region', '', TRUE, '', '');
+    ('regions_test', 'code', 'Region Code', 'text', FALSE, 10, 'required', 'default', 'Short code for the region', '', TRUE, '', ''),
+    ('regions_test', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Detailed description of the region', '', TRUE, '', '');
 
 -- Add fields to departments table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, searchable, reference_table, reference_delete_mode)
 VALUES 
-    ('departments', 'code', 'Department Code', 'text', FALSE, FALSE, 10, 'required', 'default', 'Short code for the department', '', TRUE, '', ''),
-    ('departments', 'description', 'Description', 'text', FALSE, FALSE, 20, 'default', 'w', 'Detailed description of the department', '', TRUE, '', ''),
-    ('departments', 'budget', 'Annual Budget', 'double', FALSE, FALSE, 30, 'default', 'default', 'Annual budget allocation', '0.0', FALSE, '', '');
+    ('departments', 'code', 'Department Code', 'text', FALSE, 10, 'required', 'default', 'Short code for the department', '', TRUE, '', ''),
+    ('departments', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Detailed description of the department', '', TRUE, '', ''),
+    ('departments', 'budget', 'Annual Budget', 'double', FALSE, 30, 'default', 'default', 'Annual budget allocation', '0.0', FALSE, '', '');
 
 
 -- =====================================================

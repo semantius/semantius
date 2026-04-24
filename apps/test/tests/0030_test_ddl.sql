@@ -64,8 +64,8 @@ select authenticate_as('user1');
 
 SELECT throws_ok(
     $$
-        INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-        VALUES ('table1', 'field1', 'Email Address', 'email', FALSE, FALSE, 10, 'default', 'default', 'Customer primary email address');
+        INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
+        VALUES ('table1', 'field1', 'Email Address', 'email', FALSE, 10, 'default', 'default', 'Customer primary email address');
     $$,
     '42501',  -- insufficient_privilege (RLS violation)
     NULL,
@@ -75,8 +75,8 @@ SELECT throws_ok(
 -- admin should be able to create the table and add columns
 select authenticate_as('user3');
 
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('table1', 'field1', 'Email Address', 'email', FALSE, FALSE, 10, 'default', 'default', 'Customer primary email address');
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
+VALUES ('table1', 'field1', 'Email Address', 'email', FALSE, 10, 'default', 'default', 'Customer primary email address');
 
 SELECT pgtap.has_column(
     'public',    

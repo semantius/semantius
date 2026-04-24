@@ -239,7 +239,7 @@ BEGIN
         SELECT 
             f.field_name,
             f.format,
-            f.is_nullable,
+            compute_is_nullable(f.format) AS is_nullable,
             f.title,
             f.description,
             f.default_value,
@@ -368,14 +368,14 @@ BEGIN
     INTO v_properties
     FROM properties_with_defaults;
     
-    -- Build required fields array (fields where is_nullable = false)
+    -- Build required fields array (fields where nullability is false based on format)
     -- Exclude the id_column since it's auto-generated and not required for INSERT
     -- Exclude created_at and updated_at since they are auto-maintained by triggers
     WITH required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable = FALSE
+          AND compute_is_nullable(format) = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL

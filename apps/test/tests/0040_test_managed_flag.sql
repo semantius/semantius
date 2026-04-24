@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(18);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -20,8 +20,8 @@ SELECT ok(
 );
 
 -- Test 2: Add a field to managed=true table
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_managed_true', 'test_field', 'Test Field', 'int32', FALSE, FALSE, 10, 'default', 'default', 'Test field');
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
+VALUES ('test_managed_true', 'test_field', 'Test Field', 'int32', FALSE, 10, 'default', 'default', 'Test field');
 
 SELECT ok(
     (SELECT EXISTS (
@@ -31,16 +31,7 @@ SELECT ok(
     'Field should be added to managed=true table in database'
 );
 
--- Test 3: Update field nullable constraint in managed=true table (allow NULL)
-UPDATE fields SET is_nullable = TRUE WHERE table_name = 'test_managed_true' AND field_name = 'test_field';
-
-SELECT ok(
-    (SELECT is_nullable = 'YES' FROM information_schema.columns 
-     WHERE table_name = 'test_managed_true' AND column_name = 'test_field'),
-    'Field nullable constraint change should be applied to managed=true table in database'
-);
-
--- Test 4: Delete field from managed=true table
+-- Test 3: Delete field from managed=true table
 DELETE FROM fields WHERE table_name = 'test_managed_true' AND field_name = 'test_field';
 
 SELECT ok(
@@ -84,9 +75,9 @@ SELECT ok(
     'Managed flag should be FALSE for test_managed_false table'
 );
 
--- Test 9: Add a field to managed=false table (should not add column in DB)
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_managed_false', 'test_field_unmanaged', 'Test Field', 'text', FALSE, FALSE, 10, 'default', 'default', 'Test field for unmanaged table');
+-- Test 7: Add a field to managed=false table (should not add column in DB)
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
+VALUES ('test_managed_false', 'test_field_unmanaged', 'Test Field', 'text', FALSE, 10, 'default', 'default', 'Test field for unmanaged table');
 
 SELECT ok(
     (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'test_managed_false' AND field_name = 'test_field_unmanaged')),
@@ -135,8 +126,8 @@ SELECT ok(
 INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
 VALUES ('test_toggle_managed', 'test_toggle_managed', 'Test Toggle', 'Test Toggles', 'Toggle managed test', 1, 'public:read', 'admin', 'id', 'label', FALSE);
 
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description)
-VALUES ('test_toggle_managed', 'custom_field', 'Custom Field', 'text', FALSE, FALSE, 10, 'default', 'default', 'A custom field');
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
+VALUES ('test_toggle_managed', 'custom_field', 'Custom Field', 'text', FALSE, 10, 'default', 'default', 'A custom field');
 
 -- Verify table was NOT created yet
 SELECT ok(

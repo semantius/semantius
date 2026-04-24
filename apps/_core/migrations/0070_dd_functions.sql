@@ -83,6 +83,24 @@ COMMENT ON FUNCTION format_to_json_type IS
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
 
 -- =====================================================
+-- COMPUTE_IS_NULLABLE FUNCTION
+-- =====================================================
+-- Determines whether a column should allow NULL values based on its format.
+-- This replaces the old is_nullable flag on the fields table.
+-- Nullable formats: reference (optional FK), date (unknown date), date-time (not-yet timestamps)
+-- All other formats use NOT NULL with appropriate defaults.
+
+CREATE OR REPLACE FUNCTION compute_is_nullable(p_format TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN p_format IN ('reference', 'date', 'date-time');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION compute_is_nullable IS
+'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
+
+-- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
 -- =====================================================
 -- Properly quotes default values based on data type
@@ -241,12 +259,12 @@ BEGIN
     -- Insert field records for id, label, created_at, and updated_at columns
     -- All these are core fields that cannot be deleted or renamed (is_core = TRUE)
     -- The label column is marked as searchable=TRUE for full-text search
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
     VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, FALSE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
@@ -350,8 +368,8 @@ BEGIN
     -- Convert format to PostgreSQL data type
     v_data_type := format_to_data_type(NEW.format);
     
-    -- Build nullable clause
-    IF NEW.is_nullable THEN
+    -- Build nullable clause based on format
+    IF compute_is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -360,7 +378,7 @@ BEGIN
     -- Build default clause with sensible defaults based on data type
     IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
         v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
-    ELSIF NOT NEW.is_nullable THEN
+    ELSIF NOT compute_is_nullable(NEW.format) THEN
         -- Provide sensible defaults for NOT NULL columns without explicit default
         -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
         IF v_data_type IN ('JSONB', 'JSON') THEN
@@ -585,10 +603,6 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
         
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            RAISE EXCEPTION 'Cannot change nullable constraint of core system field "%"', OLD.field_name;
-        END IF;
-        
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
         END IF;
@@ -654,24 +668,26 @@ BEGIN
             NEW.field_name, v_new_data_type, NEW.format, NEW.table_name;
     END IF;
     
-    -- Allow updating nullable constraint
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
+    -- Handle nullable change when format changes (e.g., text→reference would change nullability)
+    IF OLD.format <> NEW.format THEN
+        IF compute_is_nullable(OLD.format) <> compute_is_nullable(NEW.format) THEN
+            IF compute_is_nullable(NEW.format) THEN
+                v_alter_sql := format(
+                    'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            ELSE
+                v_alter_sql := format(
+                    'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                    NEW.table_name,
+                    NEW.field_name
+                );
+            END IF;
+            EXECUTE v_alter_sql;
+            RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+                NEW.field_name, compute_is_nullable(NEW.format), NEW.table_name;
         END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
     END IF;
     
     -- Allow updating default value
@@ -1338,6 +1354,7 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION compute_is_nullable(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;

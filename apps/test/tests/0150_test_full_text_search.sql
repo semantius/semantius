@@ -64,8 +64,8 @@ SELECT ok(
 -- =====================================================
 
 -- Add a searchable field
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, searchable)
-VALUES ('test_search_table', 'description', 'Description', 'text', FALSE, FALSE, 10, 'default', 'w', 'Test description field', TRUE);
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description, searchable)
+VALUES ('test_search_table', 'description', 'Description', 'text', FALSE, 10, 'default', 'w', 'Test description field', TRUE);
 
 -- Verify search_vector column still exists (should be recreated with new field)
 SELECT ok(
@@ -205,8 +205,8 @@ SELECT ok(
 -- =====================================================
 
 -- Add another searchable field
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, searchable, default_value)
-VALUES ('test_search_table', 'notes', 'Notes', 'text', FALSE, FALSE, 20, 'default', 'w', 'Additional notes', TRUE, '''''');
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description, searchable, default_value)
+VALUES ('test_search_table', 'notes', 'Notes', 'text', FALSE, 20, 'default', 'w', 'Additional notes', TRUE, '''''');
 
 -- Add notes to one record
 UPDATE test_search_table SET notes = 'Notefield specific content here' WHERE name = 'Product Beta';
@@ -297,8 +297,8 @@ INSERT INTO entities(table_name, singular, singular_label, plural_label, descrip
 VALUES ('test_unmanaged_search', 'test_unmanaged_search', 'Test Unmanaged', 'Test Unmanaged', 'Unmanaged table', 1, 'public:read', 'admin', 'id', 'title', FALSE);
 
 -- Add a searchable field
-INSERT INTO fields(table_name, field_name, title, format, is_pk, is_nullable, field_order, input_type, width, description, searchable)
-VALUES ('test_unmanaged_search', 'content', 'Content', 'text', FALSE, FALSE, 10, 'default', 'w', 'Test content', TRUE);
+INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description, searchable)
+VALUES ('test_unmanaged_search', 'content', 'Content', 'text', FALSE, 10, 'default', 'w', 'Test content', TRUE);
 
 -- Verify search_vector was NOT created (table doesn't exist, managed=false)
 SELECT ok(
