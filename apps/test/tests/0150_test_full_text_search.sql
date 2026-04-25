@@ -86,7 +86,7 @@ VALUES ('Test Immediate', 'ImmediateSearchTest unique keyword');
 
 -- Immediately search for the unique keyword to verify field is searchable right away
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'ImmediateSearchTest')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'ImmediateSearchTest')) = 1,
     'Newly added searchable field should be immediately searchable after INSERT'
 );
 
@@ -95,13 +95,13 @@ UPDATE test_search_table SET description = 'UpdatedImmediately unique keyword' W
 
 -- Verify the updated value is immediately searchable
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'UpdatedImmediately')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'UpdatedImmediately')) = 1,
     'Updated value in newly added searchable field should be immediately searchable'
 );
 
 -- Verify old value is no longer found
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'ImmediateSearchTest')) = 0,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'ImmediateSearchTest')) = 0,
     'Old value should not be found after update'
 );
 
@@ -118,37 +118,37 @@ VALUES
 
 -- Test search for "product" (should match both name and description)
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'product')) = 2,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'product')) = 2,
     'Search for "product" should find 2 records (in name and description)'
 );
 
 -- Test search for "alpha" (should match name)
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'alpha')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'alpha')) = 1,
     'Search for "alpha" should find 1 record'
 );
 
 -- Test search for "service" (should match name)
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'service')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'service')) = 1,
     'Search for "service" should find 1 record'
 );
 
 -- Test search for "quality" (should match description)
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'quality')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'quality')) = 1,
     'Search for "quality" should find 1 record (in description)'
 );
 
 -- Test search for "excellent" (should match description)
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'excellent')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'excellent')) = 1,
     'Search for "excellent" should find 1 record (in description)'
 );
 
 -- Test search spanning multiple columns - "alpha quality"
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'alpha & quality')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'alpha & quality')) = 1,
     'Search for "alpha AND quality" should find 1 record (spanning name and description)'
 );
 
@@ -161,13 +161,13 @@ UPDATE test_search_table SET description = 'Updated description with special key
 
 -- Search should find the updated keyword
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'special')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'special')) = 1,
     'Search should find updated keyword in modified record'
 );
 
 -- Old keyword should not be found in that record anymore
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'high-quality')) = 0,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'high-quality')) = 0,
     'Search should not find old keyword after update'
 );
 
@@ -181,13 +181,13 @@ UPDATE fields SET searchable = FALSE WHERE table_name = 'test_search_table' AND 
 -- After making description non-searchable, search should only match name column
 -- "special" was only in description, so it should not be found
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'special')) = 0,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'special')) = 0,
     'After making description non-searchable, keywords from description should not be found'
 );
 
 -- But name column should still be searchable
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'product')) = 2,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'product')) = 2,
     'Keywords from name column should still be searchable'
 );
 
@@ -196,7 +196,7 @@ UPDATE fields SET searchable = TRUE WHERE table_name = 'test_search_table' AND f
 
 -- Now "special" should be found again
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'special')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'special')) = 1,
     'After making description searchable again, keywords should be found'
 );
 
@@ -213,7 +213,7 @@ UPDATE test_search_table SET notes = 'Notefield specific content here' WHERE nam
 
 -- Verify notes content is searchable
 SELECT ok(
-    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('english', 'Notefield')) = 1,
+    (SELECT COUNT(*) FROM test_search_table WHERE search_vector @@ to_tsquery('simple', 'Notefield')) = 1,
     'Newly added searchable field should be included in search'
 );
 
@@ -449,37 +449,37 @@ SELECT ok(
 
 -- Test FTS works on modules core table
 SELECT ok(
-    (SELECT COUNT(*) FROM modules WHERE search_vector @@ to_tsquery('english', 'CRM')) >= 1,
+    (SELECT COUNT(*) FROM modules WHERE search_vector @@ to_tsquery('simple', 'CRM')) >= 1,
     'Full-text search should find "CRM" in modules table'
 );
 
 -- Test FTS works on roles core table
 SELECT ok(
-    (SELECT COUNT(*) FROM roles WHERE search_vector @@ to_tsquery('english', 'User')) >= 1,
+    (SELECT COUNT(*) FROM roles WHERE search_vector @@ to_tsquery('simple', 'User')) >= 1,
     'Full-text search should find "User" in roles table'
 );
 
 -- Test FTS works on permissions core table
 SELECT ok(
-    (SELECT COUNT(*) FROM permissions WHERE search_vector @@ to_tsquery('english', 'admin')) >= 1,
+    (SELECT COUNT(*) FROM permissions WHERE search_vector @@ to_tsquery('simple', 'admin')) >= 1,
     'Full-text search should find "admin" in permissions table'
 );
 
 -- Test FTS works on users core table
 SELECT ok(
-    (SELECT COUNT(*) FROM users WHERE search_vector @@ to_tsquery('english', 'user1')) >= 1,
+    (SELECT COUNT(*) FROM users WHERE search_vector @@ to_tsquery('simple', 'user1')) >= 1,
     'Full-text search should find "user1" in users table (external_id field)'
 );
 
 -- Test FTS works on entities core table
 SELECT ok(
-    (SELECT COUNT(*) FROM entities WHERE search_vector @@ to_tsquery('english', 'Customer')) >= 1,
+    (SELECT COUNT(*) FROM entities WHERE search_vector @@ to_tsquery('simple', 'Customer')) >= 1,
     'Full-text search should find "Customer" in entities table'
 );
 
 -- Test FTS works on fields core table
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE search_vector @@ to_tsquery('english', 'Email')) >= 1,
+    (SELECT COUNT(*) FROM fields WHERE search_vector @@ to_tsquery('simple', 'Email')) >= 1,
     'Full-text search should find "Email" in fields table'
 );
 

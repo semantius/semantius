@@ -1065,7 +1065,7 @@ BEGIN
     -- Using coalesce to handle NULL values and setweight for ranking
     v_search_expr := (
         SELECT string_agg(
-            format('setweight(to_tsvector(''english'', coalesce(%I, '''')), ''%s'')',
+            format('setweight(to_tsvector(''simple'', coalesce(%I, '''')), ''%s'')',
                 f.field_name,
                 CASE 
                     WHEN f.ctype = 'label' THEN 'A'  -- Label fields get highest weight
