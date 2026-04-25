@@ -42,18 +42,15 @@ SELECT is(
     'user1 should not have sales:read permission'
 );
 
--- check that insert is blocked by RLS
+-- check that insert is blocked by RLS (roles requires admin permission)
 SELECT throws_ok(
     $$
-    INSERT INTO products_test (
-        product_name, sku, description, price, quantity_in_stock, is_discontinued
-    )
-    VALUES
-        ('XXX', 'WGT-001', 'Should fail', 29.99, 150, FALSE);
+    INSERT INTO roles (role_name, description, module_id)
+    VALUES ('Should Fail', 'user1 lacks admin permission', 1001);
     $$,
     '42501',
     NULL,
-    'Insert should fail because of RLS policy'
+    'Insert into roles should fail because user1 lacks admin permission'
 );
 
 select authenticate_as('user2');
