@@ -15,6 +15,8 @@ CREATE TABLE _apikeys (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     key_id TEXT NOT NULL UNIQUE,
     secret_hash TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    last_used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,10 +43,11 @@ GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
 -- When p_user_id = 0, uses the current session user id and prefix "uk-".
 -- When p_user_id <> 0, validates user exists and requires admin permission,
 -- uses prefix "sk-".
+-- p_description is an optional human-readable label stored with the key.
 -- Returns the full API key (only time the secret is visible in plaintext).
 -- Accessible via PostgREST RPC by all authenticated users.
 
-CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER)
+CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
 RETURNS TEXT AS $$
 DECLARE
     v_target_user_id INTEGER;
@@ -84,9 +87,9 @@ BEGIN
             -- Generate a 32-char random secret (16 bytes = 32 hex chars)
             v_new_secret := encode(gen_random_bytes(16), 'hex');
 
-            -- Attempt to insert with hashed secret
-            INSERT INTO _apikeys (user_id, key_id, secret_hash)
-            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)));
+            -- Attempt to insert with hashed secret and description
+            INSERT INTO _apikeys (user_id, key_id, secret_hash, description)
+            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)), COALESCE(p_description, ''));
 
             -- If we reach here, insert was successful
             v_full_api_key := v_new_key_id || '-' || v_new_secret;
@@ -103,11 +106,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.generate_api_key IS
-'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Returns the full key only once.';
+'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns the full key only once.';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_user;
 
 -- =====================================================
 -- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
@@ -115,6 +118,7 @@ GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER) TO semantius_user;
 -- Validates an API key by splitting it into key_id and secret,
 -- looking up the record, and verifying the bcrypt hash.
 -- Returns the user_id if valid, NULL if invalid.
+-- Updates last_used_at on successful validation.
 -- NOT accessible via PostgREST (no GRANT to semantius_user).
 
 CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
@@ -157,6 +161,8 @@ BEGIN
 
     -- Verify the secret against the stored bcrypt hash
     IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
+        -- Update last_used_at on successful validation
+        UPDATE _apikeys SET last_used_at = CURRENT_TIMESTAMP WHERE key_id = v_key_id;
         RETURN v_record.user_id;
     ELSE
         RETURN NULL;
@@ -165,7 +171,111 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Called by semantius_user for API key authentication.';
+'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Called by semantius_user for API key authentication.';
 
 -- Grant to semantius_user so it can be used for API key auth flows
 GRANT EXECUTE ON FUNCTION public.validate_api_key(TEXT) TO semantius_user;
+
+-- =====================================================
+-- LIST API KEYS FUNCTION
+-- =====================================================
+-- Returns a JSON array of API keys for the current user or a specific user.
+-- Each entry contains key_id, description, last_used_at, and created_at.
+-- The secret hash is never returned.
+-- When p_user_id = 0, returns keys for the current session user.
+-- When p_user_id <> 0, requires admin permission.
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id INTEGER DEFAULT 0)
+RETURNS JSONB AS $$
+DECLARE
+    v_target_user_id INTEGER;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+
+    IF p_user_id = 0 THEN
+        v_target_user_id := rbac.user_id();
+    ELSE
+        -- Require admin permission to list keys for another user
+        PERFORM rbac.require_permission('admin');
+
+        -- Validate the target user exists
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
+            RAISE EXCEPTION 'User with id % does not exist', p_user_id
+                USING ERRCODE = 'invalid_parameter_value';
+        END IF;
+
+        v_target_user_id := p_user_id;
+    END IF;
+
+    RETURN COALESCE(
+        (SELECT jsonb_agg(
+            jsonb_build_object(
+                'key_id', key_id,
+                'description', description,
+                'last_used_at', last_used_at,
+                'created_at', created_at
+            ) ORDER BY created_at DESC
+        )
+        FROM _apikeys
+        WHERE user_id = v_target_user_id),
+        '[]'::jsonb
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.list_api_keys IS
+'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.list_api_keys(INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
+
+-- =====================================================
+-- DELETE API KEY FUNCTION
+-- =====================================================
+-- Deletes an API key by its public key_id.
+-- Users may delete their own keys.
+-- Admins may delete keys belonging to any user.
+-- Returns TRUE if the key was deleted, raises an exception if not found
+-- or if the caller does not have permission.
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.delete_api_key(p_key_id TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_current_user_id INTEGER;
+    v_record RECORD;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+    v_current_user_id := rbac.user_id();
+
+    -- Look up the key
+    SELECT * INTO v_record
+    FROM _apikeys
+    WHERE key_id = p_key_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'API key not found'
+            USING ERRCODE = 'no_data_found';
+    END IF;
+
+    -- If the key belongs to another user, require admin permission
+    IF v_record.user_id <> v_current_user_id THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
+
+    DELETE FROM _apikeys WHERE key_id = p_key_id;
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.delete_api_key IS
+'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user.';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.delete_api_key(TEXT) TO semantius_user;
