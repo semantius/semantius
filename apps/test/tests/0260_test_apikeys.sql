@@ -199,12 +199,9 @@ SELECT authenticate_as('user3');
 DO $$
 DECLARE
     v_key TEXT;
-    v_key_id TEXT;
 BEGIN
     v_key := generate_api_key(0, 'My integration key');
-    -- Extract key_id (everything before the last '-')
-    v_key_id := substring(v_key FROM 1 FOR length(v_key) - position('-' IN reverse(v_key)));
-    PERFORM set_config('test.desc_key_id', v_key_id, true);
+    PERFORM set_config('test.desc_key_id', extract_api_key_id(v_key), true);
 END $$;
 
 RESET ROLE;
@@ -225,12 +222,10 @@ SELECT authenticate_as('user3');
 DO $$
 DECLARE
     v_key TEXT;
-    v_key_id TEXT;
 BEGIN
     v_key := generate_api_key(0, 'Test last_used_at');
-    v_key_id := substring(v_key FROM 1 FOR length(v_key) - position('-' IN reverse(v_key)));
     PERFORM set_config('test.last_used_key', v_key, true);
-    PERFORM set_config('test.last_used_key_id', v_key_id, true);
+    PERFORM set_config('test.last_used_key_id', extract_api_key_id(v_key), true);
 END $$;
 
 RESET ROLE;
@@ -311,11 +306,9 @@ SELECT authenticate_as('user3');
 DO $$
 DECLARE
     v_key TEXT;
-    v_key_id TEXT;
 BEGIN
     v_key := generate_api_key(0, 'Key to self-delete');
-    v_key_id := substring(v_key FROM 1 FOR length(v_key) - position('-' IN reverse(v_key)));
-    PERFORM set_config('test.self_delete_key_id', v_key_id, true);
+    PERFORM set_config('test.self_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 
 -- Test 23: user can delete their own key
@@ -337,11 +330,9 @@ SELECT authenticate_as('user2');
 DO $$
 DECLARE
     v_key TEXT;
-    v_key_id TEXT;
 BEGIN
     v_key := generate_api_key(0, 'Key for admin to delete');
-    v_key_id := substring(v_key FROM 1 FOR length(v_key) - position('-' IN reverse(v_key)));
-    PERFORM set_config('test.admin_delete_key_id', v_key_id, true);
+    PERFORM set_config('test.admin_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 
 -- Test 25: admin can delete key belonging to another user
@@ -358,11 +349,9 @@ SELECT authenticate_as('user2');
 DO $$
 DECLARE
     v_key TEXT;
-    v_key_id TEXT;
 BEGIN
     v_key := generate_api_key(0, 'Key non-admin cannot delete');
-    v_key_id := substring(v_key FROM 1 FOR length(v_key) - position('-' IN reverse(v_key)));
-    PERFORM set_config('test.nonadmin_delete_key_id', v_key_id, true);
+    PERFORM set_config('test.nonadmin_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 
 SELECT authenticate_as('user1');

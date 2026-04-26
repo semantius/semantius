@@ -65,3 +65,11 @@ CREATE OR REPLACE FUNCTION authenticate_as (
                 RAISE;
         END
     $$ LANGUAGE plpgsql;
+
+-- Helper: extract the key_id from a full API key string (everything before the last '-')
+CREATE OR REPLACE FUNCTION extract_api_key_id(full_key TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN substring(full_key FROM 1 FOR length(full_key) - position('-' IN reverse(full_key)));
+END;
+$$ LANGUAGE plpgsql;
