@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(30);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -37,6 +37,24 @@ SELECT ok(
         WHERE indexname = 'idx_apikeys_key_id'
     )),
     'Unique index on key_id should exist'
+);
+
+-- Test 5a: _apikeys has description column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = '_apikeys' AND column_name = 'description'
+    )),
+    '_apikeys table should have a description column'
+);
+
+-- Test 5b: _apikeys has last_used_at column
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = '_apikeys' AND column_name = 'last_used_at'
+    )),
+    '_apikeys table should have a last_used_at column'
 );
 
 -- =====================================================
@@ -171,5 +189,179 @@ SELECT ok(
     'validate_api_key should return NULL for NULL input'
 );
 
+-- =====================================================
+-- TEST: generate_api_key with description
+-- =====================================================
+
+SELECT authenticate_as('user3');
+
+-- Test 15: generate_api_key with description stores description
+DO $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    v_key := generate_api_key(0, 'My integration key');
+    PERFORM set_config('test.desc_key_id', extract_api_key_id(v_key), true);
+END $$;
+
+RESET ROLE;
+SELECT ok(
+    (SELECT description = 'My integration key'
+     FROM _apikeys
+     WHERE key_id = current_setting('test.desc_key_id', true)),
+    'generate_api_key should store description in _apikeys'
+);
+
+-- =====================================================
+-- TEST: validate_api_key updates last_used_at
+-- =====================================================
+
+-- Generate a key and verify last_used_at is NULL before validation
+SELECT authenticate_as('user3');
+
+DO $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    v_key := generate_api_key(0, 'Test last_used_at');
+    PERFORM set_config('test.last_used_key', v_key, true);
+    PERFORM set_config('test.last_used_key_id', extract_api_key_id(v_key), true);
+END $$;
+
+RESET ROLE;
+
+-- Test 16: last_used_at is NULL before first validation
+SELECT ok(
+    (SELECT last_used_at IS NULL FROM _apikeys WHERE key_id = current_setting('test.last_used_key_id', true)),
+    'last_used_at should be NULL before first validation'
+);
+
+-- Validate the key (as superuser since validate_api_key has no semantius_user grant restriction)
+DO $$
+BEGIN
+    PERFORM validate_api_key(current_setting('test.last_used_key', true));
+END $$;
+
+-- Test 17: last_used_at is updated after validation
+SELECT ok(
+    (SELECT last_used_at IS NOT NULL FROM _apikeys WHERE key_id = current_setting('test.last_used_key_id', true)),
+    'last_used_at should be updated after validate_api_key succeeds'
+);
+
+-- =====================================================
+-- TEST: list_api_keys
+-- =====================================================
+
+-- Test 18: list_api_keys returns a JSON array for current user
+SELECT authenticate_as('user2');
+SELECT ok(
+    (SELECT jsonb_typeof(list_api_keys(0)) = 'array'),
+    'list_api_keys(0) should return a JSON array'
+);
+
+-- Test 19: list_api_keys for current user contains seeded key
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(list_api_keys(0)) AS k
+        WHERE k->>'key_id' = 'sk-seed001002'
+    )),
+    'list_api_keys(0) for user2 should include the seeded key'
+);
+
+-- Test 20: list_api_keys result does not contain secret_hash
+SELECT ok(
+    (SELECT NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(list_api_keys(0)) AS k
+        WHERE k ? 'secret_hash'
+    )),
+    'list_api_keys should not expose secret_hash'
+);
+
+-- Test 21: admin can list keys for another user
+SELECT authenticate_as('user3');
+SELECT ok(
+    (SELECT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(list_api_keys(1002)) AS k
+        WHERE k->>'key_id' = 'sk-seed001002'
+    )),
+    'Admin should be able to list keys for another user'
+);
+
+-- Test 22: non-admin cannot list keys for another user
+SELECT authenticate_as('user1');
+SELECT throws_ok(
+    $$ SELECT list_api_keys(1002) $$,
+    '42501',
+    NULL,
+    'Non-admin should not be able to list keys for another user'
+);
+
+-- =====================================================
+-- TEST: delete_api_key
+-- =====================================================
+
+-- Generate a key for user3 to delete as their own
+SELECT authenticate_as('user3');
+
+DO $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    v_key := generate_api_key(0, 'Key to self-delete');
+    PERFORM set_config('test.self_delete_key_id', extract_api_key_id(v_key), true);
+END $$;
+
+-- Test 23: user can delete their own key
+SELECT ok(
+    (SELECT delete_api_key(current_setting('test.self_delete_key_id', true))),
+    'User should be able to delete their own API key'
+);
+
+-- Verify key is gone
+RESET ROLE;
+SELECT ok(
+    (SELECT NOT EXISTS (SELECT 1 FROM _apikeys WHERE key_id = current_setting('test.self_delete_key_id', true))),
+    'Deleted API key should no longer exist in _apikeys'
+);
+
+-- Generate a key for user2 that admin will delete
+SELECT authenticate_as('user2');
+
+DO $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    v_key := generate_api_key(0, 'Key for admin to delete');
+    PERFORM set_config('test.admin_delete_key_id', extract_api_key_id(v_key), true);
+END $$;
+
+-- Test 25: admin can delete key belonging to another user
+SELECT authenticate_as('user3');
+SELECT ok(
+    (SELECT delete_api_key(current_setting('test.admin_delete_key_id', true))),
+    'Admin should be able to delete a key belonging to another user'
+);
+
+-- Test 26: non-admin cannot delete key belonging to another user
+-- Generate a fresh key for user2 first
+SELECT authenticate_as('user2');
+
+DO $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    v_key := generate_api_key(0, 'Key non-admin cannot delete');
+    PERFORM set_config('test.nonadmin_delete_key_id', extract_api_key_id(v_key), true);
+END $$;
+
+SELECT authenticate_as('user1');
+SELECT throws_ok(
+    format($$ SELECT delete_api_key('%s') $$, current_setting('test.nonadmin_delete_key_id', true))::text,
+    '42501',
+    NULL,
+    'Non-admin should not be able to delete a key belonging to another user'
+);
+
 SELECT * FROM finish();
 ROLLBACK;
+
