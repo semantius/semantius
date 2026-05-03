@@ -42,15 +42,15 @@ VALUES (
 ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
 
 -- Add fields to webhook_receivers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode)
-VALUES 
-    ('webhook_receivers', 'table_name', 'Table', 'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data', '', NULL, 'entities', 'cascade'),
-    ('webhook_receivers', 'description', 'Description', 'text', FALSE, 20, 'default', 'w', 'Description of webhook receiver purpose', '', NULL, '', ''),
-    ('webhook_receivers', 'auth_type', 'Authentication Type', 'enum', FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)', 'none', '["none", "hmac", "header"]'::jsonb, '', ''),
-    ('webhook_receivers', 'secret', 'Secret', 'text', FALSE, 40, 'default', 'default', 'Secret for webhook authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'header_name', 'Header Name', 'text', FALSE, 45, 'default', 'default', 'Custom header name for authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'header_value', 'Header Value', 'text', FALSE, 46, 'default', 'default', 'Expected value for custom header authentication', '', NULL, '', ''),
-    ('webhook_receivers', 'jsonata', 'JSONata Expression', 'jsonata', FALSE, 50, 'default', 'w', 'Optional JSONata expression to transform incoming data', '', NULL, '', '');
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode, relationship_label)
+VALUES
+    ('webhook_receivers', 'table_name',   'Table',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
+    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       'Description of webhook receiver purpose',                 '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
+    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', 'Secret for webhook authentication',                       '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'header_name',  'Header Name',        'text',      FALSE, 45, 'default', 'default', 'Custom header name for authentication',                   '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
 
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
@@ -84,15 +84,15 @@ VALUES (
 -- Add fields to webhook_receiver_logs table
 -- Note: 'label' is the label_column and is automatically created by the create_dd_table trigger
 -- webhook_id is an explicit parent reference to webhook_receivers (ON DELETE CASCADE)
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode)
-VALUES 
-    ('webhook_receiver_logs', 'webhook_id', 'Webhook Receiver', 'parent', FALSE, 5, 'default', 'default', 'Parent webhook receiver this log belongs to', NULL, NULL, NULL, 'webhook_receivers', 'cascade'),
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver', 'reference', FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration', NULL, NULL, NULL, 'webhook_receivers', 'clear'),
-    ('webhook_receiver_logs', 'webhook_timestamp', 'Webhook Timestamp', 'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source', NULL, NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'received_timestamp', 'Received Timestamp', 'date-time', FALSE, 40, 'disabled', 'default', 'Timestamp when webhook was received', 'CURRENT_TIMESTAMP', NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'payload', 'Payload', 'json', FALSE, 50, 'default', 'w', 'Webhook payload data', NULL, NULL, NULL, '', ''),
-    ('webhook_receiver_logs', 'result', 'Result', 'enum', FALSE, 60, 'default', 'default', 'Processing result: 10=received, 20=processed, 90=failed', '10', '["10", "20", "90"]'::jsonb, NULL, '', ''),
-    ('webhook_receiver_logs', 'error_message', 'Error Message', 'text', FALSE, 70, 'default', 'w', 'Error message if processing failed', '', NULL, NULL, '', '');
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label)
+VALUES
+    ('webhook_receiver_logs', 'webhook_id',          'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', 'Parent webhook receiver this log belongs to',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'reference', FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration',      NULL,                 NULL,                        NULL, 'webhook_receivers', 'clear',   'has logs'),
+    ('webhook_receiver_logs', 'webhook_timestamp',   'Webhook Timestamp',   'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source',                    NULL,                 NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', 'Timestamp when webhook was received',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       'Webhook payload data',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=received, 20=processed, 90=failed', '10',          '["10", "20", "90"]'::jsonb, NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       'Error message if processing failed',               '',                   NULL,                        NULL, '',                  '',        '');
 
 -- =====================================================
 -- ADD INDEX

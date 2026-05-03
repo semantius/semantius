@@ -43,6 +43,7 @@ interface FieldRecord {
   enum_values: any;
   reference_table: string;
   reference_delete_mode: string;
+  relationship_label: string;
   created_at: string;
   updated_at: string;
 }

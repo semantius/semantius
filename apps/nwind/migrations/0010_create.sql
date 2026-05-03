@@ -250,9 +250,9 @@ VALUES
     ('employees', 'hire_date', 'Hire Date', 'date', 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
 -- reports_to: self-reference, nullable
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE);
+    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE, 'manages');
 
 -- -----------------------------------------------------
 -- suppliers fields
@@ -284,10 +284,10 @@ VALUES
     ('products', 'reorder_level',     'Reorder Level',      'int32',   80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
     ('products', 'discontinued',      'Discontinued',       'boolean', 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('products', 'supplier_id', 'Supplier', 'reference', 20, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE),
-    ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE);
+    ('products', 'supplier_id', 'Supplier', 'reference', 20, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE, 'supplies'),
+    ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE, 'contains');
 
 -- -----------------------------------------------------
 -- regions fields
@@ -327,11 +327,11 @@ VALUES
     ('orders', 'shipped_date', 'Shipped Date', 'date', 130, 'default', 'default', '', FALSE, '');
 
 -- FK references on orders (not parent — orders is not a junction/child table)
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('orders', 'customer_id',  'Customer',  'reference', 10, 'default', 'default', 'Customer who placed the order', 'customers',  'restrict', FALSE),
-    ('orders', 'employee_id',  'Employee',  'reference', 20, 'default', 'default', 'Employee who handled the order', 'employees',  'restrict', FALSE),
-    ('orders', 'ship_via',     'Shipped Via', 'reference', 30, 'default', 'default', 'Shipper used for this order',   'shippers',   'restrict', FALSE);
+    ('orders', 'customer_id',  'Customer',    'reference', 10, 'default', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
+    ('orders', 'employee_id',  'Employee',    'reference', 20, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
+    ('orders', 'ship_via',     'Shipped Via', 'reference', 30, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
 
 -- -----------------------------------------------------
 -- territories fields
@@ -341,32 +341,31 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('territories', 'territory_id', 'Territory ID', 'text', 10, 'required', 'default', 'Unique code identifying the territory', '', TRUE, TRUE, '');
 
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE);
+    ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE, 'contains');
 
 -- -----------------------------------------------------
 -- employee_territories fields (junction)
 -- -----------------------------------------------------
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',  'restrict', FALSE),
-    ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE);
+    ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',   'restrict', FALSE, 'assigned to'),
+    ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE, 'staffed by');
 
 -- -----------------------------------------------------
 -- order_details fields (junction)
 -- -----------------------------------------------------
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('order_details', 'order_id',   'Order',   'parent', 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE),
-    ('order_details', 'product_id', 'Product', 'parent', 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE);
+    ('order_details', 'order_id',   'Order',   'parent', 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE, 'contains'),
+    ('order_details', 'product_id', 'Product', 'parent', 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE, 'ordered in');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
     ('order_details', 'unit_price', 'Unit Price', 'float', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
     ('order_details', 'discount',   'Discount',   'float', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
-
 
 
 -- =====================================================

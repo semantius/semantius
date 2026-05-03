@@ -427,6 +427,8 @@ CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
 BEGIN
     PERFORM rbac.uid();
 
@@ -437,17 +439,23 @@ BEGIN
 
     -- Raise error if table not found
     IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table';
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
-    
+
     -- Check if user has view permission for this table
     -- Raise same error to avoid leaking table existence
     IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table';
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
-    
+
     RETURN public.build_schema_for_table(p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

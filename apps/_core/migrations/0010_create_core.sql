@@ -6,11 +6,12 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 
--- Ensure the authenticated role exists (abort if it doesn't)
+-- Ensure the authenticated role exists (create it if missing)
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
-        RAISE EXCEPTION 'The authenticated role does not exist. Please ensure that PostgREST is properly configured to create the authenticated role.';
+        CREATE ROLE authenticated NOLOGIN;
+        RAISE NOTICE 'Role authenticated created';
     END IF;
 END
 $$;
