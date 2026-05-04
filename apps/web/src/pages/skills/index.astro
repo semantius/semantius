@@ -1,0 +1,49 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import { getCollection } from 'astro:content';
+
+// Each skill entry ID is "<folder>/README" so the slug is the folder name.
+const allSkills = await getCollection('skills');
+const sorted = allSkills.sort((a, b) => a.data.title.localeCompare(b.data.title));
+
+const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
+
+function colorFor(index: number): string {
+	return COLORS[index % COLORS.length];
+}
+---
+
+<Layout title="Skills" description="Agent skills you can install and use with your semantic models.">
+	<section class="pt-32 pb-16">
+		<div class="max-w-6xl mx-auto px-6">
+			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Skills</h1>
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-8">
+				{sorted.map((skill, i) => (
+					<div class="mb-8">
+						<a href={`/skills/${skill.id.split('/')[0]}`} class="block">
+							<div
+								class="flex items-center justify-center rounded-lg h-45"
+								style={`background-color:${colorFor(i)}`}
+							>
+								<span class="px-6 text-center text-2xl font-semibold text-white">
+									{skill.data.title}
+								</span>
+							</div>
+						</a>
+						{skill.data.description && (
+							<p class="mt-4 line-clamp-4 text-foreground/90">{skill.data.description}</p>
+						)}
+						<a
+							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
+							href={`/skills/${skill.id.split('/')[0]}`}
+						>
+							View Skill
+						</a>
+					</div>
+				))}
+			</div>
+		</div>
+	</section>
+</Layout>

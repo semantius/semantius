@@ -1,0 +1,70 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import Pagination from '~/components/common/Pagination.astro';
+import { getCollection } from 'astro:content';
+import type { GetStaticPathsOptions, Page } from 'astro';
+import type { CollectionEntry } from 'astro:content';
+
+export async function getStaticPaths({ paginate }: { paginate: GetStaticPathsOptions['paginate'] }) {
+	const allModels = await getCollection('models');
+	const sorted = allModels.sort(
+		(a, b) => b.data.created_at.valueOf() - a.data.created_at.valueOf()
+	);
+	// Page 1 lives at /models (see index.astro). This route only emits pages 2+.
+	return paginate(sorted, { pageSize: 4 }).filter(
+		(p: { params: { page: string | undefined } }) => p.params.page !== '1'
+	);
+}
+
+const { page } = Astro.props as { page: Page<CollectionEntry<'models'>> };
+
+const cards = page.data.map((model) => ({
+	model,
+	description: model.data.description ?? model.data.overview ?? '',
+}));
+
+const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
+
+function randomColor(): string {
+	return COLORS[Math.floor(Math.random() * COLORS.length)];
+}
+
+const modelColors = page.data.map(() => randomColor());
+---
+
+<Layout title={`Models - Page ${page.currentPage}`} description="Semantic data models you can adopt, customize, and build on.">
+	<section class="pt-32 pb-16">
+		<div class="max-w-6xl mx-auto px-6">
+			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Models</h1>
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-8">
+				{cards.map(({ model, description }, i) => (
+					<div class="mb-8">
+						<a href={`/models/${model.data.system_slug}`} class="block">
+							<div
+								class="flex items-center justify-center rounded-lg h-45"
+								style={`background-color:${modelColors[i]}`}
+							>
+								<span class="px-6 text-center text-2xl font-semibold text-white">
+									{model.data.system_name}
+								</span>
+							</div>
+						</a>
+						{description && (
+							<p class="mt-4 line-clamp-4 text-foreground/90">{description}</p>
+						)}
+						<a
+							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
+							href={`/models/${model.data.system_slug}`}
+						>
+							View Model
+						</a>
+					</div>
+				))}
+			</div>
+
+			<Pagination section="models" currentPage={page.currentPage} totalPages={page.lastPage} />
+		</div>
+	</section>
+</Layout>

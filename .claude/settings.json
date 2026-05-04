@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --filter @gladtek/cooper add @astro-community/astro-embed-link-preview)",
+      "Bash(pnpm --filter @gladtek/cooper add @astro-community/astro-embed-youtube)",
+      "Bash(pnpm approve-builds:*)",
+      "Bash(pnpm --filter @gladtek/cooper add sharp)",
+      "Bash(find c:/dev/semantius-site -type d \\\\\\(-name *locale* -o -name *lang* -o -name *i18n* \\\\\\))",
+      "Bash(grep -r \"language\\\\|locale\\\\|lang.*picker\" c:/dev/semantius-site/apps/web/src/components --include=*.tsx --include=*.ts --include=*.astro)",
+      "Bash(grep -r \"getStaticPaths\\\\|getLangFromUrl\\\\|useTranslations\" c:/dev/semantius-site/apps/web/src/pages --include=*.astro)",
+      "Bash(grep -r \"middleware\\\\|i18n\" c:/dev/semantius-site/apps/web --include=*.mjs --include=*.ts --include=*.astro)",
+      "Bash(find c:/dev/semantius-site/apps/web/src -name *redirect* -o -name *route*)",
+      "Bash(ls c:/dev/semantius-site/apps/web/src/pages/[lang]/)",
+      "Bash(mv blog/en/* blog/)",
+      "Bash(rm -rf blog/ar)",
+      "Bash(mv changelog/en/* changelog/)",
+      "Bash(rm -rf changelog/ar changelog/de changelog/fr)",
+      "Bash(mv portfolio/en/* portfolio/)",
+      "Bash(rm index.astro)",
+      "Bash(rm 404.astro)",
+      "Bash(cp \"[lang]/index.astro\" index.astro)",
+      "Bash(cp \"[lang]/404.astro\" 404.astro)",
+      "Bash(cp \"[lang]/about.astro\" about.astro)",
+      "Bash(ls c:/dev/semantius-site/apps/web/src/assets/blog/future*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/workplace/setup.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

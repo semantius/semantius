@@ -1,0 +1,293 @@
+---
+title: 'The semantius Command'
+navTitle: 'semantius command'
+description: 'Learn the basics of the semantius CLI: the crud and cube modes, the four verbs, and how to call any tool.'
+order: 2
+---
+
+import Command from '~/components/common/Command.astro';
+
+Once the [CLI is installed](/docs/agent-skills-installation#1-install-the-semantius-cli) and credentials are in place, every interaction with Semantius from the shell goes through a single binary: `semantius`. This page walks through the basics so you can get productive on your own.
+
+## Verify the Install
+
+Before anything else, confirm the CLI is on your PATH and your credentials are picked up:
+
+<Command command="semantius --version" />
+
+<Command command="semantius info" />
+
+The first command prints the version. The second connects to your platform and lists the modes that are wired up. If either fails, revisit the [installation page](/docs/agent-skills-installation) before going further.
+
+## Two Modes: `crud` and `cube`
+
+The CLI works in two modes, and the first argument after `call` selects which one. Picking the right mode is the single most important decision when using the CLI.
+
+- **`crud` mode**: manage your **semantic model** (modules, entities, fields, permissions, roles, users) and read or write **records in any entity** via `postgrestRequest`. This is your day-to-day mode.
+- **`cube` mode**: a **CubeJS-compatible analytics layer**. Use it for cross-table queries, aggregations, time series, top-N rankings, funnels, retention. It is built for questions plain record reads cannot answer efficiently.
+
+| You want to... | Mode |
+| --- | --- |
+| Define or change the schema (entities, fields, modules, RBAC) | `crud` typed tools |
+| Read, insert, update or delete records in one entity | `crud` `postgrestRequest` |
+| List entities, find a module, inspect schema metadata | `crud` `postgrestRequest` against system tables |
+| Aggregate, group, join across multiple entities | `cube` |
+| Trend over time, top-N, period-over-period | `cube` |
+
+## The Four Verbs
+
+Whichever mode you target, the CLI has the same four verbs.
+
+### 1. List
+
+Show all modes and their tools.
+
+<Command command="semantius" />
+
+Add `-d` to include human-readable descriptions next to each tool name:
+
+<Command command="semantius -d" />
+
+### 2. Search
+
+Find tools by glob pattern.
+
+<Command command='semantius grep "*entity*"' />
+
+### 3. Inspect
+
+Drill into a mode or a specific tool to see parameters and the full JSON schema.
+
+<Command command="semantius info crud" />
+
+<Command command="semantius info crud create_entity" />
+
+Both `info crud create_entity` and `info crud/create_entity` work.
+
+### 4. Call
+
+Invoke a tool. Arguments are JSON. For anything non-trivial, prefer **stdin** over inline JSON to avoid shell escaping:
+
+```bash
+semantius call crud create_field <<EOF
+{
+  "data": {
+    "table_name": "products",
+    "field_name": "price",
+    "title": "Price",
+    "format": "float",
+    "width": "auto",
+    "input_type": "default"
+  }
+}
+EOF
+```
+
+## Working With `crud`
+
+`crud` mode has two faces.
+
+### Managing the Semantic Model (Layer 1)
+
+Typed tools (`create_entity`, `read_field`, `update_module`, `create_permission`, `create_role`, etc.) operate on Semantius's own system tables. You use them to evolve the model itself.
+
+```bash
+# List every module on the platform
+semantius call crud read_module '{}'
+
+# Find a specific module by name
+semantius call crud read_module '{"filters":"module_name=eq.sales"}'
+
+# List every entity inside a module (by module id)
+semantius call crud read_entity '{"filters":"module_id=eq.3","order":"table_name.asc"}'
+
+# Show all fields of the products entity
+semantius call crud read_field '{"filters":"table_name=eq.products","order":"field_order.asc"}'
+
+# Create a new entity (after reading first to confirm it does not exist)
+semantius call crud create_entity '{
+  "data":{
+    "module_id":3,
+    "table_name":"invoices",
+    "singular_label":"Invoice",
+    "plural_label":"Invoices",
+    "description":"Customer invoices linked to orders"
+  }
+}'
+
+# Add a field to an existing entity
+semantius call crud create_field '{
+  "data":{
+    "table_name":"invoices",
+    "field_name":"due_date",
+    "title":"Due Date",
+    "format":"date",
+    "width":"auto",
+    "input_type":"default"
+  }
+}'
+
+# Configure RBAC: create a permission, then a role, then bind them
+semantius call crud create_permission '{"data":{"permission_name":"sales:invoice_write","description":"Edit invoices","module_id":3}}'
+semantius call crud create_role '{"data":{"name":"sales_manager","label":"Sales Manager","module_id":3}}'
+semantius call crud create_role_permission '{"data":{"role_id":12,"permission_id":48}}'
+```
+
+Read tools all accept the same shape: `filters` (PostgREST-style), `select`, `limit`, `offset`, `order`. Filter operators include `eq`, `neq`, `ilike`, `in`, `is`, `gt`, `gte`, `lt`, `lte`, combined with `&`.
+
+> **Read before writing.** Before any `create_*`, run the matching `read_*` first. If a record already exists, reuse the ID instead of creating a duplicate.
+
+### Reading and Writing Records (Layer 2)
+
+Every entity you define automatically becomes a real PostgreSQL table exposed through PostgREST. The `postgrestRequest` tool is how you talk to those tables from the CLI: full GET / POST / PATCH / DELETE on **any entity** in your platform.
+
+```bash
+# Read all active products, sorted by name
+semantius call crud postgrestRequest '{"method":"GET","path":"/products?status=eq.active&order=name.asc"}'
+
+# Read selected columns with pagination
+semantius call crud postgrestRequest '{"method":"GET","path":"/orders?select=id,total,status&limit=20&offset=0"}'
+
+# Insert a new contact
+semantius call crud postgrestRequest '{
+  "method":"POST",
+  "path":"/contacts",
+  "body":{"first_name":"Alice","email":"alice@example.com","company_id":5}
+}'
+
+# Bulk update: put all electronics on sale
+semantius call crud postgrestRequest '{
+  "method":"PATCH",
+  "path":"/products?category=eq.electronics",
+  "body":{"on_sale":true}
+}'
+
+# Delete a specific order
+semantius call crud postgrestRequest '{"method":"DELETE","path":"/orders?id=eq.42"}'
+
+# Full-text search on a searchable entity
+semantius call crud postgrestRequest '{"method":"GET","path":"/contacts?search_vector=wfts.Monica"}'
+```
+
+`postgrestRequest` works against **any table on the platform**, including the system tables behind the typed tools. So if you ever want to mass-update schema metadata, the same tool covers it:
+
+```bash
+# Bulk-mark every string field on the products entity as searchable
+semantius call crud postgrestRequest '{
+  "method":"PATCH",
+  "path":"/fields?table_name=eq.products&format=eq.string",
+  "body":{"searchable":true}
+}'
+```
+
+If you think in SQL, the `sqlToRest` helper translates a SQL query into the equivalent PostgREST path:
+
+```bash
+semantius call crud sqlToRest '{"sql":"SELECT id, name, price FROM products WHERE category = '\''electronics'\'' ORDER BY price DESC LIMIT 10"}'
+```
+
+## Working With `cube`
+
+`cube` is built on **CubeJS** capabilities. It is the right answer whenever a question spans more than one entity, needs aggregation, or asks about trends:
+
+- "Total revenue last 6 months."
+- "Top 10 customers by order value this quarter."
+- "Monthly signups, broken down by acquisition channel."
+- "Conversion rate from signup to first purchase within 7 days."
+
+The query language is the CubeJS DSL: **measures** (aggregated values), **dimensions** (group-by columns), **filters**, **timeDimensions** (for time series and date ranges), **order**, **limit**.
+
+### Mandatory Workflow
+
+Always follow the same sequence: **`discover`** -> (optional **`validate`**) -> **`load`** or **`chart`**.
+
+```bash
+# 1. Discover the available cubes, the full query DSL, and the date filtering guide.
+#    Always run this first. Never construct a query from memory.
+semantius call cube discover '{}'
+
+# Optionally narrow discover by intent:
+semantius call cube discover '{"topic":"sales","intent":"analyze revenue trends","limit":10}'
+```
+
+`discover` returns three things you should read before writing the query:
+
+- `cubes`: the cubes you can query, with their measures, dimensions, and join relationships.
+- `queryLanguageReference`: the complete query DSL (operators, analysis modes, rules).
+- `dateFilteringGuide`: a decision tree for whether to use `filters` (totals) or `timeDimensions` (time series).
+
+### Run a Query
+
+```bash
+# Aggregated total: revenue last 6 months. Use filters with inDateRange.
+semantius call cube load '{
+  "query":{
+    "measures":["Sales.revenue"],
+    "filters":[{"member":"Sales.createdAt","operator":"inDateRange","values":["last 6 months"]}]
+  }
+}'
+
+# Time series: revenue by month. Use timeDimensions with granularity.
+semantius call cube load '{
+  "query":{
+    "measures":["Sales.revenue"],
+    "timeDimensions":[{"dimension":"Sales.createdAt","dateRange":"last 6 months","granularity":"month"}]
+  }
+}'
+
+# Top 10 customers by order value, this quarter. Uses a cross-cube join declared in discover.
+semantius call cube load '{
+  "query":{
+    "measures":["Orders.totalAmount"],
+    "dimensions":["Customers.name","Customers.region"],
+    "filters":[{"member":"Orders.createdAt","operator":"inDateRange","values":["this quarter"]}],
+    "order":{"Orders.totalAmount":"desc"},
+    "limit":10
+  }
+}'
+```
+
+Field names are exactly `CubeName.fieldName`, two parts and one dot. Copy them verbatim from `discover`.
+
+> **Totals vs time series.** Aggregating over a period uses `filters` with `inDateRange`. Returning a time series uses `timeDimensions` with a `granularity`. Mixing them up is the most common mistake. The `dateFilteringGuide` from `discover` is the authoritative decision tree.
+
+`cube` also supports analysis modes (`funnel`, `flow`, `retention`) and a `chart` tool that returns a chart spec instead of raw rows. Both are documented in full in the `discover` response.
+
+## Chaining With the Shell
+
+Because every call returns JSON on stdout and diagnostics on stderr, the CLI composes cleanly with standard Unix tools.
+
+```bash
+# Get the ID of the products entity
+semantius call crud read_entity '{"filters":"table_name=eq.products"}' | jq -r '.[0].id'
+
+# For every entity in module 3, list its fields
+semantius call crud read_entity '{"filters":"module_id=eq.3"}' \
+  | jq -r '.[].table_name' \
+  | while read tbl; do
+      echo "=== $tbl ==="
+      semantius call crud read_field "{\"filters\":\"table_name=eq.$tbl\"}" | jq -r '.[].field_name'
+    done
+
+# Save an analytical query to disk
+semantius call cube load '{"query":{"measures":["Sales.count"],"dimensions":["Products.category"]}}' > sales.json
+```
+
+Exit codes are stable: `0` success, `1` client error (bad arguments, missing config), `2` tool failure, `3` network error.
+
+## Useful Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `SEMANTIUS_API_KEY` | API key (required). |
+| `SEMANTIUS_ORG` | Organization name (required). |
+| `MCP_TIMEOUT` | Per-request timeout in seconds. Default `1800`. |
+| `MCP_NO_DAEMON` | Set to `1` to disable the connection-pooling daemon. |
+| `MCP_DEBUG` | Set to `1` to print daemon diagnostics. |
+
+By default the CLI keeps a short-lived background daemon per mode so chained calls do not pay startup cost on every invocation. The daemon idles out after 60 seconds and re-spawns automatically when configuration changes.
+
+## Where to Go Next
+
+- **[use-semantius skill](/docs/cli-skill)**: install a ready-made skill that teaches a coding agent to drive the CLI productively, including the schema-first creation order and read-before-write rules.
+- **[Agent Skills Overview](/docs/agent-skills-overview)**: see how the higher-level skills (Business Analyst, Schema Editor, RBAC Configurator, Deployer, Optimizer) sit on top of this same CLI.

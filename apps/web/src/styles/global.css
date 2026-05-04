@@ -1,0 +1,15 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary: #029948;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+@import "./theme.css";
+@import "./typography.css";
+@import "./pagefind.css";
+@import "./components.css";

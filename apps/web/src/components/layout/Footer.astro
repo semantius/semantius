@@ -1,0 +1,82 @@
+---
+import { siteConfig, NAV_LINKS, ACTION_LINKS, FOOTER_LINKS } from '~/site.config';
+import { Github, Facebook, Linkedin, Youtube } from 'lucide-react';
+import ThemeToggle from '~/components/common/ThemeToggle.astro';
+
+const today = new Date();
+---
+
+<footer class="mt-auto border-t border-foreground/10 bg-background py-12">
+  <div class="max-w-7xl mx-auto px-6">
+    
+    {/* <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
+      <div class="col-span-1 md:col-span-2 flex flex-col items-start gap-4">
+        <div class="flex flex-col gap-2">
+          <span class="text-xl font-bold font-display tracking-tight">{siteConfig.name}</span>
+          <p class="text-sm text-muted-foreground/80 max-w-xs">
+          Mankind was born on Earth, it was never meant to die here.
+        </div>
+
+        <div class="mt-4 w-full">
+          <h3 class="text-sm font-semibold text-foreground mb-2">Subscribe to our newsletter</h3>
+          <form class="flex gap-2 max-w-sm w-full">
+            <label for="newsletter-email" class="sr-only">Email address</label>
+            <input
+              id="newsletter-email"
+              type="email"
+              placeholder='Enter your email'
+              class="bg-background border border-foreground/10 rounded-full px-4 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground/70 text-foreground"
+            />
+            <button type="submit" class="bg-foreground text-background rounded-full px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity whitespace-nowrap">
+              Subscribe
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {Object.entries(FOOTER_LINKS).map(([key, section]) => (
+        <div>
+          <h3 class="font-semibold mb-4 text-foreground">{section.title}</h3>
+          <ul class="space-y-2 text-sm text-foreground/90">
+            {section.links.map((link: any) => {
+              return (
+                <li>
+                  <a
+                    href={link.href}
+                    class="hover:text-foreground transition-colors"
+                    aria-label={link.label}
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div> */}
+    
+
+    <div class="pt-8 border-t border-foreground/10 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="text-muted-foreground text-sm">
+        {`© ${today.getFullYear()} Semantius by adenin. All rights reserved.`}
+      </div>
+      
+      <div class="flex items-center gap-4">
+        <ThemeToggle />
+        {/* <a href={ACTION_LINKS.social.linkedin} target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="LinkedIn">
+          <Linkedin className="w-5 h-5" strokeWidth={1.5} />
+        </a> */}
+        {/* <a href={ACTION_LINKS.social.youtube} target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="YouTube">
+          <Youtube className="w-5 h-5" strokeWidth={1.5} />
+        </a> */}
+        <a href={ACTION_LINKS.social.github} target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="GitHub">
+          <Github className="w-5 h-5" strokeWidth={1.5} />
+        </a>
+        {/* <a href={ACTION_LINKS.social.facebook} target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="Facebook">
+          <Facebook className="w-5 h-5" strokeWidth={1.5} />
+        </a> */}
+      </div>
+    </div>
+  </div>
+</footer>

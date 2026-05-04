@@ -1,0 +1,155 @@
+.link-preview {
+  --link-preview-corners: 0.5em;
+  --link-preview-padding-inline: 0.75rem;
+  background-color: #0065cb;
+  color: white;
+  font-family: sans-serif;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  margin-inline: auto;
+  margin-block: 2rem;
+  width: fit-content;
+  max-width: 100%;
+}
+.link-preview a {
+  color: white;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+lite-youtube {
+    --lyt-play-btn-bg: #f00; /* Play button background */
+    --lyt-play-btn-hover: #c00;
+    max-width: 100%; /* Ensure it's responsive */
+    border-radius: 0.5rem; /* Round corners */
+    margin-block: 2rem;
+}
+
+/* Command component styles. Lives here (not in a scoped <style> inside the
+ * component) because Astro's MDX integration does not reliably emit a
+ * component's scoped style module when the component is rendered only via
+ * MDX. Putting the rules in components.css guarantees they load on every
+ * page that imports global.css. */
+.command {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    border: 1px solid transparent;
+}
+
+.command.is-chat {
+    background: #f5f1e8;
+    border-color: #e6ddc7;
+}
+
+.command.is-shell {
+    background: #1e1e1e;
+    border-color: #2d2d2d;
+}
+
+.command-skill-prefix {
+    color: #b8562f;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+a.command-skill-prefix:hover {
+    text-decoration: underline;
+}
+
+.command-text {
+    font-size: 0.8125rem;
+    font-weight: 400;
+    background: transparent;
+    padding: 0;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.command.is-chat .command-text {
+    color: #1f1e1b;
+}
+
+.command.is-shell .command-text {
+    color: #e5e5e5;
+}
+
+.command-text::before,
+.command-text::after {
+    content: none !important;
+}
+
+.command-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition:
+        background 0.15s,
+        color 0.15s,
+        border-color 0.15s;
+}
+
+.command.is-chat .command-copy {
+    color: #6b655a;
+}
+
+.command.is-chat .command-copy:hover {
+    background: #ece4d0;
+    color: #1f1e1b;
+    border-color: #d9cfb5;
+}
+
+.command.is-shell .command-copy {
+    color: #a0a0a0;
+}
+
+.command.is-shell .command-copy:hover {
+    background: #2d2d2d;
+    color: #f5f5f5;
+    border-color: #3d3d3d;
+}
+
+.command-copy-label {
+    line-height: 1;
+}
+
+.command-icon-check {
+    display: none;
+}
+
+.command.is-chat .command-icon-check {
+    color: #b8562f;
+}
+
+.command.is-shell .command-icon-check {
+    color: #7fd17f;
+}
+
+.command.copied .command-icon-copy {
+    display: none;
+}
+
+.command.copied .command-icon-check {
+    display: inline-block;
+}
+
+.command.is-chat.copied .command-copy-label {
+    color: #b8562f;
+}
+
+.command.is-shell.copied .command-copy-label {
+    color: #7fd17f;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "semantius-site",
+  "compatibility_date": "2026-03-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "../apps/web/dist/server/entry.mjs",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "../apps/web/dist/client"
+  },
+  "no_bundle": true,
+  "rules": [
+    { "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

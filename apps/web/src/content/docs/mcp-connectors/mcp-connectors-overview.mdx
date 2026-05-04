@@ -1,0 +1,42 @@
+---
+title: 'MCP Connector Overview'
+navTitle: 'Overview'
+description: 'Connect any MCP-compatible client to your Semantius platform.'
+order: 1
+---
+
+**MCP connectors** expose your Semantius platform to any client that speaks the [Model Context Protocol](https://modelcontextprotocol.io). That includes ChatGPT, Claude, and any other MCP-compatible tool. The vocabulary they use is your [semantic model](/docs/models-overview).
+
+## What You Get
+
+Once a connector is set up, the client can:
+
+- Ask natural-language questions grounded in your semantic model.
+- Create, read, update, and delete records with the model's RBAC enforced.
+- Evolve the schema by describing the change you want: add entities, fields, and relationships.
+- Run analytical queries through a semantic layer that understands measures, dimensions, and joins.
+
+## How It Works
+
+Every Semantius platform exposes two MCP servers, each with a focused purpose:
+
+- **Ops MCP**: manage the platform and work with records: create entities, configure permissions, and run CRUD and search operations on every entity.
+- **Analytics MCP**: run complex queries across multiple tables and visualize results with interactive charts and grids rendered directly in the chat via MCP apps.
+
+The semantic model provides the vocabulary; the servers provide the bridge. Both are provisioned automatically when you create a platform on [app.semantius.com](https://app.semantius.com). See [Installation](/docs/mcp-connectors-installation) for the URLs and step-by-step setup.
+
+## Supported Clients
+
+Any MCP-compatible client works. Among the ones we test against:
+
+- **ChatGPT** via custom connectors.
+- **Claude** via the desktop or web app's connectors.
+- **Claude Code** and other agent IDEs via their MCP server configuration.
+
+If your client supports MCP, it works.
+
+## Next Steps
+
+- **[Installation →](/docs/mcp-connectors-installation)**: Find your platform's Ops and Analytics MCP URLs and wire them up to ChatGPT, Claude, or Claude Code.
+- **[Agent Skills →](/docs/agent-skills-overview)**: For coding agents like Claude Code or OpenClaw, pair the MCP connectors with the Semantius CLI and skills.
+- **[Models Overview →](/docs/models-overview)**: Understand the semantic model the connectors expose.

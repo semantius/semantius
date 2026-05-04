@@ -1,0 +1,125 @@
+---
+export const prerender = true;
+import { type CollectionEntry, getCollection } from 'astro:content';
+import Layout from '~/layouts/Layout.astro';
+import Command from '~/components/common/Command.astro';
+
+export async function getStaticPaths() {
+	const models = await getCollection('models');
+	return models.map((model) => ({
+		params: { slug: model.data.system_slug },
+		props: { model },
+	}));
+}
+
+interface Props {
+	model: CollectionEntry<'models'>;
+}
+
+const { model } = Astro.props;
+
+// `overview` and `subsetHtml` are derived once at collection-build time by the
+// custom loader in content.config.ts (see lib/models-extract.ts).
+const description = model.data.description ?? model.data.overview ?? '';
+const subsetHtml = model.data.subsetHtml ?? '';
+
+const date = model.data.created_at.toLocaleDateString('en-US', {
+	year: 'numeric',
+	month: 'long',
+	day: 'numeric',
+});
+
+const modelFileUrl = new URL(`/models/${model.id}.md`, Astro.site ?? Astro.url).toString();
+const initialRequest = model.data.initial_request?.trim();
+const systemName = model.data.system_name;
+
+// Find skills related to this model (semantic_model matches system_slug).
+const allSkills = await getCollection('skills');
+const relatedSkills = allSkills.filter(
+	(skill) => skill.data.semantic_model === model.data.system_slug,
+);
+---
+
+<Layout
+	title={model.data.system_name}
+	description={description || `Semantic data model for ${model.data.system_name}.`}
+	noindex={model.data.noindex}
+	nofollow={model.data.nofollow}
+>
+	<section class="pt-32 pb-16">
+		<div class="max-w-3xl mx-auto px-6">
+			<div class="mb-6 flex items-center justify-between gap-3">
+				<a href="/models" class="text-sm text-muted-foreground hover:text-primary">
+					&larr; Models
+				</a>
+				<div class="flex items-center gap-2">
+					<a
+						href={`/models/${model.data.system_slug}/model`}
+						class="inline-flex items-center gap-1.5 rounded-full border border-primary px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-white"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5">
+							<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+							<circle cx="12" cy="12" r="3" />
+						</svg>
+						View Model
+					</a>
+					<a
+						href={`/models/${model.id}.md`}
+						download
+						class="inline-flex items-center gap-1.5 rounded-full border border-primary px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-white"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="7 10 12 15 17 10" />
+							<line x1="12" y1="15" x2="12" y2="3" />
+						</svg>
+						Download
+					</a>
+				</div>
+			</div>
+
+			<div class="mb-4 flex gap-3 text-sm text-muted-foreground">
+				{model.data.domain && <span>{model.data.domain}</span>}
+				<span>{date}</span>
+			</div>
+
+			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
+				<h1>{systemName}</h1>
+				{description && <p>{description}</p>}
+				<h3>Customize this {systemName} model</h3>
+				<Command mode="chat" command={`/semantic-model-analyst customize ${modelFileUrl}`} />
+				{initialRequest && (
+					<>
+						<h3>Build your own {systemName}</h3>
+						<Command mode="chat" command={`/semantic-model-analyst ${initialRequest}`} />
+					</>
+				)}
+				{subsetHtml && <div set:html={subsetHtml} />}
+			</div>
+
+			{relatedSkills.length > 0 && (
+				<div class="mt-10 border-t border-border pt-8">
+					<p class="text-sm font-semibold text-muted-foreground mb-3">
+						{relatedSkills.length === 1 ? 'Skill' : 'Skills'}
+					</p>
+					<div class="flex flex-wrap gap-2">
+						{relatedSkills.map((skill) => (
+							<a
+								href={`/skills/${skill.id.split('/')[0]}`}
+								class="inline-flex items-center gap-1.5 rounded-full border border-primary px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-primary hover:text-white"
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+									<path d="M15 3l-8.5 8.5a1.5 1.5 0 0 0 2.1 2.1L17 5.1" />
+									<path d="M9 17v4h4" />
+									<path d="M21 3l-3 3" />
+								</svg>
+								{skill.data.title}
+							</a>
+						))}
+					</div>
+				</div>
+			)}
+		</div>
+	</section>
+</Layout>
+

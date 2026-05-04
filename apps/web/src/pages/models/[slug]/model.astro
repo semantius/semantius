@@ -1,0 +1,58 @@
+---
+export const prerender = true;
+import { type CollectionEntry, getCollection, render } from 'astro:content';
+import Layout from '~/layouts/Layout.astro';
+
+export async function getStaticPaths() {
+	const specs = await getCollection('models');
+	return specs.map((spec) => ({
+		params: { slug: spec.data.system_slug },
+		props: { spec },
+	}));
+}
+
+interface Props {
+	spec: CollectionEntry<'models'>;
+}
+
+const { spec } = Astro.props;
+const { Content } = await render(spec);
+
+const systemName = spec.data.system_name;
+---
+
+<Layout
+	title={`${systemName} — Model`}
+	description={spec.data.description ?? `Semantic data model for ${systemName}.`}
+	noindex={spec.data.noindex}
+	nofollow={spec.data.nofollow}
+>
+	<section class="pt-32 pb-16">
+		<div class="max-w-3xl mx-auto px-6">
+			<div class="mb-6 flex items-center justify-between gap-3">
+				<a
+					href={`/models/${spec.data.system_slug}`}
+					class="text-sm text-muted-foreground hover:text-primary"
+				>
+					&larr; {systemName}
+				</a>
+				<a
+					href={`/models/${spec.id}.md`}
+					download
+					class="inline-flex items-center gap-1.5 rounded-full border border-primary px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-white"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+						<polyline points="7 10 12 15 17 10" />
+						<line x1="12" y1="15" x2="12" y2="3" />
+					</svg>
+					Download
+				</a>
+			</div>
+
+			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
+				<Content />
+			</div>
+		</div>
+	</section>
+</Layout>

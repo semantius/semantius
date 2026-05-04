@@ -1,0 +1,27 @@
+{
+  "name": "level3-workplace",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Modern React monorepo with Vite, TypeScript, shadcn/ui, and agent-browser",
+  "scripts": {
+    "dev": "dotenvx run -- turbo dev",
+    "build": "dotenvx run -- turbo build",
+    "build:cloudflare": "turbo build:cloudflare",
+    "lint": "turbo lint",
+    "test": "dotenvx run -- turbo test",
+    "preview": "dotenvx run -- turbo preview",
+    "deploy:wrangler": "dotenvx run -- turbo deploy:wrangler",
+    "deploy:netlify": "dotenvx run -- turbo deploy:netlify",
+    "preview:wrangler": "dotenvx run -- turbo preview:wrangler",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "turbo": "^2.3.6"
+  },
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=9"
+  }
+}

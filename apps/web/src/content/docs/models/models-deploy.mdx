@@ -1,0 +1,47 @@
+---
+title: 'Deploy a Model'
+navTitle: 'Deploy'
+description: 'Push a semantic model to a live Semantius instance with the Deployer agent skill.'
+order: 4
+---
+
+import Command from '~/components/common/Command.astro';
+
+The `/semantic-model-deployer` [agent skill](/docs/agent-skills-overview) takes a `*-semantic-model.md` file (one you [created](/docs/models-create), one of the [Templates](/docs/models-templates), or one [optimized](/docs/models-optimize) from a live module) and materializes it in a live Semantius instance. It is safe to re-run: every pass inspects what is already there and applies only the delta.
+
+## Deploy a Model
+
+Hand the skill a model file and let it work:
+
+<Command mode="chat" command="/semantic-model-deployer deploy ./crm-semantic-model.md" />
+
+<Command mode="chat" command="/semantic-model-deployer deploy https://www.semantius.com/models/saas_expense_tracker-semantic-model.md" />
+
+<Command mode="chat" command="/semantic-model-deployer apply ./helpdesk-semantic-model.md to my Semantius instance" />
+
+<Command mode="chat" command="/semantic-model-deployer push the changes in ./hris-semantic-model.md" />
+
+## What It Does
+
+The deployer treats Semantius as a **unified catalog**, not a pile of independent silos. Before writing anything, it:
+
+1. **Resolves the module.** If a module with the same `system_slug` already exists, it updates in place. It never creates duplicates.
+2. **Reuses platform built-ins.** Tables like `users`, `roles`, and `permissions` are reused, never replaced. Extra scalar fields the model declares on a built-in are added additively, with your confirmation.
+3. **Detects name collisions.** If the model's `contracts` clashes with an existing `contracts` in another module, or looks suspiciously close to one (`saas_contracts`, `vendor_contracts`), the deployer stops and asks you to merge, rename one side, rename both, or abort. It never silently coexists ambiguous names.
+4. **Plans before executing.** You get a single summary of every module, permission, entity, and field change before any write happens.
+
+Once the plan is confirmed, the deployer creates the module, baseline permissions, entities, and fields in the order the platform requires, then verifies everything ended up wired correctly.
+
+## Re-Running on an Updated Model
+
+Edit the model (rename a field, add an entity, refine an enum) and run the deployer again. It diffs the new model against live state and applies only what changed. Field formats are immutable in Semantius, so the deployer flags format-level conflicts instead of attempting a destructive change. If the live module has drifted from the markdown (someone made changes through the UI), run [Optimize](/docs/models-optimize) first to pull the live state back into a fresh spec.
+
+## Sample Data
+
+After a successful deploy, the skill offers to generate ten realistic sample records per newly-created entity, so you have something to look at in the UI immediately. Existing tables and platform built-ins are off-limits to keep your real data clean.
+
+## Get the Skill
+
+Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+
+[Install the Agent Skills →](/docs/agent-skills-installation)

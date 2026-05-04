@@ -1,0 +1,122 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import PageHeader from '~/components/layout/PageHeader.astro';
+import {
+    Boxes, Database, Plug, Terminal, Bot,
+    LayoutDashboard, Workflow, Library
+} from 'lucide-react';
+import Section from '~/components/layout/Section.astro';
+import Container from '~/components/ui/Container.astro';
+import Grid from '~/components/ui/Grid.astro';
+
+const features = [
+    {
+        slug: 'semantic_models',
+        title: 'Semantic Models',
+        description: "A semantic model is a blueprint that defines a system's domain in terms of entities (the things you track), and the relationships between them:",
+        href: '/docs/models-overview',
+        icon: Boxes,
+        color: 'text-sky-400',
+        bg: 'bg-sky-400/10'
+    },
+    {
+        slug: 'platform_core',
+        title: 'Platform Core',
+        description: 'Models and entities are stored in PostgreSQL. RBAC and audit logs are enforced directly in PostgreSQL.',
+        icon: Database,
+        color: 'text-purple-400',
+        bg: 'bg-purple-400/10'
+    },
+    {
+        slug: 'platform_connectors',
+        title: 'Platform Connectors',
+        description: 'MCP apps used by humans in ChatGPT or Claude to manage and explore data and to view analytic charts.',
+        href: '/docs/mcp-connectors-overview',
+        icon: Plug,
+        color: 'text-amber-400',
+        bg: 'bg-amber-400/10'
+    },
+    {
+        slug: 'headless',
+        title: 'Headless',
+        description: 'The autonomous side. A CLI used by agents to automate tasks.',
+        href: '/docs/cli-overview',
+        icon: Terminal,
+        color: 'text-emerald-400',
+        bg: 'bg-emerald-400/10'
+    },
+    {
+        slug: 'agent_skills',
+        title: 'Agent Skills',
+        description: 'Data Analyst skill providing the knowledge needed to build hyper customized models. Model Deployer skill reconciling the platform with the model.',
+        href: '/docs/agent-skills-overview',
+        icon: Bot,
+        color: 'text-orange-400',
+        bg: 'bg-orange-400/10'
+    },
+    {
+        slug: 'ui',
+        title: 'UI',
+        description: 'Responsive UI to manage the platform and its entities with the usual dashboards, forms, grids, and charts.',
+        icon: LayoutDashboard,
+        color: 'text-rose-400',
+        bg: 'bg-rose-400/10'
+    },
+    {
+        slug: 'automation',
+        title: 'Automation',
+        description: 'Integrate with existing tools and services through incoming and outgoing webhooks. Automate tasks with message and task queues.',
+        icon: Workflow,
+        color: 'text-indigo-400',
+        bg: 'bg-indigo-400/10'
+    },
+    {
+        slug: 'model_catalog',
+        title: 'Model Catalog',
+        description: 'A curated catalog of customizable, readily deployable models covering domains like CRM, ITSM, and HRIS.',
+        href: '/models',
+        icon: Library,
+        color: 'text-cyan-400',
+        bg: 'bg-cyan-400/10'
+    }
+];
+---
+
+<Layout title="Features - Semantius Agentic Data Platform" description="The capabilities that make up the Semantius Agentic Data Platform: semantic models, a PostgreSQL based core, MCP connectors, a headless CLI, agent skills, UI, automation, and a model catalog.">
+    <Section>
+        {/* Background Decorations */}
+        <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -mr-64 -mt-32"></div>
+        <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-500/5 rounded-full blur-[120px] -ml-64 -mb-32"></div>
+
+        <Container class="relative z-10">
+            <PageHeader
+                title='The Semantius Agentic Data Platform'
+                description='A complete platform for building agent native business applications: a semantic model at the core, PostgreSQL backed APIs, MCP connectors for humans, a CLI for agents, agent skills, a generated UI, automation, and a catalog of ready to deploy models.'
+            />
+
+            <Grid cols={4}>
+                {features.map((feature) => {
+                    const Icon = feature.icon;
+                    const cardClass = "group block p-8 rounded-3xl bg-foreground/2 border border-foreground/10 hover:border-primary/20 hover:bg-foreground/3 transition-all duration-300";
+                    const inner = (
+                        <>
+                            <div class={`w-12 h-12 rounded-xl ${feature.bg} ${feature.color} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500`}>
+                                <Icon size={24} />
+                            </div>
+                            <h2 class="text-xl font-bold mb-3">{feature.title}</h2>
+                            <p class="text-foreground/60 text-sm leading-relaxed">
+                                {feature.description}
+                            </p>
+                        </>
+                    );
+                    return feature.href ? (
+                        <a href={feature.href} class={cardClass}>{inner}</a>
+                    ) : (
+                        <div class={cardClass}>{inner}</div>
+                    );
+                })}
+            </Grid>
+        </Container>
+    </Section>
+</Layout>

@@ -1,0 +1,76 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+
+interface Props {
+  title?: string | null;
+  description?: string | null;
+}
+
+const { title = 'All Models', description = 'Every semantic model, sorted A to Z.' } = Astro.props;
+const showHeader = title !== null && title !== '';
+
+const models = await getCollection('models');
+
+const sorted = [...models].sort((a: CollectionEntry<'models'>, b: CollectionEntry<'models'>) =>
+  a.data.system_name.localeCompare(b.data.system_name, 'en', { sensitivity: 'base' })
+);
+
+function letterFor(name: string): string {
+  const first = name.trim().charAt(0).toUpperCase();
+  return /[A-Z]/.test(first) ? first : '#';
+}
+
+const groups = new Map<string, CollectionEntry<'models'>[]>();
+for (const model of sorted) {
+  const key = letterFor(model.data.system_name);
+  const bucket = groups.get(key);
+  if (bucket) bucket.push(model);
+  else groups.set(key, [model]);
+}
+
+const letters = Array.from(groups.keys());
+---
+
+<section class="not-prose py-12">
+  {showHeader && (
+    <div class="mb-8">
+      <h2 class="text-3xl font-display font-bold mb-2 text-foreground">{title}</h2>
+      {description && <p class="text-muted-foreground">{description}</p>}
+    </div>
+  )}
+
+  {letters.length > 0 && (
+    <nav aria-label="Jump to letter" class="mb-10 flex flex-wrap gap-2">
+      {letters.map((letter) => (
+        <a
+          href={`#models-${letter}`}
+          class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-foreground/15 text-sm font-semibold text-foreground hover:bg-primary hover:text-white hover:border-primary transition-colors"
+        >
+          {letter}
+        </a>
+      ))}
+    </nav>
+  )}
+
+  <div class="space-y-10">
+    {letters.map((letter) => (
+      <div id={`models-${letter}`}>
+        <h3 class="text-2xl font-display font-bold mb-4 border-b border-foreground/10 pb-2 text-foreground">
+          {letter}
+        </h3>
+        <ul class="list-none p-0 m-0 space-y-2">
+          {groups.get(letter)!.map((model) => (
+            <li>
+              <a
+                href={`/models/${model.data.system_slug}`}
+                class="text-primary hover:underline"
+              >
+                {model.data.system_name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+</section>

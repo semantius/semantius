@@ -1,0 +1,95 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import Pagination from '~/components/common/Pagination.astro';
+import { getCollection } from 'astro:content';
+
+const PAGINATION = 4;
+
+const allModels = await getCollection('models');
+const sorted = allModels.sort(
+	(a, b) => b.data.created_at.valueOf() - a.data.created_at.valueOf()
+);
+const totalPages = Math.ceil(sorted.length / PAGINATION);
+const current = sorted.slice(0, PAGINATION);
+
+// `overview` is derived from the body at collection-build time (see
+// content.config.ts + lib/models-extract.ts), so listing cards have a
+// description even when the source file has none in frontmatter.
+const cards = current.map((model) => ({
+	model,
+	description: model.data.description ?? model.data.overview ?? '',
+}));
+const featured = cards[0];
+const rest = cards.slice(1);
+
+const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
+
+function randomColor(): string {
+	return COLORS[Math.floor(Math.random() * COLORS.length)];
+}
+
+const modelColors = current.map(() => randomColor());
+---
+
+<Layout title="Models" description="Semantic data models you can adopt, customize, and build on.">
+	<section class="pt-32 pb-16">
+		<div class="max-w-6xl mx-auto px-6">
+			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Models</h1>
+
+			{featured && (
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 pb-16">
+					<a href={`/models/${featured.model.data.system_slug}`} class="block">
+						<div
+							class="flex items-center justify-center rounded-lg h-57.5"
+							style={`background-color:${modelColors[0]}`}
+						>
+							<span class="px-6 text-center text-4xl font-semibold text-white">
+								{featured.model.data.system_name}
+							</span>
+						</div>
+					</a>
+					<div>
+						{featured.description && (
+							<p class="line-clamp-4 text-foreground/90">{featured.description}</p>
+						)}
+						<a
+							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
+							href={`/models/${featured.model.data.system_slug}`}
+						>
+							View Model
+						</a>
+					</div>
+				</div>
+			)}
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+				{rest.map(({ model, description }, i) => (
+					<div class="mb-8">
+						<a href={`/models/${model.data.system_slug}`} class="block">
+							<div
+								class="flex items-center justify-center rounded-lg h-45"
+								style={`background-color:${modelColors[i + 1]}`}
+							>
+								<span class="px-6 text-center text-2xl font-semibold text-white">
+									{model.data.system_name}
+								</span>
+							</div>
+						</a>
+						{description && (
+							<p class="mt-4 line-clamp-4 text-foreground/90">{description}</p>
+						)}
+						<a
+							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
+							href={`/models/${model.data.system_slug}`}
+						>
+							View Model
+						</a>
+					</div>
+				))}
+			</div>
+
+			<Pagination section="models" currentPage={1} totalPages={totalPages} />
+		</div>
+	</section>
+</Layout>

@@ -1,0 +1,115 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import Schema from '~/components/layout/Schema.astro';
+import Hero from '~/components/sections/Hero.astro';
+import Section from '~/components/layout/Section.astro';
+import LatestPosts from '~/components/sections/LatestPosts.astro';
+import CTA from '~/components/sections/CTA.astro';
+import FAQ from '~/components/sections/FAQ.astro';
+import OpenSourceNotification from '~/components/common/OpenSourceNotification.astro';
+
+const comparisonRows = [
+  { label: 'Time to first version', point: 'Days', custom: 'Weeks', semantius: 'Minutes' },
+  { label: 'Fits your domain', point: 'No', custom: 'Yes (eventually)', semantius: 'Yes' },
+  { label: 'Maintenance burden', point: "Vendor's roadmap", custom: 'Yours, forever', semantius: 'Just the model' },
+  { label: 'Agents can act safely', point: 'No (or bolted-on)', custom: 'Only if you build it', semantius: 'Yes, by default' },
+  { label: 'Lock-in', point: 'High', custom: 'None', semantius: 'None (open model + Postgres)' },
+];
+
+const homeFaqs = [
+  { question: 'Is this boilerplate free to use?', answer: 'Yes! The core template is open-source and free to use for personal and commercial projects. We also offer a Pro version with advanced features and dedicated support.' },
+  { question: 'Do I need to know React?', answer: 'While we use React for interactive islands, you can use any framework you prefer (Vue, Svelte, Solid) or just sticking to vanilla JS. Astro is framework-agnostic by design.' },
+  { question: 'How does the search functionality work?', answer: 'We use Pagefind, a static search library that indexes your site at build time. It provides instant, typo-tolerant search results without needing an external server or API key.' },
+  { question: 'Can I deploy this to Vercel/Netlify?', answer: 'Absolutely. The template is pre-configured with adapters for Vercel, Netlify, and Cloudflare Pages. Just push to GitHub and connect your repository.' },
+  { question: "What makes this 'premium'?", answer: 'Beyond the design, we include production-grade setups for SEO, analytics, sitemaps, RSS feeds, open graph images, dark mode, and accessibility out of the box.' },
+];
+
+---
+
+<Layout title="Semantius | Engineered for the Unknown" description="Semantius -The ultimate Astro starter Boilerplate for your next project. Made by Gladtek">
+    <Schema item={{
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Semantius",
+            "url": Astro.site,
+            "potentialAction": {
+                "@type": "SearchAction",
+                "target": {
+                    "@type": "EntryPoint",
+                    "urlTemplate": `${Astro.site}/search?q={search_term_string}`
+                },
+                "query-input": "required name=search_term_string"
+            }
+        }} />
+    <Schema item={{
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "Semantius",
+            "operatingSystem": "Web",
+            "applicationCategory": "DeveloperApplication",
+            "offers": {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "USD"
+            },
+            "aggregateRating": {
+                "@type": "AggregateRating",
+                "ratingValue": "4.9",
+                "ratingCount": "120"
+            }
+        }} />
+
+    <Hero
+        badge="The Agentic Data Platform"
+        title="The Agent-Ready Architecture:"
+        highlight="No SaaS Silos. No Custom Code Debt."
+        description={`Until now, you had two bad choices for the agentic age: buy a rigid SaaS that traps your data, or "vibe-code" a custom mess you have to maintain forever. Semantius is the third option: define your domain model and deploy. Your database, APIs, and agent guardrails are live instantly.`}
+        primaryCta={{ text: 'Deploy your first model', href: `/pricing` }}
+        secondaryCta={{ text: 'Explore model library', href: `/models` }}
+    />
+
+    <Section class="py-8! md:py-12!">
+        <div class="max-w-5xl mx-auto px-6">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-y border-foreground/15">
+                            <th class="py-5 pr-6 font-medium text-sm text-muted-foreground"></th>
+                            <th class="py-5 px-6 font-semibold text-base">Traditional SaaS</th>
+                            <th class="py-5 px-6 font-semibold text-base">Custom build</th>
+                            <th class="py-5 px-6 font-semibold text-base text-primary">Semantius</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {comparisonRows.map((row, i) => (
+                            <tr class={i === comparisonRows.length - 1 ? 'border-b border-foreground/15' : 'border-b border-foreground/10'}>
+                                <td class="py-5 pr-6 text-sm text-muted-foreground">{row.label}</td>
+                                <td class="py-5 px-6 text-sm">{row.point}</td>
+                                <td class="py-5 px-6 text-sm">{row.custom}</td>
+                                <td class="py-5 px-6 text-sm font-medium">{row.semantius}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </Section>
+
+    <LatestPosts count={6}/>
+
+    {/*
+    <Section class="py-0 overflow-visible">
+    <FAQ items={homeFaqs} />
+    </Section>
+    */}
+
+    <CTA
+        title='Ready to <br /><span class="text-primary">Launch?</span>'
+        description='Stop SaaS sprawl now. Consolidate your tools and model your business on a single semantic platform with Semantius.'
+        primaryBtn={{ text: 'Get Started Now', href: `/pricing` }}
+        secondaryBtn={{ text: 'Contact Sales', href: `/contact` }}
+        disclaimer='No credit card required for open source. 14-day free trial for Pro.'
+    />
+
+</Layout>

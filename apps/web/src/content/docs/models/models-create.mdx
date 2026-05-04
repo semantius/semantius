@@ -1,0 +1,52 @@
+---
+title: 'Create a Model'
+navTitle: 'Create'
+description: 'Build a custom semantic model from scratch with the Business Analyst agent skill.'
+order: 2
+---
+
+import Command from '~/components/common/Command.astro';
+
+The `/semantic-model-analyst` [agent skill](/docs/agent-skills-overview) builds a [semantic model](/docs/models-overview) with you, the way a senior analyst would: interview, propose, confirm, write. The output is a single self-contained markdown file describing entities, fields, and relationships, ready for the [Deploy](/docs/models-deploy) step.
+
+## When to Use It
+
+Trigger this skill whenever you need a data-backed system of any kind: a CRM, a helpdesk, an HRIS, a custom internal tool, or anything you would otherwise spec on a whiteboard. The skill handles greenfield modeling, mirroring well-known SaaS schemas (Salesforce, Zendesk, ServiceNow, HubSpot, Jira, and others), and reviewing or extending models that already exist.
+
+## Create a New Model
+
+Tell the skill what you want to model. Be as terse or as detailed as you like, the skill asks follow-up questions:
+
+<Command mode="chat" command="/semantic-model-analyst I need a CRM for a 50-person SaaS sales team" />
+
+<Command mode="chat" command="/semantic-model-analyst spec out a helpdesk for an internal IT department" />
+
+<Command mode="chat" command="/semantic-model-analyst design a model for tracking field service jobs and technician schedules" />
+
+## How a Session Goes
+
+1. **Capture the system.** The skill asks what you want to model and pulls the domain category (CRM, ITSM, HRIS, ERP, and so on) from the conversation.
+2. **Pick a naming style.** For well-known categories, you choose between an **agent-optimized** schema (self-describing names that LLMs can reason about) or a **vendor-template** schema (mirrors a specific incumbent, makes data migration trivial).
+3. **Confirm the entity list.** The skill drafts 6 to 15 entities with one-line purposes. You add, rename, merge, or drop any of them.
+4. **Confirm the fields.** For each entity the skill proposes a field table (name, format, required, label, references). You iterate until it matches the domain.
+5. **Save the model.** The skill writes a `*-semantic-model.md` file with the right front-matter, an entity-relationship diagram in Mermaid, an enumerations section, and implementation notes.
+
+The output file is portable. Pass it to the [Deploy](/docs/models-deploy) skill to ship it to a live Semantius instance, hand it to a teammate for review, or run [Optimize](/docs/models-optimize) later to pull a freshly-edited live module back into a markdown spec.
+
+## Customize or Extend an Existing Model
+
+The same skill audits a model file (flagging blockers, warnings, and suggestions against the Semantius platform constraints) and extends it (adding entities, fields, or relationships without breaking what is already there). Point it at any `*-semantic-model.md`, including one of the [Templates](/docs/models-templates) you pulled down:
+
+<Command mode="chat" command="/semantic-model-analyst customize ./crm-semantic-model.md, I want to drop campaigns and add a renewals entity" />
+
+<Command mode="chat" command="/semantic-model-analyst customize https://www.semantius.com/models/saas_expense_tracker-semantic-model.md" />
+
+<Command mode="chat" command="/semantic-model-analyst audit ./helpdesk-semantic-model.md" />
+
+<Command mode="chat" command="/semantic-model-analyst extend ./hris-semantic-model.md with a time-off tracker" />
+
+## Get the Skill
+
+Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+
+[Install the Agent Skills →](/docs/agent-skills-installation)

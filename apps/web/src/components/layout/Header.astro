@@ -1,0 +1,94 @@
+---
+import MobileMenu from '~/components/islands/MobileMenu';
+import DesktopNav from '~/components/islands/DesktopNav';
+import Search from '~/components/islands/Search';
+import SignUpModal from '~/components/islands/SignUpModal';
+
+import { NAV_LINKS, ACTION_LINKS, siteConfig } from '~/site.config';
+
+const links = NAV_LINKS;
+
+const signInHref = ACTION_LINKS.signIn?.href || 'https://app.semantius.com/';
+const signUpLabel = 'Sign up';
+const signInLabel = 'Sign in';
+---
+
+<header class="w-full transition-all duration-300 border-b border-foreground/10 bg-background/80 backdrop-blur-md">
+  <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-3 text-xl font-bold tracking-tight text-primary dark:text-white">
+      {siteConfig.logo && (
+        siteConfig.logo.strategy === 'switch' ? (
+          <>
+            <img 
+              src={siteConfig.logo.src} 
+              alt={siteConfig.logo.alt} 
+              width="32"
+              height="32"
+              class="h-8 w-auto dark:hidden block"
+            />
+            <img 
+              src={siteConfig.logo.srcDark || siteConfig.logo.src} 
+              alt={siteConfig.logo.alt} 
+              width="32"
+              height="32"
+              class="h-8 w-auto hidden dark:block"
+            />
+          </>
+        ) : (
+          <img 
+            src={siteConfig.logo.src} 
+            alt={siteConfig.logo.alt} 
+            width="32"
+            height="32"
+            class={`h-8 w-auto ${siteConfig.logo.strategy === 'invert' ? 'dark:invert' : ''}`}
+          />
+        )
+      )}
+    </a>
+    <div class="flex-1 flex justify-center mx-4 lg:mx-8">
+      <DesktopNav client:only="react" links={links} currentPath={Astro.url.pathname} />
+    </div>
+
+    {/* Mobile/Flyout Menu */}
+    <div class="flex items-center gap-4 flex-shrink-0">
+      {siteConfig.search.enabled && <Search 
+        client:only="react" 
+        placeholder='Search...' 
+        devModalLabels={{
+            title: 'Search is a Production Superpower!',
+            description: 'To enable our lightning-fast search, Pagefind needs a static build index. Run the following command to see it in action:',
+            gotIt: 'Got it, thanks!',
+            doc: 'Documentation'
+        }}
+        lang='en'
+      />}
+      <a 
+        href={signInHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hidden md:block px-4 py-2 text-sm font-medium border border-foreground/20 text-foreground rounded-full hover:bg-foreground/5 transition-all"
+      >
+        {signInLabel}
+      </a>
+      <SignUpModal
+        client:only="react"
+        triggerLabel={signUpLabel}
+        waitlistKey={siteConfig.waitlister.waitlistKey}
+      />
+      
+      <div class="md:hidden">
+        <MobileMenu 
+          client:only="react" 
+          links={links} 
+          currentPath={Astro.url.pathname} 
+          labels={{
+            menu: 'Menu',
+            getStarted: signUpLabel,
+            signIn: signInLabel,
+            signInHref: signInHref
+          }}
+        />
+      </div>
+    </div>
+  </div>
+</header>

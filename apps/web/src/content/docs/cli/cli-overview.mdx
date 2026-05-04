@@ -1,0 +1,41 @@
+---
+title: 'CLI Overview'
+navTitle: 'Overview'
+description: 'The Semantius CLI: scripting and automation for headless agents and shell workflows.'
+order: 1
+---
+
+The **Semantius CLI** is a single binary, `semantius`, that gives you full access to your Semantius platform from a regular shell. Where the [MCP connectors](/docs/mcp-connectors-overview) target interactive AI chats and the [agent skills](/docs/agent-skills-overview) target IDE-based coding agents, the CLI is the layer underneath: a scriptable, no-frills entry point built for **automation and headless agents**.
+
+## What the CLI Is For
+
+Use the CLI whenever you need Semantius to run **without a human in the loop**:
+
+- **Headless agents** running on a server, in a container, or in the background, that need to introspect the model, read or write business data, and run analytical queries without a chat client wrapping them.
+- **Shell scripts and Bun / Node scripts** that chain Semantius calls together (read an entity, transform with `jq`, write a record, kick off an analytical query).
+- **Recurring or scheduled jobs** that seed data, run nightly imports, or fan out an analytical query across many tables.
+- **One-off tasks** in the terminal: search tools, inspect a tool's schema, or call a tool with inline JSON.
+
+The CLI works in two modes: `crud` for managing your model and reading or writing records, and `cube` for CubeJS-compatible analytics. Any tool you can call from Claude or ChatGPT through the [MCP connectors](/docs/mcp-connectors-overview), you can call from a shell, with the same arguments.
+
+## Why a CLI in Addition to MCP
+
+The MCP connectors are perfect for conversational use, but they assume an MCP host on the other end. The CLI removes that assumption:
+
+- **No client required.** Run it from bash, zsh, PowerShell, a Docker entrypoint, a cron job.
+- **Composable.** Pipe output through `jq`, `xargs`, `awk`, save to a file, fan out, retry, branch.
+- **Predictable.** Stable command surface (`info`, `grep`, `call`), JSON in and JSON out, exit codes you can check.
+- **Fast.** A built-in lazy-spawn daemon keeps MCP connections warm between calls so chained commands do not pay startup cost every time.
+
+## Installation
+
+The CLI is installed as part of the **Agent Skills** setup, since the skills call the local `semantius` binary under the hood. Follow the installer for your OS, then verify with `semantius --version`:
+
+[Install the Semantius CLI](/docs/agent-skills-installation#1-install-the-semantius-cli)
+
+The same page covers credential setup (`SEMANTIUS_API_KEY`, `SEMANTIUS_ORG`) via either shell exports or a `.env` file. Once that is done, the CLI is ready to use on its own, with or without an agent.
+
+## Next Steps
+
+- **[The semantius command →](/docs/cli-command)**: learn the basic command surface, the `crud` and `cube` modes, and how to call them.
+- **[use-semantius skill →](/docs/cli-skill)**: drop-in skill that teaches an agent to use the CLI productively.

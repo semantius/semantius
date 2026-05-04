@@ -1,0 +1,138 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import Button from '~/components/ui/Button.astro';
+import Section from '~/components/layout/Section.astro';
+import Container from '~/components/ui/Container.astro';
+import Grid from '~/components/ui/Grid.astro';
+import Heading from '~/components/ui/Heading.astro';
+import Text from '~/components/ui/Text.astro';
+import Badge from '~/components/ui/Badge.astro';
+import Card from '~/components/ui/Card.astro';
+import { ArrowRight, ChevronRight, Check } from 'lucide-react';
+
+const colors = [
+    { name: 'Primary', class: 'bg-primary', text: 'text-white' },
+    { name: 'Background', class: 'bg-background', text: 'text-foreground border border-foreground/10' },
+    { name: 'Foreground', class: 'bg-foreground', text: 'text-background' },
+    { name: 'Muted', class: 'bg-muted', text: 'text-muted-foreground' },
+];
+
+const typography = [
+    { name: 'Display 7xl', class: 'text-7xl font-display font-bold', label: 'Start Building' },
+    { name: 'Display 5xl', class: 'text-5xl font-display font-bold', label: 'Start Building' },
+    { name: 'Heading 3xl', class: 'text-3xl font-bold', label: 'Start Building' },
+    { name: 'Heading 2xl', class: 'text-2xl font-bold', label: 'Start Building' },
+    { name: 'Body Base', class: 'text-base', label: 'The quick brown fox jumps over the lazy dog.' },
+    { name: 'Body Small', class: 'text-sm text-muted-foreground', label: 'The quick brown fox jumps over the lazy dog.' },
+];
+---
+
+<Layout title="Design System - Semantius" description="Our visual language and components.">
+    <Section class="pt-32 pb-24">
+        <Container>
+            <Heading level={1} class="mb-6">Design System</Heading>
+            <Text variant="lead" class="max-w-2xl mb-16">
+                A collection of reusable components and styles that ensure consistency across our platform.
+            </Text>
+
+            {/* Colors Section */}
+            <div class="mb-24">
+                <Heading level={2} class="mb-8 flex items-center gap-3">
+                    <span class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-sm font-bold">01</span>
+                    Colors
+                </Heading>
+                <Grid cols={4}>
+                    {colors.map((color) => (
+                        <div class="group">
+                            <div class={`h-32 rounded-xl mb-4 shadow-sm ${color.class} ${color.name === 'Background' ? 'border border-foreground/10' : ''}`}></div>
+                            <h3 class="font-bold">{color.name}</h3>
+                            <code class="text-xs text-muted-foreground bg-muted px-2 py-1 rounded mt-1 inline-block">.{color.class}</code>
+                        </div>
+                    ))}
+                </Grid>
+            </div>
+
+             {/* Typography Section */}
+             <div class="mb-24">
+                <Heading level={2} class="mb-8 flex items-center gap-3">
+                    <span class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-sm font-bold">02</span>
+                    Typography
+                </Heading>
+                <div class="space-y-8 border border-foreground/10 rounded-2xl p-8 bg-background/50 backdrop-blur-sm">
+                    {typography.map((type) => (
+                         <div class="flex flex-col md:flex-row md:items-center gap-4 border-b border-foreground/5 last:border-0 pb-8 last:pb-0">
+                            <div class="w-48 shrink-0">
+                                <span class="text-muted-foreground text-sm font-mono">{type.name}</span>
+                            </div>
+                            <div class={type.class}>{type.label}</div>
+                         </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Components Section */}
+            <div class="mb-24">
+                <Heading level={2} class="mb-8 flex items-center gap-3">
+                    <span class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-sm font-bold">03</span>
+                    Components
+                </Heading>
+                
+                <div class="grid gap-12">
+                    {/* Buttons */}
+                    <div class="p-8 border border-foreground/10 rounded-2xl bg-background/50 backdrop-blur-sm">
+                        <Heading level={3} class="text-xl mb-6">Buttons</Heading>
+                        <div class="flex flex-wrap gap-4 mb-8">
+                            <Button>Primary Button</Button>
+                            <Button variant="secondary">Secondary Button</Button>
+                            <Button variant="outline">Outline Button</Button>
+                            <Button variant="ghost">Ghost Button</Button>
+                        </div>
+                        <div class="flex flex-wrap gap-4">
+                             <Button>
+                                With Icon <ArrowRight size={18} />
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Badges */}
+                    <div class="p-8 border border-foreground/10 rounded-2xl bg-background/50 backdrop-blur-sm">
+                         <Heading level={3} class="text-xl mb-6">Badges & Tags</Heading>
+                        <div class="flex flex-wrap gap-3">
+                            <Badge variant="accent">Success</Badge>
+                            <Badge variant="accent" class="text-blue-500 bg-blue-500/10 border-blue-500/20">Info</Badge>
+                            <Badge variant="accent" class="text-amber-500 bg-amber-500/10 border-amber-500/20">Warning</Badge>
+                            <Badge variant="accent" class="text-red-500 bg-red-400/10 border-red-500/20">Error</Badge>
+                            <Badge variant="secondary">Neutral</Badge>
+                        </div>
+                    </div>
+
+                    {/* Cards */}
+                     <div class="p-8 border border-foreground/10 rounded-2xl bg-background/50 backdrop-blur-sm">
+                        <Heading level={3} class="text-xl mb-6">Cards</Heading>
+                        <Grid cols={2} class="gap-6">
+                            <div class="p-6 rounded-2xl border border-foreground/10 bg-background hover:border-primary/50 transition-colors group cursor-pointer">
+                                <div class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary mb-4 group-hover:scale-110 transition-transform">
+                                    <Check />
+                                </div>
+                                <Heading level={4} class="text-lg mb-2">Feature Card</Heading>
+                                <Text small>
+                                    Interactive cards with hover states and micro-interactions. Perfect for feature grids.
+                                </Text>
+                            </div>
+                             <div class="p-6 rounded-2xl bg-linear-to-br from-primary to-indigo-600 text-white shadow-xl shadow-primary/25">
+                                <Heading level={4} class="text-lg mb-2">Highlight Card</Heading>
+                                <p class="text-white/80 text-sm mb-4">
+                                    Used for emphasizing important content or calls to action.
+                                </p>
+                                <button class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium backdrop-blur-sm transition-colors">
+                                    Action
+                                </button>
+                            </div>
+                        </Grid>
+                    </div>
+                </div>
+            </div>
+        </Container>
+    </Section>
+</Layout>

@@ -1,0 +1,41 @@
+---
+title: 'Model Templates'
+navTitle: 'Templates'
+description: 'Curated, ready-to-use semantic models you can deploy as-is or customize first.'
+order: 3
+---
+
+import ModelList from '~/components/sections/ModelList.astro';
+import Command from '~/components/common/Command.astro';
+
+**Templates** are curated [semantic models](/docs/models-overview) we maintain for common domains: CRM, helpdesk, project management, HRIS, subscription billing, and more. Each template is a complete `*-semantic-model.md` file with vetted entities, fields, relationships, and an entity-relationship diagram, ready to drop into your platform.
+
+Every template is hosted at a stable URL, so you can hand the URL straight to a skill without downloading anything first:
+
+<Command mode="chat" command="/semantic-model-deployer deploy https://www.semantius.com/models/saas_expense_tracker-semantic-model.md" />
+
+<Command mode="chat" command="/semantic-model-analyst customize https://www.semantius.com/models/saas_expense_tracker-semantic-model.md" />
+
+## Two Ways to Use a Template
+
+### Deploy as-is
+
+When a template fits your domain closely enough, ship it straight to your platform. Hand the template URL (or a local file) to the [Deploy](/docs/models-deploy) skill and it materializes the module, permissions, entities, and fields in a live Semantius instance, with safe diffing if anything similar already exists.
+
+### Customize first
+
+When you want changes (rename a field, add an entity, drop something you do not need, tighten an enum), the `/semantic-model-analyst` skill runs in **Customize** or **Extend** mode against the template. It loads the model, shows you the entity list, and walks through the changes you ask for. The result is still a single self-contained markdown file, just yours instead of ours. See [Create a Model](/docs/models-create) for the full flow and command samples.
+
+The cycle does not have to stop at deploy. After people use the platform and tweak things in the Semantius UI, the [Optimize](/docs/models-optimize) skill pulls the live module back down into a fresh markdown spec, ready for another round of audit, refinement, and redeploy.
+
+## Browse the Library
+
+Every semantic model, sorted A to Z.
+
+<ModelList title={null} />
+
+## Get the Skills
+
+You need the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to deploy or customize a template.
+
+[Install the Agent Skills →](/docs/agent-skills-installation)

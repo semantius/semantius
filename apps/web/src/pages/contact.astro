@@ -1,0 +1,70 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import { siteConfig } from '~/site.config';
+import ContactForm from '~/components/islands/ContactForm.jsx';
+import { Mail, MapPin, Phone } from 'lucide-react';
+import PageHeader from '~/components/layout/PageHeader.astro';
+import Container from '~/components/ui/Container.astro';
+import Grid from '~/components/ui/Grid.astro';
+---
+
+<Layout title="Contact Us - Astro Boilerplate" description="Get in touch with our team.">
+  <PageHeader 
+      title='Get in <span class="text-primary">Touch</span>'
+      description="We'd love to hear from you. Fill out the form below or reach out directly."
+  />
+
+  <Container as="section" class="pb-24">
+      <Grid cols={2} class="gap-12">
+          <!-- Contact Info -->
+          <div class="space-y-8">
+              <h2 class="text-2xl font-bold mb-6">Contact Information</h2>
+              
+              <div class="flex items-start gap-4">
+                  <div class="p-3 rounded-lg bg-primary/10 text-primary">
+                      <Mail className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 class="font-bold mb-1">Email</h3>
+                      <p class="text-muted-foreground">{siteConfig.contact.email.support}</p>
+                      <p class="text-muted-foreground">{siteConfig.contact.email.sales}</p>
+                  </div>
+              </div>
+
+              <div class="flex items-start gap-4">
+                  <div class="p-3 rounded-lg bg-primary/10 text-primary">
+                      <Phone className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 class="font-bold mb-1">Phone</h3>
+                      <p class="text-muted-foreground">{siteConfig.contact.phone.main}</p>
+                      <p class="text-muted-foreground">{siteConfig.contact.phone.label}</p>
+                  </div>
+              </div>
+
+               <div class="flex items-start gap-4">
+                  <div class="p-3 rounded-lg bg-primary/10 text-primary">
+                      <MapPin className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 class="font-bold mb-1">Office</h3>
+                      <p class="text-muted-foreground">{siteConfig.contact.address.city}</p>
+                      <p class="text-muted-foreground">{siteConfig.contact.address.full}</p>
+                  </div>
+              </div>
+              
+              <div class="p-6 rounded-2xl bg-linear-to-br from-primary/20 to-purple-500/20 border border-white/10 mt-8">
+                  <h3 class="font-bold mb-2">Enterprise Support</h3>
+                  <p class="text-sm text-muted-foreground mb-4">Need a custom solution or dedicated support? Our enterprise team is ready to help.</p>
+                  <a href="#" class="text-sm font-medium text-primary hover:underline">Contact Sales &rarr;</a>
+              </div>
+          </div>
+
+          <!-- Contact Form -->
+          <div>
+              <ContactForm client:load />
+          </div>
+      </Grid>
+  </Container>
+</Layout>

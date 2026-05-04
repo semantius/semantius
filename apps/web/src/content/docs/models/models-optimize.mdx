@@ -1,0 +1,43 @@
+---
+title: 'Optimize a Model'
+navTitle: 'Optimize'
+description: 'Reverse-engineer a live Semantius module back into a markdown spec, then audit and refine it.'
+order: 5
+---
+
+import Command from '~/components/common/Command.astro';
+
+The `/semantic-model-optimizer` [agent skill](/docs/agent-skills-overview) closes the loop in the [model lifecycle](/docs/models-overview). It reads a live Semantius module and writes a `*-semantic-model.md` file that is byte-compatible with the format the [Business Analyst](/docs/models-create) produces and the [Deployer](/docs/models-deploy) consumes. From there you can audit it, refine it, and ship the corrected version back.
+
+## Optimize a Live Module
+
+Point the skill at a module by its slug, or let it list everything that is live and pick:
+
+<Command mode="chat" command="/semantic-model-optimizer extract the crm module" />
+
+<Command mode="chat" command="/semantic-model-optimizer snapshot the helpdesk module to a markdown spec" />
+
+<Command mode="chat" command="/semantic-model-optimizer the live hris has drifted, regenerate the spec and suggest optimizations" />
+
+## Why You Need It
+
+Once a platform is live, people customize it: a teammate adds a field in the Semantius UI, an admin renames a label, an integration introduces a new enum value. The original markdown spec quietly drifts away from reality. The optimizer reads what is actually live and produces a fresh spec that reflects it, so the rest of the toolchain stays in sync.
+
+## How It Works
+
+1. **Pick a module.** Name one directly or browse the list.
+2. **Read the live state.** The skill pulls the module's entities, fields, descriptions, label columns, audit-log settings, and enum values via the Semantius CLI.
+3. **Pull in related tables.** Any table referenced from the module (other modules, built-ins like `users`) is included so the resulting model is self-contained.
+4. **Write the markdown.** The skill produces the file with the right front-matter, a regenerated Mermaid entity-relationship diagram, an enumerations section, and implementation notes that flag external entities for the deployer.
+
+The skill is **read-only against Semantius**: it never writes to the platform.
+
+## Audit and Redeploy
+
+Once the file is saved, you can opt in to an audit pass that flags missing label columns, FK-as-label-column traps, singular `table_name` violations, missing descriptions, and other drift artifacts. Apply the fixes to the markdown, and the [Deployer](/docs/models-deploy) can roll the corrected shape back to Semantius, completing the loop. If you want to expand the model further before redeploying, point the [Business Analyst](/docs/models-create) at the optimized file in customize or extend mode.
+
+## Get the Skill
+
+Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+
+[Install the Agent Skills →](/docs/agent-skills-installation)

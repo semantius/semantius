@@ -1,0 +1,103 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import ContentSection from '~/components/sections/ContentSection.astro';
+import FeaturesList from '~/components/sections/FeaturesList.astro';
+import TeamSection from '~/components/sections/TeamSection.astro';
+import FeatureItem from '~/components/ui/FeatureItem.astro';
+import TeamMember from '~/components/ui/TeamMember.astro';
+import PageHeader from '~/components/layout/PageHeader.astro';
+import { Zap, Shield, Smartphone, Globe, Code, Layers } from 'lucide-react';
+
+import Timeline from '~/components/sections/Timeline.astro';
+import Section from '~/components/layout/Section.astro';
+import Container from '~/components/ui/Container.astro';
+import Heading from '~/components/ui/Heading.astro';
+import Text from '~/components/ui/Text.astro';
+
+const timelineItems = [
+    { date: '2067', title: 'The Blight', description: "Crop failures and dust storms threaten humanity's survival on Earth." },
+    { date: '2069', title: 'Lazarus Missions', description: 'NASA secretly sends 12 brave astronauts through the wormhole to find a new home.' },
+    { date: '2087', title: 'Endurance Launch', description: 'Semantius and Brand leave Earth to follow the breadcrumbs and save the species.' },
+    { date: '2156', title: 'Semantius Station', description: "Humanity thrives on O'Neill cylinders near Saturn. Semantius returns." },
+];
+
+const aboutBenefits = [
+    { title: 'Lightning Fast', description: 'Optimized for speed with zero-js by default and island architecture.', icon: Zap },
+    { title: 'Secure by Design', description: 'Built with best practices and modern security standards in mind.', icon: Shield },
+    { title: 'Fully Responsive', description: 'Looks perfect on any device, from mobile phones to 4k desktops.', icon: Smartphone },
+    { title: 'SEO Optimized', description: 'Sitemap, meta tags, and open graph support ready to go.', icon: Globe },
+    { title: 'Developer Friendly', description: 'TypeScript, Tailwind, and configured tooling for a great DX.', icon: Code },
+    { title: 'Component Based', description: 'Modular architecture using React and Astro components.', icon: Layers },
+];
+
+const teamMembers = [
+    {
+        name: 'Joseph Semantius',
+        role: 'Pilot & Chief Engineer',
+        github: "https://github.com/gladtek",
+        linkedin: "https://linkedin.com/company/gladtek"
+    },
+    {
+        name: 'Dr. Amelia Brand',
+        role: 'Chief Scientist',
+        twitter: "https://github.com/gladtek",
+        linkedin: "https://linkedin.com/company/gladtek"
+    },
+    {
+        name: 'Murphy Semantius',
+        role: 'Lead Physicist',
+        linkedin: "https://linkedin.com/company/gladtek"
+    },
+    {
+        name: 'TARS',
+        role: 'AI & Automation Lead',
+        github: "https://github.com/gladtek"
+    }
+];
+
+---
+
+<Layout title="About Us - Astro Boilerplate" description="Learn about our mission and team.">
+<PageHeader title='We Are <span class="text-primary">Explorers</span>' description='Our mission is to find a new home for humanity among the stars, ensuring the survival of our species.' />
+
+  <ContentSection title='The Mission'>
+    <Text>It started with the Blight. The world didn't need more engineers; it needed farmers. But we knew looking down at the dirt wasn't the answer. We had to look up.</Text>
+    <Text>The Lazarus missions gave us hope. Twelve rangers sent into the unknown to find habitable worlds. We built the Endurance not just to explore, but to see if we could survive.</Text>
+    <Text>Today, we stand on the precipice of a new dimension. We are the caretakers of the future, driven by love that transcends time and space.</Text>
+  </ContentSection>
+
+  <Container class="py-24">
+    <Heading level={2} class="text-center mb-12">Our Journey</Heading>
+    <Timeline items={timelineItems} />
+  </Container>
+
+  <Section>
+      <Container>
+          <div class="mb-24">
+             <Heading level={2} class="text-center mb-12">Why Leave Earth?</Heading>
+             <FeaturesList>
+                {aboutBenefits.map((benefit) => (
+                    <FeatureItem title={benefit.title} description={benefit.description}>
+                        <benefit.icon slot="icon" className="w-6 h-6" />
+                    </FeatureItem>
+                ))}
+             </FeaturesList>
+          </div>
+
+          <div>
+            <TeamSection title='Meet the Team'>
+              {teamMembers.map((member) => (
+                <TeamMember
+                    name={member.name}
+                    role={member.role}
+                    github={member.github}
+                    linkedin={member.linkedin}
+                    twitter={member.twitter}
+                />
+              ))}
+            </TeamSection>
+          </div>
+      </Container>
+  </Section>
+</Layout>

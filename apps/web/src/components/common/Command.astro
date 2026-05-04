@@ -1,0 +1,111 @@
+---
+type Mode = "chat" | "shell";
+
+interface Props {
+  command: string;
+  mode?: Mode;
+}
+
+// Map of slash-prefixed skill names to the docs page that documents the skill.
+// In chat mode, a leading /skill token is rendered as a link to the matching
+// docs page (or as plain styled text if the skill is not in this map).
+const SKILL_DOC_MAP: Record<string, string> = {
+  "/semantic-model-analyst": "/docs/models-create",
+  "/semantic-model-deployer": "/docs/models-deploy",
+  "/semantic-model-optimizer": "/docs/models-optimize",
+};
+
+const { command, mode = "shell" } = Astro.props;
+
+const skillMatch = mode === "chat" ? command.match(/^(\/[\w-]+)(\s[\s\S]*)?$/) : null;
+const skill = skillMatch?.[1] ?? null;
+const skillRest = skillMatch?.[2] ?? "";
+const skillHref = skill ? SKILL_DOC_MAP[skill] ?? null : null;
+---
+
+<div class={`command not-prose group is-${mode}`}>
+  <code class="command-text">
+    {skill && skillHref && (
+      <>
+        <a href={skillHref} class="command-skill-prefix">{skill}</a>{skillRest}
+      </>
+    )}
+    {skill && !skillHref && (
+      <>
+        <span class="command-skill-prefix">{skill}</span>{skillRest}
+      </>
+    )}
+    {!skill && command}
+  </code>
+  <button
+    type="button"
+    class="command-copy"
+    data-command={command}
+    aria-label="Copy command"
+  >
+    <svg
+      class="command-icon-copy"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+    <svg
+      class="command-icon-check"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+    <span class="command-copy-label">Copy</span>
+  </button>
+</div>
+
+<script>
+  document.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>(".command-copy");
+    if (!button) return;
+
+    const command = button.dataset.command ?? "";
+    const wrapper = button.closest(".command");
+    const label = button.querySelector<HTMLElement>(".command-copy-label");
+    const originalLabel = label?.textContent ?? "Copy";
+
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = command;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    wrapper?.classList.add("copied");
+    if (label) label.textContent = "Copied";
+
+    setTimeout(() => {
+      wrapper?.classList.remove("copied");
+      if (label) label.textContent = originalLabel;
+    }, 1600);
+  });
+</script>

@@ -1,0 +1,45 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import PageHeader from '~/components/layout/PageHeader.astro';
+import BeforeAfter from '~/components/islands/BeforeAfter';
+
+import TechStack from '~/components/sections/TechStack.astro';
+
+const beforeImage = '/showcase-light.png';
+const afterImage = '/showcase-dark.png';
+---
+
+<Layout title='Interactive Showcase' description='Experience the difference with our interactive comparison tools.'>
+    <PageHeader 
+        title='Interactive Showcase'
+        description='Experience the difference with our interactive comparison tools.'
+    />
+    
+    <section class="py-12 bg-background">
+        <div class="max-w-5xl mx-auto px-6 lg:px-8">
+             <div class="mb-12 text-center">
+                <span class="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
+                    Before vs After
+                </span>
+            </div>
+
+            <BeforeAfter 
+                client:visible
+                beforeImage={beforeImage}
+                afterImage={afterImage}
+                beforeLabel='Light Mode'
+                afterLabel='Dark Mode'
+            />
+
+            <div class="mt-24 mb-12 text-center">
+                <h2 class="text-3xl font-bold mb-4">The Tech Stack</h2>
+                <p class="text-foreground/60 max-w-2xl mx-auto">
+                    Built with the most modern and performant technologies available in the Astro ecosystem.
+                </p>
+            </div>
+
+            <TechStack />
+        </div>
+    </section>
+</Layout>

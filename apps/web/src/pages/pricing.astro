@@ -1,0 +1,130 @@
+---
+export const prerender = true;
+import Layout from '~/layouts/Layout.astro';
+import PageHeader from '~/components/layout/PageHeader.astro';
+import Schema from '~/components/layout/Schema.astro';
+import PricingTable from '~/components/sections/PricingTable.astro';
+import PricingPlan from '~/components/sections/PricingPlan.astro';
+import FAQ from '~/components/sections/FAQ.astro';
+import ComparisonTable from '~/components/sections/ComparisonTable.astro';
+import Container from '~/components/ui/Container.astro';
+
+const plans = [
+  {
+    name: 'Starter',
+    price: 0,
+    displayPrice: 'X',
+    description: 'Perfect for side projects and hobbyists.',
+    features: ['X', 'X', 'X', 'X'],
+    cta: 'Get Started',
+  },
+  {
+    name: 'Pro',
+    price: 29,
+    displayPrice: 'X',
+    description: 'For growing teams and startups.',
+    features: ['X', 'X', 'X', 'X', 'X'],
+    cta: 'Get Started',
+    popular: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 99,
+    displayPrice: 'X',
+    description: 'For large scale organizations.',
+    features: ['X', 'X', 'X', 'X', 'X'],
+    cta: 'Contact Sales',
+  },
+];
+
+const faqs = [
+  { question: 'Can I switch plans later?', answer: 'Yes, you can upgrade or downgrade at any time. Prorated charges will apply.' },
+  { question: 'Is there a free trial?', answer: 'We offer a 14-day free trial on the Pro plan so you can explore all features.' },
+  { question: 'What payments do you accept?', answer: 'We accept all major credit cards, PayPal, and wire transfers for Enterprise.' },
+  { question: 'Do you offer refunds?', answer: 'Yes, we have a 30-day money-back guarantee if you are not satisfied.' },
+];
+
+---
+
+<Layout title="Pricing - Astro Boilerplate" description="Simple, transparent pricing for everyone.">
+  
+  <Schema item={{
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Semantius",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web",
+    "offers": plans.map(plan => ({
+      "@type": "Offer",
+      "name": plan.name,
+      "price": String(plan.price),
+      "priceCurrency": "USD",
+      "description": plan.description,
+      "url": `${Astro.site}pricing`,
+      ...(plan.price > 0 && {
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": String(plan.price),
+          "priceCurrency": "USD",
+          "billingDuration": "P1M"
+        }
+      })
+    }))
+  }} />
+
+  
+  <PageHeader 
+      title='Simple <span class="text-primary">Pricing</span>'
+      description="Choose the plan that's right for you. No hidden fees. Cancel anytime."
+  />
+
+  <Container as="section" class="pb-24">
+      <PricingTable>
+        {plans.map(plan => (
+          <PricingPlan
+            name={plan.name}
+            price={plan.displayPrice}
+            description={plan.description}
+            features={plan.features}
+            cta={plan.cta}
+            popular={plan.popular}
+          />
+        ))}
+      </PricingTable>
+
+      <div class="mt-24">
+        <ComparisonTable 
+          title='Compare Plans'
+          subtitle='Find the perfect plan for your needs.'
+          labels={{ features: 'Features', popular: 'Most Popular' }}
+          plans={plans.map(plan => ({
+            name: plan.name,
+            key: plan.name.toLowerCase(),
+            ...(plan.popular && { popular: true })
+          }))}
+          features={[
+            { category: 'Core Features', items: [
+                { name: 'f1', starter: '3', pro: 'Unlimited', enterprise: 'Unlimited' },
+                { name: 'f2', starter: '1', pro: '5', enterprise: 'Unlimited' },
+                { name: 'f3', starter: '1GB', pro: '10GB', enterprise: 'Unlimited' },
+            ]},
+            { category: 'Analytics', items: [
+                { name: 'f4', starter: true, pro: true, enterprise: true },
+                { name: 'f5', starter: false, pro: true, enterprise: true },
+                { name: 'f6', starter: false, pro: true, enterprise: true },
+                { name: 'f7', starter: false, pro: false, enterprise: true },
+            ]},
+            { category: 'Support & Security', items: [
+                { name: 'f8', starter: 'Standard', pro: 'Priority', enterprise: 'Dedicated' },
+                { name: 'f9', starter: false, pro: false, enterprise: true },
+                { name: 'f10', starter: false, pro: false, enterprise: '99.99%' },
+            ]}
+          ]}
+        />
+      </div>
+      
+      <div class="mt-20">
+          <FAQ items={faqs} />
+      </div>
+  </Container>
+</Layout>

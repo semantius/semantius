@@ -1,0 +1,5 @@
+#!/bin/bash
+# Post-checkout hook
+# Ensures workspace is set up after checkout
+
+./workplace/setup.sh
