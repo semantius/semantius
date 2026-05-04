@@ -34,6 +34,10 @@
       "cache": false,
       "passThroughEnv": ["NETLIFY_AUTH_TOKEN", "NETLIFY_SITE_ID"]
     },
+    "build:netlify": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
     "build:cloudflare": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]

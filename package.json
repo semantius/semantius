@@ -7,6 +7,7 @@
     "dev": "dotenvx run -- turbo dev",
     "build": "dotenvx run -- turbo build",
     "build:cloudflare": "turbo build:cloudflare",
+    "build:netlify": "turbo build:netlify",
     "lint": "turbo lint",
     "test": "dotenvx run -- turbo test",
     "preview": "dotenvx run -- turbo preview",
