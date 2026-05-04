@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS fields (
     is_core BOOLEAN NOT NULL DEFAULT FALSE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     enum_values JSONB DEFAULT NULL,
+    "precision" SMALLINT NOT NULL DEFAULT 2,
     reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
     relationship_label TEXT NOT NULL DEFAULT 'has',
@@ -116,6 +117,9 @@ CREATE TABLE IF NOT EXISTS fields (
     
 
     
+    -- Ensure precision is within a reasonable range for NUMERIC scale
+    CONSTRAINT valid_precision CHECK ("precision" >= 0 AND "precision" <= 18),
+
     -- Ensure reference_table is set when format is 'reference' or 'parent'
     CONSTRAINT reference_requires_table CHECK (
         (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
@@ -152,6 +156,7 @@ COMMENT ON COLUMN fields.width IS 'Display width for UI rendering: default (auto
 COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), or label (display field)';
 COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
 COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
+COMMENT ON COLUMN fields."precision" IS 'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats. Default 2 (currency-style).';
 COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference entities.table_name when format is "reference". Empty string means no reference.';
 COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
 COMMENT ON COLUMN fields.relationship_label IS 'Verb describing what the referenced entity does to/with this entity (e.g. "employs", "heads"). Used for ER diagram and navigation labels.';
@@ -384,6 +389,7 @@ BEGIN
       ('fields', 'is_core',             'Is Core',              '',                                                                       '',         'boolean',   FALSE, 130, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'searchable',          'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 135, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'enum_values',         'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 137, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'precision',           'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'reference_table',     'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                       'restrict', 'enum',      FALSE, 139, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
       ('fields', 'relationship_label',  'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',  'has',      'text',      FALSE, 140, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),

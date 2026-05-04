@@ -307,7 +307,7 @@ BEGIN
             -- Add enum field if enum_values is present
             CASE 
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
-                THEN jsonb_build_object('enum', enum_values)
+                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
                 ELSE '{}'::jsonb
             END ||
             -- Add reference_table field if format is 'reference' or 'parent'
@@ -334,6 +334,9 @@ BEGIN
             END ||
             -- Add default field separately to handle type conversion properly
             CASE
+                -- Enum: use effective default (first value when required without explicit default, else '')
+                WHEN format = 'enum' THEN
+                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
                         -- Special case: reference/parent to entities/fields are string-typed
