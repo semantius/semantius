@@ -278,7 +278,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
-    ('products', 'unit_price',        'Unit Price',         'float',   50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
+    ('products', 'unit_price',        'Unit Price',         'number',  50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
     ('products', 'units_in_stock',    'Units In Stock',     'int32',   60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
     ('products', 'units_on_order',    'Units On Order',     'int32',   70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
     ('products', 'reorder_level',     'Reorder Level',      'int32',   80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
@@ -313,7 +313,7 @@ VALUES
     ('orders', 'ship_region',     'Ship Region',      'text',  70,  'default', 'default', 'State or province for shipment',           '', FALSE, ''),
     ('orders', 'ship_postal_code','Ship Postal Code', 'text',  80,  'default', 'default', '',                                         '', FALSE, ''),
     ('orders', 'ship_country',    'Ship Country',     'text',  90,  'default', 'default', '',                                         '', TRUE,  ''),
-    ('orders', 'freight',         'Freight',          'float', 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
+    ('orders', 'freight',         'Freight',          'number', 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
 
 -- order_date and required_date: not nullable with defaults
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
@@ -363,9 +363,9 @@ VALUES
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('order_details', 'unit_price', 'Unit Price', 'float', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
+    ('order_details', 'unit_price', 'Unit Price', 'number', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
-    ('order_details', 'discount',   'Discount',   'float', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
+    ('order_details', 'discount',   'Discount',   'number', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
 
 -- =====================================================

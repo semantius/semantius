@@ -11,8 +11,10 @@
 -- Maps JSON Schema format values to PostgreSQL data types
 -- This function converts the format column value to an actual PostgreSQL type
 
-CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT)
+CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
+DECLARE
+    v_scale SMALLINT := COALESCE(p_precision, 2);
 BEGIN
     RETURN CASE p_format
         -- Integer formats
@@ -25,7 +27,7 @@ BEGIN
         -- Number formats
         WHEN 'float' THEN 'REAL'
         WHEN 'double' THEN 'DOUBLE PRECISION'
-        WHEN 'number' THEN 'NUMERIC'
+        WHEN 'number' THEN 'NUMERIC(18, ' || v_scale || ')'
         
         -- Special types (not TEXT)
         WHEN 'uuid' THEN 'UUID'
@@ -52,7 +54,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_data_type IS 
-'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements.';
+'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
 -- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
@@ -98,6 +100,54 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION is_nullable IS
 'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
+
+-- =====================================================
+-- ENUM HELPER FUNCTIONS
+-- =====================================================
+-- Centralised handling of enum default behaviour:
+--   • effective_enum_values  -- expands enum_values with '' for non-required enums,
+--                               so empty defaults are accepted by the CHECK constraint.
+--   • effective_enum_default -- resolves the actual column default for an enum field
+--                               based on input_type and the explicit default_value.
+
+CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
+RETURNS JSONB AS $$
+BEGIN
+    IF p_enum_values IS NULL OR jsonb_array_length(p_enum_values) = 0 THEN
+        RETURN p_enum_values;
+    END IF;
+    -- For non-required enums, ensure '' is in the allowed list so the implicit
+    -- empty-string default does not violate the CHECK constraint.
+    IF p_input_type IS DISTINCT FROM 'required' AND NOT (p_enum_values @> '[""]'::jsonb) THEN
+        RETURN p_enum_values || '[""]'::jsonb;
+    END IF;
+    RETURN p_enum_values;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION effective_enum_values IS
+'Returns the effective list of allowed enum values: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
+
+CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
+RETURNS TEXT AS $$
+BEGIN
+    -- Explicit default takes precedence
+    IF p_default_value IS NOT NULL AND trim(p_default_value) != '' THEN
+        RETURN p_default_value;
+    END IF;
+    -- Required enum without explicit default: pick the first allowed value
+    IF p_input_type = 'required'
+       AND p_enum_values IS NOT NULL
+       AND jsonb_array_length(p_enum_values) > 0 THEN
+        RETURN p_enum_values->>0;
+    END IF;
+    -- Non-required enum without explicit default: empty string
+    RETURN '';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION effective_enum_default IS
+'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
 
 -- Add is_nullable as a computed read-only column on the fields table.
 -- It is derived from the format column via the is_nullable() function above.
@@ -371,7 +421,7 @@ BEGIN
     END IF;
     
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(NEW.format);
+    v_data_type := format_to_data_type(NEW.format, NEW."precision");
     
     -- Build nullable clause based on format
     IF NEW.is_nullable THEN
@@ -381,27 +431,37 @@ BEGIN
     END IF;
     
     -- Build default clause with sensible defaults based on data type
-    IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
-        v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
-    ELSIF NOT NEW.is_nullable THEN
-        -- Provide sensible defaults for NOT NULL columns without explicit default
-        -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
-        IF v_data_type IN ('JSONB', 'JSON') THEN
-            v_default_clause := 'DEFAULT ''{}''::jsonb';
+    DECLARE
+        v_resolved_default TEXT;
+    BEGIN
+        IF NEW.format = 'enum' THEN
+            v_resolved_default := effective_enum_default(NEW.default_value, NEW.input_type, NEW.enum_values);
         ELSE
-            CASE v_data_type
-                WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
-                WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
-                WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
-                WHEN 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
-                WHEN 'TIMESTAMP', 'TIMESTAMPTZ' THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                WHEN 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                ELSE v_default_clause := '';
-            END CASE;
+            v_resolved_default := NEW.default_value;
         END IF;
-    ELSE
-        v_default_clause := '';
-    END IF;
+
+        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
+            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
+        ELSIF NOT NEW.is_nullable THEN
+            -- Provide sensible defaults for NOT NULL columns without explicit default
+            -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
+            IF v_data_type IN ('JSONB', 'JSON') THEN
+                v_default_clause := 'DEFAULT ''{}''::jsonb';
+            ELSE
+                CASE
+                    WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
+                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN v_default_clause := 'DEFAULT 0';
+                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION') OR v_data_type LIKE 'NUMERIC%' OR v_data_type LIKE 'DECIMAL%' THEN v_default_clause := 'DEFAULT 0.0';
+                    WHEN v_data_type = 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
+                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                    WHEN v_data_type = 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                    ELSE v_default_clause := '';
+                END CASE;
+            END IF;
+        ELSE
+            v_default_clause := '';
+        END IF;
+    END;
     
     -- Build ALTER TABLE statement
     v_alter_sql := format(
@@ -508,14 +568,18 @@ BEGIN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum JSONB;
         BEGIN
             -- Generate CHECK constraint name
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
             
+            -- Compute effective allowed values (adds '' for non-required enums)
+            v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
+
             -- Build SQL array from JSONB array for IN clause
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                FROM jsonb_array_elements_text(v_effective_enum) AS value
             );
             
             -- Add CHECK constraint
@@ -661,7 +725,7 @@ BEGIN
     
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
@@ -708,7 +772,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -795,11 +859,14 @@ BEGIN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
             
-            -- Check if enum_values changed or format changed
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+            -- Check if enum_values, input_type, or format changed
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+               OR (OLD.format <> NEW.format)
+               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
                 
                 -- Drop existing CHECK constraint if it exists
                 IF OLD.format = 'enum' THEN
@@ -813,10 +880,12 @@ BEGIN
                 
                 -- Add new CHECK constraint if format is now 'enum'
                 IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
+
                     -- Build SQL array from JSONB array for IN clause
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                        FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
                     
                     -- Add CHECK constraint
@@ -1358,7 +1427,11 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
-REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
+GRANT EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 -- Grant is_nullable to semantius_user: GENERATED ALWAYS columns evaluate their formula in the
 -- inserting user's context, so semantius_user needs EXECUTE to insert rows into the fields table.

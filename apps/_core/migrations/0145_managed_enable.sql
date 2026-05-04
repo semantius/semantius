@@ -36,7 +36,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(p_field.format);
+    v_data_type := format_to_data_type(p_field.format, p_field."precision");
 
     -- Build nullable clause
     IF p_field.is_nullable THEN
@@ -46,26 +46,37 @@ BEGIN
     END IF;
 
     -- Build default clause with sensible fallbacks for NOT NULL columns
-    IF p_field.default_value IS NOT NULL AND trim(p_field.default_value) != '' THEN
-        v_default_clause := format('DEFAULT %s', quote_default_value(p_field.default_value, v_data_type));
-    ELSIF NOT p_field.is_nullable THEN
-        IF v_data_type IN ('JSONB', 'JSON') THEN
-            v_default_clause := 'DEFAULT ''{}''::jsonb';
+    DECLARE
+        v_resolved_default TEXT;
+    BEGIN
+        IF p_field.format = 'enum' THEN
+            v_resolved_default := effective_enum_default(p_field.default_value, p_field.input_type, p_field.enum_values);
         ELSE
-            CASE v_data_type
-                WHEN 'TEXT'                                    THEN v_default_clause := 'DEFAULT ''''';
-                WHEN 'INTEGER', 'BIGINT', 'SMALLINT'           THEN v_default_clause := 'DEFAULT 0';
-                WHEN 'NUMERIC', 'DECIMAL', 'REAL',
-                     'DOUBLE PRECISION'                        THEN v_default_clause := 'DEFAULT 0.0';
-                WHEN 'BOOLEAN'                                 THEN v_default_clause := 'DEFAULT FALSE';
-                WHEN 'TIMESTAMP', 'TIMESTAMPTZ'               THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                WHEN 'DATE'                                    THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                ELSE v_default_clause := '';
-            END CASE;
+            v_resolved_default := p_field.default_value;
         END IF;
-    ELSE
-        v_default_clause := '';
-    END IF;
+
+        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
+            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
+        ELSIF NOT p_field.is_nullable THEN
+            IF v_data_type IN ('JSONB', 'JSON') THEN
+                v_default_clause := 'DEFAULT ''{}''::jsonb';
+            ELSE
+                CASE
+                    WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
+                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT')    THEN v_default_clause := 'DEFAULT 0';
+                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION')
+                         OR v_data_type LIKE 'NUMERIC%'
+                         OR v_data_type LIKE 'DECIMAL%'                       THEN v_default_clause := 'DEFAULT 0.0';
+                    WHEN v_data_type = 'BOOLEAN'                              THEN v_default_clause := 'DEFAULT FALSE';
+                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ')          THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                    WHEN v_data_type = 'DATE'                                 THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                    ELSE v_default_clause := '';
+                END CASE;
+            END IF;
+        ELSE
+            v_default_clause := '';
+        END IF;
+    END;
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -125,11 +136,13 @@ BEGIN
         DECLARE
             v_check_name      TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', p_field.table_name, p_field.field_name);
+            v_effective_enum := effective_enum_values(p_field.input_type, p_field.enum_values);
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(p_field.enum_values) AS value
+                FROM jsonb_array_elements_text(v_effective_enum) AS value
             );
             BEGIN
                 EXECUTE format(
@@ -416,8 +429,8 @@ BEGIN
 
     -- Handle format change
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format);
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_old_data_type := format_to_data_type(OLD.format, OLD."precision");
+        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
@@ -459,7 +472,7 @@ BEGIN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -533,10 +546,13 @@ BEGIN
         DECLARE
             v_check_name      TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
 
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+               OR (OLD.format <> NEW.format)
+               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
                 IF OLD.format = 'enum' THEN
                     EXECUTE format(
                         'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
@@ -549,9 +565,10 @@ BEGIN
                    AND NEW.enum_values IS NOT NULL
                    AND jsonb_array_length(NEW.enum_values) > 0
                 THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                        FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
