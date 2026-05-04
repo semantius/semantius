@@ -60,24 +60,24 @@ flowchart LR
     users -->|manages| job_openings
     users -->|recruits for| job_openings
     candidate_sources -->|sources| candidates
-    users -->|referred| candidates
-    candidates -->|applies via| job_applications
+    users -->|refers| candidates
+    candidates -->|submits| job_applications
     job_openings -->|receives| job_applications
-    application_stages -->|stages| job_applications
+    application_stages -->|groups| job_applications
     candidate_sources -->|sources| job_applications
-    users -->|assigned to| job_applications
+    users -->|handles| job_applications
     candidates -->|owns| candidate_documents
-    users -->|uploaded| candidate_documents
-    job_applications -->|has| application_notes
-    users -->|authored| application_notes
-    job_applications -->|has| interviews
+    users -->|uploads| candidate_documents
+    job_applications -->|records| application_notes
+    users -->|authors| application_notes
+    job_applications -->|schedules| interviews
     users -->|coordinates| interviews
-    interviews -->|has| interview_feedback
+    interviews -->|collects| interview_feedback
     users -->|gives| interview_feedback
-    job_applications -->|has| offers
+    job_applications -->|extends| offers
     users -->|approves| offers
-    job_openings -->|staffed by| hiring_team_members
-    users -->|on team| hiring_team_members
+    job_openings -->|includes| hiring_team_members
+    users -->|joins| hiring_team_members
 ```
 
 ## 3. Entities
@@ -95,8 +95,8 @@ flowchart LR
 |---|---|---|---|---|
 | `department_name` | `string` | yes | Department Name | label_column; unique |
 | `department_code` | `string` | no | Code | unique (e.g. `ENG`, `SALES`) |
-| `parent_department_id` | `reference` | no | Parent Department | → `departments` (N:1), self-reference for hierarchy |
-| `head_user_id` | `reference` | no | Department Head | → `users` (N:1) |
+| `parent_department_id` | `reference` | no | Parent Department | → `departments` (N:1), self-reference for hierarchy, relationship_label: "has children" |
+| `head_user_id` | `reference` | no | Department Head | → `users` (N:1), relationship_label: "heads" |
 
 **Relationships**
 
@@ -120,9 +120,9 @@ flowchart LR
 |---|---|---|---|---|
 | `job_title` | `string` | yes | Job Title | label_column |
 | `job_code` | `string` | no | Requisition Code | unique (e.g. `ENG-2026-014`) |
-| `department_id` | `reference` | yes | Department | → `departments` (N:1, restrict) |
-| `hiring_manager_id` | `reference` | yes | Hiring Manager | → `users` (N:1, restrict) |
-| `recruiter_id` | `reference` | no | Lead Recruiter | → `users` (N:1, clear) |
+| `department_id` | `reference` | yes | Department | → `departments` (N:1, restrict), relationship_label: "owns" |
+| `hiring_manager_id` | `reference` | yes | Hiring Manager | → `users` (N:1, restrict), relationship_label: "manages" |
+| `recruiter_id` | `reference` | no | Lead Recruiter | → `users` (N:1, clear), relationship_label: "recruits for" |
 | `employment_type` | `enum` | yes | Employment Type | values: `full_time`, `part_time`, `contract`, `internship`, `temporary` |
 | `work_arrangement` | `enum` | yes | Work Arrangement | values: `onsite`, `remote`, `hybrid` |
 | `location` | `string` | no | Location | |
@@ -131,8 +131,8 @@ flowchart LR
 | `opened_at` | `date` | no | Opened | |
 | `target_start_date` | `date` | no | Target Start Date | |
 | `filled_at` | `date` | no | Filled | |
-| `salary_min` | `float` | no | Salary Min | |
-| `salary_max` | `float` | no | Salary Max | |
+| `salary_min` | `number` | no | Salary Min | precision 2; monetary |
+| `salary_max` | `number` | no | Salary Max | precision 2; monetary |
 | `salary_currency` | `string` | no | Currency | ISO 4217 code (e.g. `USD`) |
 | `job_description` | `html` | no | Description | rich-text role description |
 | `job_requirements` | `text` | no | Requirements | required experience, skills, etc. |
@@ -213,8 +213,8 @@ flowchart LR
 | `current_job_title` | `string` | no | Current Job Title | |
 | `location_city` | `string` | no | City | |
 | `location_country` | `string` | no | Country | |
-| `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear) |
-| `referrer_user_id` | `reference` | no | Referred By | → `users` (N:1, clear) — the employee who made the referral, when source is a referral |
+| `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear), relationship_label: "sources" |
+| `referrer_user_id` | `reference` | no | Referred By | → `users` (N:1, clear) — the employee who made the referral, when source is a referral, relationship_label: "refers" |
 | `candidate_status` | `enum` | yes | Candidate Status | values: `active`, `hired`, `archived`, `do_not_contact` |
 | `notes` | `text` | no | Notes | candidate-level notes (vs application-level) |
 
@@ -239,13 +239,13 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `application_label` | `string` | yes | Application | label_column; caller composes on insert (e.g. `"{candidate.full_name} → {job_opening.job_title}"`) |
-| `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade) |
-| `job_opening_id` | `reference` | yes | Job Opening | → `job_openings` (N:1, restrict) — preserves history if a job is closed |
-| `current_stage_id` | `reference` | yes | Current Stage | → `application_stages` (N:1, restrict) |
+| `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade), relationship_label: "submits" |
+| `job_opening_id` | `reference` | yes | Job Opening | → `job_openings` (N:1, restrict) — preserves history if a job is closed, relationship_label: "receives" |
+| `current_stage_id` | `reference` | yes | Current Stage | → `application_stages` (N:1, restrict), relationship_label: "groups" |
 | `status` | `enum` | yes | Status | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold` |
-| `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear) |
+| `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear), relationship_label: "sources" |
 | `applied_at` | `date-time` | yes | Applied At | |
-| `assigned_recruiter_id` | `reference` | no | Assigned Recruiter | → `users` (N:1, clear) |
+| `assigned_recruiter_id` | `reference` | no | Assigned Recruiter | → `users` (N:1, clear), relationship_label: "handles" |
 | `rejection_reason` | `enum` | no | Rejection Reason | values: `not_qualified`, `withdrew`, `position_filled`, `no_show`, `salary_mismatch`, `location_mismatch`, `culture_fit`, `other` |
 | `rejected_at` | `date-time` | no | Rejected At | |
 | `hired_at` | `date-time` | no | Hired At | |
@@ -273,12 +273,12 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `document_label` | `string` | yes | Document | label_column; caller composes (e.g. `"Resume — Jane Doe"`) |
-| `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade) |
+| `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade), relationship_label: "owns" |
 | `document_type` | `enum` | yes | Document Type | values: `resume`, `cover_letter`, `portfolio`, `work_sample`, `certification`, `reference_letter`, `other` |
 | `file_url` | `url` | yes | File URL | external storage URL |
 | `file_name` | `string` | no | File Name | original uploaded filename |
 | `uploaded_at` | `date-time` | yes | Uploaded At | |
-| `uploaded_by_user_id` | `reference` | no | Uploaded By | → `users` (N:1, clear) |
+| `uploaded_by_user_id` | `reference` | no | Uploaded By | → `users` (N:1, clear), relationship_label: "uploads" |
 
 **Relationships**
 
@@ -299,8 +299,8 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `note_subject` | `string` | yes | Subject | label_column; short summary line |
-| `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade) |
-| `author_user_id` | `reference` | yes | Author | → `users` (N:1, restrict) — preserves authorship audit trail |
+| `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade), relationship_label: "records" |
+| `author_user_id` | `reference` | yes | Author | → `users` (N:1, restrict) — preserves authorship audit trail, relationship_label: "authors" |
 | `note_body` | `text` | yes | Note | |
 | `visibility` | `enum` | yes | Visibility | values: `hiring_team`, `recruiter_only`, `public` |
 | `noted_at` | `date-time` | yes | Noted At | |
@@ -324,14 +324,14 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `interview_label` | `string` | yes | Interview | label_column; caller composes (e.g. `"Tech Phone Screen — Jane Doe"`) |
-| `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade) |
+| `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade), relationship_label: "schedules" |
 | `interview_kind` | `enum` | yes | Kind | values: `phone_screen`, `video_call`, `onsite`, `technical`, `take_home`, `panel`, `final`, `reference_check` |
 | `scheduled_start` | `date-time` | yes | Start | |
 | `scheduled_end` | `date-time` | yes | End | |
 | `location` | `string` | no | Location | physical location for `onsite` interviews |
 | `meeting_url` | `url` | no | Meeting URL | video-call link |
 | `status` | `enum` | yes | Status | values: `scheduled`, `completed`, `cancelled`, `no_show`, `rescheduled` |
-| `coordinator_user_id` | `reference` | no | Coordinator | → `users` (N:1, clear) |
+| `coordinator_user_id` | `reference` | no | Coordinator | → `users` (N:1, clear), relationship_label: "coordinates" |
 
 **Relationships**
 
@@ -353,8 +353,8 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `feedback_label` | `string` | yes | Feedback | label_column; caller composes (e.g. `"Alex Kim — Tech Phone Screen for Jane Doe"`) |
-| `interview_id` | `parent` | yes | Interview | ↳ `interviews` (N:1, cascade) |
-| `interviewer_user_id` | `reference` | yes | Interviewer | → `users` (N:1, restrict) — preserves authorship |
+| `interview_id` | `parent` | yes | Interview | ↳ `interviews` (N:1, cascade), relationship_label: "collects" |
+| `interviewer_user_id` | `reference` | yes | Interviewer | → `users` (N:1, restrict) — preserves authorship, relationship_label: "gives" |
 | `overall_rating` | `enum` | no | Overall Rating | values: `strong_yes`, `yes`, `lean_yes`, `lean_no`, `no`, `strong_no` |
 | `recommendation` | `enum` | no | Recommendation | values: `advance`, `hold`, `reject` |
 | `strengths` | `text` | no | Strengths | |
@@ -382,18 +382,18 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `offer_label` | `string` | yes | Offer | label_column; caller composes (e.g. `"Offer — Jane Doe — Senior Engineer"`) |
-| `application_id` | `reference` | yes | Application | → `job_applications` (N:1, restrict) |
+| `application_id` | `reference` | yes | Application | → `job_applications` (N:1, restrict), relationship_label: "extends" |
 | `status` | `enum` | yes | Status | values: `draft`, `pending_approval`, `approved`, `sent`, `accepted`, `declined`, `rescinded`, `expired` |
-| `base_salary` | `float` | yes | Base Salary | |
+| `base_salary` | `number` | yes | Base Salary | precision 2; monetary |
 | `salary_currency` | `string` | yes | Currency | ISO 4217 code |
-| `bonus_target` | `float` | no | Bonus Target | annual on-target bonus |
+| `bonus_target` | `number` | no | Bonus Target | annual on-target bonus; precision 2; monetary |
 | `equity_amount` | `string` | no | Equity | free-text (shares, RSU value, percentages vary) |
 | `start_date` | `date` | no | Start Date | proposed start date |
 | `offer_extended_at` | `date-time` | no | Extended At | timestamp the offer was sent to the candidate |
 | `offer_expires_at` | `date-time` | no | Expires At | |
 | `candidate_response` | `enum` | yes | Candidate Response | values: `pending`, `accepted`, `declined`, `no_response` |
 | `responded_at` | `date-time` | no | Responded At | |
-| `approver_user_id` | `reference` | no | Approver | → `users` (N:1, clear) |
+| `approver_user_id` | `reference` | no | Approver | → `users` (N:1, clear), relationship_label: "approves" |
 
 **Relationships**
 
@@ -414,8 +414,8 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `team_member_label` | `string` | yes | Team Member | label_column; caller composes (e.g. `"Alex Kim — Hiring Manager — Senior Engineer"`) |
-| `job_opening_id` | `parent` | yes | Job Opening | ↳ `job_openings` (N:1, cascade) |
-| `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade) |
+| `job_opening_id` | `parent` | yes | Job Opening | ↳ `job_openings` (N:1, cascade), relationship_label: "includes" |
+| `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade), relationship_label: "joins" |
 | `team_role` | `enum` | yes | Role | values: `recruiter`, `hiring_manager`, `interviewer`, `coordinator`, `executive_sponsor` |
 | `assigned_at` | `date-time` | yes | Assigned At | |
 | `is_active` | `boolean` | yes | Active | default `true` — set `false` to remove from team without deleting history |
@@ -443,7 +443,7 @@ flowchart LR
 | `first_name` | `string` | no | First Name | |
 | `last_name` | `string` | no | Last Name | |
 | `job_title` | `string` | no | Job Title | this user's own job title at the company |
-| `department_id` | `reference` | no | Department | → `departments` (N:1, clear) |
+| `department_id` | `reference` | no | Department | → `departments` (N:1, clear), relationship_label: "employs" |
 | `is_active` | `boolean` | yes | Active | default `true` |
 
 **Relationships**

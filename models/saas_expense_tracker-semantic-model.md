@@ -104,8 +104,8 @@ flowchart LR
 | `website_url` | `url` | no | Product Website | |
 | `billing_cycle` | `enum` | yes | Billing Cycle | values listed in §5.3; default: "monthly" |
 | `seat_count` | `integer` | no | Seat Count | |
-| `unit_price` | `float` | no | Unit Price | price per seat per billing cycle |
-| `recurring_amount` | `float` | yes | Recurring Amount | total per billing cycle (base currency) |
+| `unit_price` | `number` | no | Unit Price | precision: 2; price per seat per billing cycle |
+| `recurring_amount` | `number` | yes | Recurring Amount | precision: 2; total per billing cycle (base currency) |
 | `start_date` | `date` | yes | Start Date | |
 | `end_date` | `date` | no | End Date | |
 | `auto_renew` | `boolean` | no | Auto-Renew | |
@@ -113,9 +113,9 @@ flowchart LR
 | `payment_terms` | `enum` | no | Payment Terms | values listed in §5.5 |
 | `contract_number` | `string` | no | Contract Number | from the signed agreement, if any |
 | `signed_date` | `date` | no | Contract Signed Date | |
-| `total_contract_value` | `float` | no | Total Contract Value | whole-contract value if multi-period |
+| `total_contract_value` | `number` | no | Total Contract Value | precision: 2; whole-contract value if multi-period |
 | `renewal_notice_days` | `integer` | no | Renewal Notice Days | days before `end_date` to give notice |
-| `negotiated_savings` | `float` | no | Negotiated Savings | vs list price |
+| `negotiated_savings` | `number` | no | Negotiated Savings | precision: 2; vs list price |
 | `document_url` | `url` | no | Contract Document | signed PDF link |
 | `status` | `enum` | yes | Status | values listed in §5.6; default: "pending" |
 | `notes` | `text` | no | Notes | |
@@ -168,7 +168,7 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `period_name` | `string` | yes | Period Name | label_column; e.g. "FY2026", "Q1 2026" |
+| `period_name` | `string` | yes | Period Name | label_column; unique; e.g. "FY2026", "Q1 2026" |
 | `period_type` | `enum` | yes | Period Type | values listed in §5.8; default: "fiscal_year" |
 | `start_date` | `date` | yes | Start Date | |
 | `end_date` | `date` | yes | End Date | |
@@ -195,7 +195,7 @@ flowchart LR
 | `department_id` | `reference` | no | Department | → `departments` (N:1, clear), relationship_label: "allocates" |
 | `subscription_id` | `reference` | no | Subscription | → `subscriptions` (N:1, clear); null if allocated at category level, relationship_label: "forecasts" |
 | `category` | `enum` | no | Category | values listed in §5.10 |
-| `planned_amount` | `float` | yes | Planned Amount | base currency |
+| `planned_amount` | `number` | yes | Planned Amount | precision: 2; base currency |
 | `notes` | `text` | no | Notes | |
 
 **Relationships**
@@ -221,7 +221,7 @@ flowchart LR
 | `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade), relationship_label: "holds" |
 | `assigned_date` | `date` | no | Assigned Date | |
 | `last_active_date` | `date` | no | Last Active | for unused-license detection |
-| `monthly_cost_allocation` | `float` | no | Monthly Cost Allocation | per-seat chargeback |
+| `monthly_cost_allocation` | `number` | no | Monthly Cost Allocation | precision: 2; per-seat chargeback |
 | `status` | `enum` | yes | Status | values listed in §5.11; default: "active" |
 
 **Relationships**
@@ -317,14 +317,11 @@ flowchart LR
 - `net_60`
 - `net_90`
 - `prepaid`
-- `monthly`
-- `quarterly`
-- `annual`
 
 ### 5.6 `subscriptions.status`
-- `active`
-- `trialing`
 - `pending`
+- `trialing`
+- `active`
 - `cancelled`
 - `expired`
 - `deprecated`

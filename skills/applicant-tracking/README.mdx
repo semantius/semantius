@@ -1,13 +1,13 @@
 ---
 title: Applicant Tracking Skill
-description: Tracks candidates from application to hire so the right pieces always get filled in in the right order.
+description: Tracks candidates through requisitions, applications, interviews, offers, and hires.
 ---
 
 # Applicant Tracking Skill
 
 An applicant tracking system used by an in-house recruiting team to manage open job requisitions, the candidates considered for them, and the full hiring funnel from application through interviews to offer. Primary users are recruiters, hiring managers, and interviewers; the system records who applied for what, where they are in the pipeline, what feedback interviewers gave, and what offers were extended and accepted.
 
-The Applicant Tracking model tracks every step of a hire, from a candidate's first application through interview rounds to a recorded acceptance. The Applicant Tracking Skill teaches an agent how to use that model to track candidates through the funnel reliably and the same way every time, with the paired updates that should accompany each move and the knock-on changes that should fire when an offer is accepted. Without it, an offer can be sent with no recorded approver; a rejection can land with no reason on file and quietly blank the funnel report; a candidate can accept while the requisition stays open and the same person sits on the hiring team twice over.
+The Applicant Tracking model tracks every step of a hire, from a candidate's first application through interview rounds to a recorded acceptance. The Applicant Tracking Skill teaches an agent how to use that model to track candidates through the funnel reliably and the same way every time, so the right pieces always get filled in in the right order. Without it, an offer can go out with no recorded approver; a rejection can land with no reason on file and quietly blank the funnel report; a candidate can accept while the requisition stays open and the same person sits on the hiring team twice over.
 
 ## Sample prompts
 
@@ -34,22 +34,22 @@ flowchart LR
     users -->|manages| job_openings
     users -->|recruits for| job_openings
     candidate_sources -->|sources| candidates
-    users -->|referred| candidates
-    candidates -->|applies via| job_applications
+    users -->|refers| candidates
+    candidates -->|submits| job_applications
     job_openings -->|receives| job_applications
-    application_stages -->|stages| job_applications
+    application_stages -->|groups| job_applications
     candidate_sources -->|sources| job_applications
-    users -->|assigned to| job_applications
+    users -->|handles| job_applications
     candidates -->|owns| candidate_documents
-    users -->|uploaded| candidate_documents
-    job_applications -->|has| application_notes
-    users -->|authored| application_notes
-    job_applications -->|has| interviews
+    users -->|uploads| candidate_documents
+    job_applications -->|records| application_notes
+    users -->|authors| application_notes
+    job_applications -->|schedules| interviews
     users -->|coordinates| interviews
-    interviews -->|has| interview_feedback
+    interviews -->|collects| interview_feedback
     users -->|gives| interview_feedback
-    job_applications -->|has| offers
+    job_applications -->|extends| offers
     users -->|approves| offers
-    job_openings -->|staffed by| hiring_team_members
-    users -->|on team| hiring_team_members
+    job_openings -->|includes| hiring_team_members
+    users -->|joins| hiring_team_members
 ```

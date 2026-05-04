@@ -7,7 +7,7 @@ departments:
   - HR
   - Finance
 naming_mode: agent-optimized
-created_at: 2026-04-26
+created_at: 2026-05-04
 entities:
   - departments
   - locations
@@ -89,12 +89,12 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `department_name` | `string` | yes | Name | unique |
+| `department_name` | `string` | yes | Name | unique; default: `""` |
 | `department_code` | `string` | no | Code | unique; short code, e.g. `ENG`, `SLS` |
-| `parent_department_id` | `reference` | no | Parent Department | → `departments` (N:1, self) |
-| `head_employee_id` | `reference` | no | Department Head | → `employees` (N:1) |
+| `parent_department_id` | `reference` | no | Parent Department | → `departments` (N:1, self), relationship_label: `"parent of"` |
+| `head_employee_id` | `reference` | no | Department Head | → `employees` (N:1), relationship_label: `"heads"` |
 | `description` | `text` | no | Description | |
-| `is_active` | `boolean` | yes | Active | |
+| `is_active` | `boolean` | yes | Active | default: `true` |
 
 **Relationships**
 
@@ -117,13 +117,13 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `location_name` | `string` | yes | Name | |
+| `location_name` | `string` | yes | Name | default: `""` |
 | `location_type` | `enum` | yes | Type | values: `office`, `remote_pool`, `hybrid_hub`, `field` |
 | `city` | `string` | no | City | |
 | `region` | `string` | no | Region / State | |
 | `country` | `string` | no | Country | ISO-2 or full name |
 | `timezone` | `string` | no | Time Zone | IANA, e.g. `Europe/Berlin` |
-| `is_active` | `boolean` | yes | Active | |
+| `is_active` | `boolean` | yes | Active | default: `true` |
 
 **Relationships**
 
@@ -138,18 +138,17 @@ flowchart LR
 **Plural label:** Cost Centers
 **Label column:** `cost_center_code`
 **Audit log:** no
-**Description:** A financial bucket against which headcount cost is budgeted and reported. Often (but not always) maps 1:1 with a department. Carries a currency for multi-currency budgeting support.
+**Description:** A financial bucket against which headcount cost is budgeted and reported. Often (but not always) maps 1:1 with a department.
 
 **Fields**
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `cost_center_code` | `string` | yes | Code | unique |
-| `cost_center_name` | `string` | yes | Name | |
-| `primary_department_id` | `reference` | no | Primary Department | → `departments` (N:1) |
-| `owner_employee_id` | `reference` | no | Owner | → `employees` (N:1) |
-| `currency_code` | `string` | yes | Currency | ISO-4217, e.g. `USD`, `EUR` |
-| `is_active` | `boolean` | yes | Active | |
+| `cost_center_code` | `string` | yes | Code | unique; default: `""` |
+| `cost_center_name` | `string` | yes | Name | default: `""` |
+| `primary_department_id` | `reference` | no | Primary Department | → `departments` (N:1), relationship_label: `"primary dept for"` |
+| `owner_employee_id` | `reference` | no | Owner | → `employees` (N:1), relationship_label: `"owns"` |
+| `is_active` | `boolean` | yes | Active | default: `true` |
 
 **Relationships**
 
@@ -171,16 +170,15 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `job_name` | `string` | yes | Name | e.g. "Senior Software Engineer" |
+| `job_name` | `string` | yes | Name | e.g. "Senior Software Engineer"; default: `""` |
 | `job_code` | `string` | no | Code | unique |
 | `job_family` | `string` | no | Job Family | e.g. `Engineering`, `Sales` |
 | `job_level` | `string` | no | Level | e.g. `L4`, `Manager`, `Director` |
 | `job_type` | `enum` | yes | Type | values: `individual_contributor`, `people_manager`, `executive` |
 | `description` | `text` | no | Description | |
-| `min_annual_compensation` | `float` | no | Min Annual Compensation | comp band low |
-| `max_annual_compensation` | `float` | no | Max Annual Compensation | comp band high |
-| `compensation_currency` | `string` | no | Compensation Currency | ISO-4217 |
-| `is_active` | `boolean` | yes | Active | |
+| `min_annual_compensation` | `number` | no | Min Annual Compensation | precision: 2; comp band low |
+| `max_annual_compensation` | `number` | no | Max Annual Compensation | precision: 2; comp band high |
+| `is_active` | `boolean` | yes | Active | default: `true` |
 
 **Relationships**
 
@@ -200,15 +198,15 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `employee_full_name` | `string` | yes | Full Name | |
+| `employee_full_name` | `string` | yes | Full Name | default: `""` |
 | `employee_number` | `string` | no | Employee Number | unique |
 | `work_email` | `email` | no | Work Email | unique |
 | `employment_type` | `enum` | yes | Employment Type | values: `full_time`, `part_time`, `contractor`, `intern` |
 | `employment_status` | `enum` | yes | Employment Status | values: `pending_start`, `active`, `on_leave`, `terminated` |
 | `hire_date` | `date` | no | Hire Date | |
 | `termination_date` | `date` | no | Termination Date | |
-| `manager_employee_id` | `reference` | no | Manager | → `employees` (N:1, self) |
-| `home_location_id` | `reference` | no | Home Location | → `locations` (N:1) |
+| `manager_employee_id` | `reference` | no | Manager | → `employees` (N:1, self), relationship_label: `"manages"` |
+| `home_location_id` | `reference` | no | Home Location | → `locations` (N:1), relationship_label: `"home for"` |
 
 **Relationships**
 
@@ -234,22 +232,21 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `position_code` | `string` | yes | Position Code | unique, e.g. `POS-00123` |
-| `position_status` | `enum` | yes | Status | values: `filled`, `open`, `approved_future`, `on_hold`, `eliminated` |
-| `job_id` | `reference` | yes | Job | → `jobs` (N:1) |
-| `department_id` | `reference` | yes | Department | → `departments` (N:1) |
-| `location_id` | `reference` | yes | Location | → `locations` (N:1) |
-| `cost_center_id` | `reference` | yes | Cost Center | → `cost_centers` (N:1) |
-| `current_employee_id` | `reference` | no | Current Employee | → `employees` (N:1); unique — at most one position per employee |
-| `fte` | `float` | yes | FTE | 1.0 = full-time, 0.5 = half-time |
+| `position_code` | `string` | yes | Position Code | unique, e.g. `POS-00123`; default: `""` |
+| `position_status` | `enum` | yes | Status | values: `open`, `filled`, `approved_future`, `on_hold`, `eliminated` |
+| `job_id` | `reference` | yes | Job | → `jobs` (N:1), relationship_label: `"templates"` |
+| `department_id` | `reference` | yes | Department | → `departments` (N:1), relationship_label: `"contains"` |
+| `location_id` | `reference` | yes | Location | → `locations` (N:1), relationship_label: `"hosts"` |
+| `cost_center_id` | `reference` | yes | Cost Center | → `cost_centers` (N:1), relationship_label: `"funds"` |
+| `current_employee_id` | `reference` | no | Current Employee | → `employees` (N:1); unique — at most one position per employee, relationship_label: `"fills"` |
+| `fte` | `number` | yes | FTE | precision: 2; 1.0 = full-time, 0.5 = half-time; default: `1.0` |
 | `target_start_date` | `date` | no | Target Start Date | for `approved_future` and `open` |
 | `actual_start_date` | `date` | no | Actual Start Date | when the seat became `filled` |
 | `end_date` | `date` | no | End Date | when the seat was `eliminated` |
-| `budgeted_annual_cost` | `float` | no | Budgeted Annual Cost | |
-| `budget_currency` | `string` | no | Budget Currency | ISO-4217 |
+| `budgeted_annual_cost` | `number` | no | Budgeted Annual Cost | precision: 2 |
 | `is_backfill` | `boolean` | no | Is Backfill | |
-| `backfill_for_position_id` | `reference` | no | Backfill For | → `positions` (N:1, self) |
-| `originated_from_action_id` | `reference` | no | Originated From Action | → `headcount_actions` (N:1); set when committed from a scenario |
+| `backfill_for_position_id` | `reference` | no | Backfill For | → `positions` (N:1, self), relationship_label: `"backfilled by"` |
+| `originated_from_action_id` | `reference` | no | Originated From Action | → `headcount_actions` (N:1); set when committed from a scenario, relationship_label: `"materializes as"` |
 | `notes` | `text` | no | Notes | |
 
 **Relationships**
@@ -274,15 +271,15 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `plan_name` | `string` | yes | Name | e.g. "FY2026 Headcount Plan" |
+| `plan_name` | `string` | yes | Name | e.g. "FY2026 Headcount Plan"; default: `""` |
 | `plan_status` | `enum` | yes | Status | values: `draft`, `in_review`, `approved`, `active`, `archived` |
 | `fiscal_year_label` | `string` | no | Fiscal Year | e.g. `FY2026` |
 | `start_date` | `date` | yes | Start Date | |
 | `end_date` | `date` | yes | End Date | |
-| `owner_employee_id` | `reference` | no | Plan Owner | → `employees` (N:1) |
+| `owner_employee_id` | `reference` | no | Plan Owner | → `employees` (N:1), relationship_label: `"owns"` |
 | `description` | `text` | no | Description | |
 | `approved_at` | `date-time` | no | Approved At | |
-| `approved_by_employee_id` | `reference` | no | Approved By | → `employees` (N:1) |
+| `approved_by_employee_id` | `reference` | no | Approved By | → `employees` (N:1), relationship_label: `"approves"` |
 
 **Relationships**
 
@@ -302,14 +299,14 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `scenario_name` | `string` | yes | Name | e.g. "Base Case", "Aggressive Growth" |
-| `headcount_plan_id` | `parent` | yes | Plan | ↳ `headcount_plans` (N:1, cascade) |
+| `scenario_name` | `string` | yes | Name | e.g. "Base Case", "Aggressive Growth"; default: `""` |
+| `headcount_plan_id` | `parent` | yes | Plan | ↳ `headcount_plans` (N:1, cascade), relationship_label: `"contains"` |
 | `scenario_type` | `enum` | yes | Type | values: `base`, `optimistic`, `conservative`, `custom` |
 | `scenario_status` | `enum` | yes | Status | values: `draft`, `in_review`, `approved`, `archived` |
-| `is_active_for_plan` | `boolean` | yes | Active for Plan | exactly one per plan should be `true` |
+| `is_active_for_plan` | `boolean` | yes | Active for Plan | exactly one per plan should be `true`; default: `false` |
 | `description` | `text` | no | Description | |
 | `committed_at` | `date-time` | no | Committed At | when actions were materialized into positions |
-| `created_by_employee_id` | `reference` | no | Created By | → `employees` (N:1) |
+| `created_by_employee_id` | `reference` | no | Created By | → `employees` (N:1), relationship_label: `"creates"` |
 
 **Relationships**
 
@@ -330,19 +327,18 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `action_label` | `string` | yes | Label | caller populates |
-| `scenario_id` | `parent` | yes | Scenario | ↳ `scenarios` (N:1, cascade) |
+| `action_label` | `string` | yes | Action | caller populates; default: `""` |
+| `scenario_id` | `parent` | yes | Scenario | ↳ `scenarios` (N:1, cascade), relationship_label: `"contains"` |
 | `action_type` | `enum` | yes | Action Type | values: `add`, `eliminate`, `transfer` |
 | `action_status` | `enum` | yes | Status | values: `proposed`, `in_review`, `approved`, `committed`, `rejected` |
-| `target_position_id` | `reference` | no | Target Position | → `positions` (N:1); required for `eliminate`/`transfer`, null for `add` |
-| `job_id` | `reference` | no | Job | → `jobs` (N:1); required for `add` |
-| `department_id` | `reference` | no | Department | → `departments` (N:1); required for `add`, target dept for `transfer` |
-| `location_id` | `reference` | no | Location | → `locations` (N:1); required for `add`, target loc for `transfer` |
-| `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1); required for `add`, target cc for `transfer` |
+| `target_position_id` | `reference` | no | Target Position | → `positions` (N:1); required for `eliminate`/`transfer`, null for `add`, relationship_label: `"targeted by"` |
+| `job_id` | `reference` | no | Job | → `jobs` (N:1); required for `add`, relationship_label: `"specified in"` |
+| `department_id` | `reference` | no | Department | → `departments` (N:1); required for `add`, target dept for `transfer`, relationship_label: `"target of"` |
+| `location_id` | `reference` | no | Location | → `locations` (N:1); required for `add`, target loc for `transfer`, relationship_label: `"target of"` |
+| `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1); required for `add`, target cc for `transfer`, relationship_label: `"target of"` |
 | `effective_date` | `date` | yes | Effective Date | |
-| `fte` | `float` | no | FTE | for `add` |
-| `budgeted_annual_cost` | `float` | no | Budgeted Annual Cost | for `add` |
-| `budget_currency` | `string` | no | Budget Currency | ISO-4217 |
+| `fte` | `number` | no | FTE | precision: 2; for `add` |
+| `budgeted_annual_cost` | `number` | no | Budgeted Annual Cost | precision: 2; for `add` |
 | `justification` | `text` | no | Justification | |
 
 **Relationships**
@@ -365,11 +361,11 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `requisition_number` | `string` | yes | Requisition Number | unique, e.g. `REQ-2026-0123` |
-| `position_id` | `reference` | yes | Position | → `positions` (N:1, restrict) |
+| `requisition_number` | `string` | yes | Requisition Number | unique, e.g. `REQ-2026-0123`; default: `""` |
+| `position_id` | `reference` | yes | Position | → `positions` (N:1, restrict), relationship_label: `"opens"` |
 | `requisition_status` | `enum` | yes | Status | values: `open`, `on_hold`, `filled`, `cancelled` |
-| `recruiter_employee_id` | `reference` | no | Recruiter | → `employees` (N:1) |
-| `hiring_manager_employee_id` | `reference` | no | Hiring Manager | → `employees` (N:1) |
+| `recruiter_employee_id` | `reference` | no | Recruiter | → `employees` (N:1), relationship_label: `"recruits"` |
+| `hiring_manager_employee_id` | `reference` | no | Hiring Manager | → `employees` (N:1), relationship_label: `"hiring manager for"` |
 | `opened_date` | `date` | yes | Opened Date | |
 | `target_fill_date` | `date` | no | Target Fill Date | |
 | `filled_date` | `date` | no | Filled Date | |
@@ -438,8 +434,8 @@ flowchart LR
 - `terminated`
 
 ### 5.5 `positions.position_status`
-- `filled`
 - `open`
+- `filled`
 - `approved_future`
 - `on_hold`
 - `eliminated`
@@ -498,7 +494,6 @@ None.
 - Should the lightweight `hiring_requisitions` be replaced or extended by a full ATS module (`candidates`, `applications`, `interview_stages`, `offers`) when recruiting moves into this system?
 - Should `employees` carry an optional `user_id` link to the platform's built-in `users` for SSO/login integration, with deduplication handled at deploy time?
 - Should `cost_centers` ↔ `departments` become an M:N junction to support orgs where a department is funded by multiple cost centers, rather than the current single `primary_department_id` reference?
-- Should `compensation_currency` on `jobs` and `budget_currency` on `positions`/`headcount_actions` be promoted from a string field to a `currencies` lookup entity once the active currency list stabilizes?
 
 ## 7. Implementation notes for the downstream agent
 
@@ -515,7 +510,7 @@ None.
    - `"positions.position_code"` → title `"Position Code"`
    - `"headcount_plans.plan_name"` → title `"Name"`
    - `"scenarios.scenario_name"` → title `"Name"`
-   - `"headcount_actions.action_label"` → title `"Label"`
+   - `"headcount_actions.action_label"` → title `"Action"`
    - `"hiring_requisitions.requisition_number"` → title `"Requisition Number"`
 6. **Deduplicate against Semantius built-in tables.** This model is self-contained but does not currently declare any entity that overlaps with the Semantius built-ins (`users`, `roles`, `permissions`, etc.). No deduplication action is required for this model. If a future extension declares any built-in (e.g. linking `employees.user_id` to `users`), read Semantius first and reuse the built-in as the `reference_table` target rather than recreating it.
 7. After creation, spot-check: every `label_column` resolves to a real field; every `reference_table` target exists; the `is_active_for_plan` boolean on `scenarios` has a uniqueness expectation per `headcount_plan_id` (enforce via application logic if the platform does not support partial unique indexes); `positions.current_employee_id` has `unique_value: true` set.
