@@ -68,6 +68,8 @@ const { id, message, link, linkText } = Astro.props;
     }
 
     dismissBtn.addEventListener('click', () => {
+        window.posthog?.capture('announcement_banner_dismissed', { banner_id: id });
+
         // Hide with animation
         const animation = banner.animate([
             { height: 'auto', opacity: '1' },
@@ -82,5 +84,12 @@ const { id, message, link, linkText } = Astro.props;
             localStorage.setItem(storageKey, 'true');
         };
     });
+
+    const ctaLink = banner.querySelector('a[href]');
+    if (ctaLink) {
+      ctaLink.addEventListener('click', () => {
+        window.posthog?.capture('announcement_banner_cta_clicked', { banner_id: id, href: ctaLink.getAttribute('href') });
+      });
+    }
   }
 </script>

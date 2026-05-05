@@ -66,11 +66,13 @@ import { Cookie, X } from 'lucide-react';
         localStorage.setItem('cookie_consent', 'accepted');
         window.dispatchEvent(new CustomEvent('consent:granted'));
         hideBanner();
+        window.posthog?.capture('cookie_consent_accepted');
     });
 
     declineBtn.addEventListener('click', () => {
         localStorage.setItem('cookie_consent', 'declined');
         hideBanner();
+        window.posthog?.capture('cookie_consent_declined');
     });
 
     closeBtn.addEventListener('click', () => {

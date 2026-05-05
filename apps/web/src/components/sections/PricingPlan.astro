@@ -39,14 +39,27 @@ const { name, price, description, features, cta, popular = false } = Astro.props
     ))}
   </ul>
 
-  <a 
+  <a
     href={`https://app.semantius.com/auth/sign-up?plan=${name.toLowerCase()}`}
-    class={`block w-full py-3 px-6 rounded-xl text-center font-medium transition-all ${
-        popular 
-        ? 'bg-primary text-white hover:bg-primary/90 hover:scale-105' 
+    data-plan={name.toLowerCase()}
+    data-cta={cta}
+    class={`pricing-plan-cta block w-full py-3 px-6 rounded-xl text-center font-medium transition-all ${
+        popular
+        ? 'bg-primary text-white hover:bg-primary/90 hover:scale-105'
         : 'bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20'
     }`}
   >
     {cta}
   </a>
 </div>
+
+<script is:inline>
+  document.querySelectorAll('.pricing-plan-cta').forEach(function(el) {
+    el.addEventListener('click', function() {
+      window.posthog?.capture('pricing_plan_cta_clicked', {
+        plan: el.getAttribute('data-plan'),
+        cta_label: el.getAttribute('data-cta')
+      });
+    });
+  });
+</script>

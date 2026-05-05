@@ -7,7 +7,7 @@ departments:
   - HR
   - Finance
 naming_mode: agent-optimized
-created_at: 2026-05-04
+created_at: 2026-05-05
 entities:
   - departments
   - locations
@@ -19,6 +19,10 @@ entities:
   - scenarios
   - headcount_actions
   - hiring_requisitions
+related_models:
+  - applicant_tracking
+  - hris
+  - finance
 initial_request: |
   I need to plan the workforce for my org
 ---
@@ -68,9 +72,9 @@ flowchart LR
     scenarios -->|contains| headcount_actions
     positions -->|targeted by| headcount_actions
     jobs -->|specified in| headcount_actions
-    departments -->|target of| headcount_actions
-    locations -->|target of| headcount_actions
-    cost_centers -->|target of| headcount_actions
+    departments -->|scopes| headcount_actions
+    locations -->|places| headcount_actions
+    cost_centers -->|funds| headcount_actions
     positions -->|opens| hiring_requisitions
     employees -->|recruits| hiring_requisitions
     employees -->|hiring manager for| hiring_requisitions
@@ -333,9 +337,9 @@ flowchart LR
 | `action_status` | `enum` | yes | Status | values: `proposed`, `in_review`, `approved`, `committed`, `rejected` |
 | `target_position_id` | `reference` | no | Target Position | → `positions` (N:1); required for `eliminate`/`transfer`, null for `add`, relationship_label: `"targeted by"` |
 | `job_id` | `reference` | no | Job | → `jobs` (N:1); required for `add`, relationship_label: `"specified in"` |
-| `department_id` | `reference` | no | Department | → `departments` (N:1); required for `add`, target dept for `transfer`, relationship_label: `"target of"` |
-| `location_id` | `reference` | no | Location | → `locations` (N:1); required for `add`, target loc for `transfer`, relationship_label: `"target of"` |
-| `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1); required for `add`, target cc for `transfer`, relationship_label: `"target of"` |
+| `department_id` | `reference` | no | Department | → `departments` (N:1); required for `add`, target dept for `transfer`, relationship_label: `"scopes"` |
+| `location_id` | `reference` | no | Location | → `locations` (N:1); required for `add`, target loc for `transfer`, relationship_label: `"places"` |
+| `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1); required for `add`, target cc for `transfer`, relationship_label: `"funds"` |
 | `effective_date` | `date` | yes | Effective Date | |
 | `fte` | `number` | no | FTE | precision: 2; for `add` |
 | `budgeted_annual_cost` | `number` | no | Budgeted Annual Cost | precision: 2; for `add` |
@@ -514,3 +518,25 @@ None.
    - `"hiring_requisitions.requisition_number"` → title `"Requisition Number"`
 6. **Deduplicate against Semantius built-in tables.** This model is self-contained but does not currently declare any entity that overlaps with the Semantius built-ins (`users`, `roles`, `permissions`, etc.). No deduplication action is required for this model. If a future extension declares any built-in (e.g. linking `employees.user_id` to `users`), read Semantius first and reuse the built-in as the `reference_table` target rather than recreating it.
 7. After creation, spot-check: every `label_column` resolves to a real field; every `reference_table` target exists; the `is_active_for_plan` boolean on `scenarios` has a uniqueness expectation per `headcount_plan_id` (enforce via application logic if the platform does not support partial unique indexes); `positions.current_employee_id` has `unique_value: true` set.
+
+## 8. Related domains
+
+This model declares its links to sibling modules so the deployer can reconcile shared masters and downstream handoffs at deploy time. Each entry is a sibling slug with three keys: **Exposes** (what this model offers the sibling), **Expects on sibling** (FKs the sibling should add back into this model when deployed), and **Defers to sibling** (entities this model declares for self-containment but cedes canonical ownership to the sibling when the sibling is deployed).
+
+### 8.1 `applicant_tracking` (downstream peer)
+
+- **Exposes:** `hiring_requisitions`, `positions`, `jobs`, `departments`, `locations`. Recruiting workflows in ATS need the requisition to attach candidates to, plus the position/job/dept/location context.
+- **Expects on sibling:** when ATS is deployed, ATS entities such as `applications` or `candidates` are expected to FK back to `hiring_requisitions` (e.g. `applications.requisition_id → hiring_requisitions`). The lightweight `external_ats_url` field on `hiring_requisitions` becomes redundant once a real ATS owns the candidate pipeline.
+- **Defers to sibling:** none. This model owns its lightweight `hiring_requisitions` for the standalone case; if ATS is deployed, `hiring_requisitions` may be deprecated in favor of an ATS-native requisition entity (see §6.2).
+
+### 8.2 `hris` (upstream master)
+
+- **Exposes:** none. HRIS is the canonical owner; this model is the consumer.
+- **Expects on sibling:** none — HRIS does not need to FK into workforce-planning entities.
+- **Defers to sibling:** `employees`, `departments`, `locations`. When HRIS is deployed, those tables are owned canonically there and the deployer should rewire `positions.{department_id, location_id, current_employee_id}`, `headcount_actions.{department_id, location_id}`, `headcount_plans.{owner_employee_id, approved_by_employee_id}`, etc. to point at the HRIS-owned tables. Until HRIS is deployed, this model owns those entities for self-containment.
+
+### 8.3 `finance` (upstream master)
+
+- **Exposes:** none. Finance is the canonical owner of the chart of accounts.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `cost_centers`. When a finance / chart-of-accounts module is deployed, `cost_centers` is canonically owned there and the deployer should rewire `positions.cost_center_id`, `headcount_actions.cost_center_id`, and `cost_centers.primary_department_id` (if finance keeps the dept link) to point at the finance-owned table. Until finance is deployed, this model owns `cost_centers` for self-containment.

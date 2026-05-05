@@ -43,18 +43,24 @@ const {
       </p>
       
       <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
-        <Button 
-          href={primaryCta.href} 
+        <Button
+          href={primaryCta.href}
           class="px-8 py-4 rounded-full text-base"
           aria-label={`${primaryCta.text} - ${title} ${highlight}`}
+          data-ph-event="hero_cta_clicked"
+          data-ph-cta={primaryCta.text}
+          data-ph-variant="primary"
         >
           {primaryCta.text}
         </Button>
-        <Button 
+        <Button
           href={secondaryCta.href}
           variant="secondary"
           class="px-8 py-4 rounded-full text-base backdrop-blur-sm"
           aria-label={`${secondaryCta.text} about our features`}
+          data-ph-event="hero_cta_clicked"
+          data-ph-cta={secondaryCta.text}
+          data-ph-variant="secondary"
         >
           {secondaryCta.text}
         </Button>
@@ -62,6 +68,17 @@ const {
     </div>
   </div>
 </section>
+
+<script is:inline>
+  document.querySelectorAll('[data-ph-event="hero_cta_clicked"]').forEach(function(el) {
+    el.addEventListener('click', function() {
+      window.posthog?.capture('hero_cta_clicked', {
+        cta_label: el.getAttribute('data-ph-cta'),
+        variant: el.getAttribute('data-ph-variant')
+      });
+    });
+  });
+</script>
 
 <style>
   .hero-content {

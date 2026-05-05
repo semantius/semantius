@@ -15,6 +15,7 @@ export default function SignUpModal({ triggerLabel = 'Sign up', waitlistKey = ''
     if (window.location.hash !== '#signup') {
       window.history.replaceState(null, '', '#signup');
     }
+    window.posthog?.capture('signup_modal_opened', { trigger: 'button' });
   }, []);
 
   const handleClose = useCallback(() => {
@@ -26,9 +27,15 @@ export default function SignUpModal({ triggerLabel = 'Sign up', waitlistKey = ''
 
   // Open on #signup hash — works for deep links and hashchange navigation
   useEffect(() => {
-    if (window.location.hash === '#signup') setIsOpen(true);
+    if (window.location.hash === '#signup') {
+      setIsOpen(true);
+      window.posthog?.capture('signup_modal_opened', { trigger: 'hash' });
+    }
     const onHashChange = () => {
-      if (window.location.hash === '#signup') setIsOpen(true);
+      if (window.location.hash === '#signup') {
+        setIsOpen(true);
+        window.posthog?.capture('signup_modal_opened', { trigger: 'hash' });
+      }
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);

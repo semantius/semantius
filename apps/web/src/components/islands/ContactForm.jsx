@@ -39,10 +39,11 @@ export default function ContactForm() {
     }
 
     setStatus('submitting');
-    
+
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 2000));
     setStatus('success');
+    window.posthog?.capture('contact_form_submitted');
     setFormData({ name: '', email: '', message: '' });
   };
 

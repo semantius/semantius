@@ -63,30 +63,30 @@ export const siteConfig = {
   },
   dateOptions: {
     localeMapping: {
-        'ar': 'ar-TN', // Force Maghreb Arabic date format (e.g., جانفي instead of يناير)
-        'en': 'en-GB', // Example: Force UK English date format
+      'ar': 'ar-TN', // Force Maghreb Arabic date format (e.g., جانفي instead of يناير)
+      'en': 'en-GB', // Example: Force UK English date format
     }
   }
 };
 
 export const NAV_LINKS = [
-  { 
-    href: '/features', 
+  {
+    href: '/features',
     label: 'Product',
     children: [
-        { href: '/features', label: 'Features', description: 'What makes us different', icon: 'Zap' },
-        { href: '/pricing', label: 'Pricing', description: 'Plans for every team', icon: 'CreditCard' },
+      { href: '/features', label: 'Features', description: 'What makes us different', icon: 'Zap' },
+      { href: '/pricing', label: 'Pricing', description: 'Plans for every team', icon: 'CreditCard' },
     ]
   },
   {
     href: '/docs',
     label: 'Resources',
     children: [
-        { href: '/skills', label: 'Skills', description: 'Agent skill library', icon: 'Wand2' },
-        { href: '/models', label: 'Models', description: 'Semantic model library', icon: 'Database' },
-        { href: '/docs/overview', label: 'Docs', description: 'Start building today', icon: 'Book', localize: false },
-        { href: '/blog', label: 'Blog', description: 'Latest updates & guides', icon: 'Newspaper' },
-        { href: '/changelog', label: 'Changelog', description: 'New features & fixes', icon: 'FileClock' },
+      { href: '/skills', label: 'Skills', description: 'Agent skill library', icon: 'Wand2' },
+      { href: '/models', label: 'Semantic Models', description: 'Semantic model library', icon: 'Database' },
+      { href: '/docs/overview', label: 'Docs', description: 'Start building today', icon: 'Book', localize: false },
+      { href: '/blog', label: 'Blog', description: 'Latest updates & guides', icon: 'Newspaper' },
+      { href: '/changelog', label: 'Changelog', description: 'New features & fixes', icon: 'FileClock' },
     ]
   },
   // Company section temporarily hidden — restore when About/Contact pages are ready.
@@ -103,13 +103,13 @@ export const NAV_LINKS = [
 export const ACTION_LINKS = {
   primary: { label: 'Get Started', href: '/docs/overview' },
   signIn: { label: 'Sign in', href: 'https://app.semantius.com/' },
-  social: { 
+  social: {
     twitter: 'https://twitter.com/gladtek',
     linkedin: 'https://linkedin.com/company/gladtek',
     github: 'https://github.com/Semantius',
     youtube: 'https://youtube.com/@gladtek',
     facebook: 'https://facebook.com/gladtek'
-    
+
   }
 };
 

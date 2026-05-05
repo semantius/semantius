@@ -4,7 +4,7 @@ system_name: Applicant Tracking System
 system_slug: applicant_tracking
 domain: ATS
 naming_mode: agent-optimized
-created_at: 2026-04-28
+created_at: 2026-05-05
 entities:
   - departments
   - job_openings
@@ -21,6 +21,10 @@ entities:
   - users
 departments:
   - HR
+related_models:
+  - hris
+  - workforce_planning
+  - identity_and_access
 initial_request: |
   I need an applicant tracking system ATS
 ---
@@ -666,3 +670,25 @@ None.
    - (`interviews.interview_label` and `offers.offer_label` already match `singular_label` "Interview" / "Offer" — no fixup needed.)
 6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. Semantius ships a built-in `users` table — read it first; if it exists, **skip the create** and reuse the built-in as the `reference_table` target everywhere this model points to `users`. Optionally add any of the §3.13 fields the built-in lacks (`display_name`, `email_address`, `first_name`, `last_name`, `job_title`, `department_id`, `is_active`) — additive low-risk only. Do not attempt to recreate `users`. The `departments`, `roles`, `permissions`, etc. listed in §3 are not Semantius built-ins and should be created normally.
 7. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that the `parent_department_id` self-reference on `departments` was successfully added after the entity was created, and that the two junction FKs on `hiring_team_members` resolve correctly.
+
+## 8. Related domains
+
+The ATS sits in the middle of HR-adjacent systems. The following siblings, when deployed alongside, should be reconciled by the deployer; when not deployed, this model stays self-contained and works on its own.
+
+### 8.1 `hris` (peer)
+
+- **Exposes:** `candidates` (specifically those with `candidate_status = hired`), `offers` (accepted), and `job_applications` (terminal `hired` status) so onboarding can reference the application of record.
+- **Expects on sibling:** `hris.employees.source_application_id → applicant_tracking.job_applications` (clear) — once an employee is onboarded, the FK back to the application they came through preserves the audit trail from candidate to hire.
+- **Defers to sibling:** `departments` — when `hris` is deployed it owns the canonical org chart. The deployer should rewire `job_openings.department_id` and `users.department_id` to `hris.departments` and skip creating §3.1.
+
+### 8.2 `workforce_planning` (upstream)
+
+- **Exposes:** none.
+- **Expects on sibling:** `applicant_tracking.job_openings.position_id → workforce_planning.positions` (clear) — when `workforce_planning` is deployed, a requisition can link to the approved headcount slot it consumes. The FK is non-required so requisitions can still exist without an approved position when planning is not deployed.
+- **Defers to sibling:** none.
+
+### 8.3 `identity_and_access` (upstream)
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `users` — when `identity_and_access` is deployed it owns the canonical user identity. The deployer should rewire every FK in this model that points at `users` (`departments.head_user_id`, `job_openings.hiring_manager_id`, `job_openings.recruiter_id`, `candidates.referrer_user_id`, `job_applications.assigned_recruiter_id`, `candidate_documents.uploaded_by_user_id`, `application_notes.author_user_id`, `interviews.coordinator_user_id`, `interview_feedback.interviewer_user_id`, `offers.approver_user_id`, `hiring_team_members.user_id`, `users.department_id`) to the sibling's `users` table and skip creating §3.13.

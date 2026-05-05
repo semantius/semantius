@@ -123,3 +123,22 @@ const relatedSkills = allSkills.filter(
 	</section>
 </Layout>
 
+<script is:inline define:vars={{ modelSlug: model.data.system_slug, modelName: model.data.system_name }}>
+  document.addEventListener('DOMContentLoaded', function() {
+    var viewBtn = document.querySelector('a[href*="/model"]');
+    var downloadBtn = document.querySelector('a[download]');
+
+    if (viewBtn) {
+      viewBtn.addEventListener('click', function() {
+        window.posthog?.capture('model_view_clicked', { model_slug: modelSlug, model_name: modelName });
+      });
+    }
+
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', function() {
+        window.posthog?.capture('model_download_clicked', { model_slug: modelSlug, model_name: modelName });
+      });
+    }
+  });
+</script>
+

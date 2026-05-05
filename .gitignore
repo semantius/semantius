@@ -35,3 +35,4 @@ dist-ssr
 .preview-url.md
 # Local Netlify folder
 .netlify
+.env

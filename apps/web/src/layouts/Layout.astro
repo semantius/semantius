@@ -2,6 +2,7 @@
 import Header from '~/components/layout/Header.astro';
 import Footer from '~/components/layout/Footer.astro';
 import Analytics from '~/components/common/Analytics.astro';
+import PostHog from '~/components/common/PostHog.astro';
 import SEO from '~/components/layout/SEO.astro';
 import Schema from '~/components/layout/Schema.astro';
 import CookieConsent from '~/components/common/CookieConsent.astro';
@@ -91,6 +92,7 @@ const {
             }
         </script>
         <Analytics />
+        <PostHog />
         <link rel="preload" href="https://waitlister.me/js/embed.js" as="script" />
         <script is:inline src="https://waitlister.me/js/embed.js"></script>
         <slot name="head" />

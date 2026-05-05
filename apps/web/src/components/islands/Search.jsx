@@ -55,7 +55,10 @@ export default function Search({ placeholder = "Search..." }) {
     const down = (e) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setOpen((o) => !o);
+        setOpen((o) => {
+          if (!o) window.posthog?.capture('search_opened', { trigger: 'keyboard' });
+          return !o;
+        });
       }
       if (e.key === "Escape") setOpen(false);
     };
@@ -66,7 +69,7 @@ export default function Search({ placeholder = "Search..." }) {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { setOpen(true); window.posthog?.capture('search_opened', { trigger: 'button' }); }}
         aria-label={placeholder}
         className="flex items-center gap-2 px-3 py-1.5 text-sm text-foreground/60 hover:text-foreground bg-foreground/5 hover:bg-foreground/10 border border-foreground/10 rounded-full transition-all hover:scale-105"
       >
@@ -119,10 +122,10 @@ export default function Search({ placeholder = "Search..." }) {
                   results.length > 0 ? (
                     <div className="space-y-4">
                       {results.map(({ item }) => (
-                        <a 
-                          key={item.url} 
+                        <a
+                          key={item.url}
                           href={item.url}
-                          onClick={() => setOpen(false)}
+                          onClick={() => { setOpen(false); window.posthog?.capture('search_result_clicked', { result_url: item.url, result_title: item.title, query }); }}
                           className="block p-4 rounded-xl border border-foreground/10 bg-foreground/5 hover:bg-foreground/10 transition-colors group"
                         >
                           <h4 className="font-bold text-lg text-foreground group-hover:text-primary mb-1">
