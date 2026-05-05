@@ -15,6 +15,9 @@
     });
   }
 
+//console.log('PostHog initialized with API key:', apiKey, 'and host:', apiHost);
+initPostHog(); // debug log to verify initialization
+
   // Initialize immediately if consent already given, otherwise wait for the event
   if (localStorage.getItem('cookie_consent') === 'accepted') {
     initPostHog();
