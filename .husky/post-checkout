@@ -1,5 +1,6 @@
 #!/bin/bash
 # Post-checkout hook
-# Ensures workspace is set up after checkout
-
-./workplace/setup.sh
+# Ensures workspace is set up after checkout.
+# Non-fatal: setup failures must not block the checkout (e.g. Copilot sandbox
+# where the script may not be executable or network access is restricted).
+bash ./workplace/setup.sh || true
