@@ -48,7 +48,7 @@ GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
 -- Accessible via PostgREST RPC by all authenticated users.
 
 CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
-RETURNS TEXT AS $$
+RETURNS JSONB AS $$
 DECLARE
     v_target_user_id INTEGER;
     v_key_prefix TEXT;
@@ -101,12 +101,12 @@ BEGIN
         END;
     END LOOP;
 
-    RETURN v_full_api_key;
+    RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.generate_api_key IS
-'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns the full key only once.';
+'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;

@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(31);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -94,10 +94,16 @@ SELECT ok(
 -- Authenticate as admin user (user3 has Administrator role)
 SELECT authenticate_as('user3');
 
--- Test 7: Generate API key for current user (p_user_id=0)
+-- Test 7: Generate API key for current user (p_user_id=0) returns a JSON object
 SELECT ok(
-    (SELECT generate_api_key(0) LIKE 'uk-%'),
-    'generate_api_key(0) should return a key starting with uk-'
+    (SELECT jsonb_typeof(generate_api_key(0)) = 'object'),
+    'generate_api_key(0) should return a JSON object'
+);
+
+-- Test 7b: The api_key field in the returned JSON starts with uk-
+SELECT ok(
+    (SELECT generate_api_key(0)->>'api_key' LIKE 'uk-%'),
+    'generate_api_key(0) api_key field should start with uk-'
 );
 
 -- Test 8: Generated key is stored in _apikeys
@@ -117,7 +123,7 @@ SELECT authenticate_as('user3');
 
 -- Test 9: Admin can generate key for another user
 SELECT ok(
-    (SELECT generate_api_key(1001) LIKE 'sk-%'),
+    (SELECT generate_api_key(1001)->>'api_key' LIKE 'sk-%'),
     'generate_api_key(1001) by admin should return a key starting with sk-'
 );
 
@@ -151,7 +157,7 @@ DECLARE
     v_user_id INTEGER;
 BEGIN
     -- Generate key as authenticated user
-    v_key := generate_api_key(0);
+    v_key := generate_api_key(0)->>'api_key';
 
     -- Switch to superuser to call validate_api_key
     RESET ROLE;
@@ -200,7 +206,7 @@ DO $$
 DECLARE
     v_key TEXT;
 BEGIN
-    v_key := generate_api_key(0, 'My integration key');
+    v_key := generate_api_key(0, 'My integration key')->>'api_key';
     PERFORM set_config('test.desc_key_id', extract_api_key_id(v_key), true);
 END $$;
 
@@ -223,7 +229,7 @@ DO $$
 DECLARE
     v_key TEXT;
 BEGIN
-    v_key := generate_api_key(0, 'Test last_used_at');
+    v_key := generate_api_key(0, 'Test last_used_at')->>'api_key';
     PERFORM set_config('test.last_used_key', v_key, true);
     PERFORM set_config('test.last_used_key_id', extract_api_key_id(v_key), true);
 END $$;
@@ -307,7 +313,7 @@ DO $$
 DECLARE
     v_key TEXT;
 BEGIN
-    v_key := generate_api_key(0, 'Key to self-delete');
+    v_key := generate_api_key(0, 'Key to self-delete')->>'api_key';
     PERFORM set_config('test.self_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 
@@ -331,7 +337,7 @@ DO $$
 DECLARE
     v_key TEXT;
 BEGIN
-    v_key := generate_api_key(0, 'Key for admin to delete');
+    v_key := generate_api_key(0, 'Key for admin to delete')->>'api_key';
     PERFORM set_config('test.admin_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 
@@ -350,7 +356,7 @@ DO $$
 DECLARE
     v_key TEXT;
 BEGIN
-    v_key := generate_api_key(0, 'Key non-admin cannot delete');
+    v_key := generate_api_key(0, 'Key non-admin cannot delete')->>'api_key';
     PERFORM set_config('test.nonadmin_delete_key_id', extract_api_key_id(v_key), true);
 END $$;
 

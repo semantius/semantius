@@ -390,14 +390,14 @@ VALUES
 -- Known API key for user 1002 (user2 / sales@test.com) for UAT testing:
 --   sk-seed001002-ab12cd340123456789abcdef01234567
 
-INSERT INTO _apikeys (user_id, key_id, secret_hash)
-VALUES (1002, 'sk-seed001002', crypt('ab12cd340123456789abcdef01234567', gen_salt('bf', 10)));
+INSERT INTO _apikeys (user_id, key_id, secret_hash, description)
+VALUES (1002, 'sk-seed001002', crypt('ab12cd340123456789abcdef01234567', gen_salt('bf', 10)), 'Test key');
 
 -- Known API key for user 1003 for UAT testing:
 --   sk-seed001003-ad22cd340123456789abcdef01234567
 
-INSERT INTO _apikeys (user_id, key_id, secret_hash)
-VALUES (1003, 'sk-seed001003', crypt('ad22cd340123456789abcdef01234567', gen_salt('bf', 10)));
+INSERT INTO _apikeys (user_id, key_id, secret_hash, description)
+VALUES (1003, 'sk-seed001003', crypt('ad22cd340123456789abcdef01234567', gen_salt('bf', 10)), 'Test key');
 
 -- =====================================================
 -- VERIFICATION QUERIES
