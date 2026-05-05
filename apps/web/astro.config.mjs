@@ -30,6 +30,10 @@ function mermaidEnhanced() {
                     parent !== null &&
                     index >= 0
                 ) {
+                    // Insert the raw mermaid source verbatim. No HTML-escaping
+                    // so < and > are preserved as-is for easy view-source
+                    // copy-paste. Content comes from repo .md files (developer-
+                    // controlled), not from user input, so no XSS risk here.
                     parent.children[index] = {
                         type: 'html',
                         value: `<pre class="mermaid">${node.value}</pre>`,
@@ -70,12 +74,16 @@ const hasMermaid = () =>
 
 async function initMermaidEnhanced() {
     if (!hasMermaid()) return;
-    const [{ default: mermaid }, { init }] = await Promise.all([
-        import('mermaid'),
-        import('@mostlylucid/mermaid-enhancements'),
-    ]);
-    window.mermaid = mermaid;
-    await init();
+    try {
+        const [{ default: mermaid }, { init }] = await Promise.all([
+            import('mermaid'),
+            import('@mostlylucid/mermaid-enhancements'),
+        ]);
+        window.mermaid = mermaid;
+        await init();
+    } catch (err) {
+        console.error('[mermaid-enhanced] Failed to initialise:', err);
+    }
 }
 
 initMermaidEnhanced();

@@ -39,10 +39,15 @@ export function renderSubsetHtml(md: string): string {
 	html = html.replace(
 		/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
 		(_, code) => {
+			// Decode specific entities first, then &amp; last to avoid
+			// double-decoding (e.g. &amp;lt; -> &lt; not <).
+			// Only these three entities appear in mermaid diagram content
+			// that marked encodes; &quot;/&#39; do not appear in mermaid
+			// node or edge syntax so they are intentionally excluded.
 			const raw = code
-				.replace(/&amp;/g, '&')
 				.replace(/&lt;/g, '<')
-				.replace(/&gt;/g, '>');
+				.replace(/&gt;/g, '>')
+				.replace(/&amp;/g, '&');
 			return `<pre class="mermaid">${raw}</pre>`;
 		},
 	);
