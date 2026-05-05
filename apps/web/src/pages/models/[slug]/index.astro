@@ -30,7 +30,6 @@ const date = model.data.created_at.toLocaleDateString('en-US', {
 });
 
 const modelFileUrl = new URL(`/models/${model.id}.md`, Astro.site ?? Astro.url).toString();
-const initialRequest = model.data.initial_request?.trim();
 const systemName = model.data.system_name;
 
 // Find skills related to this model (semantic_model matches system_slug).
@@ -86,14 +85,10 @@ const relatedSkills = allSkills.filter(
 			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
 				<h1>{systemName}</h1>
 				{description && <p>{description}</p>}
+				<h3>Use the {systemName} semantic model</h3>
+				<Command mode="chat" command={`/semantic-model-deployer deploy ${modelFileUrl}`} />
 				<h3>Customize this {systemName} model</h3>
 				<Command mode="chat" command={`/semantic-model-analyst customize ${modelFileUrl}`} />
-				{initialRequest && (
-					<>
-						<h3>Build your own {systemName}</h3>
-						<Command mode="chat" command={`/semantic-model-analyst ${initialRequest}`} />
-					</>
-				)}
 				{subsetHtml && <div set:html={subsetHtml} />}
 			</div>
 

@@ -20,6 +20,13 @@ const { skill } = Astro.props;
 // Entry ID is "<folder>/README" so the slug is the folder name.
 const slug = skill.id.split('/')[0];
 const { Content } = await render(skill);
+
+// Look up the related model to get its display name.
+let relatedModel: CollectionEntry<'models'> | undefined;
+if (skill.data.semantic_model) {
+	const allModels = await getCollection('models');
+	relatedModel = allModels.find((m) => m.data.system_slug === skill.data.semantic_model);
+}
 ---
 
 <Layout
@@ -49,18 +56,13 @@ const { Content } = await render(skill);
 			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
 				<Content />
 
-				{skill.data.semantic_model && (
+				{skill.data.semantic_model && relatedModel && (
 					<div class="not-prose mt-6">
 						<a
 							href={`/models/${skill.data.semantic_model}`}
-							class="inline-flex items-center gap-2 rounded-full border border-primary px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-primary hover:text-white"
+							class="text-sm text-primary hover:text-primary/80 font-medium"
 						>
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
-								<ellipse cx="12" cy="5" rx="9" ry="3" />
-								<path d="M3 5v14a9 3 0 0 0 18 0V5" />
-								<path d="M3 12a9 3 0 0 0 18 0" />
-							</svg>
-							View Model
+							Learn more about the {relatedModel.data.system_name} semantic model &rarr;
 						</a>
 					</div>
 				)}
@@ -68,3 +70,39 @@ const { Content } = await render(skill);
 		</div>
 	</section>
 </Layout>
+
+<script>
+  // Copy-button handler for .command boxes injected by the remark plugin.
+  // Mirrors the script in Command.astro so the copy button works on this page.
+  document.addEventListener('click', async (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>('.command-copy');
+    if (!button) return;
+
+    const command = button.dataset.command ?? '';
+    const wrapper = button.closest('.command');
+    const label = button.querySelector<HTMLElement>('.command-copy-label');
+    const originalLabel = label?.textContent ?? 'Copy';
+
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = command;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    wrapper?.classList.add('copied');
+    if (label) label.textContent = 'Copied';
+
+    setTimeout(() => {
+      wrapper?.classList.remove('copied');
+      if (label) label.textContent = originalLabel;
+    }, 1600);
+  });
+</script>
