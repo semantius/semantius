@@ -3,6 +3,8 @@ title: Equipment Lease Management Skill
 description: Manages equipment leases through contracts, assets, payment schedules, payments, renewals, and budget lines per cost center.
 ---
 
+import Command from '~/components/common/Command.astro';
+
 # Equipment Lease Management Skill
 
 A lessee-side system for tracking equipment lease contracts with vendors, the individual assets they cover, the planned and actual payment streams they generate, and the budgets against which those payments are measured. Users are finance analysts, contract owners, and cost-center managers who need to answer questions like "what is our total lease obligation next quarter?", "which contracts are over budget?", and "which assets are still under lease and where are they deployed?". The data model is platform-agnostic; budgeting is modeled at the cost-center / fiscal-period grain so variance analysis against actual payments is straightforward downstream.
@@ -26,6 +28,8 @@ The Equipment Lease Management model manages every lease contract with a vendor,
 - "which contracts are over budget"
 - "show upcoming contract renewals"
 - "show overdue payments"
+
+<Command command="npx skills add https://github.com/semantius/semantius/tree/main/skills/equipment-lease-management" />
 
 ## Semantic model
 

@@ -2,7 +2,6 @@
 export const prerender = true;
 import { type CollectionEntry, getCollection, render } from 'astro:content';
 import Layout from '~/layouts/Layout.astro';
-import Command from '~/components/common/Command.astro';
 
 export async function getStaticPaths() {
 	const skills = await getCollection('skills');
@@ -52,10 +51,6 @@ if (skill.data.semantic_model) {
 					</svg>
 					View Skill
 				</a>
-			</div>
-
-			<div class="not-prose mb-8">
-				<Command command={`npx skills add https://github.com/semantius/semantius/tree/main/skills/${slug}`} />
 			</div>
 
 			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">

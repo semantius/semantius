@@ -3,6 +3,8 @@ title: SaaS Expense Tracker & Budget Skill
 description: Tracks SaaS spend so seats clear when people leave, locked periods are respected, and renewals never fall off the calendar.
 ---
 
+import Command from '~/components/common/Command.astro';
+
 # SaaS Expense Tracker & Budget Skill
 
 An internal SaaS spend management system that records the company's SaaS subscriptions (the app, the vendor, the commercial terms, and the contract details on a single record), the departments that own the spend, the budgets planned against them, and which internal users consume seats. Finance and IT use it to track planned vs. expected spend, allocate costs to departments, detect unused licenses, and manage upcoming renewals. All monetary amounts are stored in a single implicit base currency; multi-currency support is deferred (see §6.2).
@@ -21,6 +23,8 @@ The SaaS Expense Tracker & Budget model tracks every SaaS subscription, the seat
 - "what's our SaaS spend by department this quarter"
 - "which licenses are unused"
 - "show upcoming renewals"
+
+<Command command="npx skills add https://github.com/semantius/semantius/tree/main/skills/saas-expense-tracker" />
 
 ## Semantic model
 

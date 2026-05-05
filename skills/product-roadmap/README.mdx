@@ -3,6 +3,8 @@ title: Product Roadmap Skill
 description: Plans a product roadmap so ideas move from intake through prioritization to a shipped release without the small handoffs going missing.
 ---
 
+import Command from '~/components/common/Command.astro';
+
 # Product Roadmap Skill
 
 A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as `features`, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic `objectives`, and schedule the committed work into `releases`. Features carry estimated and actual cost and are assigned to a `cost_center` so spend can be rolled up. Stakeholders contribute through `feature_votes` and `comments`; `tags` provide cross-cutting categorization.
@@ -23,6 +25,8 @@ The Product Roadmap model plans how every idea moves from intake through RICE sc
 - "what's the top-voted feature this quarter"
 - "what's our planned spend by cost center"
 - "show pipeline by status"
+
+<Command command="npx skills add https://github.com/semantius/semantius/tree/main/skills/product-roadmap" />
 
 ## Semantic model
 
