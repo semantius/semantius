@@ -70,3 +70,39 @@ if (skill.data.semantic_model) {
 		</div>
 	</section>
 </Layout>
+
+<script>
+  // Copy-button handler for .command boxes injected by the remark plugin.
+  // Mirrors the script in Command.astro so the copy button works on this page.
+  document.addEventListener('click', async (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>('.command-copy');
+    if (!button) return;
+
+    const command = button.dataset.command ?? '';
+    const wrapper = button.closest('.command');
+    const label = button.querySelector<HTMLElement>('.command-copy-label');
+    const originalLabel = label?.textContent ?? 'Copy';
+
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = command;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    wrapper?.classList.add('copied');
+    if (label) label.textContent = 'Copied';
+
+    setTimeout(() => {
+      wrapper?.classList.remove('copied');
+      if (label) label.textContent = originalLabel;
+    }, 1600);
+  });
+</script>

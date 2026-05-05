@@ -3,8 +3,6 @@ title: Customer Data Platform Skill
 description: Unifies customer profiles across sources and identities, audiences, destination activations, and per-purpose consent tracking.
 ---
 
-import Command from '~/components/common/Command.astro';
-
 # Customer Data Platform Skill
 
 A Customer Data Platform (CDP) ingests behavioral and attribute data about customers from many inbound sources, resolves multiple identifiers to a single unified `profile`, organises profiles into rule-based `audiences`, and activates those audiences out to downstream `destinations` (ads, email, warehouse). Operators (`users`) configure sources, audiences, computed traits, and activations; profile consent state per purpose is tracked separately for compliance. Volumes are skewed: events and identities are high-throughput; profiles, audiences, and configuration entities are low-cardinality and edited deliberately.
@@ -24,8 +22,6 @@ The Customer Data Platform model unifies the customer record by mapping every ob
 - "GDPR delete"
 - "merge these two profiles"
 - "what's our profile lifecycle breakdown"
-
-<Command command="npx skills add https://github.com/semantius/semantius/tree/main/skills/customer-data-platform" />
 
 ## Semantic model
 

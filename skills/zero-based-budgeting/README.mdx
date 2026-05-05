@@ -3,8 +3,6 @@ title: Zero-Based Budgeting Skill
 description: Budgets a fresh cycle so each package moves from draft to approval at the right funding level with assumptions captured.
 ---
 
-import Command from '~/components/common/Command.astro';
-
 # Zero-Based Budgeting Skill
 
 A budgeting platform implementing Peter Pyhrr's Zero-Based Budgeting (ZBB) methodology: every cost-center owner rebuilds their budget from zero each cycle by submitting **decision packages** (discrete activities or expenditures), each with multiple **funding levels** (minimum, current, enhanced) and a granular cost breakdown. Packages are ranked within their cost center, reviewed through an explicit approval workflow, and the chosen funding level becomes the funded amount. The model captures the planning artifacts (cycles, packages, levels, costs) and the governance artifacts (rankings, approval actions, role assignments) but does not model actuals, variance analysis, or downstream GL postings; those live in upstream/downstream finance systems.
@@ -28,8 +26,6 @@ The Zero-Based Budgeting model budgets a fresh cycle from zero, decision package
 - "assign Jane as approver on CC-1001"
 - "what's the total committed budget for FY26"
 - "show package count by status by cost center"
-
-<Command command="npx skills add https://github.com/semantius/semantius/tree/main/skills/zero-based-budgeting" />
 
 ## Semantic model
 

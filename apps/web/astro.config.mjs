@@ -12,6 +12,75 @@ import path from 'node:path';
 import matter from 'gray-matter';
 
 /**
+ * Remark plugin that injects a "Use <Skill>" heading and install command box
+ * before the "## Semantic model" section in each skill README.mdx.
+ * The injection happens in-memory during the remark AST transformation; the
+ * source MDX files are never modified.
+ */
+function remarkSkillInstallCommand() {
+    const COPY_SVG = '<svg class="command-icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    const CHECK_SVG = '<svg class="command-icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+    return function transformer(tree, vfile) {
+        const filePath = vfile.path || (vfile.history && vfile.history[0]) || '';
+        // Only apply to skill README files (e.g. .../skills/product-roadmap/README.mdx)
+        const match = filePath.match(/skills[\\/]([\w-]+)[\\/]README\.mdx$/i);
+        if (!match) return;
+
+        const slug = match[1];
+        const command = `npx skills add https://github.com/semantius/semantius/tree/main/skills/${slug}`;
+
+        // Title: prefer frontmatter data set by Astro's remark pipeline; fall
+        // back to parsing the raw file source, then to the slug.
+        let title = slug;
+        const fm = vfile.data && vfile.data.astro && vfile.data.astro.frontmatter;
+        if (fm && fm.title) {
+            title = fm.title;
+        } else if (vfile.value) {
+            const titleMatch = String(vfile.value).match(/^title:\s*(.+)$/m);
+            if (titleMatch) title = titleMatch[1].replace(/^['"]|['"]$/g, '').trim();
+        }
+
+        // Locate the "## Semantic model" heading in the mdast
+        let insertIndex = -1;
+        for (let i = 0; i < tree.children.length; i++) {
+            const node = tree.children[i];
+            if (node.type === 'heading' && node.depth === 2) {
+                const text = node.children
+                    .filter(function (c) { return c.type === 'text'; })
+                    .map(function (c) { return c.value; })
+                    .join('');
+                if (text === 'Semantic model') {
+                    insertIndex = i;
+                    break;
+                }
+            }
+        }
+        if (insertIndex === -1) return;
+
+        // Build the command box as a raw HTML node so it uses the existing
+        // .command CSS without importing the Command.astro component.
+        const escapedCommand = command.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const commandHtml = `<div class="command not-prose group is-shell"><code class="command-text">${command}</code><button type="button" class="command-copy" data-command="${escapedCommand}" aria-label="Copy command">${COPY_SVG}${CHECK_SVG}<span class="command-copy-label">Copy</span></button></div>`;
+
+        // Insert a "## Use <title>" heading (mdast node, so rehypeSlug +
+        // rehypeAutolinkHeadings will process it normally) followed by the
+        // raw HTML command box.
+        tree.children.splice(insertIndex, 0,
+            {
+                type: 'heading',
+                depth: 2,
+                children: [{ type: 'text', value: 'Use ' + title }],
+            },
+            {
+                type: 'html',
+                value: commandHtml,
+            }
+        );
+    };
+}
+
+/**
  * Custom Astro integration that replaces astro-mermaid.
  * Converts mermaid fenced code blocks to <pre class="mermaid"> elements
  * without HTML-escaping the content (keeps < and > as raw characters so
@@ -242,6 +311,9 @@ export default defineConfig({
   },
   adapter: getAdapter(),
   markdown: {
+    remarkPlugins: [
+      remarkSkillInstallCommand,
+    ],
     rehypePlugins: [
       rehypeSlug,
       [rehypeAutolinkHeadings, autolinkHeadingsOptions],
