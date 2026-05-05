@@ -129,16 +129,17 @@ When asked to implement and verify a change:
 1. Make the change
 2. Use `pnpm dev` during development for fast feedback (localhost is for iteration only)
 3. `pnpm build` — confirm no build errors
-4. `pnpm preview:wrangler` — deploy to Cloudflare (**run from repo root**)
-5. Read `.preview-url.md` — this is the only valid URL for verification screenshots
+4. **`git add -A && git commit -m "wip"` — commit all work before deploying.** Deployment can crash the agent and any uncommitted work will be lost. This commit is mandatory before every deploy attempt.
+5. `pnpm preview:wrangler` — deploy to Cloudflare (**run from repo root**)
+6. Read `.preview-url.md` — this is the only valid URL for verification screenshots
 
 ```bash
 cat .preview-url.md   # e.g. https://abc123.your-project.workers.dev
 ```
 
-6. `agent-browser open <url-from-.preview-url.md>` — **use this URL, not localhost**
-7. `agent-browser screenshot --full screenshots/YYYYMMDDHHMMSS-<short-title>.png`
-8. Confirm the screenshot URL/title bar reflects the Cloudflare domain, not localhost
+7. `agent-browser open <url-from-.preview-url.md>` — **use this URL, not localhost**
+8. `agent-browser screenshot --full screenshots/YYYYMMDDHHMMSS-<short-title>.png`
+9. Confirm the screenshot URL/title bar reflects the Cloudflare domain, not localhost
 
 ---
 
@@ -148,10 +149,13 @@ cat .preview-url.md   # e.g. https://abc123.your-project.workers.dev
 
 > ❌ **Known failure mode:** Omitting the `CONTEXT-MEMORY.md` update status from the PR description. This section is mandatory on every PR, even when no update was made.
 
+> ❌ **Known failure mode:** Running `pnpm preview:wrangler` without first committing work. Deployment failures can crash the agent, and any uncommitted changes are lost. Always `git commit` before deploying — even a `wip` commit is fine.
+
 > ❌ **Known failure mode:** Running `pnpm preview:wrangler` and proceeding as if deployment succeeded when `.preview-url.md` was not created. A missing file means the build or deploy failed — not that the URL needs to be constructed manually. Stop and fix the error before continuing.
 
 Before calling `report_progress`, confirm all of the following are true:
 
+- All work was committed to git before `pnpm preview:wrangler` was run.
 - You have run `cat .preview-url.md` and have the full Cloudflare URL in hand.
 - The full preview URL is pasted as a bare URL in the PR description (not hidden behind link text).
 - At least one screenshot was taken from the Cloudflare preview URL (not localhost).
