@@ -31,13 +31,20 @@ export function extractSubsetMarkdown(body: string): string {
 export function renderSubsetHtml(md: string): string {
 	if (!md) return '';
 	let html = marked.parse(md, { async: false }) as string;
-	// astro-mermaid only post-processes markdown that goes through Astro's own
-	// pipeline. Our subset is rendered via `marked`, so reshape the mermaid
-	// code blocks into the `<pre class="mermaid">` form the integration's
-	// client script picks up.
+	// marked HTML-encodes the content of code blocks. Unescape the mermaid
+	// source so that < and > remain as raw characters in the HTML output
+	// (makes view-source copy-paste of diagram definitions easier). The
+	// @mostlylucid/mermaid-enhancements client reads via textContent which
+	// handles both escaped and unescaped content correctly.
 	html = html.replace(
 		/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
-		(_, code) => `<pre class="mermaid">${code}</pre>`,
+		(_, code) => {
+			const raw = code
+				.replace(/&amp;/g, '&')
+				.replace(/&lt;/g, '<')
+				.replace(/&gt;/g, '>');
+			return `<pre class="mermaid">${raw}</pre>`;
+		},
 	);
 	return html;
 }

@@ -5,12 +5,86 @@ import mdx from "@astrojs/mdx";
 import cloudflare from "@astrojs/cloudflare";
 import tailwindcss from '@tailwindcss/vite';
 import compress from "astro-compress";
-import mermaid from "astro-mermaid";
 import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
+
+/**
+ * Custom Astro integration that replaces astro-mermaid.
+ * Converts mermaid fenced code blocks to <pre class="mermaid"> elements
+ * without HTML-escaping the content (keeps < and > as raw characters so
+ * the diagram source can be copy-pasted directly from view-source).
+ * Pan/zoom and toolbar are added client-side via @mostlylucid/mermaid-enhancements.
+ */
+function mermaidEnhanced() {
+    // Remark plugin: walk the mdast tree and replace code[lang=mermaid] nodes
+    // with raw HTML nodes. Node value is inserted verbatim; no entity encoding.
+    function remarkMermaid() {
+        return function transformer(tree) {
+            function walk(node, parent, index) {
+                if (
+                    node.type === 'code' &&
+                    node.lang === 'mermaid' &&
+                    parent !== null &&
+                    index >= 0
+                ) {
+                    parent.children[index] = {
+                        type: 'html',
+                        value: `<pre class="mermaid">${node.value}</pre>`,
+                    };
+                } else if (node.children) {
+                    for (let i = 0; i < node.children.length; i++) {
+                        walk(node.children[i], node, i);
+                    }
+                }
+            }
+            walk(tree, null, -1);
+        };
+    }
+
+    return {
+        name: 'mermaid-enhanced',
+        hooks: {
+            'astro:config:setup': ({ config, updateConfig, injectScript }) => {
+                updateConfig({
+                    markdown: {
+                        remarkPlugins: [
+                            ...(config.markdown?.remarkPlugins || []),
+                            remarkMermaid,
+                        ],
+                    },
+                    vite: {
+                        optimizeDeps: {
+                            include: ['mermaid'],
+                        },
+                    },
+                });
+
+                // Client-side script: loads mermaid globally then initialises
+                // @mostlylucid/mermaid-enhancements (pan/zoom, toolbar, theme).
+                injectScript('page', `
+const hasMermaid = () =>
+    document.querySelectorAll('pre.mermaid, div.mermaid').length > 0;
+
+async function initMermaidEnhanced() {
+    if (!hasMermaid()) return;
+    const [{ default: mermaid }, { init }] = await Promise.all([
+        import('mermaid'),
+        import('@mostlylucid/mermaid-enhancements'),
+    ]);
+    window.mermaid = mermaid;
+    await init();
+}
+
+initMermaidEnhanced();
+document.addEventListener('astro:after-swap', () => initMermaidEnhanced());
+`);
+            },
+        },
+    };
+}
 
 // Helper to find noindex URLs
 function getNoIndexUrls() {
@@ -180,7 +254,7 @@ export default defineConfig({
         [rehypeAutolinkHeadings, autolinkHeadingsOptions],
       ],
     }),
-    mermaid(),
+    mermaidEnhanced(),
     (await import("astro-compress")).default({ Image: false, JavaScript: true, HTML: false })
   ],
   vite: {

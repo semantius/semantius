@@ -153,3 +153,233 @@ a.command-skill-prefix:hover {
 .command.is-shell.copied .command-copy-label {
     color: #7fd17f;
 }
+
+/* Mermaid diagram styles from @mostlylucid/mermaid-enhancements.
+ * Loaded here (not in the integration client script) so the rules are
+ * available from first paint and included in Vite's CSS bundle. */
+
+/* Hide diagrams until rendered to avoid a wrong-theme flash */
+.mermaid { visibility: hidden; }
+.mermaid[data-processed="true"] { visibility: visible; }
+
+/* Diagram wrapper: contains the diagram and the floating toolbar */
+.mermaid-wrapper {
+    position: relative;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    width: 100%;
+    margin: 1rem 0;
+}
+
+.mermaid-wrapper .mermaid {
+    margin: 0;
+    width: 100%;
+    min-height: 500px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+
+.mermaid-wrapper .mermaid svg {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 450px;
+}
+
+/* Floating control toolbar */
+.mermaid-controls {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 0.25rem;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 0.5rem;
+    padding: 0.25rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(229, 231, 235, 0.8);
+    backdrop-filter: blur(8px);
+}
+
+.dark .mermaid-controls {
+    background: rgba(31, 41, 55, 0.95);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(75, 85, 99, 0.6);
+}
+
+.mermaid-control-btn {
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+    border: none;
+    color: #4b5563;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+}
+
+.mermaid-control-btn:hover {
+    background: rgba(37, 99, 235, 0.1);
+    color: #2563eb;
+    transform: scale(1.1);
+}
+
+.dark .mermaid-control-btn {
+    color: #9ca3af;
+}
+
+.dark .mermaid-control-btn:hover {
+    background: rgba(55, 65, 81, 0.8);
+    color: #60a5fa;
+}
+
+.mermaid-control-btn.active {
+    background: #3b82f6;
+    color: white;
+}
+
+.dark .mermaid-control-btn.active {
+    background: #2563eb;
+    color: white;
+}
+
+/* svg-pan-zoom cursor states */
+.svg-pan-zoom_viewport { cursor: grab; }
+.svg-pan-zoom_viewport:active { cursor: grabbing; }
+
+/* Fullscreen lightbox */
+.mermaid-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    animation: mermaid-fadein 0.2s ease-out;
+}
+
+.dark .mermaid-lightbox {
+    background: rgba(0, 0, 0, 0.95);
+}
+
+.mermaid-lightbox-content {
+    position: relative;
+    width: 91.666667%;
+    height: 83.333333%;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    max-width: 1400px;
+    border: 2px solid rgba(229, 231, 235, 0.8);
+}
+
+.dark .mermaid-lightbox-content {
+    background: #1f2937;
+    border: 2px solid rgba(75, 85, 99, 0.6);
+}
+
+.mermaid-lightbox-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 20;
+    padding: 0.5rem;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+    color: white;
+    font-size: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+}
+
+.mermaid-lightbox-close:hover {
+    background: rgba(220, 38, 38, 0.8);
+    transform: scale(1.1);
+}
+
+.mermaid-lightbox-diagram-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    padding: 3rem;
+    box-sizing: border-box;
+}
+
+.mermaid-lightbox-diagram {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-lightbox-diagram svg {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+}
+
+@keyframes mermaid-fadein {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+    .mermaid-controls {
+        top: 0.25rem;
+        right: 0.25rem;
+        padding: 0.125rem;
+        gap: 0.125rem;
+    }
+
+    .mermaid-control-btn {
+        width: 2rem;
+        height: 2rem;
+        font-size: 1rem;
+        padding: 0.25rem;
+    }
+
+    .mermaid-lightbox-diagram-wrapper {
+        padding: 1rem;
+    }
+
+    .mermaid-lightbox-close {
+        top: 0.5rem;
+        right: 0.5rem;
+        width: 2.5rem;
+        height: 2.5rem;
+        font-size: 1.5rem;
+    }
+}
+
+/* Override prose styles for mermaid elements. They live inside .prose containers
+ * but must not inherit the pre/code typographic resets from Tailwind Typography. */
+.prose pre.mermaid {
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+    border-radius: 0;
+    overflow: visible;
+}
+
+.prose .mermaid-wrapper pre.mermaid {
+    background: transparent;
+    padding: 0;
+}
