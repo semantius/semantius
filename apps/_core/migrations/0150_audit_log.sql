@@ -409,12 +409,9 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 'Event trigger that fires after any DDL command completes, logging the change to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: Add audit_log column to entities table (default FALSE)
+-- STEP 8: audit_log column on entities
 -- =====================================================
-
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS audit_log BOOLEAN NOT NULL DEFAULT FALSE;
-
-COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
+-- Column was added in 0060_dd_schema.sql. Nothing to do here.
 
 -- =====================================================
 -- STEP 9: Add field metadata for audit_log column
