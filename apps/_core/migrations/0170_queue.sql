@@ -342,8 +342,7 @@ GRANT EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) TO semantius
 
 -- queue_pop: read and immediately delete a message
 CREATE OR REPLACE FUNCTION public.queue_pop(
-    p_queue_name TEXT,
-    p_qty INTEGER DEFAULT 1
+    p_queue_name TEXT
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -366,8 +365,8 @@ $$;
 COMMENT ON FUNCTION public.queue_pop IS
 'Pops (reads and deletes) a single message from a pgmq queue.';
 
-REVOKE EXECUTE ON FUNCTION public.queue_pop(TEXT, INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.queue_pop(TEXT, INTEGER) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.queue_pop(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.queue_pop(TEXT) TO semantius_user;
 
 -- queue_archive: move a message to the archive table
 CREATE OR REPLACE FUNCTION public.queue_archive(
