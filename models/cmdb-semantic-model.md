@@ -2,9 +2,9 @@
 artifact: semantic-model
 system_name: CMDB
 system_slug: cmdb
-domain: ITSM
+domain: CMDB
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-06
 entities:
   - configuration_items
   - ci_types
@@ -23,6 +23,8 @@ departments:
 related_models:
   - itsm
   - software_asset_management
+  - itam
+  - monitoring
   - vendor_management
   - identity_and_access
 initial_request: |
@@ -508,10 +510,8 @@ None.
 ### 6.2 🟡 Future considerations (deferred scope)
 
 - Should `configuration_items.attributes` (currently a free-form JSON bag) be promoted to a normalized `ci_type_attribute_definitions` plus `ci_attribute_values` model so type-specific attributes can be queried, validated, and indexed? Trigger: when operators routinely filter or report on attribute values across CIs of the same type.
-- Should `software_installs` and `software_licenses` entities be added so the CMDB also tracks which software products are installed on which CIs and the licenses that cover them? Trigger: when the IT team needs license-compliance reporting from the CMDB rather than from a separate asset manager.
 - Should a `discovery_sources` entity be added to record which scanner, agent, or import job contributed each CI and each relationship? Trigger: when more than one discovery source feeds the CMDB and conflicts must be reconciled.
-- Should `change_requests` be linked to `configuration_items` directly inside this model, or kept in a separate change-management module that references CIs by FK? Trigger: depends on whether change management is implemented as part of this CMDB rollout or alongside it.
-- Should `vendor_type`, `location_type`, and `relationship_type` be promoted from enums to lookup tables once the value sets need to evolve frequently or carry their own metadata (icons, default settings)?
+- Should `vendor_type` and `location_type` be promoted from enums to lookup tables once the value sets need to evolve frequently or carry their own metadata (icons, default settings)? (`relationship_types` is already a lookup table per §3.3.)
 - Should `team_members` carry `left_at` (and a status) so historical membership can be audited, instead of being deleted on offboarding? Trigger: when HR or compliance needs an audit trail of who was on which team and when.
 - Should `ci_relationships.criticality` be promoted from a four-value enum to a numeric blast-radius score (e.g. 1 to 5 or 1 to 100) for quantitative impact analysis? Trigger: when impact-analysis tooling needs ordinal arithmetic over criticality values.
 - Should `configuration_items.hostname` and `configuration_items.ip_address` be made unique (perhaps scoped by `environment_id`)? Today only `ci_code` is unique; duplicates on hostname or IP are allowed. Trigger: when discovery-source dedup needs uniqueness enforcement at the DB level.
@@ -548,7 +548,23 @@ SAM tracks installed software products and license entitlements; it consumes CMD
 - **Expects on sibling:** when `software_asset_management` is deployed, `software_asset_management.software_installs.host_ci_id` points at `cmdb.configuration_items`, and `software_asset_management.software_licenses.vendor_id` points at `cmdb.vendors`.
 - **Defers to sibling:** none. The §6.2 deferred-scope note about adding `software_installs` and `software_licenses` directly to this CMDB is superseded by this contract: SAM owns those entities, CMDB exposes the inventory they reference.
 
-### 8.3 `vendor_management` (upstream master)
+### 8.3 `itam` (peer)
+
+ITAM (IT Asset Management) tracks hardware-asset lifecycle (procurement, depreciation, disposal, warranty) and is distinct from CMDB's operational topology view. When both are deployed, ITAM hardware records and CMDB CIs typically pair 1:1 for physical assets while CIs that aren't physical (logical apps, business services, cloud-tenant CIs) have no ITAM counterpart.
+
+- **Exposes:** `configuration_items`, `vendors`. ITAM links its hardware records to the operating CI and to the supplying vendor.
+- **Expects on sibling:** when `itam` is deployed, `itam.hardware_assets.ci_id` points at `cmdb.configuration_items` with `reference_delete_mode: clear` (an asset can outlive its operational CI in the asset register), and `itam.hardware_assets.vendor_id` points at `cmdb.vendors`.
+- **Defers to sibling:** none. If the org decides ITAM owns the canonical asset master, a future iteration may flip this to defer hardware-style CIs to ITAM; for now CMDB stays operational-topology-canonical.
+
+### 8.4 `monitoring` (peer)
+
+Monitoring (alerting, observability, synthetic checks) consumes CMDB topology so that alerts and checks resolve to live CIs and so that incident runbooks know which team owns the affected service.
+
+- **Exposes:** `configuration_items`, `business_services`.
+- **Expects on sibling:** when `monitoring` is deployed, FKs of the shape `monitoring.checks.target_ci_id`, `monitoring.alerts.affected_ci_id`, and (optionally) `monitoring.alerts.affected_service_id` pointing at `cmdb.configuration_items` and `cmdb.business_services` with `reference_delete_mode: restrict` so an active alert cannot orphan its target.
+- **Defers to sibling:** none.
+
+### 8.5 `vendor_management` (upstream master)
 
 When a dedicated vendor management module is deployed, it owns the canonical vendor master and the CMDB-local `vendors` entity is deduplicated against it.
 
@@ -556,7 +572,7 @@ When a dedicated vendor management module is deployed, it owns the canonical ven
 - **Expects on sibling:** none.
 - **Defers to sibling:** `vendors`. At deploy-time, if `vendor_management.vendors` exists, skip the `create_entity` for the local `vendors` (the same dedup pattern §7 step 6 applies to `users`) and rewire `configuration_items.vendor_id` and any other vendor FKs to the sibling's table. CMDB-specific fields not present on the sibling's `vendors` are added additively with `create_field`.
 
-### 8.4 `identity_and_access` (upstream master)
+### 8.6 `identity_and_access` (upstream master)
 
 When an identity and access management module is deployed, it owns canonical user and team rosters.
 

@@ -7,19 +7,25 @@ departments:
   - Finance
   - Operations
 naming_mode: agent-optimized
-created_at: 2026-05-04
+created_at: 2026-05-05
 entities:
   - vendors
   - equipment_categories
+  - users
   - locations
   - cost_centers
-  - users
   - lease_contracts
   - leased_assets
   - payment_schedules
   - lease_payments
   - fiscal_periods
   - budget_lines
+related_models:
+  - identity_and_access
+  - vendor_management
+  - finance
+  - procurement
+  - asset_management
 initial_request: |
   I need to manage and budget equipment leasing contracts
 ---
@@ -36,9 +42,9 @@ A lessee-side system for tracking equipment lease contracts with vendors, the in
 |---|---|---|---|
 | 1 | `vendors` | Vendor | Lessor companies the organization leases equipment from |
 | 2 | `equipment_categories` | Equipment Category | Classification of leased equipment (IT hardware, vehicles, copiers, machinery) |
-| 3 | `locations` | Location | Physical sites where leased equipment is deployed |
-| 4 | `cost_centers` | Cost Center | Internal org units (departments, projects) to which lease costs are charged |
-| 5 | `users` | User | Employees who own, approve, or administer lease contracts |
+| 3 | `users` | User | Employees who own, approve, or administer lease contracts |
+| 4 | `locations` | Location | Physical sites where leased equipment is deployed |
+| 5 | `cost_centers` | Cost Center | Internal org units (departments, projects) to which lease costs are charged |
 | 6 | `lease_contracts` | Lease Contract | Master legal agreement with a vendor covering one or more leased assets |
 | 7 | `leased_assets` | Leased Asset | Individual piece of equipment covered by a lease contract |
 | 8 | `payment_schedules` | Payment Schedule | Planned periodic payment obligation generated from contract terms |
@@ -89,7 +95,7 @@ flowchart LR
 | `address_line` | `string` | no | Address | |
 | `city` | `string` | no | City | |
 | `country` | `string` | no | Country | ISO 3166 alpha-2 suggested |
-| `vendor_status` | `enum` | yes | Status | values: `active`, `inactive` |
+| `vendor_status` | `enum` | yes | Status | values: `active`, `inactive`; default: "active" |
 | `notes` | `text` | no | Notes | |
 
 **Relationships**
@@ -118,7 +124,34 @@ flowchart LR
 
 ---
 
-### 3.3 `locations` — Location
+### 3.3 `users` — User
+
+**Plural label:** Users
+**Label column:** `full_name`
+**Description:** An employee who owns, approves, or administers lease contracts, assets, payments, or budgets. Included for model completeness; the deployer will deduplicate against the Semantius built-in `users` table at implementation time.
+
+**Fields**
+
+| Field name | Format | Required | Label | Reference / Notes |
+|---|---|---|---|---|
+| `full_name` | `string` | yes | Full Name | label_column |
+| `email` | `email` | yes | Email | unique |
+| `employee_id` | `string` | no | Employee ID | unique |
+| `department` | `string` | no | Department | |
+| `user_status` | `enum` | yes | Status | values: `active`, `inactive`; default: "active" |
+
+**Relationships**
+
+- A `user` may manage many `locations` (1:N, via `locations.site_manager_id`, clear).
+- A `user` may manage many `cost_centers` (1:N, via `cost_centers.manager_id`, clear).
+- A `user` may own many `lease_contracts` (1:N, via `lease_contracts.contract_owner_id`, restrict).
+- A `user` may have many `leased_assets` deployed to them (1:N, via `leased_assets.deployed_to_user_id`, clear).
+- A `user` may approve many `lease_payments` (1:N, via `lease_payments.approved_by_user_id`, clear).
+- A `user` may approve many `budget_lines` (1:N, via `budget_lines.approved_by_user_id`, clear).
+
+---
+
+### 3.4 `locations` — Location
 
 **Plural label:** Locations
 **Label column:** `location_name`
@@ -144,7 +177,7 @@ flowchart LR
 
 ---
 
-### 3.4 `cost_centers` — Cost Center
+### 3.5 `cost_centers` — Cost Center
 
 **Plural label:** Cost Centers
 **Label column:** `cost_center_name`
@@ -159,40 +192,13 @@ flowchart LR
 | `department` | `string` | no | Department | |
 | `description` | `text` | no | Description | |
 | `manager_id` | `reference` | no | Manager | → `users` (N:1), clear on delete, relationship_label: "manages" |
-| `cost_center_status` | `enum` | yes | Status | values: `active`, `inactive` |
+| `cost_center_status` | `enum` | yes | Status | values: `active`, `inactive`; default: "active" |
 
 **Relationships**
 
 - A `cost_center` is managed by at most one `user` (N:1, optional, clear on delete).
 - A `cost_center` funds many `lease_contracts` (1:N, via `lease_contracts.primary_cost_center_id`, restrict on delete).
 - A `cost_center` plans many `budget_lines` (1:N, via `budget_lines.cost_center_id`, restrict on delete).
-
----
-
-### 3.5 `users` — User
-
-**Plural label:** Users
-**Label column:** `full_name`
-**Description:** An employee who owns, approves, or administers lease contracts, assets, payments, or budgets. Included for model completeness; the deployer will deduplicate against the Semantius built-in `users` table at implementation time.
-
-**Fields**
-
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `full_name` | `string` | yes | Full Name | label_column |
-| `email` | `email` | yes | Email | unique |
-| `employee_id` | `string` | no | Employee ID | unique |
-| `department` | `string` | no | Department | |
-| `user_status` | `enum` | yes | Status | values: `active`, `inactive` |
-
-**Relationships**
-
-- A `user` may manage many `locations` (1:N, via `locations.site_manager_id`, clear).
-- A `user` may manage many `cost_centers` (1:N, via `cost_centers.manager_id`, clear).
-- A `user` may own many `lease_contracts` (1:N, via `lease_contracts.contract_owner_id`, restrict).
-- A `user` may have many `leased_assets` deployed to them (1:N, via `leased_assets.deployed_to_user_id`, clear).
-- A `user` may approve many `lease_payments` (1:N, via `lease_payments.approved_by_user_id`, clear).
-- A `user` may approve many `budget_lines` (1:N, via `budget_lines.approved_by_user_id`, clear).
 
 ---
 
@@ -211,15 +217,15 @@ flowchart LR
 | `vendor_id` | `reference` | yes | Vendor | → `vendors` (N:1), restrict, relationship_label: "leases to" |
 | `primary_cost_center_id` | `reference` | yes | Cost Center | → `cost_centers` (N:1), restrict, relationship_label: "funds" |
 | `contract_owner_id` | `reference` | yes | Contract Owner | → `users` (N:1), restrict, relationship_label: "owns" |
-| `contract_status` | `enum` | yes | Status | values: `draft`, `active`, `expired`, `terminated`, `renewed` |
-| `lease_type` | `enum` | yes | Lease Type | values: `operating`, `finance`, `short_term` (ASC 842 classification) |
+| `contract_status` | `enum` | yes | Status | values: `draft`, `active`, `expired`, `terminated`, `renewed`; default: "draft" |
+| `lease_type` | `enum` | yes | Lease Type | values: `operating`, `finance`, `short_term` (ASC 842 classification); default: "operating" |
 | `commencement_date` | `date` | yes | Commencement Date | |
 | `end_date` | `date` | yes | End Date | |
 | `term_months` | `integer` | yes | Term (Months) | |
 | `currency_code` | `string` | yes | Currency | ISO 4217, e.g. `USD` |
 | `monthly_payment_amount` | `number` | no | Monthly Payment | base monthly rent, precision: 2 |
 | `total_contract_value` | `number` | no | Total Contract Value | sum of all scheduled payments over the term, precision: 2 |
-| `payment_frequency` | `enum` | yes | Payment Frequency | values: `monthly`, `quarterly`, `semi_annual`, `annual` |
+| `payment_frequency` | `enum` | yes | Payment Frequency | values: `monthly`, `quarterly`, `semi_annual`, `annual`; default: "monthly" |
 | `auto_renewal` | `boolean` | yes | Auto Renewal | |
 | `renewal_notice_days` | `integer` | no | Renewal Notice (Days) | days before end_date required to opt out |
 | `signed_date` | `date` | no | Signed Date | |
@@ -255,7 +261,7 @@ flowchart LR
 | `serial_number` | `string` | no | Serial Number | unique |
 | `acquisition_cost` | `number` | no | Acquisition Cost | fair value at lease start (ROU asset basis), precision: 2 |
 | `monthly_rent_amount` | `number` | no | Monthly Rent | asset's share of contract payment, precision: 2 |
-| `condition_status` | `enum` | yes | Condition | values: `new`, `good`, `fair`, `poor`, `retired` |
+| `condition_status` | `enum` | yes | Condition | values: `new`, `good`, `fair`, `poor`, `retired`; default: "new" |
 | `deployed_to_user_id` | `reference` | no | Deployed To | → `users` (N:1), clear, relationship_label: "assigned" |
 | `decommission_date` | `date` | no | Decommission Date | |
 | `notes` | `text` | no | Notes | |
@@ -279,14 +285,14 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `schedule_reference` | `string` | yes | Schedule Reference | label_column — caller populates, e.g. `LC-2026-0042 / 2026-03` |
+| `schedule_reference` | `string` | yes | Schedule Reference | label_column, caller populates, e.g. `LC-2026-0042 / 2026-03` |
 | `lease_contract_id` | `parent` | yes | Lease Contract | ↳ `lease_contracts` (N:1, cascade), relationship_label: "generates" |
 | `fiscal_period_id` | `reference` | no | Fiscal Period | → `fiscal_periods` (N:1), clear, relationship_label: "contains" |
 | `payment_number` | `integer` | yes | Payment # | 1-based sequence within the contract |
 | `scheduled_date` | `date` | yes | Scheduled Date | |
 | `scheduled_amount` | `number` | yes | Scheduled Amount | precision: 2 |
 | `currency_code` | `string` | yes | Currency | ISO 4217 |
-| `schedule_status` | `enum` | yes | Status | values: `pending`, `invoiced`, `paid`, `overdue`, `waived` |
+| `schedule_status` | `enum` | yes | Status | values: `pending`, `invoiced`, `paid`, `overdue`, `waived`; default: "pending" |
 | `notes` | `text` | no | Notes | |
 
 **Relationships**
@@ -312,7 +318,7 @@ flowchart LR
 | `payment_date` | `date` | yes | Payment Date | actual posting date |
 | `payment_amount` | `number` | yes | Amount | precision: 2 |
 | `currency_code` | `string` | yes | Currency | ISO 4217 |
-| `payment_method` | `enum` | yes | Payment Method | values: `ach`, `wire`, `check`, `credit_card`, `other` |
+| `payment_method` | `enum` | yes | Payment Method | values: `ach`, `wire`, `check`, `credit_card`, `other`; default: "ach" |
 | `invoice_number` | `string` | no | Invoice Number | vendor invoice number |
 | `approved_by_user_id` | `reference` | no | Approved By | → `users` (N:1), clear, relationship_label: "approves" |
 | `notes` | `text` | no | Notes | |
@@ -328,14 +334,14 @@ flowchart LR
 
 **Plural label:** Fiscal Periods
 **Label column:** `period_name`
-**Description:** A budget-calendar unit — a fiscal month, quarter, half-year, or year. Budget lines and payment schedules are assigned to fiscal periods to enable period-level roll-ups and variance analysis.
+**Description:** A budget-calendar unit, a fiscal month, quarter, half-year, or year. Budget lines and payment schedules are assigned to fiscal periods to enable period-level roll-ups and variance analysis.
 
 **Fields**
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `period_name` | `string` | yes | Period Name | label_column, unique, e.g. `2026-Q1`, `2026-03` |
-| `period_type` | `enum` | yes | Period Type | values: `month`, `quarter`, `half_year`, `year` |
+| `period_type` | `enum` | yes | Period Type | values: `month`, `quarter`, `half_year`, `year`; default: "month" |
 | `fiscal_year` | `integer` | yes | Fiscal Year | |
 | `start_date` | `date` | yes | Start Date | |
 | `end_date` | `date` | yes | End Date | |
@@ -358,13 +364,13 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `budget_line_label` | `string` | yes | Budget Line | label_column — caller populates, e.g. `CC-100 / 2026-Q1 / IT hardware` |
+| `budget_line_label` | `string` | yes | Budget Line | label_column, caller populates, e.g. `CC-100 / 2026-Q1 / IT hardware` |
 | `cost_center_id` | `reference` | yes | Cost Center | → `cost_centers` (N:1), restrict, relationship_label: "plans" |
 | `fiscal_period_id` | `reference` | yes | Fiscal Period | → `fiscal_periods` (N:1), restrict, relationship_label: "spans" |
-| `equipment_category_id` | `reference` | no | Category | → `equipment_categories` (N:1), clear — optional category slice, relationship_label: "slices" |
+| `equipment_category_id` | `reference` | no | Category | → `equipment_categories` (N:1), clear, optional category slice, relationship_label: "slices" |
 | `planned_amount` | `number` | yes | Planned Amount | precision: 2 |
 | `currency_code` | `string` | yes | Currency | ISO 4217 |
-| `budget_status` | `enum` | yes | Status | values: `draft`, `approved`, `locked` |
+| `budget_status` | `enum` | yes | Status | values: `draft`, `approved`, `locked`; default: "draft" |
 | `approved_by_user_id` | `reference` | no | Approved By | → `users` (N:1), clear, relationship_label: "approves" |
 | `approved_at` | `date-time` | no | Approved At | |
 | `notes` | `text` | no | Notes | |
@@ -376,7 +382,7 @@ flowchart LR
 - A `budget_line` may be sliced by one `equipment_category` (N:1, optional, clear).
 - A `budget_line` may be approved by one `user` (N:1, optional, clear).
 
-> **Uniqueness note:** the tuple `(cost_center_id, fiscal_period_id, equipment_category_id)` should be unique at the app layer. Semantius does not support composite unique constraints declaratively — the implementer must enforce this in application logic or via a database trigger. Tracked in §6.2.
+> **Uniqueness note:** the tuple `(cost_center_id, fiscal_period_id, equipment_category_id)` should be unique at the app layer. Semantius does not support composite unique constraints declaratively, so the implementer must enforce this in application logic or via a database trigger. Tracked in §6.2.
 
 ---
 
@@ -475,7 +481,7 @@ None.
 ### 6.2 🟡 Future considerations (deferred scope)
 
 - Should a `cost_allocations` junction entity be introduced to split a single lease contract's cost across multiple cost centers on a percentage basis, replacing the current single `primary_cost_center_id` field on `lease_contracts`?
-- Should lease modifications (ASC 842 remeasurement events — term extensions, payment changes, scope changes) be tracked as their own `lease_amendments` entity, or left to the audit log of `lease_contracts`?
+- Should lease modifications (ASC 842 remeasurement events, term extensions, payment changes, scope changes) be tracked as their own `lease_amendments` entity, or left to the audit log of `lease_contracts`?
 - Should scanned contract PDFs, amendments, and supporting documents be tracked as a `contract_documents` entity with polymorphic links to `lease_contracts` and `leased_assets`?
 - Should an asset-level cost-center override (`leased_assets.cost_center_id`) be introduced for cases where one asset on a shared contract is charged to a different cost center than the contract's primary?
 - Should multi-currency handling gain explicit FX-rate snapshots and reporting-currency conversions, or is the current per-row `currency_code` string sufficient?
@@ -487,23 +493,57 @@ None.
 ## 7. Implementation notes for the downstream agent
 
 1. Create one module named `equipment_lease_management` and two baseline permissions (`equipment_lease_management:read`, `equipment_lease_management:manage`) before any entity. The module name and permission prefix must match the front-matter `system_slug` exactly.
-2. Create entities in the order given in §2 — `vendors`, `equipment_categories`, `locations`, `cost_centers`, `users`, then `lease_contracts`, `leased_assets`, `payment_schedules`, `lease_payments`, `fiscal_periods`, `budget_lines` — so that every `reference_table` target already exists when each entity is created. Note: `users` has FK dependencies on it from `locations` and `cost_centers`, so if those are created first, their `site_manager_id` / `manager_id` fields must be added after `users` exists — create the fields in a second pass, or create `users` first and add its (non-FK) fields.
+2. Create entities in the order given in §2: `vendors`, `equipment_categories`, `users`, `locations`, `cost_centers`, then `lease_contracts`, `leased_assets`, `payment_schedules`, `lease_payments`, `fiscal_periods`, `budget_lines`. This order ensures every `reference_table` target already exists when each entity is created (notably `users` is created before `locations` and `cost_centers`, which both FK into it).
 3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission` (`equipment_lease_management:read`), `edit_permission` (`equipment_lease_management:manage`). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), `is_nullable` (inverse of Required), and for `reference`/`parent` fields also `reference_table`, a `reference_delete_mode` consistent with §4, and the `relationship_label` verb from the §3 Notes annotation (e.g. `"leases to"`, `"funds"`, `"owns"`, `"covers"`). For monetary fields (`format: number`) include `precision: 2` per the §3 Notes.
-5. **Deduplicate against the Semantius built-in `users` table — additive only.** Before creating `users`, call `read_entity` filtering on `table_name=eq.users`. If the built-in exists (it always does), **skip `create_entity`** and reuse the built-in as the `reference_table` target for every FK in this model that points at `users`. Then, for each domain field declared in §3.5 (`full_name`, `email`, `employee_id`, `department`, `user_status`), call `read_field` on the built-in `users` table to check whether an equivalent already exists. Only add a field if no equivalent is present. Never overwrite, rename, or delete fields on the built-in `users` table — additive changes only.
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), `is_nullable` (inverse of Required), and for `reference`/`parent` fields also `reference_table`, a `reference_delete_mode` consistent with §4, and the `relationship_label` verb from the §3 Notes annotation (e.g. `"leases to"`, `"funds"`, `"owns"`, `"covers"`). For monetary fields (`format: number`) include `precision: 2` per the §3 Notes. For required enums, pass the explicit `default` value from the §3 Notes (`default: "<value>"` annotation) rather than relying on the platform's `enum_values[0]` auto-fallback.
+5. **Deduplicate against the Semantius built-in `users` table, additive only.** Before creating `users`, call `read_entity` filtering on `table_name=eq.users`. If the built-in exists (it always does), **skip `create_entity`** and reuse the built-in as the `reference_table` target for every FK in this model that points at `users`. Then, for each domain field declared in §3.3 (`full_name`, `email`, `employee_id`, `department`, `user_status`), call `read_field` on the built-in `users` table to check whether an equivalent already exists. Only add a field if no equivalent is present. Never overwrite, rename, or delete fields on the built-in `users` table; additive changes only.
 6. **Label-column title fixup.** When `create_entity` runs, Semantius auto-creates a field whose name equals `label_column` and whose `title` defaults to `singular_label`. For the entities below, the §3 Label diverges from `singular_label` (a deliberate plural/singular symmetry pattern: `singular_label` stays the bare singular for grammatical symmetry with `plural_label`; the more specific field-level title goes on the label column). After each `create_entity`, follow up with `update_field` using the composite string id `"{table_name}.{field_name}"` (passed as a string, not an integer) to set the correct title:
    - `vendors.vendor_name` → title `"Vendor Name"`
    - `equipment_categories.category_name` → title `"Category Name"`
+   - `users.full_name` → title `"Full Name"` *(only if §7 step 5 added this field; if reusing an existing built-in field, leave its title alone)*
    - `locations.location_name` → title `"Location Name"`
    - `cost_centers.cost_center_name` → title `"Cost Center Name"`
-   - `users.full_name` → title `"Full Name"` *(only if §7 step 5 added this field; if reusing an existing built-in field, leave its title alone)*
    - `lease_contracts.contract_number` → title `"Contract Number"`
    - `leased_assets.asset_tag` → title `"Asset Tag"`
    - `payment_schedules.schedule_reference` → title `"Schedule Reference"`
    - `lease_payments.payment_reference` → title `"Payment Reference"`
    - `fiscal_periods.period_name` → title `"Period Name"`
 
-   `budget_lines.budget_line_label` does **not** need a fixup — its §3 Label (`"Budget Line"`) matches its `singular_label`.
-7. `payment_schedules.schedule_reference` and `budget_lines.budget_line_label` are caller-populated string labels — no platform auto-population. On record creation, callers should compose a readable value (e.g. `"{contract_number} / {period_name}"` for schedules; `"{cost_center_code} / {period_name} / {category_name}"` for budget lines).
+   `budget_lines.budget_line_label` does **not** need a fixup, its §3 Label (`"Budget Line"`) matches its `singular_label`.
+7. `payment_schedules.schedule_reference` and `budget_lines.budget_line_label` are caller-populated string labels with no platform auto-population. On record creation, callers should compose a readable value (e.g. `"{contract_number} / {period_name}"` for schedules; `"{cost_center_code} / {period_name} / {category_name}"` for budget lines).
 8. Enforce composite uniqueness on `budget_lines` (`cost_center_id`, `fiscal_period_id`, `equipment_category_id`) in application logic until a database-level constraint is added (see §6.2).
 9. After creation, spot-check that `label_column` on each entity resolves to a real string field, that all `reference_table` targets exist, that all monetary fields are `format: number` (not `float`/`double`), and that every FK has its `relationship_label` set.
+
+## 8. Related domains
+
+Forward-looking declarations of sibling Semantius modules this model expects to coexist with. The deployer reciprocates these contracts whenever a matching sibling later arrives. Until a sibling is deployed, the local declarations in §3 stand on their own (the model is self-contained).
+
+### 8.1 `identity_and_access` (upstream)
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `users`. When `identity_and_access` is deployed, every FK in this model that points at `users` (`locations.site_manager_id`, `cost_centers.manager_id`, `lease_contracts.contract_owner_id`, `leased_assets.deployed_to_user_id`, `lease_payments.approved_by_user_id`, `budget_lines.approved_by_user_id`) repoints to the canonical `identity_and_access.users` table. The local `users` declaration in §3.3 is a self-contained fallback that the deployer already deduplicates against the Semantius built-in `users` table at implementation time (see §7 step 5).
+
+### 8.2 `vendor_management` (upstream)
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `vendors`. When `vendor_management` is deployed, `lease_contracts.vendor_id` repoints to the canonical `vendor_management.vendors` table. Vendor master data (banking, tax, certifications, scorecards) is owned there; this module only consumes the vendor identity.
+
+### 8.3 `finance` (upstream)
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `cost_centers` and `fiscal_periods`. When `finance` is deployed, FKs at `cost_centers` (`lease_contracts.primary_cost_center_id`, `budget_lines.cost_center_id`) and at `fiscal_periods` (`payment_schedules.fiscal_period_id`, `budget_lines.fiscal_period_id`) repoint to the canonical finance master tables. The chart of accounts, fiscal calendar, and overall budget envelope are owned there; this module is a per-domain consumer.
+
+### 8.4 `procurement` (peer)
+
+- **Exposes:** `lease_contracts`, `payment_schedules`. So a sibling AP/PO module can link purchase orders to lease contracts and vendor invoices to scheduled payments without duplicating contract data.
+- **Expects on sibling:** `procurement.purchase_orders.lease_contract_id → lease_contracts` and `procurement.vendor_invoices.payment_schedule_id → payment_schedules` when deployed, so AP postings can reconcile back to the originating lease obligation.
+- **Defers to sibling:** none.
+
+### 8.5 `asset_management` (peer)
+
+- **Exposes:** `leased_assets`. So a sibling fixed-asset register or CMDB can attach right-of-use accounting, depreciation schedules, or configuration data to leased equipment.
+- **Expects on sibling:** `asset_management.fixed_assets.leased_asset_id → leased_assets` (or an equivalent bridge field) when deployed, allowing leased equipment to appear in the canonical asset register without duplicating tag/serial/location data.
+- **Defers to sibling:** none.

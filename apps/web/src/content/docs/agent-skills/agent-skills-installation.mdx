@@ -60,21 +60,19 @@ That is all the configuration needed. The CLI automatically connects to your Sem
 
 ## 3. Install the Skills
 
-With the CLI installed and credentials in place, pull the skill bundle into your agent. The exact command depends on which agent you use.
+With the CLI installed and credentials in place, pull the skill bundle into your agent:
 
-### Claude Code, ChatGPT, and other agents that support `npx skill`
+<Command command="npx skills add semantius/semantius-cli --all" />
 
-Most agents support the standard `npx skill` installer. Point it at the [Semantius CLI repository](https://github.com/semantius/semantius-cli):
+To install for a specific agent only (e.g. Codex):
 
-<Command command="npx skill install https://github.com/semantius/semantius-cli" />
+<Command command="npx skills add semantius/semantius-cli --all --agent codex" />
 
-### OpenClaw
-
-OpenClaw uses its own skill installer rather than `npx skill`. Install the skills directly from the [skills folder in the Semantius CLI repository](https://github.com/semantius/semantius-cli/tree/main/skills) using OpenClaw's skill install workflow.
+Supports [OpenCode, Claude Code, Codex, Cursor, and 51 more](https://github.com/vercel-labs/skills#supported-agents). See the [skills documentation](https://github.com/vercel-labs/skills) to learn how to install skills for your agent.
 
 ---
 
-Either way, the installer registers the Semantius skills (Business Analyst, Schema Editor, RBAC Configurator, Deployer, and others) with your agent. The skills call the local `semantius` binary under the hood, so the CLI you just installed is what does the actual work.
+The installer registers the Semantius skills (Business Analyst, Schema Editor, RBAC Configurator, Deployer, and others) with your agent. The skills call the local `semantius` binary under the hood, so the CLI you just installed is what does the actual work.
 
 Restart your agent after installing so it picks up the new skills.
 

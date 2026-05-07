@@ -4,7 +4,7 @@ system_name: Zero-Based Budgeting
 system_slug: zero_based_budgeting
 domain: Budgeting
 naming_mode: agent-optimized
-created_at: 2026-04-28
+created_at: 2026-05-05
 entities:
   - budget_cycles
   - cost_centers
@@ -20,6 +20,10 @@ entities:
   - cost_center_assignments
 departments:
   - Finance
+related_models:
+  - workforce_planning
+  - finance
+  - identity_and_access
 initial_request: |
   we want to switch to Zero-Based Budgeting
 ---
@@ -89,8 +93,8 @@ flowchart LR
 |---|---|---|---|---|
 | `cycle_name` | `string` | yes | Cycle Name | (label) e.g. "FY26 ZBB Cycle"; default: `""` |
 | `fiscal_year` | `integer` | yes | Fiscal Year | e.g. 2026; default: `0` |
-| `start_date` | `date` | yes | Start Date | default: today |
-| `end_date` | `date` | yes | End Date | default: today |
+| `start_date` | `date` | yes | Start Date | |
+| `end_date` | `date` | yes | End Date | |
 | `cycle_status` | `enum` | yes | Status | values: `draft`, `planning`, `in_review`, `locked`, `archived`; default: `"draft"` |
 | `description` | `text` | no | Description | |
 
@@ -183,7 +187,7 @@ flowchart LR
 | `level_tier` | `enum` | yes | Tier | values: `minimum`, `current`, `enhanced`, `custom`; default: `"minimum"` |
 | `level_order` | `integer` | yes | Order | 1 = lowest, ascending; default: `1` |
 | `is_recommended_level` | `boolean` | yes | Recommended by Owner | default: `false`; the owner picks one before submission |
-| `headcount_fte` | `float` | no | Headcount (FTE) | total FTE at this level |
+| `headcount_fte` | `number` | no | Headcount (FTE) | total FTE at this level; precision: 2 |
 | `currency_code` | `string` | yes | Currency | ISO 4217, e.g. "USD"; default: `"USD"` |
 | `service_description` | `html` | yes | Service Description | what's delivered at this level; default: `""` |
 | `benefit_narrative` | `html` | no | Incremental Benefit | benefit vs the next-lower level |
@@ -215,8 +219,8 @@ flowchart LR
 | `gl_account_id` | `reference` | no | GL Account | → `gl_accounts` (N:1, clear on delete), relationship_label: `"posts to"` |
 | `cost_driver_id` | `reference` | no | Cost Driver | → `cost_drivers` (N:1, clear on delete), relationship_label: `"drives"` |
 | `quantity` | `float` | no | Quantity | optional driver-based input, e.g. 2 (FTE) |
-| `unit_cost_amount` | `float` | no | Unit Cost | optional, paired with `quantity` |
-| `total_cost_amount` | `float` | yes | Total Cost | canonical figure used in roll-ups; default: `0` |
+| `unit_cost_amount` | `number` | no | Unit Cost | optional, paired with `quantity`; precision: 2 |
+| `total_cost_amount` | `number` | yes | Total Cost | canonical figure used in roll-ups; precision: 2; default: `0` |
 | `currency_code` | `string` | yes | Currency | ISO 4217; default: `"USD"` |
 | `cost_period` | `enum` | yes | Period | values: `one_time`, `recurring_annual`; default: `"one_time"` |
 | `notes` | `text` | no | Notes | |
@@ -314,7 +318,7 @@ flowchart LR
 | `cost_center_id` | `parent` | yes | Cost Center | ↳ `cost_centers` (N:1, cascade on delete) — the scope of this ranking, relationship_label: `"prioritizes"` |
 | `budget_cycle_id` | `reference` | yes | Budget Cycle | → `budget_cycles` (N:1, restrict on delete), relationship_label: `"scopes"` |
 | `decision_package_id` | `reference` | yes | Decision Package | → `decision_packages` (N:1, cascade on delete), relationship_label: `"ranked in"` |
-| `rank_position` | `integer` | yes | Rank | 1 = highest priority; default: `0` |
+| `rank_position` | `integer` | yes | Rank | 1 = highest priority |
 | `rationale` | `text` | no | Rationale | |
 
 > Composite uniqueness expected on `(cost_center_id, budget_cycle_id, rank_position)` and `(cost_center_id, budget_cycle_id, decision_package_id)`. Implementation enforces.
@@ -344,7 +348,7 @@ flowchart LR
 | `actor_user_id` | `reference` | yes | Actor | → `users` (N:1, restrict on delete), relationship_label: `"performs"` |
 | `action_type` | `enum` | yes | Action Type | values: `submit`, `approve`, `reject`, `cut`, `defer`, `request_changes`, `withdraw`; default: `"submit"` |
 | `comment` | `text` | no | Comment | |
-| `acted_at` | `date-time` | yes | Acted At | default: today |
+| `acted_at` | `date-time` | yes | Acted At | default: `CURRENT_TIMESTAMP` |
 
 **Relationships**
 
@@ -515,6 +519,7 @@ flowchart LR
 - Should funding-level cost roll-ups be stored as denormalized snapshots on `funding_levels` (for performance) or always derived from `cost_line_items` at query time?
 - Should rankings be expressible at multiple scopes (cost center → function → corporate), e.g. via a `ranking_scope` enum and an optional roll-up parent ID, or stay scoped to cost centers only with corporate roll-up handled in the reporting layer?
 - Should `cost_center_assignments` enforce a single concurrent assignment per (user, cost_center, role) via `valid_from`/`valid_to`, or permit overlapping assignments? Currently the date fields are optional.
+- Should `cost_drivers.current_value` be typed `number` (precision 2+) instead of `float`? Float is fine for transaction-volume or square-footage drivers, but if a driver ever holds a per-unit price or rate it will reintroduce IEEE-754 drift into roll-ups.
 
 ## 7. Implementation notes for the downstream agent
 
@@ -540,3 +545,25 @@ A short checklist for the agent who will materialize this model in Semantius (or
 6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which exists in Semantius as a built-in. For each declared entity, read Semantius first: if a built-in already covers it, **skip the create** and reuse the built-in as the `reference_table` target — do not attempt to recreate. Optionally add the model's required fields (`display_name`, `is_active`, `department`, `job_title`) to the built-in only if they are missing (additive, low-risk changes only).
 7. **Junction-table label population.** Three entities have label fields the caller must populate on insert because they have no natural single-field label: `package_rankings.ranking_label`, `approval_actions.action_label`, `cost_center_assignments.assignment_label`. The implementing application or workflow should compose these from the related records (e.g. `"{cycle_name} / {cost_center_code} / #{rank_position} {package_title}"` for a ranking).
 8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the `decision_packages` ↔ `funding_levels` circular reference resolves cleanly in both directions.
+
+## 8. Related domains
+
+The model is self-contained — every entity it needs is declared in §3 — but the following sibling modules are likely to coexist in the same Semantius catalog. The deployer should consult each sibling's own model at deploy time and reconcile per the contract below.
+
+### 8.1 `workforce_planning` (peer)
+
+- **Exposes:** `cost_centers` (canonical org-unit definitions, hierarchy via `parent_cost_center_id`).
+- **Expects on sibling:** `workforce_planning` headcount plans and positions reference back to `cost_centers` via the same `cost_center_id` shape used here. ZBB `funding_levels.headcount_fte` corresponds in spirit to workforce-plan FTE on a position; if both modules deploy together, the implementing workflow should reconcile package-funded FTE with planned positions on the same cost center and cycle.
+- **Defers to sibling:** none in either direction — `workforce_planning` is a peer, not a master-data owner of `cost_centers` or `users`.
+
+### 8.2 `finance` (upstream master data)
+
+- **Exposes:** `cost_line_items.gl_account_id` (the FK that lets ZBB roll spending up to ledger lines).
+- **Expects on sibling:** a `finance.gl_accounts` table whose `id` and `account_code` align with the local `gl_accounts` declared here.
+- **Defers to sibling:** `gl_accounts` if a `finance` module is deployed. The deployer should skip `gl_accounts` creation, rewire `cost_line_items.gl_account_id → finance.gl_accounts`, and treat the local `gl_accounts` declaration as a self-containment fallback only. `cost_line_items.gl_account_id` is optional (clear on delete), so missing GL alignment never blocks ZBB.
+
+### 8.3 `identity_and_access` (upstream master data, also Semantius built-in)
+
+- **Exposes:** every user-FK (`cost_centers.owner_user_id`, `decision_packages.owner_user_id`, `approval_actions.actor_user_id`, `cost_center_assignments.user_id`).
+- **Expects on sibling:** a `users` table the deployer can FK against. The Semantius built-in `users` is the canonical target.
+- **Defers to sibling:** `users` always defers to the Semantius built-in (per §7 step 6). If a richer `identity_and_access` module is deployed alongside, defer further: skip the local `users` create entirely, add only any missing fields (`display_name`, `is_active`, `department`, `job_title`) to whichever owner exists.

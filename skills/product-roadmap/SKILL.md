@@ -27,12 +27,12 @@ If a task is purely about defining schema, managing permissions, or
 running ad-hoc queries against tables you already know, call
 `use-semantius` directly, going through this skill adds nothing.
 
-**Auto-managed fields** (set by Semantius on every table; never include
-in POST/PATCH bodies): `id`, `created_at`, `updated_at`. Every other
-required field, including the three caller-populated junction and
-sub-entity label columns (`feature_vote_label`, `comment_label`,
-`feature_tag_label`), must appear in the POST body. The composition
-convention for each is given in its JTBD below.
+**Auto-managed fields** (set by Semantius on every table; never
+include in POST/PATCH bodies): `id`, `created_at`, `updated_at`. The
+three caller-populated junction and sub-entity label columns
+(`feature_vote_label`, `comment_label`, `feature_tag_label`) are
+**not** auto-managed: they are required on insert and must appear in
+every POST body. Composition rules live in each affected JTBD.
 
 For bulk CSV / Excel import of features, votes, or tags, see
 `use-semantius` `references/webhook-import.md`; this skill does not
@@ -51,7 +51,7 @@ feature.
 | Concept | Table | Notes |
 |---|---|---|
 | Objective | `objectives` | Strategic goal or theme features roll up to (e.g. "Reduce churn by 10%") |
-| Feature | `features` | The central roadmap entity: idea, enhancement, change request, bug, or tech debt |
+| Feature | `features` | The central roadmap entity: idea, enhancement, change request, bug, or tech debt; carries `estimated_cost` and `actual_cost` (numeric, scale 2) plus the four RICE inputs feeding the stored `rice_score` |
 | Release | `releases` | A planned release with target and actual ship dates; features schedule into one |
 | Cost Center | `cost_centers` | Funding bucket a feature is charged to; supports cost roll-up vs `annual_budget` |
 | User | `users` | PMs, owners, requesters, voters (deduped against the Semantius built-in `users`) |
@@ -63,8 +63,14 @@ feature.
 **Commitment rule.** A feature is **committed** when
 `feature_status` is one of `planned`, `in_progress`, `shipped`. The
 flag is derived, there is no separate boolean. `release_id` should
-agree: a committed feature should have a `release_id` set, and a
-non-committed feature should not.
+agree: a committed feature has a `release_id` set, and a
+non-committed feature does not.
+
+**Feature stored fields with computed value.** `features.rice_score`
+is `numeric` with scale 4 and is computed as
+`(reach_score * impact_score * confidence_score) / effort_score`. It
+must be recomputed in the same call as any RICE input change; see
+the *Score a feature with RICE* JTBD for the rule.
 
 ## Key enums
 
@@ -75,7 +81,7 @@ terminal-ish states.
 - `features.feature_status`: `new` → `under_review` → `planned` → `in_progress` → `shipped` | `declined` | `parked` (committed iff status ∈ {`planned`, `in_progress`, `shipped`})
 - `features.feature_type`: `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt`
 - `features.feature_priority`: `critical`, `high`, `medium`, `low`
-- `features.feature_source`: `customer`, `support`, `sales`, `internal`, `partner`
+- `features.feature_source`: `unspecified`, `customer`, `support`, `sales`, `internal`, `partner`
 - `releases.release_status`: `planned` → `in_progress` → `released` | `cancelled`
 - `objectives.objective_status`: `proposed` → `active` → `achieved` | `missed` | `cancelled`
 
@@ -107,9 +113,38 @@ Only the FKs that JTBDs cross. Format: `child.field → parent.id`
 tag_id)` is constrained. Recipes that would create one must read
 first.
 
-**Audit-logged tables** (Semantius writes the audit rows automatically;
-recipes do not manage them): `objectives`, `features`, `releases`,
-`cost_centers`.
+**Audit-logged tables** (Semantius writes the audit rows
+automatically; recipes do not manage them): `objectives`, `features`,
+`releases`, `cost_centers`.
+
+## Lookup convention
+
+Semantius adds a `search_vector` column to searchable entities for
+full-text search across all text fields. Use it whenever the user
+passes a name, title, or description, not a UUID:
+
+```bash
+semantius call crud postgrestRequest '{"method":"GET","path":"/<table>?search_vector=wfts(simple).<term>&select=id,<label_column>"}'
+```
+
+Use `wfts(simple).<term>` for fuzzy text searches; never `ilike` and
+never `fts`, they bypass the search index and mismatch the platform
+convention. `<column>=eq.<value>` is the right tool for known-exact
+values (UUIDs, FK ids, status enums, unique columns like `tag_name`,
+`release_name`, `cost_center_code`, `user_email`). If a fuzzy lookup
+returns more than one row, present the candidates and ask. If zero,
+ask the user to clarify rather than guessing.
+
+## Timestamps in recipe bodies
+
+Every `*_at` field, `*_date` field, or other moment-of-action value
+in a recipe body (`submitted_at`, `voted_at`, `posted_at`,
+`actual_release_date`, `target_start_date`, `target_completion_date`)
+is a placeholder the calling agent fills at call time, not a literal
+copied from the example. The recipes use `<current ISO timestamp>`
+and `<today's date, YYYY-MM-DD>`; do not copy those strings into a
+real call. This applies in SKILL.md, in every reference file, in
+the Common queries appendix, and in any script.
 
 ---
 
@@ -117,105 +152,44 @@ recipes do not manage them): `objectives`, `features`, `releases`,
 
 ### Capture a new feature (intake)
 
-**Triggers:** `capture a new feature request`, `add this idea to the backlog`, `log a bug as a feature`, `create a change request`
+**Triggers:** `capture a new feature request`, `add this idea to the
+backlog`, `log a bug as a feature`, `create a change request`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `feature_title` | yes | label_column; what the user typed as the idea |
-| `feature_type` | yes | One of `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt`; default `new_feature` |
-| `feature_status` | no | Defaults to `new`; do not jump straight to `planned` here, that's the schedule JTBD |
+| `feature_type` | yes | One of `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt` |
+| `feature_status` | no | Defaults to `new`; must NOT be `planned`/`in_progress`/`shipped` here, those route to the schedule JTBD |
 | `feature_priority` | no | Default `medium` |
-| `feature_source` | no | `customer`, `support`, `sales`, `internal`, `partner` |
+| `feature_source` | no | `customer`, `support`, `sales`, `internal`, `partner`, `unspecified` |
 | `requester_id` | no | Resolve via `user_email=eq.<email>` |
 | `owner_id` | no | The PM owning the feature; resolve by email |
 | `objective_id` | no | Resolve by `objective_name` via `wfts(simple)` |
 | `cost_center_id` | no | Resolve by `cost_center_code=eq.<code>` (unique) |
 | `submitted_at` | no | Set to the current ISO timestamp at intake |
-| RICE inputs (`reach_score`, `impact_score`, `confidence_score`, `effort_score`) | no | If any are passed, see *RICE recompute* below |
+| RICE inputs (`reach_score`, `impact_score`, `confidence_score`, `effort_score`) | no | If any are passed, recipe recomputes `rice_score` |
 
-**Lookup convention.** Semantius adds a `search_vector` column to
-searchable entities for full-text search across all text fields. Use
-it whenever the user passes a name, title, or description, not a UUID:
+**Recipe:** see [`references/capture-feature.md`](references/capture-feature.md).
 
-```bash
-# Resolve an objective by anything the user typed
-semantius call crud postgrestRequest '{"method":"GET","path":"/objectives?search_vector=wfts(simple).<term>&select=id,objective_name,objective_status"}'
-```
-
-Use `wfts(simple).<term>` for fuzzy text searches, never `ilike` and
-never `fts`, they bypass the search index and mismatch the platform
-convention. `eq.<value>` is the right tool for known-exact values
-(UUIDs, FK ids, status enums, unique columns like `tag_name`,
-`release_name`, `cost_center_code`, `user_email`).
-
-**RICE recompute.** If the caller passes any of the four RICE inputs
-at intake, compute `rice_score` in the same POST body using:
-
-```
-rice_score = (reach_score * impact_score * confidence_score) / effort_score
-```
-
-Skip the computation if `effort_score` is missing, null, or zero
-(division would be undefined); leave `rice_score` null and tell the
-user the score will compute once effort is set.
-
-**Recipe:**
-
-```bash
-# 1. (Optional) resolve any human-friendly references the user named
-semantius call crud postgrestRequest '{"method":"GET","path":"/users?user_email=eq.<email>&select=id,user_full_name"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/cost_centers?cost_center_code=eq.<code>&select=id,cost_center_name"}'
-
-# 2. Create the feature
-semantius call crud postgrestRequest '{
-  "method":"POST",
-  "path":"/features",
-  "body":{
-    "feature_title":"<title>",
-    "feature_type":"new_feature",
-    "feature_status":"new",
-    "feature_priority":"medium",
-    "feature_source":"customer",
-    "requester_id":"<optional>",
-    "owner_id":"<optional>",
-    "objective_id":"<optional>",
-    "cost_center_id":"<optional>",
-    "submitted_at":"<current ISO timestamp>",
-    "reach_score":1000,
-    "impact_score":1,
-    "confidence_score":80,
-    "effort_score":2,
-    "rice_score":40000
-  }
-}'
-```
-
-`submitted_at`: set to the current ISO timestamp at call time; do not
-copy the example value. The RICE numbers above are illustrative;
-either pass real values from the user (and recompute `rice_score` per
-the formula) or omit all five fields.
-
-**Validation:** new row exists; `feature_status=new` (or whatever the
-caller asked for); if any RICE input was passed, `rice_score` matches
-the formula.
+**Validation:** new row exists with the resolved FKs; `feature_status`
+matches what the caller asked for (default `new`); if any RICE input
+was passed and `effort_score` is non-zero, `rice_score` equals
+`(reach * impact * confidence) / effort` rounded to 4 decimals.
 
 **Failure modes:**
-- Caller asks to set `feature_status=planned` at intake → refuse and
-  route to the *Schedule a feature into a release* JTBD; commitment
-  needs `release_id` to agree.
-- `objective_id` resolved to a `cancelled` or `missed` objective →
-  ask the user; rolling new ideas into an abandoned objective is
-  almost always a mistake.
-- `cost_center_status=inactive` on the resolved cost center → ask;
-  charging new work to an inactive bucket distorts the cost roll-up.
+- Caller asks for `feature_status=planned` at intake → refuse and
+  route to the *Schedule a feature into a release* JTBD.
+- `objective_id` resolves to a `cancelled`/`missed` objective, or
+  `cost_center_status=inactive` → ask the user before proceeding.
 
 ---
 
 ### Score a feature with RICE (recompute)
 
-**Triggers:** `score this feature with RICE`, `update the RICE score`, `rescore X`, `set reach to 5000`
+**Triggers:** `score this feature with RICE`, `update the RICE
+score`, `rescore X`, `set reach to 5000`
 
 **Inputs:**
 
@@ -224,117 +198,57 @@ the formula.
 | `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
 | Any of `reach_score`, `impact_score`, `confidence_score`, `effort_score` | yes | At least one must be provided |
 
-**This is a computed field.** `rice_score` is **stored**, not derived
-on read; whenever any of the four inputs change, recompute and PATCH
-`rice_score` in the **same** call:
+**Recipe:** run `scripts/score-rice.sh <feature_id> [reach=<n>] [impact=<n>] [confidence=<n>] [effort=<n>]`.
+The script reads current scores, overlays the caller's deltas,
+recomputes `rice_score` rounded to 4 decimals (or null if effort is
+null/zero), and PATCHes everything in one call. Exit 0 on success,
+1 on bad inputs / feature not found, 2 on platform error.
 
-```
-rice_score = (reach_score * impact_score * confidence_score) / effort_score
-```
-
-Read the feature first to get the existing values, overlay the
-caller's new ones, then recompute. PATCHing one input without
-recomputing leaves the backlog sorted by a stale score and is the
-most common silent corruption in this domain.
-
-**Recipe:**
-
-```bash
-# 1. Read current scores
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?id=eq.<id>&select=id,feature_title,reach_score,impact_score,confidence_score,effort_score,rice_score"}'
-
-# 2. Compute new rice_score = (reach * impact * confidence) / effort using the merged values
-
-# 3. PATCH all four inputs (the changed ones) plus rice_score in one call
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/features?id=eq.<id>",
-  "body":{
-    "reach_score":5000,
-    "impact_score":2,
-    "confidence_score":80,
-    "effort_score":3,
-    "rice_score":266666.67
-  }
-}'
-```
-
-**Validation:** `rice_score` on the row equals
-`(reach * impact * confidence) / effort` with the post-PATCH inputs.
+**Validation:** all four RICE inputs on the row reflect the merged
+values; `rice_score` equals `(reach * impact * confidence) / effort`
+with the post-PATCH inputs rounded to 4 decimals; OR `rice_score`
+is null and `effort_score` is null/zero.
 
 **Failure modes:**
-- `effort_score` is null or zero after the PATCH → division is
-  undefined; PATCH `rice_score` to null and tell the user the score
-  will recompute once effort is set. Do not write a placeholder value.
-- One score field PATCHed without `rice_score` recomputed → silent
-  corruption; recover by reading the row, recomputing, and PATCHing
-  `rice_score` to the correct value.
+- `effort_score` is null or zero after the PATCH → division
+  undefined; PATCH `rice_score` to null, do not write a placeholder.
+- Score field PATCHed without `rice_score` recomputed → silent
+  corruption; recover by reading the row, recomputing, and
+  re-PATCHing.
 
 ---
 
-### Triage a feature (under_review → planned / declined / parked)
+### Triage a feature (move to under_review / declined / parked)
 
-**Triggers:** `triage the backlog`, `move X to under review`, `decline this feature`, `park this idea for next quarter`, `promote X to planned`
+**Triggers:** `triage the backlog`, `move X to under review`,
+`decline this feature`, `park this idea for next quarter`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| Target `feature_status` | yes | One of `under_review`, `planned`, `declined`, `parked` |
+| Target `feature_status` | yes | One of `under_review`, `declined`, `parked`, `new` (promotion to `planned` is the schedule JTBD, not this one) |
 
-**This is a DB-unguarded lifecycle gate.** Semantius accepts any
-`feature_status` PATCH; the rules below are enforced client-side.
+**Recipe:** see [`references/triage-feature.md`](references/triage-feature.md).
 
-- `new` → `under_review`, `planned`, `declined`, or `parked` are valid.
-- `under_review` → same set.
-- `planned` / `in_progress` / `shipped` are committed states; do not
-  drop a committed feature back to `under_review` or `new` without
-  confirming with the user (the work is being tracked elsewhere as
-  in-flight).
-- Promoting to `planned` requires a `release_id`; if the user did
-  not name a release, route to the *Schedule a feature into a
-  release* JTBD instead of patching status alone.
-- `shipped` is a terminal state; do not flip it via this JTBD.
-  Reopening a shipped feature is a model decision, not a triage step.
-
-**Recipe (decline or park):**
-
-```bash
-# 1. Read current state
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?id=eq.<id>&select=id,feature_title,feature_status,release_id"}'
-
-# 2. Refuse if current status is `shipped`; ask the user before flipping `in_progress`/`planned` backwards.
-
-# 3. PATCH
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/features?id=eq.<id>",
-  "body":{"feature_status":"declined"}
-}'
-```
-
-**Recipe (move under_review → planned):** route to the *Schedule a
-feature into a release* JTBD instead; do not PATCH `planned` here.
-
-**Validation:** `feature_status` matches the target; for
-`declined`/`parked`, `release_id` should be `null` (a declined
-feature on a release schedule confuses release-content reports;
-unset it in the same PATCH if it was set).
+**Validation:** `feature_status` matches the target; for `declined`
+or `parked`, `release_id` is null (a non-committed feature with a
+release_id breaks release-content reports).
 
 **Failure modes:**
-- Promoting to `planned` without a `release_id` → the commitment rule
-  breaks (status says committed, schedule says no). Either set
-  `release_id` in the same PATCH (use the schedule JTBD) or refuse.
-- Declining a feature that already has votes / comments / tags →
-  fine, FKs from those tables stay valid; tell the user the
-  discussion is preserved on the declined row.
+- Caller asks to promote to `planned` here → refuse and route to the
+  schedule JTBD.
+- Source status is `shipped` → refuse; reopening a shipped feature
+  is a model-level decision, not a triage step.
 
 ---
 
 ### Schedule a feature into a release
 
-**Triggers:** `schedule X into v2.5`, `add this feature to the March 2026 release`, `commit the dark mode work to v3.0`, `move this off the v2.5 release`
+**Triggers:** `schedule X into v2.5`, `add this feature to the March
+2026 release`, `commit the dark mode work to v3.0`, `move this off
+the v2.5 release`
 
 **Inputs:**
 
@@ -344,151 +258,62 @@ unset it in the same PATCH if it was set).
 | `release_id` | yes for scheduling, null for unscheduling | Resolve by `release_name=eq.<name>` (unique) |
 | `target_start_date`, `target_completion_date` | no | Set if the user named them |
 
-**Cross-FK invariant.** The commitment rule says
-`feature_status ∈ {planned, in_progress, shipped} ⇔ release_id is
-set`. Schedule and status must agree, in the **same PATCH**:
+**Recipe:** see [`references/schedule-feature.md`](references/schedule-feature.md).
 
-- Scheduling a `new` / `under_review` / `parked` / `declined` feature
-  into a release → set `release_id` AND flip `feature_status` to
-  `planned` together.
-- Scheduling a `planned` feature into a different release → just
-  swap `release_id`; status stays `planned`.
-- Scheduling an `in_progress` or `shipped` feature into a different
-  release → ask the user first; this rewrites history.
-- Unscheduling (remove from a release) → set `release_id=null` AND
-  flip `feature_status` back to `under_review` together. A
-  null-`release_id` `planned` row breaks every release-content
-  report.
-
-**Read the release first.** Refuse to schedule into a release whose
-`release_status` is `released` or `cancelled`; the work cannot ship
-through a closed release.
-
-**Recipe (schedule a new feature into a release):**
-
-```bash
-# 1. Resolve the release; verify it is not released/cancelled
-semantius call crud postgrestRequest '{"method":"GET","path":"/releases?release_name=eq.<name>&select=id,release_status,target_release_date"}'
-
-# 2. Read the feature's current state
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?id=eq.<id>&select=id,feature_status,release_id"}'
-
-# 3. PATCH release_id and feature_status together
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/features?id=eq.<id>",
-  "body":{
-    "release_id":"<release id>",
-    "feature_status":"planned",
-    "target_start_date":"<optional, YYYY-MM-DD>",
-    "target_completion_date":"<optional, YYYY-MM-DD>"
-  }
-}'
-```
-
-**Recipe (unschedule):**
-
-```bash
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/features?id=eq.<id>",
-  "body":{"release_id":null,"feature_status":"under_review"}
-}'
-```
-
-**Validation:** if `release_id` is set, `feature_status` is in
-`{planned, in_progress, shipped}`; if `release_id` is null,
-`feature_status` is in `{new, under_review, declined, parked}`.
+**Validation:** if `release_id` is set, `feature_status ∈ {planned,
+in_progress, shipped}`; if `release_id` is null, `feature_status ∈
+{new, under_review, declined, parked}`; the release the feature
+points at is not `released` or `cancelled`.
 
 **Failure modes:**
-- `release_status` of the resolved release is `released` or
-  `cancelled` → refuse; ask the user to pick a different release.
-- Status flipped to `planned` but `release_id` not set in the same
-  call → silent commitment-rule break; recover by PATCH-ing
-  `release_id` or reverting status.
-- Feature already on a different release → tell the user which one
-  and confirm before swapping; release-content reports change.
+- Resolved release has `release_status` in `(released, cancelled)`
+  → refuse; ask the user to pick a different release.
+- `feature_status=planned` written without `release_id` set in the
+  same call → silent commitment-rule break; recover by PATCH-ing
+  `release_id` or reverting the status.
 
 ---
 
-### Ship a release (cascade)
+### Ship a release
 
-**Triggers:** `ship the March 2026 release`, `release v2.5`, `mark v3.0 as released`, `the release went out yesterday`
+**Triggers:** `ship the March 2026 release`, `release v2.5`,
+`mark v3.0 as released`, `the release went out yesterday`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `release_id` | yes | Resolve by `release_name=eq.<name>` (unique) |
-| `actual_release_date` | yes | The date it actually shipped; do not bake a literal |
+| `actual_release_date` | yes | The date it actually shipped (YYYY-MM-DD) |
 | `release_notes` | no | HTML string published with the release |
 
-**This is a Pattern C cascade.** Shipping a release is not a single
-PATCH; it sweeps every feature attached to the release and flips
-each from `planned` / `in_progress` to `shipped` in one bulk PATCH.
-The DB does not enforce the cascade; if you stop after step 1, the
-release report says "shipped on 2026-05-04" but its features still
-sit at `in_progress`, and the backlog dashboard double-counts work
-that has actually gone out.
-
-Features already at `shipped`, `declined`, or `parked` on the
-release should NOT be touched. Decline/park decisions made before
-shipping are intentional, sweeping them to `shipped` would falsify
-the record.
-
-**Recipe:**
-
-```bash
-# 1. Resolve the release; verify it is not already released or cancelled
-semantius call crud postgrestRequest '{"method":"GET","path":"/releases?release_name=eq.<name>&select=id,release_status,target_release_date,actual_release_date"}'
-
-# 2. PATCH the release: status + actual_release_date + (optional) release_notes in one call
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/releases?id=eq.<release id>",
-  "body":{
-    "release_status":"released",
-    "actual_release_date":"<today, YYYY-MM-DD>",
-    "release_notes":"<optional HTML>"
-  }
-}'
-
-# 3. Sweep features: every feature on this release at planned or in_progress -> shipped (bulk PATCH)
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/features?release_id=eq.<release id>&feature_status=in.(planned,in_progress)",
-  "body":{"feature_status":"shipped"}
-}'
-
-# 4. Verify the sweep
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?release_id=eq.<release id>&select=id,feature_title,feature_status&order=feature_status.asc"}'
-```
-
-`actual_release_date`: set to the actual ship date at call time; do
-not copy the placeholder.
+**Recipe:** run `scripts/ship-release.sh <release_id> <actual_release_date> [release_notes_html]`.
+The script PATCHes the release, sweeps `planned`/`in_progress`
+features on the release to `shipped`, and verifies no committed
+features remain. Exit 0 on success, 1 on bad inputs / already
+released, 2 on platform error (rerun is a deterministic no-op for
+already-shipped rows).
 
 **Validation:** the release row shows `release_status=released` and
-`actual_release_date` non-null; every feature on the release is in
+non-null `actual_release_date`; every feature on the release is in
 `{shipped, declined, parked}`; none remain at `planned` or
-`in_progress`.
+`in_progress`. Features at `new` / `under_review` on a shipped
+release are surfaced as a data-quality warning, not swept.
 
 **Failure modes:**
-- Step 2 succeeded but step 3 failed (partial cascade) → the funnel
-  is half-applied; do NOT retry blindly. Read the feature list, see
-  which rows are still `planned` / `in_progress`, and PATCH only
-  those. Tell the user.
-- A feature on the release is at `under_review` or `new` (commitment
-  rule already broken before shipping) → leave it alone; do not
-  sweep non-committed work to `shipped`. Surface the row to the
-  user as a data-quality issue.
-- Release is already `released` → do not re-ship; the original
-  `actual_release_date` is correct. Refuse and tell the user.
+- Release is already `released` or `cancelled` → script exits 1;
+  do not re-ship, the original `actual_release_date` stands.
+- Step 2 (release PATCH) succeeded but step 3 (sweep) failed →
+  script exits 2 naming the failed step. Rerun the script; the
+  feature filter is `feature_status in (planned, in_progress)`, so
+  already-shipped rows are not re-touched.
 
 ---
 
 ### Vote on a feature
 
-**Triggers:** `vote for the dark mode feature`, `record Alice's vote on X`, `Alex wants this feature too`, `bump the weight on this vote`
+**Triggers:** `vote for the dark mode feature`, `record Alice's vote
+on X`, `Alex wants this feature too`, `bump the weight on this vote`
 
 **Inputs:**
 
@@ -496,177 +321,89 @@ not copy the placeholder.
 |---|---|---|
 | `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
 | `user_id` | yes | Resolve by `user_email=eq.<email>` (unique) |
-| `vote_weight` | no | Default 1; higher = stronger signal (e.g. 5 for an executive sponsor) |
+| `vote_weight` | no | Default 1; higher = stronger signal |
 | `voted_at` | no | Set to the current ISO timestamp at vote time |
 
-**Junction without DB-level uniqueness.** The table does not constrain
-`(feature_id, user_id)`. POSTing the same pair twice creates a
-duplicate vote that silently inflates the vote-count signal. Always
-read first.
+**Recipe:** run `scripts/cast-vote.sh <feature_id> <user_id> [vote_weight]`.
+The script reads both parents to compose
+`feature_vote_label = "<user_full_name> -> <feature_title>"`, dedupes
+on the `(feature_id, user_id)` pair, PATCHes if the row exists or
+POSTs otherwise, and refreshes `voted_at` to the current timestamp.
+Exit 0 on success, 1 on bad inputs / parents not found, 2 on platform
+error.
 
-**Caller-populated label.** `feature_votes.feature_vote_label` is
-required on insert and not auto-derived. Compose it as
-`"{user.user_full_name} → {feature.feature_title}"`. The recipe must
-read both rows to have the values to compose with.
-
-**Recipe (cast a new vote):**
-
-```bash
-# 1. Resolve the feature, the user, and check for an existing vote in one round
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?search_vector=wfts(simple).<term>&select=id,feature_title"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/users?user_email=eq.<email>&select=id,user_full_name"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/feature_votes?feature_id=eq.<feature>&user_id=eq.<user>&select=id,vote_weight,feature_vote_label"}'
-
-# 2a. If a row already exists with the same vote_weight, do nothing; tell the user.
-# 2b. If a row exists with a different vote_weight, PATCH the weight (do not POST a duplicate):
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/feature_votes?id=eq.<existing id>",
-  "body":{"vote_weight":5,"voted_at":"<current ISO timestamp>"}
-}'
-# 2c. Otherwise, create:
-semantius call crud postgrestRequest '{
-  "method":"POST","path":"/feature_votes",
-  "body":{
-    "feature_vote_label":"<user.user_full_name> -> <feature.feature_title>",
-    "feature_id":"<feature id>",
-    "user_id":"<user id>",
-    "vote_weight":1,
-    "voted_at":"<current ISO timestamp>"
-  }
-}'
-```
-
-`voted_at`: set to the current ISO timestamp at call time; do not
-copy the placeholder.
-
-**Validation:** exactly one row exists for the `(feature_id,
-user_id)` pair; `feature_vote_label` matches the
-`"<full name> -> <feature title>"` composition.
+**Validation:** exactly one row exists for the
+`(feature_id, user_id)` pair; `feature_vote_label` matches the
+`"<user_full_name> -> <feature_title>"` composition.
 
 **Failure modes:**
-- A POST without the read-first → the table accepts a duplicate.
-  Recover by DELETE-ing one of the duplicates, or by PATCH-ing one
-  to the desired `vote_weight` and DELETE-ing the other.
-- The user is not in `users` yet → create the user first
-  (`use-semantius` handles user creation); do not invent a fake id.
+- POST without the read-first dedupe → duplicate row, vote count
+  inflates; recover by deleting duplicates by `voted_at`.
+- User not in `users` yet → create via `use-semantius`, do not
+  invent a fake id.
 
 ---
 
 ### Tag a feature
 
-**Triggers:** `tag this as mobile`, `add the enterprise tag to X`, `categorize this feature as platform`, `untag this`
+**Triggers:** `tag this as mobile`, `add the enterprise tag to X`,
+`categorize this feature as platform`, `untag this`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `tag_id` | yes | Resolve by `tag_name=eq.<name>` (unique). If the tag does not exist, ask before creating one; tags are reusable categorization, not free-form |
+| `tag_id` | yes | Resolve by `tag_name=eq.<name>` (unique). If absent, ask before creating one |
 
-**Junction without DB-level uniqueness.** The table does not
-constrain `(feature_id, tag_id)`. POSTing the same pair twice
-creates a duplicate row that pollutes "what tags does this feature
-have" lists. Always read first.
+**Recipe:** see [`references/tag-feature.md`](references/tag-feature.md).
 
-**Caller-populated label.** `feature_tags.feature_tag_label` is
-required on insert and not auto-derived. Compose it as
-`"{feature.feature_title} / {tag.tag_name}"`.
-
-**Recipe (add a tag):**
-
-```bash
-# 1. Resolve the feature and the tag, and check for an existing pair
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?search_vector=wfts(simple).<term>&select=id,feature_title"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/tags?tag_name=eq.<name>&select=id,tag_name"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/feature_tags?feature_id=eq.<feature>&tag_id=eq.<tag>&select=id"}'
-
-# 2. If the pair exists, do nothing; tell the user. Otherwise:
-semantius call crud postgrestRequest '{
-  "method":"POST","path":"/feature_tags",
-  "body":{
-    "feature_tag_label":"<feature.feature_title> / <tag.tag_name>",
-    "feature_id":"<feature id>",
-    "tag_id":"<tag id>"
-  }
-}'
-```
-
-**Recipe (remove a tag):**
-
-```bash
-semantius call crud postgrestRequest '{
-  "method":"DELETE","path":"/feature_tags?feature_id=eq.<feature>&tag_id=eq.<tag>"
-}'
-```
-
-**Validation:** exactly one `feature_tags` row for the
-`(feature_id, tag_id)` pair; `feature_tag_label` matches the
-`"<feature title> / <tag name>"` composition.
+**Validation:** add: exactly one `feature_tags` row for the pair,
+`feature_tag_label` matches `"<feature_title> / <tag_name>"`; remove:
+zero rows match the pair.
 
 **Failure modes:**
-- The tag the user named does not exist → ask before creating one;
-  silently auto-creating tags fragments the taxonomy
-  (`mobile-app`, `mobile`, `Mobile` all coexisting).
-- A POST without the read-first → duplicate row; recover by
-  DELETE-ing the extra.
+- Tag named by the user does not exist → ask before creating; do
+  not auto-create (taxonomy fragmentation: `mobile`, `Mobile`,
+  `mobile-app` co-existing).
+- POST without the read-first dedupe → duplicate row; recover by
+  deleting the extra.
 
 ---
 
 ### Comment on a feature
 
-**Triggers:** `comment on this feature`, `add a note to X`, `reply to the discussion on the dark mode feature`
+**Triggers:** `comment on this feature`, `add a note to X`, `reply
+to the discussion on the dark mode feature`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `author_id` | yes on insert | Resolve by `user_email=eq.<email>`; storage is nullable so a deleted user's comments survive as orphaned, but the caller must always pass it |
+| `author_id` | yes on insert | Resolve by `user_email=eq.<email>`; storage is nullable so a deleted user's comments survive, but the caller must always pass it |
 | `comment_body` | yes | The full text the user wrote |
 | `posted_at` | no | Set to the current ISO timestamp at post time |
 
-**Caller-populated label.** `comments.comment_label` is required on
-insert and not auto-derived. Compose it as the **first ~80
-characters of `comment_body`**, trimmed at a word boundary if
-possible. Do not pass the full body again as the label; the column
-is for list-view display, not the message itself.
+**Recipe:** run `scripts/post-comment.sh <feature_id> <author_id> <comment_body>`.
+The script verifies both parents exist, composes `comment_label`
+deterministically (verbatim if body is at most 80 chars; otherwise
+the first 80 chars cut at the last whitespace position when one
+exists, with the U+2026 ellipsis appended), and POSTs the row with
+`posted_at` set to the current timestamp. NOT idempotent: every run
+POSTs a new row. Exit 0 on success, 1 on bad inputs / parents not
+found, 2 on platform error.
 
-**Recipe:**
-
-```bash
-# 1. Resolve the feature and the author
-semantius call crud postgrestRequest '{"method":"GET","path":"/features?search_vector=wfts(simple).<term>&select=id,feature_title"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/users?user_email=eq.<email>&select=id,user_full_name"}'
-
-# 2. Compose comment_label = first ~80 chars of comment_body (word-boundary trim)
-
-# 3. Post the comment (paired write: posted_at goes in the same call as the body)
-semantius call crud postgrestRequest '{
-  "method":"POST","path":"/comments",
-  "body":{
-    "comment_label":"<first ~80 chars of comment_body>",
-    "feature_id":"<feature id>",
-    "author_id":"<user id>",
-    "comment_body":"<full comment body>",
-    "posted_at":"<current ISO timestamp>"
-  }
-}'
-```
-
-`posted_at`: set to the current ISO timestamp at call time; do not
-copy the placeholder.
-
-**Validation:** new row exists; `comment_label` is a prefix of
-`comment_body` (≤ ~80 chars); `feature_id` resolves to a real
-feature; `posted_at` is non-null.
+**Validation:** new row exists; if body ≤80 chars, `comment_label`
+equals `comment_body`; otherwise `comment_label` ends with `…`
+(U+2026) and the prefix is at most 80 chars cut at a word boundary
+when one exists; `posted_at` non-null.
 
 **Failure modes:**
-- `comment_label` set to the full body → list views become unreadable;
-  recover by PATCH-ing `comment_label` to the trimmed prefix.
-- `author_id` omitted on POST → required-on-insert; the row is
-  rejected. Resolve the user first.
-- `posted_at` left null → time-ordered comment threads break;
-  PATCH to add the timestamp.
+- `comment_label` set to the full body when body > 80 chars → list
+  views break; PATCH `comment_label` per the composition rule.
+- `author_id` omitted on POST → required-on-insert; resolve user
+  first.
 
 ---
 
@@ -743,30 +480,29 @@ semantius call cube load '{"query":{
   must hold.
 - Never PATCH any of `features.{reach_score, impact_score,
   confidence_score, effort_score}` without recomputing
-  `rice_score = (reach * impact * confidence) / effort` in the same
-  call; if `effort_score` ends up null or zero, set `rice_score`
-  to null rather than writing a placeholder.
+  `rice_score = (reach * impact * confidence) / effort` rounded to
+  4 decimals in the same call; if `effort_score` ends up null or
+  zero, set `rice_score` to null rather than writing a placeholder.
 - Never PATCH `releases.release_status=released` without setting
   `actual_release_date` in the same call, and always sweep the
   release's `planned`/`in_progress` features to `shipped` in the
-  same operation; a half-shipped release corrupts every backlog
-  and release-content report.
+  same operation; the `scripts/ship-release.sh` script does this
+  atomically.
 - Never POST to `feature_votes` for a `(feature_id, user_id)` pair
-  that already exists; PATCH the existing row's `vote_weight` instead.
+  that already exists; PATCH the existing row's `vote_weight`
+  instead.
 - Never POST to `feature_tags` for a `(feature_id, tag_id)` pair
   that already exists; the row is the link, there is nothing to
   update on it.
 - Never auto-create tags from a casual user mention; ask first.
   `tag_name` is unique, but the taxonomy fragments
-  (`mobile-app` / `mobile` / `Mobile`) if every typo becomes a new tag.
+  (`mobile-app` / `mobile` / `Mobile`) if every typo becomes a new
+  tag.
 - Never schedule a feature into a release whose `release_status` is
   `released` or `cancelled`.
 - Lookups for human-friendly identifiers (titles, names,
   descriptions) use `search_vector=wfts(simple).<term>`; never
   `ilike` and never `fts`.
-- Audit-logged tables (`objectives`, `features`, `releases`,
-  `cost_centers`) write their own audit rows; do not hand-write to
-  any audit table.
 - `users` may already exist as a Semantius built-in in this
   deployment; treat it as the authoritative table and reference it
   rather than creating a parallel one.

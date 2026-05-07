@@ -4,7 +4,7 @@ system_name: Product Roadmap
 system_slug: product_roadmap
 domain: Product Management
 naming_mode: agent-optimized
-created_at: 2026-05-04
+created_at: 2026-05-05
 entities:
   - objectives
   - features
@@ -17,6 +17,9 @@ entities:
   - cost_centers
 departments:
   - Product
+related_models:
+  - identity_and_access
+  - zero_based_budgeting
 initial_request: |
   I need to plan the product roadmap. I have ideas/change requests, which need to be estimated and prioritized, I've to plan releases
 ---
@@ -54,10 +57,10 @@ flowchart LR
     users -->|owns| cost_centers
     users -->|authors| comments
     features -->|collects| comments
-    features -->|receives votes from| feature_votes
+    features -->|collects votes via| feature_votes
     users -->|casts| feature_votes
-    features -->|tagged with| feature_tags
-    tags -->|applied via| feature_tags
+    features -->|has tags via| feature_tags
+    tags -->|links features via| feature_tags
 ```
 
 ## 3. Entities
@@ -103,7 +106,7 @@ flowchart LR
 | `feature_type` | `enum` | yes | Type | values: `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt`; default: "new_feature" |
 | `feature_status` | `enum` | yes | Status | values: `new`, `under_review`, `planned`, `in_progress`, `shipped`, `declined`, `parked`; default: "new"; commitment is derived (status ∈ {planned, in_progress, shipped} ⇒ committed) |
 | `feature_priority` | `enum` | no | Priority | values: `critical`, `high`, `medium`, `low`; default: "medium" |
-| `feature_source` | `enum` | no | Source | values: `customer`, `support`, `sales`, `internal`, `partner` |
+| `feature_source` | `enum` | no | Source | values: `unspecified`, `customer`, `support`, `sales`, `internal`, `partner`; default: "unspecified" |
 | `objective_id` | `reference` | no | Objective | → `objectives` (N:1), relationship_label: "rolls up" |
 | `release_id` | `reference` | no | Release | → `releases` (N:1); null until scheduled, relationship_label: "contains" |
 | `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1); funding bucket the feature is charged to, relationship_label: "funds" |
@@ -113,12 +116,12 @@ flowchart LR
 | `target_start_date` | `date` | no | Target Start | |
 | `target_completion_date` | `date` | no | Target Completion | |
 | `reach_score` | `integer` | no | Reach | RICE: # users/period reached |
-| `impact_score` | `float` | no | Impact | RICE: typical 0.25, 0.5, 1, 2, 3 |
-| `confidence_score` | `float` | no | Confidence | RICE: percentage (0-100) |
-| `effort_score` | `float` | no | Effort | RICE: person-months |
-| `rice_score` | `float` | no | RICE Score | (reach × impact × confidence) / effort |
-| `estimated_cost` | `double` | no | Estimated Cost | currency amount; budget side |
-| `actual_cost` | `double` | no | Actual Cost | currency amount; populated as work ships |
+| `impact_score` | `number` | no | Impact | precision: 2; RICE: typical 0.25, 0.5, 1, 2, 3 |
+| `confidence_score` | `number` | no | Confidence | precision: 2; RICE: percentage (0-100) |
+| `effort_score` | `number` | no | Effort | precision: 2; RICE: person-months |
+| `rice_score` | `number` | no | RICE Score | precision: 4; (reach × impact × confidence) / effort |
+| `estimated_cost` | `number` | no | Estimated Cost | precision: 2; currency amount; budget side |
+| `actual_cost` | `number` | no | Actual Cost | precision: 2; currency amount; populated as work ships |
 
 **Relationships**
 
@@ -193,7 +196,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `feature_vote_label` | `string` | yes | Label | label_column; caller populates as `{user_full_name} → {feature_title}`; default: "" |
-| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "receives votes from" |
+| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "collects votes via" |
 | `user_id` | `reference` | yes | User | → `users` (N:1), relationship_label: "casts" |
 | `voted_at` | `date-time` | no | Voted At | |
 | `vote_weight` | `integer` | no | Weight | default 1; higher = stronger signal |
@@ -262,8 +265,8 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `feature_tag_label` | `string` | yes | Label | label_column; caller populates as `{feature_title} / {tag_name}`; default: "" |
-| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "tagged with" |
-| `tag_id` | `reference` | yes | Tag | → `tags` (N:1), relationship_label: "applied via" |
+| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "has tags via" |
+| `tag_id` | `reference` | yes | Tag | → `tags` (N:1), relationship_label: "links features via" |
 
 **Relationships**
 
@@ -287,7 +290,7 @@ flowchart LR
 | `cost_center_name` | `string` | yes | Name | default: "" |
 | `cost_center_description` | `text` | no | Description | |
 | `cost_center_status` | `enum` | no | Status | values: `active`, `inactive`; default: "active" |
-| `annual_budget` | `double` | no | Annual Budget | currency amount |
+| `annual_budget` | `number` | no | Annual Budget | precision: 2; currency amount |
 | `cost_center_owner_id` | `reference` | no | Owner | → `users` (N:1), relationship_label: "owns" |
 
 **Relationships**
@@ -309,7 +312,7 @@ flowchart LR
 | `feature_votes` | `feature_id` | `features` | N:1 | parent (junction) | cascade |
 | `feature_votes` | `user_id` | `users` | N:1 | parent (junction) | cascade |
 | `comments` | `feature_id` | `features` | N:1 | parent | cascade |
-| `comments` | `author_id` | `users` | N:1 | reference | set null |
+| `comments` | `author_id` | `users` | N:1 | reference | clear |
 | `feature_tags` | `feature_id` | `features` | N:1 | parent (junction) | cascade |
 | `feature_tags` | `tag_id` | `tags` | N:1 | parent (junction) | cascade |
 
@@ -345,6 +348,7 @@ flowchart LR
 - `low`
 
 ### 5.5 `features.feature_source`
+- `unspecified`
 - `customer`
 - `support`
 - `sales`
@@ -412,3 +416,17 @@ None.
    - `"cost_centers.cost_center_code"` → title `"Code"`
 6. **Deduplicate against Semantius built-in tables.** This model declares `users` as a self-contained entity. If Semantius ships a built-in `users` table, **skip the create** and reuse the built-in as the `reference_table` target for every FK pointing to `users` (`objective_owner_id`, `cost_center_owner_id`, `requester_id`, `owner_id`, `author_id`, `feature_votes.user_id`). Only add missing fields (e.g. `user_role`, `user_status`) to the built-in if they are not already present and the addition is low-risk.
 7. After creation, spot-check that `label_column` on each entity resolves to a real string field and that all `reference_table` targets exist. The junction tables (`feature_votes`, `feature_tags`) require their `*_label` field to be populated by the caller on every insert, flag this in any seed script or import flow.
+
+## 8. Related domains
+
+### 8.1 `identity_and_access` (upstream)
+
+**Exposes:** none consumed by this module.
+**Expects on sibling:** none.
+**Defers to sibling:** `users` if the sibling is deployed. Rewire all FKs that target `users` (`objectives.objective_owner_id`, `features.requester_id`, `features.owner_id`, `cost_centers.cost_center_owner_id`, `comments.author_id`, `feature_votes.user_id`) to the sibling-owned `users` table. Drop the local `user_role` and `user_status` fields and rely on the sibling's role and lifecycle model. This is the canonical Semantius built-in dedup contract already referenced in §7 step 6.
+
+### 8.2 `zero_based_budgeting` (upstream)
+
+**Exposes:** none.
+**Expects on sibling:** none.
+**Defers to sibling:** `cost_centers` if the sibling is deployed. Rewire `features.cost_center_id` to the sibling-owned `cost_centers` table and drop the local `annual_budget` field, since the sibling owns period-scoped budgeting (which is also the stronger model raised in §6.2). The local `cost_centers` entity stays in this model for self-containment when the sibling is absent.

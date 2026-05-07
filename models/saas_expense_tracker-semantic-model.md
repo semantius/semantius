@@ -16,6 +16,10 @@ entities:
   - budget_lines
   - license_assignments
   - users
+related_models:
+  - finance
+  - vendor_management
+  - hris
 initial_request: |
   I want to track and budget our saas expenses
 ---
@@ -406,3 +410,31 @@ None.
    - `license_assignments.assignment_label` — e.g. `"{user.full_name} / {subscription.subscription_name}"` (junction has no natural string identifier).
    - `budget_lines.budget_line_name` — e.g. `"{department.department_name} — {category} — {budget_period.period_name}"` (no single source field identifies a budget line).
 8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that each label-column field's `title` matches the §3 Label (not `singular_label`).
+
+## 8. Related domains
+
+This model declares the sibling modules SaaS Expense Tracker participates in so the deployer can reconcile foreign keys, exposed entities, and master-data ownership across modules at deploy-time. Slugs match each sibling's `system_slug`. If a sibling is not deployed, its contract is dormant and triggers no action.
+
+### 8.1 `finance` (peer)
+
+A finance / accounts-payable module is a downstream consumer of recurring SaaS spend and planned budget allocations, used to post actuals against the GL and reconcile invoices to subscriptions.
+
+- **Exposes:** `subscriptions`, `budget_periods`, `budget_lines`. Finance records FK back to these so invoices and GL postings link to recurring-spend records and planned allocations.
+- **Expects on sibling:** when `finance` is deployed, FKs of the shape `finance.invoices.subscription_id` pointing at `saas_expense_tracker.subscriptions`, and `finance.gl_postings.budget_line_id` pointing at `saas_expense_tracker.budget_lines`, both with `reference_delete_mode: restrict` so a posted invoice cannot orphan its source subscription or budget line.
+- **Defers to sibling:** none. The §6.2 deferred-scope note about adding `invoices` and `invoice_line_items` directly to this module is superseded by this contract: finance owns AP-level entities; this module exposes the recurring-spend records they reference.
+
+### 8.2 `vendor_management` (upstream master)
+
+When a dedicated vendor management module is deployed, it owns the canonical vendor master and the local `vendors` entity is deduplicated against it.
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `vendors`. At deploy-time, if `vendor_management.vendors` exists, skip the `create_entity` for the local `vendors` (the same dedup pattern §7 step 6 applies to `users`) and rewire `subscriptions.vendor_id` to the sibling's table. SaaS-specific fields not present on the sibling's `vendors` are added additively with `create_field`.
+
+### 8.3 `hris` (upstream master)
+
+When an HRIS module is deployed, it owns the canonical employee and department roster, and this module's `users` and `departments` defer to it.
+
+- **Exposes:** none.
+- **Expects on sibling:** none.
+- **Defers to sibling:** `users` and `departments`. The `users` defer is already called out in §7 step 6 and applies whether the sibling is `hris` or the Semantius built-in `users` table. `departments` follows the same pattern: if `hris.departments` exists, skip creating the local `departments` entity, rewire the department FKs (`subscriptions.primary_department_id`, `budget_lines.department_id`, `users.department_id`, `departments.parent_department_id`), rewire `departments.manager_user_id` against the canonical `hris.users`, and add any module-specific department fields additively.

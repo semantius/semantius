@@ -17,9 +17,9 @@ semantic_model: applicant_tracking
 # Applicant Tracking System
 
 This skill carries the domain map and the jobs-to-be-done for the
-Applicant Tracking System. Platform mechanics, CLI install, env vars,
+Applicant Tracking System. Platform mechanics (CLI install, env vars,
 PostgREST URL-encoding, `sqlToRest`, cube `discover`/`validate`/`load`,
-and schema-management tools, live in `use-semantius`. Assume it loads
+schema-management tools) live in `use-semantius`. Assume it loads
 alongside; do not re-explain CLI basics here.
 
 If a task is purely about defining schema, managing permissions, or
@@ -31,16 +31,16 @@ in POST/PATCH bodies): `id`, `created_at`, `updated_at`. Every other
 required field, including every `*_label` column on junction and
 sub-entity tables (`application_label`, `document_label`,
 `interview_label`, `feedback_label`, `offer_label`,
-`team_member_label`), is **caller-populated** and must appear in the
-POST body. The label-composition convention for each is given in its
-JTBD below.
+`team_member_label`, `note_subject`), is **caller-populated** and must
+appear in the POST body. The label-composition convention for each
+lives in the linked reference for the JTBD that creates the row.
 
 ---
 
 ## Domain glossary
 
-The hiring funnel runs **Job Opening → Job Application → Interview →
-Interview Feedback → Offer → Hire**, with `Candidate` orbiting on the
+The hiring funnel runs **Job Opening, Job Application, Interview,
+Interview Feedback, Offer, Hire**, with `Candidate` orbiting on the
 side as a person who can have many applications over time.
 
 | Concept | Table | Notes |
@@ -65,40 +65,40 @@ Only the enums that gate JTBDs are listed; full enum sets live in the
 semantic model. Arrows mark the typical lifecycle path; `|` separates
 terminal states.
 
-- `job_openings.status`: `draft` → `open` → `on_hold` | `filled` | `closed` | `cancelled`
+- `job_openings.status`: `draft` -> `open` -> `on_hold` | `filled` | `closed` | `cancelled`
 - `application_stages.stage_category`: `pre_screen`, `screening`, `interview`, `offer`, `hired`, `rejected`
-- `job_applications.status`: `active` → `hired` | `rejected` | `withdrawn` | `on_hold`
+- `job_applications.status`: `active` -> `hired` | `rejected` | `withdrawn` | `on_hold`
 - `job_applications.rejection_reason`: `not_qualified`, `withdrew`, `position_filled`, `no_show`, `salary_mismatch`, `location_mismatch`, `culture_fit`, `other`
-- `interviews.status`: `scheduled` → `completed` | `cancelled` | `no_show` | `rescheduled`
+- `interviews.status`: `scheduled` -> `completed` | `cancelled` | `no_show` | `rescheduled`
 - `interviews.interview_kind`: `phone_screen`, `video_call`, `onsite`, `technical`, `take_home`, `panel`, `final`, `reference_check`
 - `interview_feedback.overall_rating`: `strong_yes`, `yes`, `lean_yes`, `lean_no`, `no`, `strong_no`
 - `interview_feedback.recommendation`: `advance`, `hold`, `reject`
-- `offers.status`: `draft` → `pending_approval` → `approved` → `sent` → `accepted` | `declined` | `rescinded` | `expired`
+- `offers.status`: `draft` -> `pending_approval` -> `approved` -> `sent` -> `accepted` | `declined` | `rescinded` | `expired`
 - `offers.candidate_response`: `pending`, `accepted`, `declined`, `no_response`
 - `hiring_team_members.team_role`: `recruiter`, `hiring_manager`, `interviewer`, `coordinator`, `executive_sponsor`
-- `candidates.candidate_status`: `active` → `hired` | `archived` | `do_not_contact`
+- `candidates.candidate_status`: `active` -> `hired` | `archived` | `do_not_contact`
 - `application_notes.visibility`: `hiring_team`, `recruiter_only`, `public`
 
 ## Foreign-key cheatsheet
 
-Only the FKs that JTBDs cross. Format: `child.field → parent.id` (delete
-behavior in parens).
+Only the FKs that JTBDs cross. Format: `child.field -> parent.id`
+(delete behavior in parens).
 
-- `job_applications.candidate_id → candidates.id` (parent, cascade)
-- `job_applications.job_opening_id → job_openings.id` (restrict; historical applications survive a job closure)
-- `job_applications.current_stage_id → application_stages.id` (restrict; stages cannot be deleted while in use)
-- `job_applications.assigned_recruiter_id → users.id` (clear)
-- `job_applications.source_id → candidate_sources.id` (clear)
-- `interviews.application_id → job_applications.id` (parent, cascade)
-- `interviews.coordinator_user_id → users.id` (clear)
-- `interview_feedback.interview_id → interviews.id` (parent, cascade)
-- `interview_feedback.interviewer_user_id → users.id` (**restrict**: the interviewer cannot be deleted while feedback exists)
-- `offers.application_id → job_applications.id` (**restrict**, *no DB-level uniqueness*: the schema does not stop you from creating a second active offer on the same application; the recipe must check for an existing one)
-- `offers.approver_user_id → users.id` (clear)
-- `hiring_team_members.job_opening_id → job_openings.id` (parent, cascade)
-- `hiring_team_members.user_id → users.id` (parent, cascade)
-- `application_notes.author_user_id → users.id` (**restrict**: a user with authored notes cannot be deleted)
-- `candidate_documents.candidate_id → candidates.id` (parent, cascade)
+- `job_applications.candidate_id -> candidates.id` (parent, cascade)
+- `job_applications.job_opening_id -> job_openings.id` (restrict; historical applications survive a job closure)
+- `job_applications.current_stage_id -> application_stages.id` (restrict; stages cannot be deleted while in use)
+- `job_applications.assigned_recruiter_id -> users.id` (clear)
+- `job_applications.source_id -> candidate_sources.id` (clear)
+- `interviews.application_id -> job_applications.id` (parent, cascade)
+- `interviews.coordinator_user_id -> users.id` (clear)
+- `interview_feedback.interview_id -> interviews.id` (parent, cascade)
+- `interview_feedback.interviewer_user_id -> users.id` (**restrict**: the interviewer cannot be deleted while feedback exists)
+- `offers.application_id -> job_applications.id` (**restrict**, *no DB-level uniqueness*: the schema does not stop you from creating a second active offer on the same application; the recipe must check for an existing one)
+- `offers.approver_user_id -> users.id` (clear)
+- `hiring_team_members.job_opening_id -> job_openings.id` (parent, cascade)
+- `hiring_team_members.user_id -> users.id` (parent, cascade)
+- `application_notes.author_user_id -> users.id` (**restrict**: a user with authored notes cannot be deleted)
+- `candidate_documents.candidate_id -> candidates.id` (parent, cascade)
 
 **Unique columns** (409 on duplicate POST): `departments.department_name`,
 `departments.department_code`, `job_openings.job_code`,
@@ -107,12 +107,63 @@ behavior in parens).
 
 **No DB-level uniqueness on the natural junction keys.** Neither
 `hiring_team_members(job_opening_id, user_id, team_role)` nor
-`offers(application_id)` is constrained. Recipes that would create one
-must read first.
+`offers(application_id)` is constrained. Recipes that would create
+one must read first.
 
 **Audit-logged tables** (Semantius writes the audit rows automatically;
 recipes do not manage them): `job_openings`, `candidates`,
 `job_applications`, `interview_feedback`, `offers`.
+
+## Lookup convention
+
+Semantius adds a `search_vector` column to searchable entities for
+full-text search across all text fields. Use it whenever the user
+passes a name, title, or code, not a UUID:
+
+```bash
+semantius call crud postgrestRequest '{"method":"GET","path":"/<table>?search_vector=wfts(simple).<term>&select=id,<label_column>"}'
+```
+
+Use `wfts(simple).<term>` for fuzzy text searches; never `ilike` and
+never `fts`, they bypass the search index and mismatch the platform
+convention.
+
+Field-equality (`<column>=eq.<value>`) is the right tool for a
+*different* job: filtering on a known-exact value. Use it for UUIDs,
+FK ids, status enums, and unique columns whose values the caller
+already knows verbatim (`job_code`, `email_address`, `department_code`,
+`stage_name`, `source_name`).
+
+If a lookup returns more than one row, present the candidates and
+ask. If zero, ask the user to clarify rather than guessing.
+
+## Timestamps in recipe bodies
+
+Every `*_at` field, `*_date` field, or other moment-of-action value
+in a recipe body is a placeholder the calling agent fills at call
+time, not a literal copied from the example. Recipe templates use
+`<current ISO timestamp>` and `<today's date, YYYY-MM-DD>`; do not
+copy those strings into a real call. This applies in SKILL.md, in
+every reference file, in the Common queries appendix, and in any
+script the calling agent invokes.
+
+## Label-composition separator convention
+
+Caller-populated labels in this skill use comma separators between
+parts and an ASCII arrow (` -> `, space-hyphen-greater-space) when
+the relation is "actor against subject". Reference files spell out
+the exact composition per JTBD; the convention here is just the
+character set:
+
+- ASCII arrow ` -> ` for "actor -> subject" relations
+  (`application_label`: candidate -> job).
+- Comma `, ` for noun phrases describing one row
+  (`offer_label`, `team_member_label`, `feedback_label`).
+- Space-joined kind + " for " + subject for "kind X for person Y"
+  shapes (`interview_label`).
+
+Do not mix Unicode arrows (`U+2192`) or em-dashes (`U+2014`); the
+exact byte sequences above are what reports compare against.
 
 ---
 
@@ -126,55 +177,22 @@ recipes do not manage them): `job_openings`, `candidates`,
 
 | Name | Required | Notes |
 |---|---|---|
-| `job_opening_id` or `job_code` | yes | Resolve `job_code` to `id` first if the user passes the code |
-| `opened_at` | yes | Set to today; never bake a literal date |
+| `job_opening_id` or `job_code` | yes | Resolve `job_code=eq.<code>` first if the user passes the code |
+| Confirmed open date | yes | Today; the script fills it |
 
-**Lookup convention.** Semantius adds a `search_vector` column to
-searchable entities for full-text search across all text fields. Use it
-whenever the user passes a name, title, code, etc., not a UUID:
-
-```bash
-# Resolve a job opening by anything the user typed (job title, code, etc.)
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_openings?search_vector=wfts(simple).<term>&select=id,job_title,job_code,status,headcount"}'
-```
-
-Use `wfts(simple).<term>` for fuzzy text searches, never `ilike` and
-never `fts`, they bypass the search index and mismatch the platform
-convention. `eq.<value>` is the right tool for known-exact values
-(UUIDs, FK ids, status enums, unique columns like `job_code` or
-`email_address`).
-
-**Recipe:**
-
-```bash
-# 1. Resolve the job (skip if the user passed an id)
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_openings?search_vector=wfts(simple).<term>&select=id,job_title,status,hiring_manager_id"}'
-
-# 2. Verify current status is `draft` before opening; refuse to "open" anything already open/filled/closed/cancelled
-
-# 3. Open the requisition
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/job_openings?id=eq.<id>",
-  "body":{
-    "status":"open",
-    "opened_at":"<today, YYYY-MM-DD>"
-  }
-}'
-```
-
-`opened_at`: set to today's date at call time; do not copy the
-placeholder.
+**Recipe:** run `scripts/open-job.sh <job_id_or_code>`. The agent
+invokes; do not paste the script body here. Exit `0` on success,
+`1` on validation failure (job not found, status not `draft`,
+multiple matches), `2` on platform error.
 
 **Validation:** `status=open` and `opened_at` is non-null on the row.
 
 **Failure modes:**
-- Current status is not `draft` (e.g. already `open`) → do nothing and
-  tell the user; "open" is not a re-runnable transition.
-- `hiring_manager_id` was not set on creation → `create_field`
-  required-on-insert means the row could not have been created without
-  it; if you somehow find a `draft` row with no manager, ask the user
-  to assign one before opening rather than opening it blind.
+- Status is not `draft` (already `open`, `filled`, etc.) -> script
+  exits 1; tell the user what the current status is and stop. "Open"
+  is not a re-runnable transition.
+- Multiple jobs match the search term -> script exits 1 with the
+  candidate list; ask the user which one.
 
 ---
 
@@ -188,108 +206,52 @@ placeholder.
 |---|---|---|
 | `candidate_id` | yes | Look up by `email_address=eq.<email>` (unique) or `search_vector=wfts(simple).<name>` |
 | `job_opening_id` | yes | Look up by `job_code=eq.<code>` or `search_vector=wfts(simple).<title>` |
-| `current_stage_id` | yes | Resolve to the lowest-`stage_order` stage with `stage_category=eq.pre_screen` |
-| `applied_at` | yes | Use the current ISO timestamp at call time |
+| `current_stage_id` | yes | The recipe resolves the lowest-`stage_order` stage with `stage_category=eq.pre_screen` |
+| `applied_at` | yes | Current ISO timestamp at call time |
 | `source_id` | no | Lookup by `source_name=eq.<name>` if the user names one |
 | `assigned_recruiter_id` | no | Lookup user by `email_address=eq.<email>` |
 
-**Caller-populated label.** `job_applications.application_label` is
-required on insert and not auto-derived. Compose it as
-`"{candidate.full_name} -> {job_opening.job_title}"`. The recipe must
-read both rows in step 1 to have the values to compose with.
-
-**Recipe:**
-
-```bash
-# 1. Resolve candidate, job, and the entry stage in one round of lookups
-semantius call crud postgrestRequest '{"method":"GET","path":"/candidates?email_address=eq.<email>&select=id,full_name,candidate_status"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_openings?search_vector=wfts(simple).<title>&select=id,job_title,status"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/application_stages?stage_category=eq.pre_screen&order=stage_order.asc&limit=1&select=id,stage_name"}'
-
-# 2. Sanity-check: candidate.candidate_status is `active`, job.status is `open`
-
-# 3. Create the application
-semantius call crud postgrestRequest '{
-  "method":"POST",
-  "path":"/job_applications",
-  "body":{
-    "application_label":"<candidate.full_name> -> <job_opening.job_title>",
-    "candidate_id":"<from step 1>",
-    "job_opening_id":"<from step 1>",
-    "current_stage_id":"<from step 1>",
-    "status":"active",
-    "applied_at":"<current ISO timestamp>",
-    "source_id":"<optional>",
-    "assigned_recruiter_id":"<optional>"
-  }
-}'
-```
-
-`applied_at`: set to the current ISO timestamp at call time; do not
-copy the placeholder.
+**Recipe:** see [`references/apply-candidate.md`](references/apply-candidate.md).
 
 **Validation:** new row exists, `status=active`, `current_stage_id`
 points at a `pre_screen` stage, `application_label` matches the
-"candidate -> job" composition.
+candidate -> job composition.
 
 **Failure modes:**
-- Job's `status` is not `open` (e.g. `draft` or `filled`) → ask the
-  user whether to open the job first or pick a different one; do not
-  silently apply against a closed job.
-- Candidate's `candidate_status` is `do_not_contact` → refuse and
+- Job's `status` is not `open` -> ask whether to open the job first or
+  pick a different one; do not silently apply against a closed job.
+- Candidate's `candidate_status` is `do_not_contact` -> refuse and
   surface the candidate to the user.
-- The user names a stage that has no row in `application_stages` →
-  ask which existing stage to use rather than guessing.
 
 ---
 
 ### Advance an application to the next stage
 
-**Triggers:** `move the application to phone screen`, `advance Jane to on-site`, `set the stage to offer`
+**Triggers:** `move the application to phone screen`, `advance Jane to on-site`, `set the stage to interview`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
 | `application_id` | yes | Resolve via candidate + job if the user names them |
-| Target stage | yes | Resolve to a row in `application_stages` |
+| Target stage | yes | Must resolve to a stage whose `stage_category` is not `hired` or `rejected` |
 
-**This is a DB-unguarded lifecycle gate.** Semantius accepts any
-`current_stage_id` PATCH on `job_applications`; the rule that you only
-move *forward* (or to a clearly-named recovery stage) is enforced
-client-side. Always read the application's current stage before writing.
+The Inputs table excludes `hired` and `rejected` target categories
+on purpose. Those flips own paired side-effect fields (`hired_at`,
+`rejected_at`, `rejection_reason`) and route to the offer-acceptance
+cascade or close-application JTBDs.
 
-**Recipe:**
-
-```bash
-# 1. Read the application's current state
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_applications?id=eq.<id>&select=id,status,current_stage_id,application_label"}'
-
-# 2. Read the current and target stages so you can compare stage_order
-semantius call crud postgrestRequest '{"method":"GET","path":"/application_stages?id=in.(<current>,<target>)&select=id,stage_name,stage_order,stage_category"}'
-
-# 3. Refuse if status is not `active` (a `hired`/`rejected`/`withdrawn` row should not change stage)
-# 4. Refuse if target.stage_order < current.stage_order, unless the user explicitly asked to "move back"
-# 5. Refuse if target.stage_category is `hired` or `rejected`, those flips belong to the hire / reject JTBDs (which set side-effect fields)
-
-# 6. Advance
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/job_applications?id=eq.<id>",
-  "body":{"current_stage_id":"<target stage id>"}
-}'
-```
+**Recipe:** see [`references/advance-stage.md`](references/advance-stage.md).
 
 **Validation:** `current_stage_id` is the target; `status` is still
 `active`; the audit trail shows the change (`job_applications` is
 audit-logged, no extra write needed).
 
 **Failure modes:**
-- Target stage has `stage_category=hired` or `=rejected` → route the
-  user to the hire-cascade or close-application JTBD; advancing without
-  setting `hired_at` / `rejected_at` corrupts the funnel.
-- Application `status` is terminal → refuse; ask the user whether they
-  meant to re-open the application first.
+- Target stage has `stage_category=hired` or `=rejected` -> route the
+  user to the offer-acceptance cascade or close-application JTBD.
+- Application `status` is terminal -> refuse; ask whether to re-open
+  the application first.
 
 ---
 
@@ -303,52 +265,21 @@ audit-logged, no extra write needed).
 |---|---|---|
 | `application_id` | yes | Resolve via candidate + job if the user names them |
 | `interview_kind` | yes | Pick from the enum (`phone_screen`, `onsite`, `technical`, `panel`, etc.) |
-| `scheduled_start`, `scheduled_end` | yes | ISO timestamps; do not bake literal values |
+| `scheduled_start`, `scheduled_end` | yes | ISO timestamps the agent fills at call time |
 | `coordinator_user_id` | no | Lookup by user email |
 | `meeting_url` or `location` | no | URL for video, free-text for `onsite` |
 
-**Caller-populated label.** `interviews.interview_label` must be
-composed: `"{interview_kind label} for {candidate.full_name}"`, e.g.
-`"Tech phone screen for Jane Doe"`. The kind is the enum value with
-underscores replaced by spaces (e.g. `phone_screen` → "Phone screen").
-
-**Recipe:**
-
-```bash
-# 1. Look up the application and the candidate it points at, so you can compose the label
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_applications?id=eq.<id>&select=id,application_label,status,candidate:candidate_id(full_name)"}'
-
-# 2. Refuse if application.status is not `active`
-
-# 3. Schedule
-semantius call crud postgrestRequest '{
-  "method":"POST",
-  "path":"/interviews",
-  "body":{
-    "interview_label":"<kind in plain English> for <candidate.full_name>",
-    "application_id":"<id>",
-    "interview_kind":"phone_screen",
-    "scheduled_start":"<start ISO timestamp>",
-    "scheduled_end":"<end ISO timestamp>",
-    "status":"scheduled",
-    "meeting_url":"<optional>",
-    "location":"<optional>",
-    "coordinator_user_id":"<optional>"
-  }
-}'
-```
-
-`scheduled_start` / `scheduled_end`: provide real ISO timestamps at
-call time; do not copy the placeholders.
+**Recipe:** see [`references/schedule-interview.md`](references/schedule-interview.md).
 
 **Validation:** row exists with `status=scheduled`; `scheduled_end >
-scheduled_start`.
+scheduled_start`; `interview_label` matches the kind + candidate
+composition.
 
 **Failure modes:**
-- Application is not `active` → refuse; do not schedule interviews on
+- Application is not `active` -> refuse; do not schedule on
   hired/rejected/withdrawn pipelines.
-- `interview_kind=onsite` with no `location` → fine technically, but
-  ask the user; an on-site with no address is almost always a mistake.
+- `interview_kind=onsite` with no `location` -> ask the user; an
+  on-site with no address is almost always a mistake.
 
 ---
 
@@ -365,67 +296,17 @@ scheduled_start`.
 | `overall_rating`, `recommendation` | no in DB, **yes in practice** | Both should be filled before submission |
 | `strengths`, `concerns`, `detailed_notes` | no | Free text |
 
-**Paired write rule.** `is_submitted=true` and `submitted_at` must move
-together: when a draft row goes to submitted, set `submitted_at` to the
-current timestamp in the **same PATCH**. Setting `is_submitted=true`
-without `submitted_at` leaves an inconsistent row that downstream
-reports treat as "submitted but no time" and silently exclude.
-
-**Caller-populated label.** Compose
-`"{interviewer.display_name}, {interview_kind in plain English} for
-{candidate.full_name}"`, e.g. `"Alex Kim, on-site for Jane Doe"`.
-
-**Recipe (create-and-submit in one call):**
-
-```bash
-# 1. Look up the interview, its application, and the candidate, so you have the names for the label
-semantius call crud postgrestRequest '{"method":"GET","path":"/interviews?id=eq.<id>&select=id,interview_kind,status,application:application_id(candidate:candidate_id(full_name))"}'
-
-# 2. Look up the interviewer
-semantius call crud postgrestRequest '{"method":"GET","path":"/users?email_address=eq.<email>&select=id,display_name"}'
-
-# 3. Submit
-semantius call crud postgrestRequest '{
-  "method":"POST",
-  "path":"/interview_feedback",
-  "body":{
-    "feedback_label":"<interviewer.display_name>, <kind in plain English> for <candidate.full_name>",
-    "interview_id":"<id>",
-    "interviewer_user_id":"<id>",
-    "overall_rating":"yes",
-    "recommendation":"advance",
-    "strengths":"<text>",
-    "concerns":"<text>",
-    "detailed_notes":"<text>",
-    "is_submitted":true,
-    "submitted_at":"<current ISO timestamp>"
-  }
-}'
-```
-
-`submitted_at`: set to the current timestamp at call time; do not copy
-the placeholder.
-
-**Recipe (promote a draft):**
-
-```bash
-# Same paired write on PATCH
-semantius call crud postgrestRequest '{
-  "method":"PATCH",
-  "path":"/interview_feedback?id=eq.<id>",
-  "body":{"is_submitted":true,"submitted_at":"<current ISO timestamp>"}
-}'
-```
+**Recipe:** see [`references/submit-feedback.md`](references/submit-feedback.md).
 
 **Validation:** `is_submitted=true` AND `submitted_at` is non-null on
 the row.
 
 **Failure modes:**
-- `is_submitted=true` with `submitted_at` null → reports treat the
-  scorecard as missing; recover by PATCH-setting `submitted_at`.
-- The interviewer is set on a row but is not on the
-  `hiring_team_members` for that job opening → not blocked by the DB,
-  but flag to the user; out-of-team feedback is unusual.
+- `is_submitted=true` set without `submitted_at` -> reports treat the
+  scorecard as missing; PATCH to add the timestamp.
+- Interviewer is not on the `hiring_team_members` for the opening ->
+  not blocked by the DB, but flag to the user; out-of-team feedback
+  is unusual.
 
 ---
 
@@ -442,84 +323,19 @@ the row.
 | `approver_user_id` | yes when moving to `approved` | Lookup user by email |
 | `start_date`, `bonus_target`, `equity_amount`, `offer_expires_at` | no | Fill if the user named them |
 
-**This is a DB-unguarded multi-step lifecycle.**
-`draft` → `pending_approval` → `approved` → `sent` is enforced
-client-side. The schema accepts any value at any time; your job is to
-read-before-write and to set the right side-effect field on each
-transition.
-
-**There is no DB-level uniqueness on `offers.application_id`.** Before
-creating a fresh offer, read for an existing non-terminal one
-(`status` not in `accepted`, `declined`, `rescinded`, `expired`) and
-either PATCH that one or refuse and surface it to the user; never
-silently create a parallel active offer.
-
-**Caller-populated label.** Compose
-`"Offer, {candidate.full_name}, {job_opening.job_title}"`, e.g.
-`"Offer, Jane Doe, Senior Engineer"`.
-
-**Recipe (create as draft):**
-
-```bash
-# 1. Look up the application, its candidate and job so you have names for the label
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_applications?id=eq.<id>&select=id,status,candidate:candidate_id(full_name),job:job_opening_id(job_title)"}'
-
-# 2. Check for an existing non-terminal offer on this application
-semantius call crud postgrestRequest '{"method":"GET","path":"/offers?application_id=eq.<id>&status=in.(draft,pending_approval,approved,sent)&select=id,status"}'
-# If anything returns, stop and route to the existing offer; do not POST a second one.
-
-# 3. Create as draft
-semantius call crud postgrestRequest '{
-  "method":"POST",
-  "path":"/offers",
-  "body":{
-    "offer_label":"Offer, <candidate.full_name>, <job_opening.job_title>",
-    "application_id":"<id>",
-    "status":"draft",
-    "base_salary":150000,
-    "salary_currency":"USD",
-    "candidate_response":"pending"
-  }
-}'
-```
-
-**Recipe (advance through approval and send):**
-
-```bash
-# Move to pending_approval (no side-effect field needed)
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/offers?id=eq.<id>",
-  "body":{"status":"pending_approval"}
-}'
-
-# Approve: status + approver in the same PATCH
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/offers?id=eq.<id>",
-  "body":{"status":"approved","approver_user_id":"<approver id>"}
-}'
-
-# Send: status + offer_extended_at in the same PATCH
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/offers?id=eq.<id>",
-  "body":{"status":"sent","offer_extended_at":"<current ISO timestamp>"}
-}'
-```
-
-`offer_extended_at`: set to the current timestamp at call time; do
-not copy the placeholder.
+**Recipe:** see [`references/extend-offer.md`](references/extend-offer.md).
 
 **Validation:** for each transition, `status` matches and the paired
-field (`approver_user_id` on approval, `offer_extended_at` on send) is
-non-null.
+field (`approver_user_id` on approval, `offer_extended_at` on send)
+is non-null.
 
 **Failure modes:**
-- A pre-existing non-terminal offer was missed → 200 OK creates a
-  duplicate that downstream reports treat as parallel offers; recover
-  by `rescinded`-flipping one of them.
-- `approved` set without `approver_user_id` → reports cannot answer
+- A pre-existing non-terminal offer was missed -> 200 OK creates a
+  duplicate; recover by `rescinded`-flipping one of them.
+- `approved` set without `approver_user_id` -> reports cannot answer
   "who approved this"; PATCH to add the approver.
-- `sent` set without `offer_extended_at` → time-to-offer metrics break;
-  PATCH to add the timestamp.
+- `sent` set without `offer_extended_at` -> time-to-offer metrics
+  break; PATCH to add the timestamp.
 
 ---
 
@@ -534,86 +350,26 @@ non-null.
 | `offer_id` | yes | Resolve via application if the user names the candidate |
 | Response | yes | `accepted` or `declined` |
 
-**This is a Pattern C materialization.** Recording an offer
-acceptance is not a single PATCH; it ripples across four tables:
+This is a Pattern C materialization: an `accepted` response ripples
+across `offers`, `job_applications`, `candidates`, and possibly
+`job_openings`. The DB guards none of the steps; stopping after the
+first PATCH leaves a half-applied funnel.
 
-1. `offers`: `status` and `candidate_response` flip together; set `responded_at`.
-2. `job_applications`: on `accepted`, `status=hired`, set `hired_at`, set `current_stage_id` to the `hired`-category stage.
-3. `candidates`: on `accepted`, `candidate_status=hired`.
-4. `job_openings`: on `accepted`, count the opening's hires so far; if hires now equals `headcount`, flip the opening to `filled` and set `filled_at`.
+**Recipe:** see [`references/record-offer-response.md`](references/record-offer-response.md).
 
-The DB guards none of these; if you stop after step 1 the funnel
-report says "offer accepted" but the candidate is still listed as
-`active` with no hire date.
-
-**Recipe (accepted branch, the full cascade):**
-
-```bash
-# 1. Resolve the offer + walk to its application, candidate, and job opening in one read
-semantius call crud postgrestRequest '{"method":"GET","path":"/offers?id=eq.<id>&select=id,status,application:application_id(id,candidate_id,job_opening_id,current_stage_id),candidate:application_id(candidate:candidate_id(id,candidate_status))"}'
-# (If the embedded select shape isn't supported on this deployment, fall back to four separate GETs.)
-
-# 2. Find the `hired`-category stage
-semantius call crud postgrestRequest '{"method":"GET","path":"/application_stages?stage_category=eq.hired&order=stage_order.asc&limit=1&select=id,stage_name"}'
-
-# 3. Read the job opening's headcount and count its current hires
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_openings?id=eq.<job_opening_id>&select=id,headcount,status"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_applications?job_opening_id=eq.<job_opening_id>&status=eq.hired&select=id"}'
-
-# 4. PATCH the offer (status + candidate_response + responded_at, all in one call)
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/offers?id=eq.<offer_id>",
-  "body":{"status":"accepted","candidate_response":"accepted","responded_at":"<current ISO timestamp>"}
-}'
-
-# 5. PATCH the application (status + hired_at + stage, all in one call)
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/job_applications?id=eq.<application_id>",
-  "body":{"status":"hired","hired_at":"<current ISO timestamp>","current_stage_id":"<hired stage id>"}
-}'
-
-# 6. PATCH the candidate
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/candidates?id=eq.<candidate_id>",
-  "body":{"candidate_status":"hired"}
-}'
-
-# 7. If (existing hires + 1) >= headcount, fill the opening
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/job_openings?id=eq.<job_opening_id>",
-  "body":{"status":"filled","filled_at":"<today, YYYY-MM-DD>"}
-}'
-```
-
-`responded_at`, `hired_at`, `filled_at`: set at call time; do not copy
-the placeholders.
-
-**Recipe (declined branch, no cascade):**
-
-```bash
-# Just the offer flip; the application stays active so the recruiter can decide whether to extend a revised offer or close the pipeline
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/offers?id=eq.<offer_id>",
-  "body":{"status":"declined","candidate_response":"declined","responded_at":"<current ISO timestamp>"}
-}'
-```
-
-After a `declined`, ask the user whether to also withdraw the
-application, or hold it for a counter-offer.
-
-**Validation (accepted branch):** all four (or five, if filling) PATCHes
-returned 2xx; a follow-up read of the application shows `status=hired`
-and `hired_at` set; the candidate shows `candidate_status=hired`.
+**Validation (accepted branch):** every PATCH returned 2xx; a
+follow-up read of the application shows `status=hired` and
+`hired_at` set; the candidate shows `candidate_status=hired`; if
+hires now equals `headcount`, the job opening shows `status=filled`.
 
 **Failure modes:**
-- A PATCH in the middle of the cascade fails → the funnel is now in a
-  half-applied state; do not retry blindly. Read each row, identify
-  which steps did not stick, and PATCH only those. Tell the user.
-- Another offer on the same application is still `sent` (parallel
-  active offer) → `rescind` it (`status=rescinded`) before completing
-  the hire.
-- Job opening already `filled` or `closed` when you go to fill it →
-  do not re-PATCH; the previous fill is correct.
+- A PATCH mid-cascade fails -> the funnel is half-applied; do not
+  retry blindly. Read each row, identify which steps did not stick,
+  PATCH only those.
+- Another offer on the same application is still `sent` -> ask the
+  user whether to `rescind` it before completing the hire.
+- Job opening already `filled` or `closed` when the recipe goes to
+  fill it -> do not re-PATCH; the previous fill is correct.
 
 ---
 
@@ -629,54 +385,16 @@ and `hired_at` set; the candidate shows `candidate_status=hired`.
 | Outcome | yes | `rejected` (recruiter-side) or `withdrawn` (candidate-side) |
 | `rejection_reason` | yes for `rejected` | Pick from the enum |
 
-**Paired write rule.** `status` and the paired side-effect field
-(`rejected_at`, plus `rejection_reason` for `rejected`) must move in
-the same PATCH. Also flip `current_stage_id` to the
-`rejected`-category stage so funnel reports route the row correctly.
-
-**Recipe (reject):**
-
-```bash
-# 1. Resolve the rejected stage
-semantius call crud postgrestRequest '{"method":"GET","path":"/application_stages?stage_category=eq.rejected&order=stage_order.asc&limit=1&select=id,stage_name"}'
-
-# 2. Close the application in one PATCH
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/job_applications?id=eq.<application_id>",
-  "body":{
-    "status":"rejected",
-    "rejection_reason":"not_qualified",
-    "rejected_at":"<current ISO timestamp>",
-    "current_stage_id":"<rejected stage id>"
-  }
-}'
-```
-
-**Recipe (withdrawn):**
-
-```bash
-# Same shape; status=withdrawn, no rejection_reason needed (set rejected_at as the close timestamp)
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/job_applications?id=eq.<application_id>",
-  "body":{
-    "status":"withdrawn",
-    "rejected_at":"<current ISO timestamp>",
-    "current_stage_id":"<rejected stage id>"
-  }
-}'
-```
-
-`rejected_at`: set at call time; do not copy the placeholder.
+**Recipe:** see [`references/close-application.md`](references/close-application.md).
 
 **Validation:** `status` matches; `rejected_at` is non-null;
 `current_stage_id` resolves to a `stage_category=rejected` stage.
 
 **Failure modes:**
-- `status=rejected` set with no `rejection_reason` → funnel-reason
+- `status=rejected` set with no `rejection_reason` -> funnel-reason
   reports drop the row; PATCH to add it.
-- Application has a `sent`-status offer outstanding → ask before
-  closing; the offer should be `rescinded` first or a parallel
-  workflow is implied.
+- Application has a `sent`-status offer outstanding -> ask the user
+  before closing; the offer should be `rescinded` first.
 
 ---
 
@@ -691,75 +409,38 @@ semantius call crud postgrestRequest '{
 | `job_opening_id` | yes | Lookup by `job_code` or fuzzy title |
 | `user_id` | yes | Lookup user by email |
 | `team_role` | yes | `recruiter`, `hiring_manager`, `interviewer`, `coordinator`, `executive_sponsor` |
+| Operation | yes | `add` or `remove` |
 
-**Junction without DB-level uniqueness.** The table does not constrain
-`(job_opening_id, user_id, team_role)`. POSTing the same triple twice
-creates a duplicate row that pollutes "who is on the team" lists.
-Always read first.
+The script handles the read-first dedupe: if the
+`(job_opening, user, role)` triple already exists active, no-op;
+if it exists inactive, reactivate; otherwise create. Remove is a
+soft-deactivate (`is_active=false`) so the team history is
+preserved.
 
-**Caller-populated label.** Compose
-`"{user.display_name}, {team_role in plain English}, {job_opening.job_title}"`,
-e.g. `"Alex Kim, hiring manager, Senior Engineer"`.
-
-**Recipe (add):**
-
-```bash
-# 1. Resolve the user, the job, and check for an existing assignment in one round
-semantius call crud postgrestRequest '{"method":"GET","path":"/users?email_address=eq.<email>&select=id,display_name"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/job_openings?job_code=eq.<code>&select=id,job_title"}'
-semantius call crud postgrestRequest '{"method":"GET","path":"/hiring_team_members?job_opening_id=eq.<job>&user_id=eq.<user>&team_role=eq.<role>&select=id,is_active"}'
-
-# 2a. If a row already exists and is_active=true, do nothing; tell the user.
-# 2b. If a row exists with is_active=false, re-activate instead of creating a new one:
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/hiring_team_members?id=eq.<existing id>",
-  "body":{"is_active":true,"assigned_at":"<current ISO timestamp>"}
-}'
-# 2c. Otherwise, create:
-semantius call crud postgrestRequest '{
-  "method":"POST","path":"/hiring_team_members",
-  "body":{
-    "team_member_label":"<user.display_name>, <role in plain English>, <job_opening.job_title>",
-    "job_opening_id":"<job id>",
-    "user_id":"<user id>",
-    "team_role":"interviewer",
-    "assigned_at":"<current ISO timestamp>",
-    "is_active":true
-  }
-}'
-```
-
-**Recipe (remove via soft-deactivate, the preferred path):**
-
-```bash
-# Set is_active=false; preserves history of who was on the team and when
-semantius call crud postgrestRequest '{
-  "method":"PATCH","path":"/hiring_team_members?id=eq.<id>",
-  "body":{"is_active":false}
-}'
-```
-
-`assigned_at`: set at call time; do not copy the placeholder.
+**Recipe:** run `scripts/manage-team-member.sh <op> <job_id_or_code> <user_email> <team_role>`.
+Exit `0` on success, `1` on validation failure (user/job not found,
+unknown role), `2` on platform error.
 
 **Validation (add):** exactly one row exists for the
-`(job_opening_id, user_id, team_role)` triple, and `is_active=true`.
+`(job_opening_id, user_id, team_role)` triple, with `is_active=true`.
 
 **Failure modes:**
-- A POST without the read-first → the table accepts a duplicate. Recover
-  by PATCH-ing one of the duplicates to `is_active=false` (not a hard
-  delete; the audit-friendly cleanup).
-- The user being added is not in `users` yet → create the user first
-  (`use-semantius` handles user creation); do not invent a fake id.
+- A POST that bypassed the read-first -> the table accepts a
+  duplicate. Recover by PATCH-ing one of the duplicates to
+  `is_active=false`.
+- The user being added is not in `users` yet -> create the user
+  first via `use-semantius`; do not invent a fake id.
 
 ---
 
 ## Common queries
 
-These are starting points, not contracts. Cube schema names drift when
-the model is regenerated, so always run `cube discover '{}'` first and
-map the dimension and measure names below against `discover`'s output.
-The cube name is usually the entity's table name with the first letter
-capitalized (e.g. `JobApplications`), but verify.
+These are starting points, not contracts. Cube schema names drift
+when the model is regenerated, so always run `cube discover '{}'`
+first and map the dimension and measure names below against
+`discover`'s output. The cube name is usually the entity's table
+name with the first letter capitalized (e.g. `JobApplications`),
+but verify.
 
 ```bash
 # Always first
@@ -788,8 +469,8 @@ semantius call cube load '{"query":{
 
 ```bash
 # Time-to-hire trend (avg days from applied_at to hired_at, by hire month)
-# Read the dateFilteringGuide that discover returns; the avg_days_to_hire measure name
-# is illustrative, check discover output for the real one or compute via a custom measure.
+# The avg_days_to_hire measure name is illustrative, check discover output
+# for the real one or compute via a custom measure.
 semantius call cube load '{"query":{
   "measures":["JobApplications.avg_days_to_hire"],
   "timeDimensions":[{"dimension":"JobApplications.hired_at","granularity":"month","dateRange":"last 12 months"}]
@@ -825,8 +506,9 @@ semantius call cube load '{"query":{
 
 - Never PATCH `job_applications.current_stage_id` to a stage with
   `stage_category=hired` or `=rejected` directly; route to the
-  hire-cascade or close-application JTBDs so the paired side-effect
-  fields (`hired_at`, `rejected_at`, `rejection_reason`) get set.
+  offer-acceptance cascade or close-application JTBDs so the paired
+  side-effect fields (`hired_at`, `rejected_at`, `rejection_reason`)
+  get set.
 - Never PATCH `offers.status` to `sent`, `approved`, or `accepted`
   without setting the paired field in the same call
   (`offer_extended_at`, `approver_user_id`, `responded_at`).
@@ -839,9 +521,6 @@ semantius call cube load '{"query":{
   `submitted_at` in the same call.
 - Lookups for human-friendly identifiers (names, titles, codes) use
   `search_vector=wfts(simple).<term>`; never `ilike` and never `fts`.
-- Audit-logged tables (`job_openings`, `candidates`, `job_applications`,
-  `interview_feedback`, `offers`) write their own audit rows; do not
-  hand-write to any audit table.
 - `users` may already exist as a Semantius built-in in this
   deployment; treat it as the authoritative table and reference it
   rather than creating a parallel one.
@@ -858,11 +537,11 @@ semantius call cube load '{"query":{
 - Configurable rejection reasons: the values are an enum, not a
   lookup table; new reasons require a model change.
 - Application activity log (emails, calendar events): no
-  `application_activities` table exists; communication history is not
-  modeled.
+  `application_activities` table exists; communication history is
+  not modeled.
 - Multi-step offer approval workflow: only a single
-  `approver_user_id` and `pending_approval` status; chained approvers
-  are not modeled.
+  `approver_user_id` and `pending_approval` status; chained
+  approvers are not modeled.
 - GDPR consent and retention dates on candidates: no
   `consent_given_at` or `retention_expires_at` fields; deletion is
   the only erasure path (cascade via `candidate_id`).

@@ -4,7 +4,7 @@ system_name: Applicant Tracking System
 system_slug: applicant_tracking
 domain: ATS
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-06
 entities:
   - departments
   - job_openings
@@ -25,6 +25,9 @@ related_models:
   - hris
   - workforce_planning
   - identity_and_access
+  - compensation_management
+  - onboarding
+  - background_check
 initial_request: |
   I need an applicant tracking system ATS
 ---
@@ -692,3 +695,21 @@ The ATS sits in the middle of HR-adjacent systems. The following siblings, when 
 - **Exposes:** none.
 - **Expects on sibling:** none.
 - **Defers to sibling:** `users` — when `identity_and_access` is deployed it owns the canonical user identity. The deployer should rewire every FK in this model that points at `users` (`departments.head_user_id`, `job_openings.hiring_manager_id`, `job_openings.recruiter_id`, `candidates.referrer_user_id`, `job_applications.assigned_recruiter_id`, `candidate_documents.uploaded_by_user_id`, `application_notes.author_user_id`, `interviews.coordinator_user_id`, `interview_feedback.interviewer_user_id`, `offers.approver_user_id`, `hiring_team_members.user_id`, `users.department_id`) to the sibling's `users` table and skip creating §3.13.
+
+### 8.4 `compensation_management` (peer)
+
+- **Exposes:** `offers` (with `base_salary`, `bonus_target`, `equity_amount`, `salary_currency`) so comp can analyse offer-vs-band alignment after offers are extended.
+- **Expects on sibling:** `applicant_tracking.job_openings.salary_band_id → compensation_management.salary_bands` (clear). When comp is deployed, the deployer adds an optional FK on `job_openings` to the canonical pay band; the inline `salary_min`/`salary_max`/`salary_currency` fields stay populated as a denormalized reference for the standalone case.
+- **Defers to sibling:** none. ATS keeps inline salary fields because recruiters need to advertise a band without a runtime dependency on the comp module.
+
+### 8.5 `onboarding` (downstream peer)
+
+- **Exposes:** `job_applications` (terminal `hired` status), `offers` (accepted), `candidates` (with `candidate_status = hired`), and `candidate_documents` so onboarding can pre-populate a new-hire case from the application of record without re-collecting data.
+- **Expects on sibling:** `onboarding.onboarding_cases.source_application_id → applicant_tracking.job_applications` (clear) and `onboarding.onboarding_cases.source_offer_id → applicant_tracking.offers` (clear). When onboarding is deployed, every onboarding case anchors back to the application and offer it originated from, preserving the candidate-to-employee audit trail.
+- **Defers to sibling:** none. ATS owns the candidate/application lifecycle through hire; onboarding picks up where ATS finishes.
+
+### 8.6 `background_check` (downstream peer)
+
+- **Exposes:** `job_applications`, `candidates`, `offers` so background-check workflows can attach to a specific candidate-on-application context. The pre-hire check typically gates offer acceptance or onboarding start.
+- **Expects on sibling:** `background_check.checks.application_id → applicant_tracking.job_applications` (clear) and `background_check.checks.candidate_id → applicant_tracking.candidates` (clear). The application FK is the primary anchor; the candidate FK exists because some checks (e.g. continuous monitoring) outlive a single application.
+- **Defers to sibling:** none. ATS does not encode check-pass/fail state — that is the sibling's responsibility, surfaced via application logic when the application moves to `offer` or `hired` stages.

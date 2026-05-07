@@ -7,7 +7,7 @@ departments:
   - HR
   - Finance
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-06
 entities:
   - departments
   - locations
@@ -23,6 +23,11 @@ related_models:
   - applicant_tracking
   - hris
   - finance
+  - identity_and_access
+  - compensation_management
+  - performance_management
+  - succession_planning
+  - payroll
 initial_request: |
   I need to plan the workforce for my org
 ---
@@ -495,8 +500,6 @@ None.
 - Should a `legal_entities` entity be added to support multi-subsidiary planning (with `cost_centers` and `employees` rolling up to a legal entity)?
 - Should attrition assumptions (e.g. expected voluntary attrition % per department per quarter) be modeled as planning inputs, possibly as an `attrition_assumptions` entity attached to `scenarios`?
 - Should `scenarios` be able to stage org-structure changes (new departments, splits, merges) in addition to position changes, or are department changes always made directly on the live org?
-- Should the lightweight `hiring_requisitions` be replaced or extended by a full ATS module (`candidates`, `applications`, `interview_stages`, `offers`) when recruiting moves into this system?
-- Should `employees` carry an optional `user_id` link to the platform's built-in `users` for SSO/login integration, with deduplication handled at deploy time?
 - Should `cost_centers` ↔ `departments` become an M:N junction to support orgs where a department is funded by multiple cost centers, rather than the current single `primary_department_id` reference?
 
 ## 7. Implementation notes for the downstream agent
@@ -525,9 +528,9 @@ This model declares its links to sibling modules so the deployer can reconcile s
 
 ### 8.1 `applicant_tracking` (downstream peer)
 
-- **Exposes:** `hiring_requisitions`, `positions`, `jobs`, `departments`, `locations`. Recruiting workflows in ATS need the requisition to attach candidates to, plus the position/job/dept/location context.
-- **Expects on sibling:** when ATS is deployed, ATS entities such as `applications` or `candidates` are expected to FK back to `hiring_requisitions` (e.g. `applications.requisition_id → hiring_requisitions`). The lightweight `external_ats_url` field on `hiring_requisitions` becomes redundant once a real ATS owns the candidate pipeline.
-- **Defers to sibling:** none. This model owns its lightweight `hiring_requisitions` for the standalone case; if ATS is deployed, `hiring_requisitions` may be deprecated in favor of an ATS-native requisition entity (see §6.2).
+- **Exposes:** `positions`, `jobs`, `departments`, `locations`. ATS recruiting workflows attach to a position via the FK below; the rest provide org/role/geography context.
+- **Expects on sibling:** `applicant_tracking.job_openings.position_id → workforce_planning.positions` (clear). The FK is hosted on the ATS side; this row mirrors the contract declared in ATS §8.2 so the deployer sees the same shape from both sides.
+- **Defers to sibling:** `hiring_requisitions` → `applicant_tracking.job_openings`. ATS's `job_openings` is the richer canonical "open seat" entity (status, headcount, hiring team, salary bands, full pipeline). WFP's lightweight `hiring_requisitions` exists only for the standalone case. When ATS is deployed, the deployer should skip creating `hiring_requisitions`, and any consumer that previously linked to it (none in this model today) would rewire to `applicant_tracking.job_openings`. The `external_ats_url` field becomes redundant once ATS is canonical.
 
 ### 8.2 `hris` (upstream master)
 
@@ -540,3 +543,33 @@ This model declares its links to sibling modules so the deployer can reconcile s
 - **Exposes:** none. Finance is the canonical owner of the chart of accounts.
 - **Expects on sibling:** none.
 - **Defers to sibling:** `cost_centers`. When a finance / chart-of-accounts module is deployed, `cost_centers` is canonically owned there and the deployer should rewire `positions.cost_center_id`, `headcount_actions.cost_center_id`, and `cost_centers.primary_department_id` (if finance keeps the dept link) to point at the finance-owned table. Until finance is deployed, this model owns `cost_centers` for self-containment.
+
+### 8.4 `identity_and_access` (peer)
+
+- **Exposes:** none. WFP `employees` represent workforce members; they are distinct from platform users (SSO/login identities). Both can coexist (a contractor employee with no platform user; a platform admin with no employee record).
+- **Expects on sibling:** `workforce_planning.employees.user_id → identity_and_access.users` (clear). When `identity_and_access` is deployed, the deployer adds an optional `user_id` reference on `employees` so an employee can be linked to their platform user identity for SSO/login. Optional FK so employees without a platform account (pre-start hires, contractors) remain valid.
+- **Defers to sibling:** none.
+
+### 8.5 `compensation_management` (peer)
+
+- **Exposes:** none. The comp module is the canonical owner of pay structures.
+- **Expects on sibling:** `workforce_planning.jobs.salary_band_id → compensation_management.salary_bands` (clear). When comp is deployed, the deployer adds an optional FK on `jobs` to the canonical band; the inline `min_annual_compensation` / `max_annual_compensation` fields stay populated for the standalone case and serve as a denormalized reference.
+- **Defers to sibling:** none. WFP keeps comp data inline because planning needs to compute total cost without a runtime dependency on the comp module.
+
+### 8.6 `performance_management` (downstream peer)
+
+- **Exposes:** `employees`, `positions`, `jobs`, `departments`. Performance reviews need the active employee, the position they held at review time, the job template (for level/family-based calibration), and the department (for org rollups).
+- **Expects on sibling:** `performance_management.reviews.employee_id → workforce_planning.employees` (clear) and `performance_management.reviews.position_id → workforce_planning.positions` (clear). The position FK pins the review to the seat held at review time, which matters when employees change positions mid-cycle.
+- **Defers to sibling:** none. WFP does not encode performance ratings; planners consume them out-of-band as a judgement input.
+
+### 8.7 `succession_planning` (downstream peer)
+
+- **Exposes:** `positions`, `employees`, `jobs`, `departments`. Succession plans identify critical positions and pool internal successor candidates from the workforce.
+- **Expects on sibling:** `succession_planning.successors.position_id → workforce_planning.positions` (clear) and `succession_planning.successors.candidate_employee_id → workforce_planning.employees` (clear). Both FKs are required for a successor record to be meaningful.
+- **Defers to sibling:** none.
+
+### 8.8 `payroll` (downstream peer)
+
+- **Exposes:** `employees`, `cost_centers`, `positions`. Payroll runs charge actual labor cost to the cost center funding the seat the employee occupies.
+- **Expects on sibling:** `payroll.pay_run_lines.employee_id → workforce_planning.employees` (clear), `payroll.pay_run_lines.position_id → workforce_planning.positions` (clear), and `payroll.pay_run_lines.cost_center_id → workforce_planning.cost_centers` (clear). The three FKs together let WFP reconcile planned cost (`positions.budgeted_annual_cost`, `headcount_actions.budgeted_annual_cost`) against payroll actuals.
+- **Defers to sibling:** none. WFP owns planned cost; payroll owns actuals. The split is intentional so planning can run before payroll exists.

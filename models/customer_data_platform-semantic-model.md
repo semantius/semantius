@@ -4,7 +4,7 @@ system_name: Customer Data Platform
 system_slug: customer_data_platform
 domain: CDP
 naming_mode: agent-optimized
-created_at: 2026-05-04
+created_at: 2026-05-05
 entities:
   - profiles
   - identities
@@ -18,11 +18,14 @@ entities:
   - audience_activations
   - consent_records
   - users
-  - roles
 departments:
   - Marketing
   - Data
   - Engineering
+related_models:
+  - crm
+  - marketing_automation
+  - identity_and_access
 initial_request: |
   i need a customer data platform cdp
 ---
@@ -49,7 +52,6 @@ A Customer Data Platform (CDP) ingests behavioral and attribute data about custo
 | 10 | `audience_activations` | Audience Activation | Junction: which audiences are pushed to which destinations |
 | 11 | `consent_records` | Consent Record | Consent state per profile per purpose (marketing, analytics, etc.) |
 | 12 | `users` | User | Internal CDP operators (admins, analysts) |
-| 13 | `roles` | Role | Operator role definitions for access control |
 
 ### Entity-relationship diagram
 
@@ -63,7 +65,7 @@ flowchart LR
     sources -->|first seen in| identities
     sources -->|emitted| events
     sources -->|captured in| consent_records
-    profiles -->|includes| audience_memberships
+    profiles -->|appears in| audience_memberships
     audiences -->|includes| audience_memberships
     audiences -->|activates| audience_activations
     destinations -->|targets| audience_activations
@@ -71,6 +73,7 @@ flowchart LR
     users -->|created| sources
     users -->|created| destinations
     users -->|created| audience_activations
+    computed_traits
 ```
 
 ## 3. Entities
@@ -210,7 +213,7 @@ flowchart LR
 | `description` | `text` | no | Description | |
 | `data_type` | `enum` | yes | Data Type | values: `string`, `number`, `boolean`, `date`, `datetime`, `list` |
 | `definition` | `text` | yes | Definition | SQL or rule expression |
-| `compute_frequency` | `enum` | yes | Compute Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`, `weekly` (first value is the safe default for a new trait) |
+| `compute_frequency` | `enum` | yes | Compute Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`, `weekly`; default: "on_demand" |
 | `last_computed_at` | `date-time` | no | Last Computed At | |
 | `is_active` | `boolean` | yes | Is Active | |
 
@@ -237,7 +240,7 @@ flowchart LR
 | `definition` | `text` | yes | Definition | rule logic (JSON) or SQL |
 | `status` | `enum` | yes | Status | values: `draft`, `active`, `paused`, `archived` |
 | `profile_count` | `integer` | no | Profile Count | denormalized current size |
-| `refresh_frequency` | `enum` | yes | Refresh Frequency | values: `on_demand`, `realtime`, `hourly`, `daily` (first value is the safe default for a new audience) |
+| `refresh_frequency` | `enum` | yes | Refresh Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`; default: "on_demand" |
 | `last_computed_at` | `date-time` | no | Last Computed At | |
 | `created_by_user_id` | `reference` | no | Created By | → `users` (N:1, clear), relationship_label: "created" |
 
@@ -262,7 +265,7 @@ flowchart LR
 |---|---|---|---|---|
 | `membership_label` | `string` | yes | Membership | label_column; populated as `"{audience_name} / {profile_label}"` on create |
 | `audience_id` | `parent` | yes | Audience | ↳ `audiences` (N:1, cascade), relationship_label: "includes" |
-| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "includes" |
+| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "appears in" |
 | `joined_at` | `date-time` | yes | Joined At | |
 | `left_at` | `date-time` | no | Left At | null while still a member |
 | `is_active` | `boolean` | yes | Is Active | |
@@ -344,12 +347,12 @@ flowchart LR
 | `activation_label` | `string` | yes | Activation | label_column; populated as `"{audience_name} → {destination_name}"` on create |
 | `audience_id` | `parent` | yes | Audience | ↳ `audiences` (N:1, cascade), relationship_label: "activates" |
 | `destination_id` | `parent` | yes | Destination | ↳ `destinations` (N:1, cascade), relationship_label: "targets" |
-| `sync_mode` | `enum` | yes | Sync Mode | values: `incremental`, `full_resync`, `mirror` (first value is the typical default for a new activation) |
-| `sync_frequency` | `enum` | yes | Sync Frequency | values: `on_demand`, `realtime`, `hourly`, `daily` (first value is the safe default for a new activation) |
+| `sync_mode` | `enum` | yes | Sync Mode | values: `incremental`, `full_resync`, `mirror`; default: "incremental" |
+| `sync_frequency` | `enum` | yes | Sync Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`; default: "on_demand" |
 | `field_mappings` | `json` | no | Field Mappings | profile field → destination field |
 | `is_active` | `boolean` | yes | Is Active | |
 | `last_sync_at` | `date-time` | no | Last Sync At | |
-| `last_sync_status` | `enum` | no | Last Sync Status | values: `pending`, `success`, `partial`, `failed` (first value is the correct default for a never-run activation) |
+| `last_sync_status` | `enum` | yes | Last Sync Status | values: `pending`, `success`, `partial`, `failed`; default: "pending" (correct state for a never-run activation) |
 | `created_by_user_id` | `reference` | no | Created By | → `users` (N:1, clear), relationship_label: "created" |
 
 **Relationships**
@@ -374,7 +377,7 @@ flowchart LR
 | `consent_label` | `string` | yes | Consent | label_column; populated as `"{profile_label} / {consent_purpose} / {status}"` on create |
 | `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "recorded for" |
 | `consent_purpose` | `enum` | yes | Purpose | values: `marketing`, `analytics`, `advertising`, `personalization`, `sale_of_data`, `all` |
-| `status` | `enum` | yes | Status | values: `unknown`, `granted`, `denied`, `withdrawn` (first value is the safe default; explicit consent must be set deliberately) |
+| `status` | `enum` | yes | Status | values: `unknown`, `granted`, `denied`, `withdrawn`; default: "unknown" (explicit consent must be set deliberately) |
 | `source_id` | `reference` | no | Captured In Source | → `sources` (N:1, clear), relationship_label: "captured in" |
 | `jurisdiction` | `string` | no | Jurisdiction | e.g. `GDPR-EU`, `CCPA-CA` |
 | `granted_at` | `date-time` | no | Granted At | |
@@ -413,27 +416,7 @@ flowchart LR
 - A `user` may have created many `sources` (1:N, via `sources.created_by_user_id`).
 - A `user` may have created many `destinations` (1:N, via `destinations.created_by_user_id`).
 - A `user` may have created many `audience_activations` (1:N, via `audience_activations.created_by_user_id`).
-- `user` ↔ `role` assignments use the platform's native `user_roles` mechanism (not modeled as a custom entity).
-
----
-
-### 3.13 `roles` — Role
-
-**Plural label:** Roles
-**Label column:** `role_name`
-**Audit log:** yes
-**Description:** A named operator role used for access control. The downstream deployer will deduplicate this against the Semantius built-in `roles` table; permissions and user-role assignments use the platform's native mechanism.
-
-**Fields**
-
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `role_name` | `string` | yes | Role Name | label_column; unique |
-| `description` | `text` | no | Description | |
-
-**Relationships**
-
-- `role` ↔ `user` assignments use the platform's native `user_roles` mechanism.
+- Role assignments and permissions use the Semantius platform-native `roles` / `user_roles` mechanism — not modeled as custom entities here.
 
 ---
 
@@ -593,6 +576,7 @@ flowchart LR
 - Should `accounts` support more than one parent (a many-to-many parent/child graph) to model conglomerates and matrix structures, instead of the current single self-reference?
 - Should `destinations.configuration` be split into a dedicated `destination_credentials` entity once the platform needs richer secret rotation / connection-test history per destination?
 - Should `events` have a denormalized `account_id` for fast B2B segmentation, or always be reached through `events.profile_id → profiles.account_id`? The denormalization helps query performance but adds write-time consistency cost.
+- Should `consent_records.granted_at` / `withdrawn_at` be enforced as write-time invariants tied to `status` (granted_at required when `status = granted`, withdrawn_at required when `status = withdrawn`)? Semantius cannot enforce conditional-required declaratively, so this is currently an implementer convention. Worth promoting to a check constraint or trigger if compliance audits start flagging missing timestamps.
 
 ### 6.3 ✅ Resolved decisions
 
@@ -605,18 +589,17 @@ A short checklist for the agent who will materialise this model in Semantius (or
 1. Create one module named `customer_data_platform` and two baseline permissions (`customer_data_platform:read`, `customer_data_platform:manage`) before any entity.
 2. Create entities in dependency order (parents before children that reference them):
    1. `users` — reuse Semantius built-in if present.
-   2. `roles` — reuse Semantius built-in if present.
-   3. `accounts` (self-reference; create entity, add `parent_account_id` field after).
-   4. `sources`
-   5. `destinations`
-   6. `profiles`
-   7. `identities`
-   8. `events`
-   9. `computed_traits`
-   10. `audiences`
-   11. `audience_memberships`
-   12. `audience_activations`
-   13. `consent_records`
+   2. `accounts` (self-reference; create entity, add `parent_account_id` field after).
+   3. `sources`
+   4. `destinations`
+   5. `profiles`
+   6. `identities`
+   7. `events`
+   8. `computed_traits`
+   9. `audiences`
+   10. `audience_memberships`
+   11. `audience_activations`
+   12. `consent_records`
 3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "customer_data_platform:read"`, `edit_permission: "customer_data_platform:manage"`. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table`, `reference_delete_mode` consistent with §4, and the `relationship_label` value from the Notes column. For `enum` fields, pass `enum_values` matching §5 in the listed order (the first value is the auto-default for required enums). For `accounts.annual_revenue` pass `format: "number"` and `precision: 2`.
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Where the §3 Label for the label_column row differs from `singular_label`, follow up with `update_field` to set the correct title — passing the composite string id `"{table_name}.{field_name}"` (as a **string**, not an integer). Specifically:
@@ -632,7 +615,28 @@ A short checklist for the agent who will materialise this model in Semantius (or
    - `consent_records.consent_label` → title `"Consent"`
    - `accounts.account_name` → title `"Account Name"`
    - `users.user_name` → title `"Display Name"`
-   - `roles.role_name` → title `"Role Name"`
-6. **Deduplicate against Semantius built-in tables.** This model declares `users` and `roles`, which already exist in Semantius as built-ins. For each, read Semantius first: if the built-in covers the field set, **skip the create** and reuse the built-in as the `reference_table` target (e.g. `audiences.created_by_user_id` → `reference_table: "users"`). Only add missing fields to the built-in if the model requires them (additive only). The `users` ↔ `roles` assignment is handled by the platform's native `user_roles` table — do not create a custom junction.
+6. **Deduplicate `users` against the Semantius built-in.** This model declares `users`, which already exists in Semantius as a built-in. Read Semantius first: if the built-in covers the field set, **skip the create** and reuse the built-in as the `reference_table` target (e.g. `audiences.created_by_user_id` → `reference_table: "users"`). Only add missing fields to the built-in if the model requires them (additive only). Roles, permissions, and user-role assignments are handled entirely by the platform's native `roles` / `permissions` / `user_roles` tables — this model does not declare any of them.
 7. After creation, populate junction `*_label` fields (`membership_label`, `activation_label`, `consent_label`) on insert as the documented composite strings (e.g. `"{audience_name} / {profile_label}"`) so the auto-wired label resolves to a meaningful value.
 8. After creation, spot-check that `label_column` on each entity resolves to a real field and that all `reference_table` targets exist.
+
+## 8. Related domains
+
+The CDP is the canonical customer master in this enterprise architecture. The siblings below are declared so the deployer can reconcile shared entities additively when those modules later arrive (or are already present).
+
+### crm
+
+- **Exposes**: `profiles`, `accounts` — the canonical person/company master that a CRM module's contact/company records should link back to rather than duplicate.
+- **Expects on sibling**: `crm.contacts.profile_id → profiles`, `crm.companies.account_id → accounts` when CRM is deployed, so that sales activity records resolve to the unified profile.
+- **Defers to sibling**: none. The CDP is upstream of the CRM for identity; it does not defer customer master to it.
+
+### marketing_automation
+
+- **Exposes**: `audiences`, `audience_memberships`, `audience_activations` — segment definitions and membership state that a marketing-automation / messaging module consumes for campaign targeting.
+- **Expects on sibling**: `marketing_automation.campaigns.audience_id → audiences` when deployed, so campaigns target real CDP audiences instead of standalone segment lists.
+- **Defers to sibling**: none.
+
+### identity_and_access
+
+- **Exposes**: none. `users` is declared in this model only for self-containment; the canonical owner is `identity_and_access` when present.
+- **Expects on sibling**: none.
+- **Defers to sibling**: `users`. When `identity_and_access` is deployed, the deployer reuses its built-in `users` table as the `reference_table` target for every `created_by_user_id` FK in this model and skips creating a local copy. Roles, permissions, and user-role assignments are owned by the Semantius platform-native tables (`roles`, `permissions`, `user_roles`) regardless of whether `identity_and_access` is deployed.

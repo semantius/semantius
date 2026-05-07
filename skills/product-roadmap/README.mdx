@@ -1,6 +1,6 @@
 ---
 title: Product Roadmap Skill
-description: Plans a product roadmap so ideas move from intake through prioritization to a shipped release without the small handoffs going missing.
+description: Plans features through intake, RICE scoring, objective alignment, release scheduling, and ship, with votes, tags, comments, and cost roll-up.
 ---
 
 # Product Roadmap Skill
@@ -37,8 +37,8 @@ flowchart LR
     users -->|owns| cost_centers
     users -->|authors| comments
     features -->|collects| comments
-    features -->|receives votes from| feature_votes
+    features -->|collects votes via| feature_votes
     users -->|casts| feature_votes
-    features -->|tagged with| feature_tags
-    tags -->|applied via| feature_tags
+    features -->|has tags via| feature_tags
+    tags -->|links features via| feature_tags
 ```

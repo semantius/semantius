@@ -13,13 +13,15 @@ It is the foundational skill that every other workflow (schema editing, record C
 
 ## Installation
 
-The skill installs the same way as the rest of the [Agent Skills](/docs/agent-skills-installation#3-install-the-skills) bundle, so once you have the CLI on your PATH and the skills registered with your agent, `use-semantius` is already there.
+Install all Semantius skills with a single command:
 
-If your agent supports `npx skill`, point it at the Semantius CLI repository:
+<Command command="npx skills add semantius/semantius-cli --all" />
 
-<Command command="npx skill install https://github.com/semantius/semantius-cli" />
+To install for a specific agent only (e.g. Codex):
 
-OpenClaw and other agents with their own installer pull from the same [skills folder](https://github.com/semantius/semantius-cli/tree/main/skills).
+<Command command="npx skills add semantius/semantius-cli --all --agent codex" />
+
+Supports [OpenCode, Claude Code, Codex, Cursor, and 51 more](https://github.com/vercel-labs/skills#supported-agents). See the [skills documentation](https://github.com/vercel-labs/skills) to learn how to install skills for your agent.
 
 ## When the Skill Triggers
 
