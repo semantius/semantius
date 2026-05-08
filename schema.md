@@ -269,7 +269,7 @@ Logical modules that group related roles and permissions
 | `logo_url` | Logo URL | URL or base64 data URI for module logo | string | url | false | false | - | 35 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
 | `logo_color` | Logo Color | Hex color code for module logo | string | text | false | false | - | 36 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
 | `home_page` | Home Page | Default home page path for module | string | text | false | false | - | 37 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `alias` | Alias | Alternative name or identifier for module | string | text | false | false | - | 38 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| `module_slug` | Module Slug | URL-safe unique identifier for module, auto-generated from module_name if not provided | string | text | false | false | - | 38 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
 | `settings` | Settings | Module-specific settings and configuration | json | json | false | false | - | 50 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
 | `dashboard_config` | Dashboard Configuration | - | json | json | false | false | - | 60 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
 

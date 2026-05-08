@@ -26,7 +26,7 @@ BEGIN
                 'logo_url', m.logo_url,
                 'logo_color', m.logo_color,
                 'home_page', m.home_page,
-                'alias', m.alias,
+                'module_slug', m.module_slug,
                 'created_at', m.created_at,
                 'updated_at', m.updated_at
             ) ORDER BY m.module_name
