@@ -192,11 +192,12 @@ SELECT ok(
     'Insert into customers_test should queue a message with op INSERT'
 );
 
--- Test 23: Queued message should contain id_field and id_value
+-- Test 23: Queued message should contain id_field and id_value matching the inserted record
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->>'id_field' = 'id' AND (message->>'id_value') IS NOT NULL),
-    'Queued message should contain id_field and id_value'
+     WHERE message->>'id_field' = 'id'
+       AND (message->'id_value')::bigint = (SELECT MAX(id) FROM customers_test WHERE customer_name = 'Queue Test Customer')),
+    'Queued message should contain id_field=id and id_value matching the inserted record id'
 );
 
 -- =====================================================
