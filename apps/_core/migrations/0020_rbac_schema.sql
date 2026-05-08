@@ -36,6 +36,8 @@ RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
         NEW.module_slug := lower(regexp_replace(NEW.module_name, '[^a-zA-Z0-9]+', '_', 'g'));
+        -- Collapse consecutive underscores into a single one
+        NEW.module_slug := regexp_replace(NEW.module_slug, '_+', '_', 'g');
         -- Remove leading/trailing underscores
         NEW.module_slug := trim(both '_' from NEW.module_slug);
     END IF;

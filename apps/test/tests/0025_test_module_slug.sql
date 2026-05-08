@@ -1,7 +1,7 @@
 -- Test module_slug auto-generation and uniqueness
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(9);
 
 -- =====================================================
 -- TEST: Seeded modules have auto-generated module_slug values
@@ -32,6 +32,15 @@ SELECT is(
     (SELECT module_slug FROM modules WHERE module_name = 'Test Module!'),
     'test_module',
     'Module with spaces and special chars should get slug with underscores'
+);
+
+-- Insert a module with consecutive special characters to test underscore collapsing
+INSERT INTO modules (module_name, description) VALUES ('Hello!!World', 'test consecutive special chars');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Hello!!World'),
+    'hello_world',
+    'Module with consecutive special chars should get slug with single underscores (collapsed)'
 );
 
 -- Insert a module with a manually specified module_slug
