@@ -184,7 +184,8 @@ DECLARE
     v_msg JSONB;
 BEGIN
     -- Find the queue_name and id_column via queue_table_events + queues + entities.
-    -- Falls back to 'id' when the table is not registered in entities (e.g. non-managed tables).
+    -- Falls back to 'id' when the table has no entry in entities (tables not registered
+    -- in the entity system). Tables with managed=FALSE may also lack an id_column entry.
     SELECT q.queue_name, COALESCE(e.id_column, 'id')
     INTO v_queue_name, v_id_field
     FROM queue_table_events qte
