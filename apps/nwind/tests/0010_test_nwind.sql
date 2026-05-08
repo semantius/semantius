@@ -9,45 +9,52 @@
 
 BEGIN;
 
-SELECT plan(36);
+SELECT plan(37);
 
 -- =====================================================
 -- MODULE TESTS
 -- =====================================================
 
--- Test 1: nwind module exists
+-- Test 1: Northwind module exists
 SELECT is(
-    (SELECT COUNT(*)::integer FROM modules WHERE module_name = 'nwind'),
+    (SELECT COUNT(*)::integer FROM modules WHERE module_name = 'Northwind'),
     1,
-    'nwind module should exist'
+    'Northwind module should exist'
 );
 
--- Test 2: nwind module has correct view_permission
+-- Test 2: Northwind module has module_slug = nwind
 SELECT is(
-    (SELECT view_permission FROM modules WHERE module_name = 'nwind'),
+    (SELECT module_slug FROM modules WHERE module_name = 'Northwind'),
+    'nwind',
+    'Northwind module should have module_slug = nwind'
+);
+
+-- Test 3: Northwind module has correct view_permission
+SELECT is(
+    (SELECT view_permission FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
-    'nwind module should have view_permission = nwind:view'
+    'Northwind module should have view_permission = nwind:view'
 );
 
 -- =====================================================
 -- PERMISSION TESTS
 -- =====================================================
 
--- Test 3: nwind:view permission exists
+-- Test 4: nwind:view permission exists
 SELECT is(
     (SELECT COUNT(*)::integer FROM permissions WHERE permission_name = 'nwind:view'),
     1,
     'nwind:view permission should exist'
 );
 
--- Test 4: nwind:manage permission exists
+-- Test 5: nwind:manage permission exists
 SELECT is(
     (SELECT COUNT(*)::integer FROM permissions WHERE permission_name = 'nwind:manage'),
     1,
     'nwind:manage permission should exist'
 );
 
--- Test 5: nwind:manage implies nwind:view via permission hierarchy
+-- Test 6: nwind:manage implies nwind:view via permission hierarchy
 SELECT is(
     (SELECT COUNT(*)::integer
      FROM permission_hierarchy ph

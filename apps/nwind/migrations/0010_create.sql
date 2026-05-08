@@ -7,13 +7,13 @@
 -- =====================================================
 
 -- Module
-INSERT INTO modules (module_name, description, view_permission, home_page)
-VALUES ('nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
+INSERT INTO modules (module_name, module_slug, description, view_permission, home_page)
+VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
 
 -- Permissions
 INSERT INTO permissions (permission_name, description, module_id) VALUES
-    ('nwind:view',   'Permission to view Northwind data',   (SELECT id FROM modules WHERE module_name = 'nwind')),
-    ('nwind:manage', 'Permission to manage Northwind data', (SELECT id FROM modules WHERE module_name = 'nwind'));
+    ('nwind:view',   'Permission to view Northwind data',   (SELECT id FROM modules WHERE module_name = 'Northwind')),
+    ('nwind:manage', 'Permission to manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
 
 -- Permission hierarchy: nwind:manage implies nwind:view
 INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id)
@@ -34,7 +34,7 @@ VALUES (
     'Category',
     'Categories',
     'Product categories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -49,7 +49,7 @@ VALUES (
     'Customer',
     'Customers',
     'Customer information and contact details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -64,7 +64,7 @@ VALUES (
     'Employee',
     'Employees',
     'Employee records and contact information',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -79,7 +79,7 @@ VALUES (
     'Supplier',
     'Suppliers',
     'Supplier information and contact details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -94,7 +94,7 @@ VALUES (
     'Product',
     'Products',
     'Product catalog and inventory',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -109,7 +109,7 @@ VALUES (
     'Region',
     'Regions',
     'Sales territories and geographic regions',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -124,7 +124,7 @@ VALUES (
     'Shipper',
     'Shippers',
     'Shipping companies and carriers',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -139,7 +139,7 @@ VALUES (
     'Order',
     'Orders',
     'Customer orders and shipping details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -154,7 +154,7 @@ VALUES (
     'Territory',
     'Territories',
     'Sales territories within regions',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -169,7 +169,7 @@ VALUES (
     'Employee Territory',
     'Employee Territories',
     'Links employees to their assigned territories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -184,7 +184,7 @@ VALUES (
     'Order Detail',
     'Order Details',
     'Individual line items within an order',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -408,5 +408,22 @@ BEGIN
     ) THEN
         UPDATE entities SET audit_log = TRUE
         WHERE table_name IN ('customers', 'products');
+    END IF;
+END $$;
+
+-- =====================================================
+-- EVENTS QUEUE
+-- =====================================================
+-- Pre-create a general-purpose "events" queue for tracking
+-- entity change events from the Northwind module.
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'queues'
+    ) THEN
+        INSERT INTO queues (queue_name) VALUES ('events')
+        ON CONFLICT DO NOTHING;
     END IF;
 END $$;

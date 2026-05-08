@@ -192,11 +192,11 @@ SELECT ok(
     'Insert into customers_test should queue a message with op INSERT'
 );
 
--- Test 23: Queued message should contain the record
+-- Test 23: Queued message should contain id_field and id_value
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->'record'->>'customer_name' = 'Queue Test Customer'),
-    'Queued message should contain the inserted record data'
+     WHERE message->>'id_field' = 'id' AND (message->>'id_value') IS NOT NULL),
+    'Queued message should contain id_field and id_value'
 );
 
 -- =====================================================
