@@ -179,15 +179,16 @@ LANGUAGE plpgsql AS $$
 DECLARE
     v_queue_name TEXT;
     v_id_field TEXT;
+    v_event_type TEXT;
     v_id_value JSONB;
     v_row_jsonb JSONB;
     v_msg JSONB;
 BEGIN
-    -- Find the queue_name and id_column via queue_table_events + queues + entities.
+    -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
     -- Falls back to 'id' when the table has no entry in entities (tables not registered
     -- in the entity system). Tables with managed=FALSE may also lack an id_column entry.
-    SELECT q.queue_name, COALESCE(e.id_column, 'id')
-    INTO v_queue_name, v_id_field
+    SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
+    INTO v_queue_name, v_id_field, v_event_type
     FROM queue_table_events qte
     JOIN queues q ON q.id = qte.queue_id
     LEFT JOIN entities e ON e.table_name = TG_TABLE_NAME
@@ -211,7 +212,9 @@ BEGIN
         'ts', now(),
         'table', TG_TABLE_NAME,
         'id_field', v_id_field,
-        'id_value', v_id_value
+        'id_value', v_id_value,
+        'message_type', 'entity_event',
+        'event_type', v_event_type
     );
 
     PERFORM pgmq.send(v_queue_name, v_msg);

@@ -1,7 +1,7 @@
 -- Test queue system: queues entity, queue_table_events, triggers, and RPC functions
 BEGIN;
 
-SELECT plan(40);
+SELECT plan(41);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -198,6 +198,14 @@ SELECT ok(
      WHERE message->>'id_field' = 'id'
        AND (message->'id_value')::bigint = (SELECT MAX(id) FROM customers_test WHERE customer_name = 'Queue Test Customer')),
     'Queued message should contain id_field=id and id_value matching the inserted record id'
+);
+
+-- Test 24: Queued message should contain message_type = entity_event and event_type = insert
+SELECT ok(
+    (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
+     WHERE message->>'message_type' = 'entity_event'
+       AND message->>'event_type' = 'insert'),
+    'Queued message should contain message_type=entity_event and event_type=insert'
 );
 
 -- =====================================================
