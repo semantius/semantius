@@ -14,7 +14,7 @@
     "migrate": "deno task migrate",
     "dropall": "deno task dropall",
     "reset": "deno task reset",
-    "retest": "deno task reset",
+    "retest": "deno task retest",
     "docgen": "deno task docgen",
     "bundle-sql": "deno task bundle-sql",
     "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build",

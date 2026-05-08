@@ -13,7 +13,7 @@
 --  10. _core tables have audit enabled
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(38);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -37,6 +37,16 @@ INSERT INTO fields (
     table_name, field_name, title, format, field_order, input_type, width
 ) VALUES (
     'audit_test_items', 'status', 'Status', 'text', 10, 'default', 'default'
+);
+
+-- =====================================================
+-- TEST 0: audit_log=TRUE persists after entity creation
+-- =====================================================
+
+SELECT is(
+    (SELECT audit_log FROM entities WHERE table_name = 'audit_test_items'),
+    TRUE,
+    'audit_log=TRUE should persist after entity creation'
 );
 
 -- =====================================================
