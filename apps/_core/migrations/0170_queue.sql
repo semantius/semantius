@@ -179,10 +179,12 @@ LANGUAGE plpgsql AS $$
 DECLARE
     v_queue_name TEXT;
     v_id_field TEXT;
-    v_id_value TEXT;
+    v_id_value JSONB;
+    v_row_jsonb JSONB;
     v_msg JSONB;
 BEGIN
-    -- Find the queue_name and id_column via queue_table_events + queues + entities
+    -- Find the queue_name and id_column via queue_table_events + queues + entities.
+    -- Falls back to 'id' when the table is not registered in entities (e.g. non-managed tables).
     SELECT q.queue_name, COALESCE(e.id_column, 'id')
     INTO v_queue_name, v_id_field
     FROM queue_table_events qte
@@ -195,19 +197,20 @@ BEGIN
         RETURN COALESCE(NEW, OLD);
     END IF;
 
-    -- Extract the id value from NEW (or OLD for DELETE)
+    -- Extract the id value preserving its native JSON type (number, text, etc.)
     IF TG_OP = 'DELETE' THEN
-        v_id_value := (to_jsonb(OLD) ->> v_id_field)::TEXT;
+        v_row_jsonb := to_jsonb(OLD);
     ELSE
-        v_id_value := (to_jsonb(NEW) ->> v_id_field)::TEXT;
+        v_row_jsonb := to_jsonb(NEW);
     END IF;
+    v_id_value := v_row_jsonb -> v_id_field;
 
     v_msg := jsonb_build_object(
         'op', TG_OP,
         'ts', now(),
         'table', TG_TABLE_NAME,
         'id_field', v_id_field,
-        'id_value', to_jsonb(v_id_value::BIGINT)
+        'id_value', v_id_value
     );
 
     PERFORM pgmq.send(v_queue_name, v_msg);
