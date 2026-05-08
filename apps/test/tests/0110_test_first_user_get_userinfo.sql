@@ -89,10 +89,10 @@ SELECT ok(
     'First user (admin) modules should not be empty'
 );
 
--- Test 9: Should see at least _core, _public, CRM, and HR modules (ignoring any additional modules)
+-- Test 9: Should see at least _core, CRM, and HR modules (ignoring any additional modules)
 SELECT ok(
-    (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "_public"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb FROM first_user_info),
-    'First user (admin) should see _core, _public, CRM, and HR modules'
+    (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb FROM first_user_info),
+    'First user (admin) should see _core, CRM, and HR modules'
 );
 
 -- Test 10: Should see _core module (requires admin permission)

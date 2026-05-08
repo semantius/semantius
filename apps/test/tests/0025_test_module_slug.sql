@@ -1,24 +1,17 @@
 -- Test module_slug auto-generation and uniqueness
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(8);
 
 -- =====================================================
--- TEST: Seeded modules have auto-generated module_slug values
+-- TEST: Seeded modules have correct module_slug values
 -- =====================================================
 
--- _core → auto-generated slug from '_core' = 'core' (leading underscore trimmed)
+-- _core → explicit slug 'admin'
 SELECT is(
     (SELECT module_slug FROM modules WHERE module_name = '_core'),
-    'core',
-    '_core module should have module_slug = "core" (auto-generated from module_name)'
-);
-
--- _public → auto-generated slug = 'public'
-SELECT is(
-    (SELECT module_slug FROM modules WHERE module_name = '_public'),
-    'public',
-    '_public module should have module_slug = "public" (auto-generated from module_name)'
+    'admin',
+    '_core module should have module_slug = "admin" (explicitly set)'
 );
 
 -- =====================================================

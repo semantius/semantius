@@ -168,8 +168,8 @@ CREATE TRIGGER queue_event_before_update_trigger
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_before_update();
 
--- Helper: build the record JSON the same way audit does (to_jsonb)
--- and send it to the queue.
+-- Helper: build the queue message with id_field and id_value
+-- (record and old_record are omitted; id_field comes from entities.id_column)
 
 CREATE OR REPLACE FUNCTION queue_build_record_json()
 RETURNS TRIGGER
@@ -177,15 +177,21 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_record_jsonb JSONB;
-    v_old_record_jsonb JSONB;
     v_queue_name TEXT;
+    v_id_field TEXT;
+    v_event_type TEXT;
+    v_id_value JSONB;
+    v_row_jsonb JSONB;
     v_msg JSONB;
 BEGIN
-    -- Find the queue_name via the queue_table_events + queues join
-    SELECT q.queue_name INTO v_queue_name
+    -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
+    -- Falls back to 'id' when the LEFT JOIN to entities returns no row (table not registered
+    -- in the entity system). The entities.id_column column always has a value when the row exists.
+    SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
+    INTO v_queue_name, v_id_field, v_event_type
     FROM queue_table_events qte
     JOIN queues q ON q.id = qte.queue_id
+    LEFT JOIN entities e ON e.table_name = TG_TABLE_NAME
     WHERE qte.table_name = TG_TABLE_NAME
     LIMIT 1;
 
@@ -193,15 +199,22 @@ BEGIN
         RETURN COALESCE(NEW, OLD);
     END IF;
 
-    v_record_jsonb := to_jsonb(NEW);
-    v_old_record_jsonb := to_jsonb(OLD);
+    -- Extract the id value preserving its native JSON type (number, text, etc.)
+    IF TG_OP = 'DELETE' THEN
+        v_row_jsonb := to_jsonb(OLD);
+    ELSE
+        v_row_jsonb := to_jsonb(NEW);
+    END IF;
+    v_id_value := v_row_jsonb -> v_id_field;
 
     v_msg := jsonb_build_object(
         'op', TG_OP,
+        'ts', now(),
         'table', TG_TABLE_NAME,
-        'record', v_record_jsonb,
-        'old_record', v_old_record_jsonb,
-        'ts', now()
+        'id_field', v_id_field,
+        'id_value', v_id_value,
+        'message_type', 'entity_event',
+        'event_type', v_event_type
     );
 
     PERFORM pgmq.send(v_queue_name, v_msg);

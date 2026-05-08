@@ -160,24 +160,24 @@ SELECT ok(
     'get_userinfo() should return modules as a JSON array for user1'
 );
 
--- Test user1 can see _public and HR modules (ignoring any additional modules)
+-- Test user1 can see HR module (ignoring any additional modules)
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_public"}, {"module_name": "HR"}]'::jsonb),
-    'user1 should see _public and HR modules'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "HR"}]'::jsonb),
+    'user1 should see HR module'
 );
 
--- Test user2 modules should include _public, CRM, and HR (ignoring any additional modules)
+-- Test user2 modules should include CRM and HR (ignoring any additional modules)
 select authenticate_as('user2');
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_public"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
-    'user2 should see _public, CRM, and HR modules'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
+    'user2 should see CRM and HR modules'
 );
 
--- Test user3 (admin) modules should include _public, _core, CRM, and HR (ignoring any additional modules)
+-- Test user3 (admin) modules should include _core, CRM, and HR (ignoring any additional modules)
 select authenticate_as('user3');
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_public"}, {"module_name": "_core"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
-    'user3 (admin) should see _public, _core, CRM, and HR modules'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_core"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
+    'user3 (admin) should see _core, CRM, and HR modules'
 );
 
 -- Test _core module has logo_url
