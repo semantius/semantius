@@ -92,6 +92,7 @@ DECLARE
     -- for merge
     merge_result jsonb;
     elem jsonb;
+    j int;
     -- for substr
     src text;
     start_pos int;
@@ -297,7 +298,7 @@ BEGIN
             IF jsonb_typeof(nav) = 'array' THEN
                 BEGIN
                     nav := nav -> sub_props[i]::int;
-                EXCEPTION WHEN OTHERS THEN
+                EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
                     IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
                 END;
             ELSE
@@ -560,8 +561,8 @@ BEGIN
             elem := vals -> i;
             IF jsonb_typeof(elem) = 'array' THEN
                 -- Concatenate array elements
-                FOR start_pos IN 0 .. jsonb_array_length(elem) - 1 LOOP
-                    merge_result := merge_result || jsonb_build_array(elem -> start_pos);
+                FOR j IN 0 .. jsonb_array_length(elem) - 1 LOOP
+                    merge_result := merge_result || jsonb_build_array(elem -> j);
                 END LOOP;
             ELSE
                 merge_result := merge_result || jsonb_build_array(elem);
