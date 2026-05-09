@@ -92,7 +92,8 @@ SELECT is(
             'update_table_is_child_flag',
             'validate_permission_exists',
             'validate_api_key',
-            'apply_field_ddl'
+            'apply_field_ddl',
+            'build_record_logic_trigger'
         )
     ),
     NULL::text,

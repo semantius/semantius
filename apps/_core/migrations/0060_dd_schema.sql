@@ -29,18 +29,24 @@ CREATE TABLE IF NOT EXISTS entities (
     edit_mode TEXT NOT NULL DEFAULT 'auto',
     cube_mode TEXT NOT NULL DEFAULT 'auto',
     audit_log BOOLEAN NOT NULL DEFAULT FALSE,
+    computed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+    validation_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Validate table_name follows PostgreSQL naming conventions
     CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
-    
+
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
-    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),     
-    
+    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
+
     -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
-    CONSTRAINT plural_matches_table_name CHECK (plural = table_name)
+    CONSTRAINT plural_matches_table_name CHECK (plural = table_name),
+
+    -- computed_fields and validation_rules must be JSON arrays
+    CONSTRAINT computed_fields_is_array CHECK (jsonb_typeof(computed_fields) = 'array'),
+    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array')
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -60,6 +66,10 @@ COMMENT ON COLUMN entities.id_column IS 'Name of primary key column (created aut
 COMMENT ON COLUMN entities.label_column IS 'Name of label/display column (created automatically)';
 COMMENT ON COLUMN entities.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
 COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
+COMMENT ON COLUMN entities.computed_fields IS
+'Ordered list of {name, jsonlogic, description?} entries. Each entry derives the named field from the same record before write. Default [].';
+COMMENT ON COLUMN entities.validation_rules IS
+'Ordered list of {code, message, jsonlogic, description?} entries. Each entry must evaluate truthy for the write to succeed. Default [].';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -425,6 +435,8 @@ VALUES
     ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'json',      FALSE, 123, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'json',      FALSE, 124, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        '');
 
