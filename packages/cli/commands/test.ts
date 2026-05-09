@@ -226,6 +226,19 @@ class TapSpecReporter implements TapReporter {
   }
 }
 
+/**
+ * Match a filename against a glob-like filter pattern.
+ * Supports * (any characters) and ? (single character) wildcards.
+ * The pattern anchors at the start but not the end, so a bare prefix like
+ * "0010" matches "0010_test_rls.sql" as a convenience (same as "0010*").
+ */
+function matchesFilter(filename: string, filter: string): boolean {
+  const escaped = filter.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const regexStr = escaped.replace(/\*/g, ".*").replace(/\?/g, ".");
+  const regex = new RegExp(`^${regexStr}`, "i");
+  return regex.test(filename);
+}
+
 class PgTest {
   private client: Client;
   private reporter: TapReporter;
@@ -330,12 +343,18 @@ class PgTest {
     return planned > 0 && executed === planned && passed === planned;
   }
 
-  async runTests(testDir: string): Promise<TestResult[]> {
+  async runTests(testDir: string, filter?: string): Promise<TestResult[]> {
     const results: TestResult[] = [];
 
     this.reporter.start();
 
     for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
+      const filename = basename(entry.path);
+
+      if (filter && !matchesFilter(filename, filter)) {
+        continue;
+      }
+
       const result = await this.runTest(entry.path);
       results.push(result);
       const shouldContinue = this.reporter.test(result);
@@ -352,7 +371,7 @@ class PgTest {
 
 
 
-export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFast = false): Promise<void> {
+export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFast = false, filter?: string): Promise<void> {
   console.log("Running test command...");
 
   // Use plain TAP reporter when --tap flag is provided, otherwise use pretty formatted reporter
@@ -363,7 +382,7 @@ export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFa
     await pgTest.connect();
     console.log(`Connected to PostgreSQL at ${databaseUrl.replace(/\/\/[^@]+@/, '//***:***@')}`);
     
-    const _results = await pgTest.runTests("./apps/test/tests");
+    const _results = await pgTest.runTests("./apps/test/tests", filter);
     
     await pgTest.disconnect();
     console.log("Test command completed!");
