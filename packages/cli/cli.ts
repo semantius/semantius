@@ -11,6 +11,7 @@ import { dropallCommand } from "./commands/dropall.ts";
 import { docgenCommand } from "./commands/docgen.ts";
 import { resetCommand } from "./commands/reset.ts";
 import { retestCommand } from "./commands/retest.ts";
+import { testgenJsonlogicCommand } from "./commands/testgen_jsonlogic.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -127,7 +128,8 @@ COMMANDS:
     init             Initialize a new project
     build            Build the project
     connect          Test database connection
-    test             Run test command with optional --tap flag
+    test             Run pgTAP tests
+    test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 0010*)
     lint             Run linter
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
@@ -135,6 +137,7 @@ COMMANDS:
     reset            ⚠️ Drop all and migrate --apps _core,cloud (requires --confirm)
     retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
+    testgen_jsonlogic Generate 0015_test_jsonlogic.sql from 0015_test_jsonlogic.json
 
 EXAMPLES:
     deno task init
@@ -143,6 +146,8 @@ EXAMPLES:
     deno task connect --database-url postgresql://user:pass@host:5432/db
     deno task test --tap
     deno task test --failfast
+    deno task test 0010*
+    deno task test 0015_test_jsonlogic.sql
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
@@ -270,9 +275,11 @@ async function main(): Promise<void> {
       await connectDatabaseConnection(databaseUrl!);
       break;
       
-    case "test":
-      await testCommand(databaseUrl!, args.tap, args.failfast);
+    case "test": {
+      const filter = args._.length > 1 ? String(args._[1]) : undefined;
+      await testCommand(databaseUrl!, args.tap, args.failfast, filter);
       break;
+    }
       
     case "lint":
       await lintProject();
@@ -304,6 +311,10 @@ async function main(): Promise<void> {
       
     case "docgen":
       await docgenCommand(databaseUrl!);
+      break;
+
+    case "testgen_jsonlogic":
+      await testgenJsonlogicCommand();
       break;
       
     default:
