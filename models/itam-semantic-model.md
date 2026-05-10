@@ -1,10 +1,12 @@
 ---
 artifact: semantic-model
-system_name: IT Asset Management
+version: "1.0"
+system_name: ITAM
+system_description: IT Asset Management
 system_slug: itam
 domain: ITAM
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-08
 entities:
   - asset_categories
   - manufacturers
@@ -20,15 +22,15 @@ entities:
   - asset_assignments
   - contracts
   - purchase_orders
-related_models:
-  - itsm
-  - cmdb
-  - software_asset_management
-  - fixed_assets
-  - hris
-  - org_management
-  - contract_management
-  - procurement
+related_domains:
+  - ITSM
+  - CMDB
+  - SAM
+  - Fixed Assets
+  - HRIS
+  - Org Management
+  - Contract Management
+  - Procurement
 departments:
   - IT
   - Finance
@@ -36,7 +38,7 @@ initial_request: |
   I need an ITAM
 ---
 
-# IT Asset Management, Semantic Model
+# ITAM, Semantic Model
 
 ## 1. Overview
 
@@ -354,7 +356,7 @@ flowchart LR
 | `product_name` | `string` | yes | Product Name | label_column |
 | `manufacturer_id` | `reference` | yes | Publisher | → `manufacturers` (N:1), relationship_label: "publishes" |
 | `product_version` | `string` | no | Version | |
-| `product_type` | `enum` | yes | Product Type | values: `saas`, `subscription`, `perpetual`, `open_source`; default: "subscription" |
+| `product_type` | `enum` | yes | Product Type | values: `subscription`, `saas`, `perpetual`, `open_source`; default: "subscription" |
 | `is_managed` | `boolean` | yes | Managed | default: TRUE; whether actively license-tracked |
 | `description` | `text` | no | Description | |
 
@@ -471,7 +473,7 @@ flowchart LR
 |---|---|---|---|---|
 | `contract_number` | `string` | yes | Contract Number | unique; label_column |
 | `contract_name` | `string` | yes | Contract Name | |
-| `contract_type` | `enum` | yes | Contract Type | values: `warranty`, `support`, `maintenance`, `lease`, `msa`, `sla`; default: "support" |
+| `contract_type` | `enum` | yes | Contract Type | values: `support`, `warranty`, `maintenance`, `lease`, `msa`, `sla`; default: "support" |
 | `vendor_id` | `reference` | yes | Vendor | → `vendors` (N:1, restrict), relationship_label: "provides" |
 | `cost_center_id` | `reference` | no | Cost Center | → `cost_centers` (N:1), relationship_label: "funds" |
 | `start_date` | `date` | yes | Start Date | UI-required; nullable at DB level per platform rule |
@@ -494,7 +496,7 @@ flowchart LR
 **Plural label:** Purchase Orders
 **Label column:** `po_number`
 **Audit log:** yes
-**Description:** A procurement record for hardware, software, or services. Lightweight in this model: links one PO to its vendor, requester, and totals; line-item granularity is deliberately deferred (see §6.2). Hardware assets and software licenses each link back to their PO directly.
+**Description:** A procurement record for hardware, software, or services. Lightweight in this model: links one PO to its vendor, requester, and totals; line-item granularity is deliberately deferred (see §7.2). Hardware assets and software licenses each link back to their PO directly.
 
 **Fields**
 
@@ -593,8 +595,8 @@ flowchart LR
 - `none`
 
 ### 5.6 `software_products.product_type`
-- `saas`
 - `subscription`
+- `saas`
 - `perpetual`
 - `open_source`
 
@@ -629,8 +631,8 @@ flowchart LR
 - `returned`
 
 ### 5.12 `contracts.contract_type`
-- `warranty`
 - `support`
+- `warranty`
 - `maintenance`
 - `lease`
 - `msa`
@@ -652,13 +654,30 @@ flowchart LR
 - `received`
 - `cancelled`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+Hints for the deployer about FKs that would add value when sibling modules are deployed. The deployer resolves each `To` against the live catalog at deploy time, proposes the FK as an additive `create_field` when a single match is found, asks the user when several candidates plausibly fit, and silently skips when the target is not deployed. This is a hint table, not a contract; entity-overlap on shared master-data tables (`users`, `departments`, `cost_centers`, `vendors`, `contracts`, `purchase_orders`) is **not** declared here, the deployer's name-collision flow handles those at deploy time.
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `incidents` | `hardware_assets` | is affected by | N:1 | clear |
+| `changes` | `hardware_assets` | is changed by | N:1 | clear |
+| `problems` | `hardware_assets` | is the subject of | N:1 | clear |
+| `configuration_items` | `hardware_assets` | is represented by | N:1 | clear |
+| `configuration_items` | `software_installations` | is represented by | N:1 | clear |
+| `entitlement_positions` | `software_licenses` | underpins | N:1 | restrict |
+| `compliance_findings` | `software_products` | is audited by | N:1 | restrict |
+| `asset_records` | `hardware_assets` | is capitalized as | N:1 | restrict |
+
+All rows above are **inbound** (FK lives on the sibling's table at the sibling's deploy time, not on this model). They describe the canonical shape so that when the sibling module arrives, the deployer can propose the FK back into ITAM with the correct verb, cardinality, and delete behavior.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
 
 None.
 
-### 6.2 🟡 Future considerations (deferred scope)
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should `current_user_id` on `hardware_assets` and `seats_in_use` on `software_licenses` remain materialized fields, or be replaced with computed/view-backed projections once the platform supports them, to eliminate drift risk versus `asset_assignments` and `software_installations` as the canonical sources?
 - Should `purchase_order_lines` be added as a separate entity to support multi-asset POs, partial receipts at line level, and per-line discounts/tax, when the simpler one-PO-to-many-assets model becomes too coarse?
@@ -668,7 +687,7 @@ None.
 - Should asset auto-discovery (network scan, MDM agent ingest) be modeled with a separate `discovery_records` entity to capture raw discovery events before they are reconciled into `hardware_assets`?
 - Should `depreciation_method`, `current_book_value`, `useful_life_months`, and `purchase_cost` be dropped from `hardware_assets` and read instead from the linked `fixed_assets.asset_records` row when a fixed-asset accounting module is deployed alongside ITAM?
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
 A short checklist for the agent who will materialize this model in Semantius:
 
@@ -678,107 +697,5 @@ A short checklist for the agent who will materialize this model in Semantius:
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table`, a `reference_delete_mode` consistent with §4, and the `relationship_label` annotated in §3 Notes. Pair `format: "number"` with `precision: 2` for every monetary field.
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Every entity in this model has a §3 Label on the label_column row that differs from `singular_label` (e.g. entity `vendors` with `singular_label: "Vendor"` and label_column `vendor_name` should display as `"Vendor Name"`). For each affected entity, follow up with `update_field` using the composite string id `"{table_name}.{field_name}"` (e.g. `"vendors.vendor_name"`, passed as a string not an integer) to set the correct title. Apply this for: `asset_categories.category_name`, `manufacturers.manufacturer_name`, `vendors.vendor_name`, `locations.location_name`, `cost_centers.cost_center_code`, `departments.department_name`, `users.full_name`, `hardware_assets.asset_tag`, `software_products.product_name`, `software_licenses.license_name`, `software_installations.installation_label`, `asset_assignments.assignment_label`, `contracts.contract_number`, `purchase_orders.po_number`.
 6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. The Semantius built-in `users` table already exists, so skip the local `create_entity` for `users` and reuse the built-in as the `reference_table` target for every FK in this model that points at `users`. Optionally add the model's missing fields (`employee_id`, `job_title`, `department_id`, `cost_center_id`, `manager_user_id`, `employment_status`, `start_date`, `end_date`) to the built-in only if they are not already present, additive only.
-7. **Reconcile against related modules (§8).** Walk the front-matter `related_models` array. For each sibling slug already deployed: apply **Defers to sibling** entries the same way as built-in dedup (skip the local create, rewire FKs); propose **Expects on sibling** entries as additive FKs on the sibling's tables (always user-confirmed, never auto-applied); index **Exposes** entries for future sibling deploys. All cross-module changes are additive only; declines persist on sibling module metadata so the same proposal does not reappear on every redeploy.
+7. **Apply §6 cross-model link suggestions.** Walk the §6 hint table. For each row, look up the `To` entity in the live catalog. If the target is deployed, propose the FK additively on the `From` side using the row's `Verb` as the `relationship_label` and the row's `Cardinality` and `Delete` as the FK shape; the proposal is always user-confirmed, never auto-applied. If the target is absent, skip silently, the row remains valid and may apply on a future deploy. Entity overlap on shared master-data tables (`users`, `departments`, `cost_centers`, `vendors`, `contracts`, `purchase_orders`) is **not** authored in §6; it is resolved at deploy-time by the deployer's name-collision detection, which inspects the live catalog and asks the user whether to merge, rename incoming, or rename the existing table. Declines persist so the same proposal does not reappear on every redeploy.
 8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that every monetary field has `precision: 2`.
-
-## 8. Related domains
-
-This model is one atomic piece of a broader enterprise model. The entries below tell the deployer which sibling modules to look for, what entities are shared with each, and what cross-module FKs to propose so the deployed schema closes silos instead of duplicating master data. Each sub-section uses three keys (Exposes, Expects on sibling, Defers to sibling).
-
-### 8.1 `itsm`, IT Service Management
-
-**Relationship:** peer (downstream consumer of asset data; ITAM owns the asset, ITSM owns the ticket).
-
-**Exposes:** `hardware_assets`, `software_installations` (the configuration items that ITSM tickets are raised against).
-
-**Expects on sibling:**
-- `itsm.incidents.affected_asset_id → itam.hardware_assets` (N:1, clear); allows incidents to point at the affected device.
-- `itsm.changes.affected_asset_id → itam.hardware_assets` (N:1, clear); allows change requests to scope by asset.
-- `itsm.problems.affected_asset_id → itam.hardware_assets` (N:1, clear); allows problem records to link to the asset.
-
-**Defers to sibling:**
-- none. ITAM does not duplicate ticket/incident records; service history and break/fix workflows are owned wholly by `itsm`.
-
-### 8.2 `cmdb`, Configuration Management Database
-
-**Relationship:** peer (downstream consumer; CMDB models the logical configuration item, ITAM owns the physical asset record).
-
-**Exposes:** `hardware_assets` (the physical record CIs anchor to).
-
-**Expects on sibling:**
-- `cmdb.configuration_items.hardware_asset_id → itam.hardware_assets` (N:1, clear); lets a CI anchor to the underlying physical asset.
-- `cmdb.configuration_items.software_installation_id → itam.software_installations` (N:1, clear); lets a software-class CI anchor to its install record.
-
-**Defers to sibling:**
-- none. ITAM tracks the physical asset; CMDB owns the logical CI graph (relationships, services, dependencies). When both are deployed, ITSM links to CMDB CIs and CMDB CIs link back to ITAM assets via the FKs above.
-
-### 8.3 `software_asset_management`, Software Asset Management
-
-**Relationship:** peer (downstream consumer of license and installation data; SAM does the deep entitlement math, ITAM holds the operational records).
-
-**Exposes:** `software_products`, `software_licenses`, `software_installations` (SAM reads these as the source of truth for the effective license position).
-
-**Expects on sibling:**
-- `software_asset_management.entitlement_positions.software_license_id → itam.software_licenses` (N:1, restrict); SAM's reconciled position rows reference the underlying license.
-- `software_asset_management.compliance_findings.software_product_id → itam.software_products` (N:1, restrict); SAM's audit/compliance findings reference the product.
-
-**Defers to sibling:**
-- none. ITAM keeps the basic license register; if SAM later needs to extend `software_licenses` with deeper metric fields (PVU, vCPU, named-user assignments), those should be proposed as additive extensions on the ITAM table rather than duplicated.
-
-### 8.4 `fixed_assets`, Fixed Asset Accounting
-
-**Relationship:** peer (downstream consumer; fixed_assets owns the accounting view of an asset, ITAM owns the operational record).
-
-**Exposes:** `hardware_assets`.
-
-**Expects on sibling:**
-- `fixed_assets.asset_records.hardware_asset_id → itam.hardware_assets` (N:1, restrict); the finance asset record anchors to the operational hardware record.
-
-**Defers to sibling:**
-- none. ITAM keeps `depreciation_method`, `current_book_value`, `useful_life_months`, and `purchase_cost` on `hardware_assets` as a self-contained operational baseline. If the organization wants `fixed_assets` to own the canonical depreciation schedule, those fields can be deferred additively at deploy time, see §6.2.
-
-### 8.5 `hris`, Human Resources Information System
-
-**Relationship:** upstream (canonical owner of employee and org-structure data when deployed).
-
-**Exposes:** none. ITAM consumes from HRIS, it does not expose org records back.
-
-**Expects on sibling:** none.
-
-**Defers to sibling:**
-- `itam.users` should be reused from `hris.employees` if deployed. The deployer should skip creating the local table and rewire every FK in this model that points at `users`. Any ITAM-specific fields not present on the HRIS table (`employee_id`, `job_title`, `department_id`, `cost_center_id`, `manager_user_id`, `employment_status`, `start_date`, `end_date`) should be proposed as additive extensions.
-- `itam.departments` should be reused from `hris.departments` if deployed. The deployer should skip the local table and rewire `users.department_id` and `departments.parent_department_id` to the HRIS table.
-
-### 8.6 `org_management`, Organizational and Financial Hierarchy
-
-**Relationship:** upstream (canonical owner of cost-center hierarchies when deployed; alternative or complement to `hris`).
-
-**Exposes:** none.
-
-**Expects on sibling:** none.
-
-**Defers to sibling:**
-- `itam.cost_centers` should be reused from `org_management.cost_centers` if deployed. The deployer should skip the local table and rewire every FK in this model that points at `cost_centers`. Any ITAM-specific fields not present on the org_management table should be proposed as additive extensions.
-
-### 8.7 `contract_management`, Contract Lifecycle Management
-
-**Relationship:** upstream (canonical owner of contracts and contract lifecycle when deployed).
-
-**Exposes:** none.
-
-**Expects on sibling:** none.
-
-**Defers to sibling:**
-- `itam.contracts` should be reused from `contract_management.contracts` if deployed. The deployer should skip the local table and rewire every FK in this model that points at `contracts`. ITAM-specific contract types (`warranty`, `lease`, `sla`) and the `auto_renew` / `annual_cost` fields should be proposed as additive `enum_values` and column extensions on the CLM table if missing.
-
-### 8.8 `procurement`, Procurement and Vendor Management
-
-**Relationship:** upstream (canonical owner of vendor master and purchase-order workflow when deployed).
-
-**Exposes:** none.
-
-**Expects on sibling:** none.
-
-**Defers to sibling:**
-- `itam.vendors` should be reused from `procurement.vendors` if deployed. The deployer should skip the local table and rewire every FK in this model that points at `vendors`.
-- `itam.purchase_orders` should be reused from `procurement.purchase_orders` if deployed. The deployer should skip the local table and rewire every FK in this model that points at `purchase_orders`. ITAM-specific fields (`requester_user_id`, `currency_code`) should be proposed as additive extensions if missing.

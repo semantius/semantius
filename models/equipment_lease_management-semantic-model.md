@@ -1,13 +1,15 @@
 ---
 artifact: semantic-model
+version: "1.0"
 system_name: Equipment Lease Management
+system_description: Equipment Leasing & Budget
 system_slug: equipment_lease_management
 domain: ERP
 departments:
   - Finance
   - Operations
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-08
 entities:
   - vendors
   - equipment_categories
@@ -20,17 +22,17 @@ entities:
   - lease_payments
   - fiscal_periods
   - budget_lines
-related_models:
-  - identity_and_access
-  - vendor_management
-  - finance
-  - procurement
-  - asset_management
+related_domains:
+  - Identity & Access
+  - Vendor Management
+  - Finance
+  - Procurement
+  - Asset Management
 initial_request: |
   I need to manage and budget equipment leasing contracts
 ---
 
-# Equipment Lease Management — Semantic Model
+# Equipment Lease Management, Semantic Model
 
 ## 1. Overview
 
@@ -77,7 +79,7 @@ flowchart LR
 
 ## 3. Entities
 
-### 3.1 `vendors` — Vendor
+### 3.1 `vendors`, Vendor
 
 **Plural label:** Vendors
 **Label column:** `vendor_name`
@@ -104,7 +106,7 @@ flowchart LR
 
 ---
 
-### 3.2 `equipment_categories` — Equipment Category
+### 3.2 `equipment_categories`, Equipment Category
 
 **Plural label:** Equipment Categories
 **Label column:** `category_name`
@@ -124,7 +126,7 @@ flowchart LR
 
 ---
 
-### 3.3 `users` — User
+### 3.3 `users`, User
 
 **Plural label:** Users
 **Label column:** `full_name`
@@ -151,7 +153,7 @@ flowchart LR
 
 ---
 
-### 3.4 `locations` — Location
+### 3.4 `locations`, Location
 
 **Plural label:** Locations
 **Label column:** `location_name`
@@ -177,7 +179,7 @@ flowchart LR
 
 ---
 
-### 3.5 `cost_centers` — Cost Center
+### 3.5 `cost_centers`, Cost Center
 
 **Plural label:** Cost Centers
 **Label column:** `cost_center_name`
@@ -202,7 +204,7 @@ flowchart LR
 
 ---
 
-### 3.6 `lease_contracts` — Lease Contract
+### 3.6 `lease_contracts`, Lease Contract
 
 **Plural label:** Lease Contracts
 **Label column:** `contract_number`
@@ -241,7 +243,7 @@ flowchart LR
 
 ---
 
-### 3.7 `leased_assets` — Leased Asset
+### 3.7 `leased_assets`, Leased Asset
 
 **Plural label:** Leased Assets
 **Label column:** `asset_tag`
@@ -275,7 +277,7 @@ flowchart LR
 
 ---
 
-### 3.8 `payment_schedules` — Payment Schedule
+### 3.8 `payment_schedules`, Payment Schedule
 
 **Plural label:** Payment Schedules
 **Label column:** `schedule_reference`
@@ -303,7 +305,7 @@ flowchart LR
 
 ---
 
-### 3.9 `lease_payments` — Lease Payment
+### 3.9 `lease_payments`, Lease Payment
 
 **Plural label:** Lease Payments
 **Label column:** `payment_reference`
@@ -330,7 +332,7 @@ flowchart LR
 
 ---
 
-### 3.10 `fiscal_periods` — Fiscal Period
+### 3.10 `fiscal_periods`, Fiscal Period
 
 **Plural label:** Fiscal Periods
 **Label column:** `period_name`
@@ -354,7 +356,7 @@ flowchart LR
 
 ---
 
-### 3.11 `budget_lines` — Budget Line
+### 3.11 `budget_lines`, Budget Line
 
 **Plural label:** Budget Lines
 **Label column:** `budget_line_label`
@@ -382,7 +384,7 @@ flowchart LR
 - A `budget_line` may be sliced by one `equipment_category` (N:1, optional, clear).
 - A `budget_line` may be approved by one `user` (N:1, optional, clear).
 
-> **Uniqueness note:** the tuple `(cost_center_id, fiscal_period_id, equipment_category_id)` should be unique at the app layer. Semantius does not support composite unique constraints declaratively, so the implementer must enforce this in application logic or via a database trigger. Tracked in §6.2.
+> **Uniqueness note:** the tuple `(cost_center_id, fiscal_period_id, equipment_category_id)` should be unique at the app layer. Semantius does not support composite unique constraints declaratively, so the implementer must enforce this in application logic or via a database trigger. Tracked in §7.2.
 
 ---
 
@@ -472,13 +474,25 @@ flowchart LR
 - `approved`
 - `locked`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+Hints for the deployer: additive FKs to propose if and when these targets land in the catalog. Rows whose target does not exist at deploy time are silently skipped. Shared-master-data overlaps (vendors, users, cost_centers, fiscal_periods) are intentionally not listed here; the deployer's name-collision flow handles them at deploy time.
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `purchase_orders` | `lease_contracts` | is fulfilled by | N:1 | clear |
+| `vendor_invoices` | `payment_schedules` | is settled by | N:1 | clear |
+| `fixed_assets` | `leased_assets` | is registered as | 1:1 | clear |
+
+All three rows are **inbound**: the FK column lands on the sibling's table when the sibling later arrives. `purchase_orders` and `vendor_invoices` belong to a `procurement` / AP module and let lease contracts and scheduled payments be reconciled to purchasing and AP postings without duplicating contract data. `fixed_assets` belongs to an `asset_management` / fixed-asset register and lets leased equipment appear in the canonical asset register without duplicating tag, serial, or location data.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
 
 None.
 
-### 6.2 🟡 Future considerations (deferred scope)
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should a `cost_allocations` junction entity be introduced to split a single lease contract's cost across multiple cost centers on a percentage basis, replacing the current single `primary_cost_center_id` field on `lease_contracts`?
 - Should lease modifications (ASC 842 remeasurement events, term extensions, payment changes, scope changes) be tracked as their own `lease_amendments` entity, or left to the audit log of `lease_contracts`?
@@ -490,7 +504,7 @@ None.
 - Should the composite uniqueness on `budget_lines` (`cost_center_id`, `fiscal_period_id`, `equipment_category_id`) be enforced by a database-level trigger or unique index, rather than only in application logic?
 - Should approval workflows (multi-step sign-off) on `lease_contracts` and `budget_lines` be modeled as their own approval-routing entities, rather than the single `approved_by_user_id` / `approved_at` pair?
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
 1. Create one module named `equipment_lease_management` and two baseline permissions (`equipment_lease_management:read`, `equipment_lease_management:manage`) before any entity. The module name and permission prefix must match the front-matter `system_slug` exactly.
 2. Create entities in the order given in §2: `vendors`, `equipment_categories`, `users`, `locations`, `cost_centers`, then `lease_contracts`, `leased_assets`, `payment_schedules`, `lease_payments`, `fiscal_periods`, `budget_lines`. This order ensures every `reference_table` target already exists when each entity is created (notably `users` is created before `locations` and `cost_centers`, which both FK into it).
@@ -500,7 +514,7 @@ None.
 6. **Label-column title fixup.** When `create_entity` runs, Semantius auto-creates a field whose name equals `label_column` and whose `title` defaults to `singular_label`. For the entities below, the §3 Label diverges from `singular_label` (a deliberate plural/singular symmetry pattern: `singular_label` stays the bare singular for grammatical symmetry with `plural_label`; the more specific field-level title goes on the label column). After each `create_entity`, follow up with `update_field` using the composite string id `"{table_name}.{field_name}"` (passed as a string, not an integer) to set the correct title:
    - `vendors.vendor_name` → title `"Vendor Name"`
    - `equipment_categories.category_name` → title `"Category Name"`
-   - `users.full_name` → title `"Full Name"` *(only if §7 step 5 added this field; if reusing an existing built-in field, leave its title alone)*
+   - `users.full_name` → title `"Full Name"` *(only if §8 step 5 added this field; if reusing an existing built-in field, leave its title alone)*
    - `locations.location_name` → title `"Location Name"`
    - `cost_centers.cost_center_name` → title `"Cost Center Name"`
    - `lease_contracts.contract_number` → title `"Contract Number"`
@@ -511,39 +525,5 @@ None.
 
    `budget_lines.budget_line_label` does **not** need a fixup, its §3 Label (`"Budget Line"`) matches its `singular_label`.
 7. `payment_schedules.schedule_reference` and `budget_lines.budget_line_label` are caller-populated string labels with no platform auto-population. On record creation, callers should compose a readable value (e.g. `"{contract_number} / {period_name}"` for schedules; `"{cost_center_code} / {period_name} / {category_name}"` for budget lines).
-8. Enforce composite uniqueness on `budget_lines` (`cost_center_id`, `fiscal_period_id`, `equipment_category_id`) in application logic until a database-level constraint is added (see §6.2).
+8. Enforce composite uniqueness on `budget_lines` (`cost_center_id`, `fiscal_period_id`, `equipment_category_id`) in application logic until a database-level constraint is added (see §7.2).
 9. After creation, spot-check that `label_column` on each entity resolves to a real string field, that all `reference_table` targets exist, that all monetary fields are `format: number` (not `float`/`double`), and that every FK has its `relationship_label` set.
-
-## 8. Related domains
-
-Forward-looking declarations of sibling Semantius modules this model expects to coexist with. The deployer reciprocates these contracts whenever a matching sibling later arrives. Until a sibling is deployed, the local declarations in §3 stand on their own (the model is self-contained).
-
-### 8.1 `identity_and_access` (upstream)
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `users`. When `identity_and_access` is deployed, every FK in this model that points at `users` (`locations.site_manager_id`, `cost_centers.manager_id`, `lease_contracts.contract_owner_id`, `leased_assets.deployed_to_user_id`, `lease_payments.approved_by_user_id`, `budget_lines.approved_by_user_id`) repoints to the canonical `identity_and_access.users` table. The local `users` declaration in §3.3 is a self-contained fallback that the deployer already deduplicates against the Semantius built-in `users` table at implementation time (see §7 step 5).
-
-### 8.2 `vendor_management` (upstream)
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `vendors`. When `vendor_management` is deployed, `lease_contracts.vendor_id` repoints to the canonical `vendor_management.vendors` table. Vendor master data (banking, tax, certifications, scorecards) is owned there; this module only consumes the vendor identity.
-
-### 8.3 `finance` (upstream)
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `cost_centers` and `fiscal_periods`. When `finance` is deployed, FKs at `cost_centers` (`lease_contracts.primary_cost_center_id`, `budget_lines.cost_center_id`) and at `fiscal_periods` (`payment_schedules.fiscal_period_id`, `budget_lines.fiscal_period_id`) repoint to the canonical finance master tables. The chart of accounts, fiscal calendar, and overall budget envelope are owned there; this module is a per-domain consumer.
-
-### 8.4 `procurement` (peer)
-
-- **Exposes:** `lease_contracts`, `payment_schedules`. So a sibling AP/PO module can link purchase orders to lease contracts and vendor invoices to scheduled payments without duplicating contract data.
-- **Expects on sibling:** `procurement.purchase_orders.lease_contract_id → lease_contracts` and `procurement.vendor_invoices.payment_schedule_id → payment_schedules` when deployed, so AP postings can reconcile back to the originating lease obligation.
-- **Defers to sibling:** none.
-
-### 8.5 `asset_management` (peer)
-
-- **Exposes:** `leased_assets`. So a sibling fixed-asset register or CMDB can attach right-of-use accounting, depreciation schedules, or configuration data to leased equipment.
-- **Expects on sibling:** `asset_management.fixed_assets.leased_asset_id → leased_assets` (or an equivalent bridge field) when deployed, allowing leased equipment to appear in the canonical asset register without duplicating tag/serial/location data.
-- **Defers to sibling:** none.

@@ -1,10 +1,12 @@
 ---
 artifact: semantic-model
-system_name: Applicant Tracking System
-system_slug: applicant_tracking
+version: "1.0"
+system_name: ATS
+system_description: Applicant Tracking System
+system_slug: ats
 domain: ATS
 naming_mode: agent-optimized
-created_at: 2026-05-06
+created_at: 2026-05-08
 entities:
   - departments
   - job_openings
@@ -19,20 +21,20 @@ entities:
   - offers
   - hiring_team_members
   - users
+related_domains:
+  - HRIS
+  - Workforce Planning
+  - Identity & Access
+  - Compensation Management
+  - Onboarding
+  - Background Check
 departments:
   - HR
-related_models:
-  - hris
-  - workforce_planning
-  - identity_and_access
-  - compensation_management
-  - onboarding
-  - background_check
 initial_request: |
   I need an applicant tracking system ATS
 ---
 
-# Applicant Tracking System — Semantic Model
+# ATS — Semantic Model
 
 ## 1. Overview
 
@@ -42,17 +44,17 @@ An applicant tracking system used by an in-house recruiting team to manage open 
 
 | # | Table name | Singular label | Purpose |
 |---|---|---|---|
-| 1 | `departments` | Department | Organizational units that own job openings (e.g. Engineering, Sales). Supports an optional parent–child hierarchy. |
+| 1 | `departments` | Department | Organizational units that own job openings (e.g. Engineering, Sales). Supports an optional parent-child hierarchy. |
 | 2 | `job_openings` | Job Opening | A specific role being hired for, with status, hiring team, headcount, and target start date. |
 | 3 | `application_stages` | Application Stage | Configurable pipeline steps (e.g. New, Phone Screen, On-site, Offer, Hired, Rejected) with order and category. |
 | 4 | `candidate_sources` | Candidate Source | Where candidates come from (job board, referral, agency, inbound, sourced). |
 | 5 | `candidates` | Candidate | A person in the talent pool. Exists independently of any specific job application. |
-| 6 | `job_applications` | Job Application | A candidate applying to a specific job opening — the central pipeline record. |
+| 6 | `job_applications` | Job Application | A candidate applying to a specific job opening, the central pipeline record. |
 | 7 | `candidate_documents` | Candidate Document | Resumes, cover letters, portfolios, work samples attached to a candidate. |
-| 8 | `application_notes` | Application Note | Comment thread on an application — recruiter and hiring-manager observations. |
+| 8 | `application_notes` | Application Note | Comment thread on an application, recruiter and hiring-manager observations. |
 | 9 | `interviews` | Interview | A scheduled interview event tied to an application (kind, time, location/URL). |
-| 10 | `interview_feedback` | Interview Feedback | Scorecard from one interviewer for one interview — rating, recommendation, notes. |
-| 11 | `offers` | Offer | A formal offer extended to a candidate for a job — terms, status, candidate response. |
+| 10 | `interview_feedback` | Interview Feedback | Scorecard from one interviewer for one interview, rating, recommendation, notes. |
+| 11 | `offers` | Offer | A formal offer extended to a candidate for a job, terms, status, candidate response. |
 | 12 | `hiring_team_members` | Hiring Team Member | Junction: a user assigned to a job opening with a role (recruiter, hiring manager, interviewer, coordinator). |
 | 13 | `users` | User | System users (recruiters, hiring managers, interviewers, coordinators). Modeled for self-containment; deployer dedupes against the Semantius built-in. |
 
@@ -94,7 +96,7 @@ flowchart LR
 **Plural label:** Departments
 **Label column:** `department_name`
 **Audit log:** no
-**Description:** An organizational unit that owns one or more job openings. Supports an optional parent–child hierarchy so business units can contain sub-teams.
+**Description:** An organizational unit that owns one or more job openings. Supports an optional parent-child hierarchy so business units can contain sub-teams.
 
 **Fields**
 
@@ -130,10 +132,10 @@ flowchart LR
 | `department_id` | `reference` | yes | Department | → `departments` (N:1, restrict), relationship_label: "owns" |
 | `hiring_manager_id` | `reference` | yes | Hiring Manager | → `users` (N:1, restrict), relationship_label: "manages" |
 | `recruiter_id` | `reference` | no | Lead Recruiter | → `users` (N:1, clear), relationship_label: "recruits for" |
-| `employment_type` | `enum` | yes | Employment Type | values: `full_time`, `part_time`, `contract`, `internship`, `temporary` |
-| `work_arrangement` | `enum` | yes | Work Arrangement | values: `onsite`, `remote`, `hybrid` |
+| `employment_type` | `enum` | yes | Employment Type | values: `full_time`, `part_time`, `contract`, `internship`, `temporary`; default: "full_time" |
+| `work_arrangement` | `enum` | yes | Work Arrangement | values: `onsite`, `remote`, `hybrid`; default: "onsite" |
 | `location` | `string` | no | Location | |
-| `status` | `enum` | yes | Status | values: `draft`, `open`, `on_hold`, `filled`, `closed`, `cancelled` |
+| `status` | `enum` | yes | Status | values: `draft`, `open`, `on_hold`, `filled`, `closed`, `cancelled`; default: "draft" |
 | `headcount` | `integer` | yes | Headcount | how many to hire |
 | `opened_at` | `date` | no | Opened | |
 | `target_start_date` | `date` | no | Target Start Date | |
@@ -148,7 +150,7 @@ flowchart LR
 
 - A `job_opening` belongs to one `department` (N:1, required, restrict).
 - A `job_opening` has one `hiring_manager` user (N:1, required, restrict) and optionally one lead `recruiter` user (N:1, optional, clear).
-- A `job_opening` receives many `job_applications` (1:N, via `job_applications.job_opening_id`, restrict — applications must be archived before a job can be deleted).
+- A `job_opening` receives many `job_applications` (1:N, via `job_applications.job_opening_id`, restrict, applications must be archived before a job can be deleted).
 - A `job_opening` has many `hiring_team_members` (1:N, via the `hiring_team_members` junction).
 
 ---
@@ -158,7 +160,7 @@ flowchart LR
 **Plural label:** Application Stages
 **Label column:** `stage_name`
 **Audit log:** no
-**Description:** A configurable step in the application pipeline. Stages are shared across all job openings (single global pipeline assumption — see §6.1). `stage_order` controls sort; `stage_category` groups stages so reports and downstream logic can reason about pipeline phase without parsing names.
+**Description:** A configurable step in the application pipeline. Stages are shared across all job openings (single global pipeline assumption, see §7.2). `stage_order` controls sort; `stage_category` groups stages so reports and downstream logic can reason about pipeline phase without parsing names.
 
 **Fields**
 
@@ -166,13 +168,13 @@ flowchart LR
 |---|---|---|---|---|
 | `stage_name` | `string` | yes | Stage Name | label_column; unique |
 | `stage_order` | `integer` | yes | Order | sort order in the pipeline |
-| `stage_category` | `enum` | yes | Category | values: `pre_screen`, `screening`, `interview`, `offer`, `hired`, `rejected` |
-| `is_active` | `boolean` | yes | Active | default `true` |
+| `stage_category` | `enum` | yes | Category | values: `pre_screen`, `screening`, `interview`, `offer`, `hired`, `rejected`; default: "pre_screen" |
+| `is_active` | `boolean` | yes | Active | default: "true" |
 | `description` | `text` | no | Description | |
 
 **Relationships**
 
-- An `application_stage` may be the current stage of many `job_applications` (1:N, via `job_applications.current_stage_id`, restrict — stages cannot be deleted while in use).
+- An `application_stage` may be the current stage of many `job_applications` (1:N, via `job_applications.current_stage_id`, restrict, stages cannot be deleted while in use).
 
 ---
 
@@ -188,14 +190,14 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `source_name` | `string` | yes | Source Name | label_column; unique |
-| `source_type` | `enum` | yes | Source Type | values: `job_board`, `referral`, `agency`, `inbound`, `sourced`, `social_media`, `career_site`, `event`, `other` |
-| `is_active` | `boolean` | yes | Active | default `true` |
+| `source_type` | `enum` | yes | Source Type | values: `job_board`, `referral`, `agency`, `inbound`, `sourced`, `social_media`, `career_site`, `event`, `other`; default: "inbound" |
+| `is_active` | `boolean` | yes | Active | default: "true" |
 | `description` | `text` | no | Description | |
 
 **Relationships**
 
 - A `candidate_source` may be the source of many `candidates` (1:N, via `candidates.source_id`, clear).
-- A `candidate_source` may be the source of many `job_applications` (1:N, via `job_applications.source_id`, clear) — the application can be tagged with a different source than the candidate (e.g. candidate originally sourced from LinkedIn, but applied via referral for this specific role).
+- A `candidate_source` may be the source of many `job_applications` (1:N, via `job_applications.source_id`, clear), the application can be tagged with a different source than the candidate (e.g. candidate originally sourced from LinkedIn, but applied via referral for this specific role).
 
 ---
 
@@ -204,7 +206,7 @@ flowchart LR
 **Plural label:** Candidates
 **Label column:** `full_name`
 **Audit log:** yes  _(personal data subject to GDPR / data-subject access requests; preserve a change history)_
-**Description:** A person in the talent pool. A candidate exists independently of any specific job and may have multiple `job_applications` over time. Identity is loosely keyed on `email_address` (unique when present) — duplicates are detected at the recruiter's discretion.
+**Description:** A person in the talent pool. A candidate exists independently of any specific job and may have multiple `job_applications` over time. Identity is loosely keyed on `email_address` (unique when present), duplicates are detected at the recruiter's discretion.
 
 **Fields**
 
@@ -221,15 +223,15 @@ flowchart LR
 | `location_city` | `string` | no | City | |
 | `location_country` | `string` | no | Country | |
 | `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear), relationship_label: "sources" |
-| `referrer_user_id` | `reference` | no | Referred By | → `users` (N:1, clear) — the employee who made the referral, when source is a referral, relationship_label: "refers" |
-| `candidate_status` | `enum` | yes | Candidate Status | values: `active`, `hired`, `archived`, `do_not_contact` |
+| `referrer_user_id` | `reference` | no | Referred By | → `users` (N:1, clear), the employee who made the referral when source is a referral, relationship_label: "refers" |
+| `candidate_status` | `enum` | yes | Candidate Status | values: `active`, `hired`, `archived`, `do_not_contact`; default: "active" |
 | `notes` | `text` | no | Notes | candidate-level notes (vs application-level) |
 
 **Relationships**
 
 - A `candidate` may originate from one `candidate_source` (N:1, optional, clear).
 - A `candidate` may be referred by one `user` (N:1, optional, clear).
-- A `candidate` owns many `job_applications` (1:N, via `job_applications.candidate_id`, cascade — deleting a candidate wipes their applications, supporting GDPR erasure).
+- A `candidate` owns many `job_applications` (1:N, via `job_applications.candidate_id`, cascade, deleting a candidate wipes their applications, supporting GDPR erasure).
 - A `candidate` owns many `candidate_documents` (1:N, via `candidate_documents.candidate_id`, cascade).
 
 ---
@@ -239,7 +241,7 @@ flowchart LR
 **Plural label:** Job Applications
 **Label column:** `application_label`
 **Audit log:** yes  _(stage transitions and status changes are central to the audit trail of a hiring decision)_
-**Description:** The central pipeline record — a specific candidate applying to a specific job opening, currently sitting at one application stage. Created when a candidate applies (or when a recruiter pulls them into a role) and progresses through stages until terminal status (`hired`, `rejected`, `withdrawn`).
+**Description:** The central pipeline record, a specific candidate applying to a specific job opening, currently sitting at one application stage. Created when a candidate applies (or when a recruiter pulls them into a role) and progresses through stages until terminal status (`hired`, `rejected`, `withdrawn`).
 
 **Fields**
 
@@ -247,9 +249,9 @@ flowchart LR
 |---|---|---|---|---|
 | `application_label` | `string` | yes | Application | label_column; caller composes on insert (e.g. `"{candidate.full_name} → {job_opening.job_title}"`) |
 | `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade), relationship_label: "submits" |
-| `job_opening_id` | `reference` | yes | Job Opening | → `job_openings` (N:1, restrict) — preserves history if a job is closed, relationship_label: "receives" |
+| `job_opening_id` | `reference` | yes | Job Opening | → `job_openings` (N:1, restrict), preserves history if a job is closed, relationship_label: "receives" |
 | `current_stage_id` | `reference` | yes | Current Stage | → `application_stages` (N:1, restrict), relationship_label: "groups" |
-| `status` | `enum` | yes | Status | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold` |
+| `status` | `enum` | yes | Status | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold`; default: "active" |
 | `source_id` | `reference` | no | Source | → `candidate_sources` (N:1, clear), relationship_label: "sources" |
 | `applied_at` | `date-time` | yes | Applied At | |
 | `assigned_recruiter_id` | `reference` | no | Assigned Recruiter | → `users` (N:1, clear), relationship_label: "handles" |
@@ -259,12 +261,12 @@ flowchart LR
 
 **Relationships**
 
-- A `job_application` belongs to one `candidate` as its parent (N:1, required, cascade — owning lifecycle).
-- A `job_application` references one `job_opening` (N:1, required, restrict — historical applications survive a job closure).
+- A `job_application` belongs to one `candidate` as its parent (N:1, required, cascade, owning lifecycle).
+- A `job_application` references one `job_opening` (N:1, required, restrict, historical applications survive a job closure).
 - A `job_application` is currently at one `application_stage` (N:1, required, restrict).
 - A `job_application` may originate from one `candidate_source` (N:1, optional, clear).
 - A `job_application` may be assigned to one `user` recruiter (N:1, optional, clear).
-- A `job_application` has many `application_notes`, `interviews`, and `offers` (1:N, all cascade except `offers` which is `restrict` — see §3.11).
+- A `job_application` has many `application_notes`, `interviews`, and `offers` (1:N, all cascade except `offers` which is `restrict`, see §3.11).
 
 ---
 
@@ -273,15 +275,15 @@ flowchart LR
 **Plural label:** Candidate Documents
 **Label column:** `document_label`
 **Audit log:** no
-**Description:** A document attached to a candidate — resume, cover letter, portfolio, work sample, certification, or reference letter. Stored as a URL pointing to file storage; the model does not own the binary itself.
+**Description:** A document attached to a candidate, resume, cover letter, portfolio, work sample, certification, or reference letter. Stored as a URL pointing to file storage; the model does not own the binary itself.
 
 **Fields**
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `document_label` | `string` | yes | Document | label_column; caller composes (e.g. `"Resume — Jane Doe"`) |
+| `document_label` | `string` | yes | Document | label_column; caller composes (e.g. `"Resume, Jane Doe"`) |
 | `candidate_id` | `parent` | yes | Candidate | ↳ `candidates` (N:1, cascade), relationship_label: "owns" |
-| `document_type` | `enum` | yes | Document Type | values: `resume`, `cover_letter`, `portfolio`, `work_sample`, `certification`, `reference_letter`, `other` |
+| `document_type` | `enum` | yes | Document Type | values: `resume`, `cover_letter`, `portfolio`, `work_sample`, `certification`, `reference_letter`, `other`; default: "resume" |
 | `file_url` | `url` | yes | File URL | external storage URL |
 | `file_name` | `string` | no | File Name | original uploaded filename |
 | `uploaded_at` | `date-time` | yes | Uploaded At | |
@@ -289,7 +291,7 @@ flowchart LR
 
 **Relationships**
 
-- A `candidate_document` belongs to one `candidate` as its parent (N:1, required, cascade — documents are wiped if the candidate is erased).
+- A `candidate_document` belongs to one `candidate` as its parent (N:1, required, cascade, documents are wiped if the candidate is erased).
 - A `candidate_document` may be uploaded by one `user` (N:1, optional, clear).
 
 ---
@@ -299,7 +301,7 @@ flowchart LR
 **Plural label:** Application Notes
 **Label column:** `note_subject`
 **Audit log:** no
-**Description:** A note left on an application — a recruiter or hiring-manager observation, decision rationale, or coordination message. Visibility controls who can read the note (whole hiring team vs. recruiters only vs. publicly visible to the candidate).
+**Description:** A note left on an application, a recruiter or hiring-manager observation, decision rationale, or coordination message. Visibility controls who can read the note (whole hiring team vs. recruiters only vs. publicly visible to the candidate).
 
 **Fields**
 
@@ -307,15 +309,15 @@ flowchart LR
 |---|---|---|---|---|
 | `note_subject` | `string` | yes | Subject | label_column; short summary line |
 | `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade), relationship_label: "records" |
-| `author_user_id` | `reference` | yes | Author | → `users` (N:1, restrict) — preserves authorship audit trail, relationship_label: "authors" |
+| `author_user_id` | `reference` | yes | Author | → `users` (N:1, restrict), preserves authorship audit trail, relationship_label: "authors" |
 | `note_body` | `text` | yes | Note | |
-| `visibility` | `enum` | yes | Visibility | values: `hiring_team`, `recruiter_only`, `public` |
+| `visibility` | `enum` | yes | Visibility | values: `hiring_team`, `recruiter_only`, `public`; default: "hiring_team" |
 | `noted_at` | `date-time` | yes | Noted At | |
 
 **Relationships**
 
 - An `application_note` belongs to one `job_application` as its parent (N:1, required, cascade).
-- An `application_note` is authored by one `user` (N:1, required, restrict — author cannot be deleted while their notes exist).
+- An `application_note` is authored by one `user` (N:1, required, restrict, author cannot be deleted while their notes exist).
 
 ---
 
@@ -330,21 +332,21 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `interview_label` | `string` | yes | Interview | label_column; caller composes (e.g. `"Tech Phone Screen — Jane Doe"`) |
+| `interview_label` | `string` | yes | Interview | label_column; caller composes (e.g. `"Tech Phone Screen, Jane Doe"`) |
 | `application_id` | `parent` | yes | Application | ↳ `job_applications` (N:1, cascade), relationship_label: "schedules" |
-| `interview_kind` | `enum` | yes | Kind | values: `phone_screen`, `video_call`, `onsite`, `technical`, `take_home`, `panel`, `final`, `reference_check` |
+| `interview_kind` | `enum` | yes | Kind | values: `phone_screen`, `video_call`, `onsite`, `technical`, `take_home`, `panel`, `final`, `reference_check`; default: "phone_screen" |
 | `scheduled_start` | `date-time` | yes | Start | |
 | `scheduled_end` | `date-time` | yes | End | |
 | `location` | `string` | no | Location | physical location for `onsite` interviews |
 | `meeting_url` | `url` | no | Meeting URL | video-call link |
-| `status` | `enum` | yes | Status | values: `scheduled`, `completed`, `cancelled`, `no_show`, `rescheduled` |
+| `status` | `enum` | yes | Status | values: `scheduled`, `completed`, `cancelled`, `no_show`, `rescheduled`; default: "scheduled" |
 | `coordinator_user_id` | `reference` | no | Coordinator | → `users` (N:1, clear), relationship_label: "coordinates" |
 
 **Relationships**
 
 - An `interview` belongs to one `job_application` as its parent (N:1, required, cascade).
 - An `interview` may be coordinated by one `user` (N:1, optional, clear).
-- An `interview` has many `interview_feedback` rows — one per interviewer (1:N, via `interview_feedback.interview_id`, cascade).
+- An `interview` has many `interview_feedback` rows, one per interviewer (1:N, via `interview_feedback.interview_id`, cascade).
 
 ---
 
@@ -359,21 +361,21 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `feedback_label` | `string` | yes | Feedback | label_column; caller composes (e.g. `"Alex Kim — Tech Phone Screen for Jane Doe"`) |
+| `feedback_label` | `string` | yes | Feedback | label_column; caller composes (e.g. `"Alex Kim, Tech Phone Screen for Jane Doe"`) |
 | `interview_id` | `parent` | yes | Interview | ↳ `interviews` (N:1, cascade), relationship_label: "collects" |
-| `interviewer_user_id` | `reference` | yes | Interviewer | → `users` (N:1, restrict) — preserves authorship, relationship_label: "gives" |
+| `interviewer_user_id` | `reference` | yes | Interviewer | → `users` (N:1, restrict), preserves authorship, relationship_label: "gives" |
 | `overall_rating` | `enum` | no | Overall Rating | values: `strong_yes`, `yes`, `lean_yes`, `lean_no`, `no`, `strong_no` |
 | `recommendation` | `enum` | no | Recommendation | values: `advance`, `hold`, `reject` |
 | `strengths` | `text` | no | Strengths | |
 | `concerns` | `text` | no | Concerns | |
 | `detailed_notes` | `text` | no | Detailed Notes | |
-| `is_submitted` | `boolean` | yes | Submitted | default `false` |
+| `is_submitted` | `boolean` | yes | Submitted | default: "false" |
 | `submitted_at` | `date-time` | no | Submitted At | populated when `is_submitted` flips to `true` |
 
 **Relationships**
 
 - An `interview_feedback` belongs to one `interview` as its parent (N:1, required, cascade).
-- An `interview_feedback` is authored by one `user` interviewer (N:1, required, restrict — the interviewer cannot be deleted while feedback exists).
+- An `interview_feedback` is authored by one `user` interviewer (N:1, required, restrict, the interviewer cannot be deleted while feedback exists).
 
 ---
 
@@ -381,16 +383,16 @@ flowchart LR
 
 **Plural label:** Offers
 **Label column:** `offer_label`
-**Audit log:** yes  _(offers are commitments — preserve full change history of terms, status, and approvals)_
+**Audit log:** yes  _(offers are commitments, preserve full change history of terms, status, and approvals)_
 **Description:** A formal offer extended to a candidate for a specific application. Goes through `draft` → `pending_approval` → `approved` → `sent`, then `accepted` / `declined` / `rescinded` / `expired`. An application typically has at most one active offer; the model uses `restrict` so an offer is never silently lost when an application is cleaned up.
 
 **Fields**
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `offer_label` | `string` | yes | Offer | label_column; caller composes (e.g. `"Offer — Jane Doe — Senior Engineer"`) |
+| `offer_label` | `string` | yes | Offer | label_column; caller composes (e.g. `"Offer, Jane Doe, Senior Engineer"`) |
 | `application_id` | `reference` | yes | Application | → `job_applications` (N:1, restrict), relationship_label: "extends" |
-| `status` | `enum` | yes | Status | values: `draft`, `pending_approval`, `approved`, `sent`, `accepted`, `declined`, `rescinded`, `expired` |
+| `status` | `enum` | yes | Status | values: `draft`, `pending_approval`, `approved`, `sent`, `accepted`, `declined`, `rescinded`, `expired`; default: "draft" |
 | `base_salary` | `number` | yes | Base Salary | precision 2; monetary |
 | `salary_currency` | `string` | yes | Currency | ISO 4217 code |
 | `bonus_target` | `number` | no | Bonus Target | annual on-target bonus; precision 2; monetary |
@@ -398,13 +400,13 @@ flowchart LR
 | `start_date` | `date` | no | Start Date | proposed start date |
 | `offer_extended_at` | `date-time` | no | Extended At | timestamp the offer was sent to the candidate |
 | `offer_expires_at` | `date-time` | no | Expires At | |
-| `candidate_response` | `enum` | yes | Candidate Response | values: `pending`, `accepted`, `declined`, `no_response` |
+| `candidate_response` | `enum` | yes | Candidate Response | values: `pending`, `accepted`, `declined`, `no_response`; default: "pending" |
 | `responded_at` | `date-time` | no | Responded At | |
 | `approver_user_id` | `reference` | no | Approver | → `users` (N:1, clear), relationship_label: "approves" |
 
 **Relationships**
 
-- An `offer` references one `job_application` (N:1, required, restrict — preserves the offer record even if cleanup of the application is attempted).
+- An `offer` references one `job_application` (N:1, required, restrict, preserves the offer record even if cleanup of the application is attempted).
 - An `offer` may have one approving `user` (N:1, optional, clear).
 
 ---
@@ -420,12 +422,12 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `team_member_label` | `string` | yes | Team Member | label_column; caller composes (e.g. `"Alex Kim — Hiring Manager — Senior Engineer"`) |
+| `team_member_label` | `string` | yes | Team Member | label_column; caller composes (e.g. `"Alex Kim, Hiring Manager, Senior Engineer"`) |
 | `job_opening_id` | `parent` | yes | Job Opening | ↳ `job_openings` (N:1, cascade), relationship_label: "includes" |
 | `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade), relationship_label: "joins" |
-| `team_role` | `enum` | yes | Role | values: `recruiter`, `hiring_manager`, `interviewer`, `coordinator`, `executive_sponsor` |
+| `team_role` | `enum` | yes | Role | values: `recruiter`, `hiring_manager`, `interviewer`, `coordinator`, `executive_sponsor`; default: "interviewer" |
 | `assigned_at` | `date-time` | yes | Assigned At | |
-| `is_active` | `boolean` | yes | Active | default `true` — set `false` to remove from team without deleting history |
+| `is_active` | `boolean` | yes | Active | default: "true" (set `false` to remove from team without deleting history) |
 
 **Relationships**
 
@@ -439,7 +441,7 @@ flowchart LR
 **Plural label:** Users
 **Label column:** `display_name`
 **Audit log:** no
-**Description:** A system user — recruiter, hiring manager, interviewer, or coordinator. **Modeled here for self-containment.** Semantius ships a built-in `users` table; the deployer reuses the built-in and only adds any of the fields below that the built-in lacks. All other entities reference this table via `reference_table: "users"`.
+**Description:** A system user, recruiter, hiring manager, interviewer, or coordinator. **Modeled here for self-containment.** Semantius ships a built-in `users` table; the deployer reuses the built-in and only adds any of the fields below that the built-in lacks. All other entities reference this table via `reference_table: "users"`.
 
 **Fields**
 
@@ -451,13 +453,13 @@ flowchart LR
 | `last_name` | `string` | no | Last Name | |
 | `job_title` | `string` | no | Job Title | this user's own job title at the company |
 | `department_id` | `reference` | no | Department | → `departments` (N:1, clear), relationship_label: "employs" |
-| `is_active` | `boolean` | yes | Active | default `true` |
+| `is_active` | `boolean` | yes | Active | default: "true" |
 
 **Relationships**
 
 - A `user` may belong to one `department` (N:1, optional, clear).
 - A `user` may head one or more `departments` (1:N, via `departments.head_user_id`).
-- A `user` may be the hiring manager, lead recruiter, assigned recruiter, coordinator, interviewer, author, uploader, or approver across many other entities — see §4 for the full edge list.
+- A `user` may be the hiring manager, lead recruiter, assigned recruiter, coordinator, interviewer, author, uploader, or approver across many other entities, see §4 for the full edge list.
 - `users` ↔ `job_openings` is many-to-many through `hiring_team_members`.
 
 ---
@@ -623,27 +625,52 @@ flowchart LR
 - `coordinator`
 - `executive_sponsor`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+Hints for the deployer about FKs that would add value when the named target entity exists in the catalog. The deployer resolves each `To` against the live catalog at deploy time, proposes an additive FK when the target exists, and silently skips entries whose target is not deployed.
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `job_openings` | `positions` | scopes | N:1 | clear |
+| `job_openings` | `salary_bands` | anchors | N:1 | clear |
+| `employees` | `job_applications` | is the source for | N:1 | clear |
+| `onboarding_cases` | `job_applications` | triggers | N:1 | clear |
+| `onboarding_cases` | `offers` | triggers | N:1 | clear |
+| `checks` | `job_applications` | is screened by | N:1 | clear |
+| `checks` | `candidates` | is screened by | N:1 | clear |
+
+Outbound rows (FK lives on this model's side):
+- `job_openings → positions` adds `job_openings.position_id` when `workforce_planning` is deployed, linking a requisition to the approved headcount slot it consumes.
+- `job_openings → salary_bands` adds `job_openings.salary_band_id` when `compensation_management` is deployed, anchoring the requisition to a canonical pay band. The inline `salary_min` / `salary_max` / `salary_currency` fields stay populated as a denormalized reference for the standalone case.
+
+Inbound rows (FK lives on the sibling's side, points back at this model):
+- `employees → job_applications` adds `employees.source_application_id` on `hris.employees` when HRIS is deployed, preserving the candidate-to-employee audit trail.
+- `onboarding_cases → job_applications` and `onboarding_cases → offers` add `source_application_id` and `source_offer_id` on `onboarding.onboarding_cases` so onboarding can pre-populate from the application of record.
+- `checks → job_applications` and `checks → candidates` add `application_id` and `candidate_id` on `background_check.checks`. The application FK is the primary anchor; the candidate FK exists because some checks (continuous monitoring) outlive a single application.
+
+Note: `departments` and `users` overlaps with `hris` and `identity_and_access` are name collisions, not §6 rows. The deployer detects them at deploy time by inspecting the live catalog and offers merge / rename decisions to the user.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
 
 None.
 
-### 6.2 🟡 Future considerations (deferred scope)
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should `application_stages` be per-job-opening rather than global, so different role types (engineering vs sales vs executive) can have different pipelines? Adding a `job_pipelines` link entity and a `pipeline_id` on `job_openings` would model this cleanly.
 - Should candidates be linked to a structured `skills` taxonomy (M:N via `candidate_skills`), or is the unstructured `notes` field sufficient for v1?
 - Should rejection reasons be promoted from an enum to a configurable lookup table (`rejection_reasons`) if recruiters want to add custom reasons over time?
-- Should email and calendar integration produce an `application_activities` / `email_messages` log so all candidate communication is captured against the application? Out of scope for v1.
+- Should email and calendar integration produce an `application_activities` / `email_messages` log so all candidate communication is captured against the application?
 - Should offer approval be modeled as a multi-step approval workflow (e.g. an `offer_approvals` entity with one row per approver) rather than a single `approver_user_id` and `pending_approval` status?
 - Should `salary_currency` be promoted from a free-text ISO code to a lookup table or enum once the company hires across multiple geographies?
 - Should the model track GDPR consent and retention dates explicitly on `candidates` (e.g. `consent_given_at`, `retention_expires_at`) so automated purging is possible?
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
-1. Create one module named `applicant_tracking` (the module name **must** equal the `system_slug` from the front-matter — do not rename) and two baseline permissions (`applicant_tracking:read`, `applicant_tracking:manage`) before any entity.
-2. Create entities in dependency order — referenced entities first. Suggested order:
-   1. `users` (deduped against built-in — see step 6)
+1. Create one module named `ats` (the module name **must** equal the `system_slug` from the front-matter, do not rename) and two baseline permissions (`ats:read`, `ats:manage`) before any entity.
+2. Create entities in dependency order, referenced entities first. Suggested order:
+   1. `users` (deduped against built-in, see step 6)
    2. `departments` (self-references and references `users`; create the entity, then add the self-ref FK after the entity exists)
    3. `application_stages`
    4. `candidate_sources`
@@ -656,9 +683,9 @@ None.
    11. `interview_feedback`
    12. `offers`
    13. `hiring_team_members`
-3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "applicant_tracking:read"`, `edit_permission: "applicant_tracking:manage"`. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
+3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "ats:read"`, `edit_permission: "ats:manage"`. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. The §3 `Required` column is analyst intent; the platform manages nullability internally and does not need a per-field flag. Pass `enum_values` for every `enum` field, taken from §5. Set `unique_value: true` on `departments.department_name`, `departments.department_code`, `job_openings.job_code`, `application_stages.stage_name`, `candidate_sources.source_name`, `candidates.email_address`, and `users.email_address`.
-5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. For most entities in this model, the §3 Label of the label_column field differs from `singular_label` and the title must be patched with `update_field`. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"` — pass it as a **string**, not an integer. Required updates:
+5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. For most entities in this model, the §3 Label of the label_column field differs from `singular_label` and the title must be patched with `update_field`. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"`, pass it as a **string**, not an integer. Required updates:
    - `"departments.department_name"` → title `"Department Name"`
    - `"job_openings.job_title"` → title `"Job Title"`
    - `"application_stages.stage_name"` → title `"Stage Name"`
@@ -670,46 +697,7 @@ None.
    - `"interview_feedback.feedback_label"` → title `"Feedback"`
    - `"hiring_team_members.team_member_label"` → title `"Team Member"`
    - `"users.display_name"` → title `"Display Name"`
-   - (`interviews.interview_label` and `offers.offer_label` already match `singular_label` "Interview" / "Offer" — no fixup needed.)
-6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. Semantius ships a built-in `users` table — read it first; if it exists, **skip the create** and reuse the built-in as the `reference_table` target everywhere this model points to `users`. Optionally add any of the §3.13 fields the built-in lacks (`display_name`, `email_address`, `first_name`, `last_name`, `job_title`, `department_id`, `is_active`) — additive low-risk only. Do not attempt to recreate `users`. The `departments`, `roles`, `permissions`, etc. listed in §3 are not Semantius built-ins and should be created normally.
-7. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that the `parent_department_id` self-reference on `departments` was successfully added after the entity was created, and that the two junction FKs on `hiring_team_members` resolve correctly.
-
-## 8. Related domains
-
-The ATS sits in the middle of HR-adjacent systems. The following siblings, when deployed alongside, should be reconciled by the deployer; when not deployed, this model stays self-contained and works on its own.
-
-### 8.1 `hris` (peer)
-
-- **Exposes:** `candidates` (specifically those with `candidate_status = hired`), `offers` (accepted), and `job_applications` (terminal `hired` status) so onboarding can reference the application of record.
-- **Expects on sibling:** `hris.employees.source_application_id → applicant_tracking.job_applications` (clear) — once an employee is onboarded, the FK back to the application they came through preserves the audit trail from candidate to hire.
-- **Defers to sibling:** `departments` — when `hris` is deployed it owns the canonical org chart. The deployer should rewire `job_openings.department_id` and `users.department_id` to `hris.departments` and skip creating §3.1.
-
-### 8.2 `workforce_planning` (upstream)
-
-- **Exposes:** none.
-- **Expects on sibling:** `applicant_tracking.job_openings.position_id → workforce_planning.positions` (clear) — when `workforce_planning` is deployed, a requisition can link to the approved headcount slot it consumes. The FK is non-required so requisitions can still exist without an approved position when planning is not deployed.
-- **Defers to sibling:** none.
-
-### 8.3 `identity_and_access` (upstream)
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `users` — when `identity_and_access` is deployed it owns the canonical user identity. The deployer should rewire every FK in this model that points at `users` (`departments.head_user_id`, `job_openings.hiring_manager_id`, `job_openings.recruiter_id`, `candidates.referrer_user_id`, `job_applications.assigned_recruiter_id`, `candidate_documents.uploaded_by_user_id`, `application_notes.author_user_id`, `interviews.coordinator_user_id`, `interview_feedback.interviewer_user_id`, `offers.approver_user_id`, `hiring_team_members.user_id`, `users.department_id`) to the sibling's `users` table and skip creating §3.13.
-
-### 8.4 `compensation_management` (peer)
-
-- **Exposes:** `offers` (with `base_salary`, `bonus_target`, `equity_amount`, `salary_currency`) so comp can analyse offer-vs-band alignment after offers are extended.
-- **Expects on sibling:** `applicant_tracking.job_openings.salary_band_id → compensation_management.salary_bands` (clear). When comp is deployed, the deployer adds an optional FK on `job_openings` to the canonical pay band; the inline `salary_min`/`salary_max`/`salary_currency` fields stay populated as a denormalized reference for the standalone case.
-- **Defers to sibling:** none. ATS keeps inline salary fields because recruiters need to advertise a band without a runtime dependency on the comp module.
-
-### 8.5 `onboarding` (downstream peer)
-
-- **Exposes:** `job_applications` (terminal `hired` status), `offers` (accepted), `candidates` (with `candidate_status = hired`), and `candidate_documents` so onboarding can pre-populate a new-hire case from the application of record without re-collecting data.
-- **Expects on sibling:** `onboarding.onboarding_cases.source_application_id → applicant_tracking.job_applications` (clear) and `onboarding.onboarding_cases.source_offer_id → applicant_tracking.offers` (clear). When onboarding is deployed, every onboarding case anchors back to the application and offer it originated from, preserving the candidate-to-employee audit trail.
-- **Defers to sibling:** none. ATS owns the candidate/application lifecycle through hire; onboarding picks up where ATS finishes.
-
-### 8.6 `background_check` (downstream peer)
-
-- **Exposes:** `job_applications`, `candidates`, `offers` so background-check workflows can attach to a specific candidate-on-application context. The pre-hire check typically gates offer acceptance or onboarding start.
-- **Expects on sibling:** `background_check.checks.application_id → applicant_tracking.job_applications` (clear) and `background_check.checks.candidate_id → applicant_tracking.candidates` (clear). The application FK is the primary anchor; the candidate FK exists because some checks (e.g. continuous monitoring) outlive a single application.
-- **Defers to sibling:** none. ATS does not encode check-pass/fail state — that is the sibling's responsibility, surfaced via application logic when the application moves to `offer` or `hired` stages.
+   - (`interviews.interview_label` and `offers.offer_label` already match `singular_label` "Interview" / "Offer", no fixup needed.)
+6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. Semantius ships a built-in `users` table, read it first; if it exists, **skip the create** and reuse the built-in as the `reference_table` target everywhere this model points to `users`. Optionally add any of the §3.13 fields the built-in lacks (`display_name`, `email_address`, `first_name`, `last_name`, `job_title`, `department_id`, `is_active`), additive low-risk only. Do not attempt to recreate `users`. The `departments`, `application_stages`, `candidate_sources`, etc. listed in §3 are not Semantius built-ins and should be created normally.
+7. **Apply §6 cross-model link suggestions.** After the model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `To` concept in the live catalog: when a single entity matches, propose an additive `create_field` on `From` using the auto-generated `<target_singular>_id` field name with the row's `Verb` as `relationship_label` and `Delete` as `reference_delete_mode`; when several candidates match, batch a single user confirmation; when no candidate matches, skip silently. All §6 changes are strictly additive (new optional FK columns).
+8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that the `parent_department_id` self-reference on `departments` was successfully added after the entity was created, and that the two junction FKs on `hiring_team_members` resolve correctly.

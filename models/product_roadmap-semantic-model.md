@@ -1,10 +1,12 @@
 ---
 artifact: semantic-model
+version: "1.1"
 system_name: Product Roadmap
+system_description: Feature Pipeline & Releases
 system_slug: product_roadmap
 domain: Product Management
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-08
 entities:
   - objectives
   - features
@@ -15,11 +17,11 @@ entities:
   - tags
   - feature_tags
   - cost_centers
+related_domains:
+  - Budgeting
+  - CRM
 departments:
   - Product
-related_models:
-  - identity_and_access
-  - zero_based_budgeting
 initial_request: |
   I need to plan the product roadmap. I have ideas/change requests, which need to be estimated and prioritized, I've to plan releases
 ---
@@ -28,7 +30,7 @@ initial_request: |
 
 ## 1. Overview
 
-A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as `features`, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic `objectives`, and schedule the committed work into `releases`. Features carry estimated and actual cost and are assigned to a `cost_center` so spend can be rolled up. Stakeholders contribute through `feature_votes` and `comments`; `tags` provide cross-cutting categorization.
+A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as features, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic objectives, and schedule the committed work into releases. Features carry estimated and actual cost and are assigned to a cost center so spend can be rolled up. Stakeholders contribute through votes and comments; tags provide cross-cutting categorization.
 
 ## 2. Entity summary
 
@@ -133,6 +135,55 @@ flowchart LR
 - `features` and `users` (voting) is M:N through the `feature_votes` junction.
 - `features` and `tags` is M:N through the `feature_tags` junction.
 
+**Computed fields**
+
+```json
+[
+  {
+    "name": "rice_score",
+    "description": "(reach × impact × confidence) / effort, null when effort is missing or 0.",
+    "jsonlogic": {
+      "if": [
+        { "and": [
+          { "!=": [{ "var": "effort_score" }, null] },
+          { ">":  [{ "var": "effort_score" }, 0] }
+        ]},
+        { "/": [
+          { "*": [
+            { "var": "reach_score" },
+            { "var": "impact_score" },
+            { "var": "confidence_score" }
+          ]},
+          { "var": "effort_score" }
+        ]},
+        null
+      ]
+    }
+  }
+]
+```
+
+**Validation rules**
+
+```json
+[
+  {
+    "code": "release_only_when_committed",
+    "message": "A release can only be assigned once the feature is planned, in_progress, or shipped.",
+    "description": "Mirrors §3.2 of the product_roadmap semantic model: commitment is derived from feature_status ∈ {planned, in_progress, shipped}, and release_id is only meaningful once a feature is committed.",
+    "jsonlogic": {
+      "or": [
+        { "==": [{ "var": "release_id" }, null] },
+        { "in": [
+          { "var": "feature_status" },
+          ["planned", "in_progress", "shipped"]
+        ]}
+      ]
+    }
+  }
+]
+```
+
 ---
 
 ### 3.3 `users` — User
@@ -196,10 +247,10 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `feature_vote_label` | `string` | yes | Label | label_column; caller populates as `{user_full_name} → {feature_title}`; default: "" |
-| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "collects votes via" |
-| `user_id` | `reference` | yes | User | → `users` (N:1), relationship_label: "casts" |
+| `feature_id` | `parent` | yes | Feature | → `features` (N:1), cascade; relationship_label: "collects votes via" |
+| `user_id` | `parent` | yes | User | → `users` (N:1), cascade; relationship_label: "casts" |
 | `voted_at` | `date-time` | no | Voted At | |
-| `vote_weight` | `integer` | no | Weight | default 1; higher = stronger signal |
+| `vote_weight` | `integer` | no | Weight | default: "1"; higher = stronger signal |
 
 **Relationships**
 
@@ -220,7 +271,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `comment_label` | `string` | yes | Label | label_column; caller populates with first ~80 chars of body; default: "" |
-| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "collects" |
+| `feature_id` | `parent` | yes | Feature | → `features` (N:1), cascade; relationship_label: "collects" |
 | `author_id` | `reference` | no | Author | → `users` (N:1), relationship_label: "authors"; required on insert (caller must always set), nullable in storage so a deleted user's comments can be preserved as orphaned |
 | `comment_body` | `text` | yes | Body | default: "" |
 | `posted_at` | `date-time` | no | Posted At | |
@@ -265,8 +316,8 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `feature_tag_label` | `string` | yes | Label | label_column; caller populates as `{feature_title} / {tag_name}`; default: "" |
-| `feature_id` | `reference` | yes | Feature | → `features` (N:1), relationship_label: "has tags via" |
-| `tag_id` | `reference` | yes | Tag | → `tags` (N:1), relationship_label: "links features via" |
+| `feature_id` | `parent` | yes | Feature | → `features` (N:1), cascade; relationship_label: "has tags via" |
+| `tag_id` | `parent` | yes | Tag | → `tags` (N:1), cascade; relationship_label: "links features via" |
 
 **Relationships**
 
@@ -376,13 +427,23 @@ flowchart LR
 - `active`
 - `inactive`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `features` | `accounts` | is requested by | N:1 | clear |
+
+The two cross-domain overlaps that exist for this model (`users` against the Semantius identity built-in, and `cost_centers` against a sibling like `zero_based_budgeting`) are shared-master-data collisions, not §6 hint rows. They are detected automatically by the deployer's name-collision flow at deploy time and resolved with a per-collision merge / rename decision; the analyst does not pre-declare them here.
+
+The single hint row above is outbound: when a CRM module is deployed and exposes an `accounts` table, the deployer can additively create `features.account_id` so the team can answer "which customer asked for this feature". When no CRM is present, the deployer silently skips the row at deploy time. A richer one-feature-to-many-customers shape is captured separately in §7.2 (a future `customer_requests` junction).
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
 
 None.
 
-### 6.2 🟡 Future considerations (deferred scope)
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should a feature be splittable across multiple releases (e.g. phase 1 / phase 2) by promoting `features.release_id` to a `feature_releases` junction with phase metadata?
 - Should RICE estimates be tracked as a separate `estimates` entity to retain history (who scored what when, and how the score evolved), instead of living as fields on `features`?
@@ -390,7 +451,8 @@ None.
 - Should cost tracking support multiple currencies (a `currency_code` field per feature and per cost center) if the org operates internationally?
 - Should a feature be splittable across multiple cost centers (a `feature_cost_allocations` junction with percentage or amount) if cross-charging becomes needed?
 - Should cost centers carry period-scoped budgets (e.g. `cost_center_budgets` per fiscal year/quarter) instead of a single `annual_budget` field?
-- Should features be linkable to specific customers/accounts (e.g. via a `customer_requests` entity) so the team can answer "which customers asked for this and how many"?
+- Should features be linkable to specific customers/accounts (e.g. via a `customer_requests` entity) so the team can answer "which customers asked for this and how many"? (A simple N:1 `features.account_id` is already proposed as a §6 cross-model hint; the junction would be the richer M:N upgrade.)
+- Should `objective_period` be promoted from a freeform string to a structured `time_periods` entity (with start/end dates and a fiscal-period type) if cross-objective period rollups, period-over-period comparisons, or period-scoped reporting become needed?
 - Should features support dependencies on other features (a `feature_dependencies` self-junction with `predecessor` / `successor` cardinality)?
 - Should `feature_source` be promoted from an enum to its own `feature_sources` entity if sources need their own metadata (URL, channel, contact person)?
 - Should attachments (mockups, specs, screenshots) be modeled as a first-class `attachments` entity linked to `features`?
@@ -398,12 +460,12 @@ None.
 - Should a strategic tier above `objectives` (e.g. `initiatives`) be introduced if the org begins planning multi-objective programs?
 - Should the system later support multiple products (reintroducing a `products` entity that owns objectives, features, and releases) if the company expands beyond a single product?
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
 1. Create one module named `product_roadmap` (the module name **must** equal the `system_slug` from the front-matter, do not invent a different module slug here) and two baseline permissions (`product_roadmap:read`, `product_roadmap:manage`) before any entity.
 2. Create entities in dependency order. Recommended: `users`, `cost_centers`, `objectives`, `releases`, `tags`, `features`, `feature_votes`, `comments`, `feature_tags`.
 3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission`, `edit_permission`. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference` / `parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4.
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference` / `parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. (The §3 `Required` column is analyst intent; the platform manages nullability internally.)
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, with `title` defaulting to `singular_label`. Every entity in this model has a label_column whose §3 Label differs from its `singular_label`, so every entity needs the fixup. After each `create_entity`, follow up with `update_field` (id passed as a **string** in the form `"{table_name}.{field_name}"`) to set the correct title:
    - `"objectives.objective_name"` → title `"Name"`
    - `"features.feature_title"` → title `"Title"`
@@ -414,19 +476,6 @@ None.
    - `"tags.tag_name"` → title `"Name"`
    - `"feature_tags.feature_tag_label"` → title `"Label"`
    - `"cost_centers.cost_center_code"` → title `"Code"`
-6. **Deduplicate against Semantius built-in tables.** This model declares `users` as a self-contained entity. If Semantius ships a built-in `users` table, **skip the create** and reuse the built-in as the `reference_table` target for every FK pointing to `users` (`objective_owner_id`, `cost_center_owner_id`, `requester_id`, `owner_id`, `author_id`, `feature_votes.user_id`). Only add missing fields (e.g. `user_role`, `user_status`) to the built-in if they are not already present and the addition is low-risk.
-7. After creation, spot-check that `label_column` on each entity resolves to a real string field and that all `reference_table` targets exist. The junction tables (`feature_votes`, `feature_tags`) require their `*_label` field to be populated by the caller on every insert, flag this in any seed script or import flow.
-
-## 8. Related domains
-
-### 8.1 `identity_and_access` (upstream)
-
-**Exposes:** none consumed by this module.
-**Expects on sibling:** none.
-**Defers to sibling:** `users` if the sibling is deployed. Rewire all FKs that target `users` (`objectives.objective_owner_id`, `features.requester_id`, `features.owner_id`, `cost_centers.cost_center_owner_id`, `comments.author_id`, `feature_votes.user_id`) to the sibling-owned `users` table. Drop the local `user_role` and `user_status` fields and rely on the sibling's role and lifecycle model. This is the canonical Semantius built-in dedup contract already referenced in §7 step 6.
-
-### 8.2 `zero_based_budgeting` (upstream)
-
-**Exposes:** none.
-**Expects on sibling:** none.
-**Defers to sibling:** `cost_centers` if the sibling is deployed. Rewire `features.cost_center_id` to the sibling-owned `cost_centers` table and drop the local `annual_budget` field, since the sibling owns period-scoped budgeting (which is also the stronger model raised in §6.2). The local `cost_centers` entity stays in this model for self-containment when the sibling is absent.
+6. **Deduplicate against Semantius built-in tables and sibling-owned shared masters.** This model declares `users` and `cost_centers` as self-contained entities. Before creating either, inspect the live catalog: if a Semantius built-in `users` table exists, **skip the create** and reuse it as the `reference_table` target for every FK pointing to `users` (`objective_owner_id`, `cost_center_owner_id`, `requester_id`, `owner_id`, `author_id`, `feature_votes.user_id`); if a sibling module (e.g. `zero_based_budgeting`) already owns `cost_centers`, surface the collision to the user and either merge into the sibling-owned table or rename one side. Only add missing fields to a reused table if they are required by this model and the addition is low-risk.
+7. **Apply §6 cross-model link suggestions.** Inspect the live catalog for an `accounts` table (most likely owned by a CRM module). If present, additively create `features.account_id` as a `reference` field with `reference_table` set to the resolved table name and `reference_delete_mode = clear`, and set its `relationship_label` to `"is requested by"`. If multiple candidates exist (`accounts`, `customers`, `companies`), surface the choice to the user. If no candidate exists, silently skip; do not create a placeholder table.
+8. After creation, spot-check that `label_column` on each entity resolves to a real string field and that all `reference_table` targets exist. The junction tables (`feature_votes`, `feature_tags`) require their `*_label` field to be populated by the caller on every insert; flag this in any seed script or import flow.

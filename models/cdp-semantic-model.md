@@ -1,10 +1,12 @@
 ---
 artifact: semantic-model
+version: "1.0"
 system_name: Customer Data Platform
-system_slug: customer_data_platform
+system_description: Customer Data Platform
+system_slug: cdp
 domain: CDP
 naming_mode: agent-optimized
-created_at: 2026-05-05
+created_at: 2026-05-08
 entities:
   - profiles
   - identities
@@ -18,14 +20,13 @@ entities:
   - audience_activations
   - consent_records
   - users
+related_domains:
+  - CRM
+  - Marketing Automation
+  - Identity & Access
 departments:
   - Marketing
-  - Data
-  - Engineering
-related_models:
-  - crm
-  - marketing_automation
-  - identity_and_access
+  - Sales
 initial_request: |
   i need a customer data platform cdp
 ---
@@ -34,7 +35,7 @@ initial_request: |
 
 ## 1. Overview
 
-A Customer Data Platform (CDP) ingests behavioral and attribute data about customers from many inbound sources, resolves multiple identifiers to a single unified `profile`, organises profiles into rule-based `audiences`, and activates those audiences out to downstream `destinations` (ads, email, warehouse). Operators (`users`) configure sources, audiences, computed traits, and activations; profile consent state per purpose is tracked separately for compliance. Volumes are skewed: events and identities are high-throughput; profiles, audiences, and configuration entities are low-cardinality and edited deliberately.
+A Customer Data Platform (CDP) ingests behavioral and attribute data about customers from many inbound sources, resolves multiple identifiers to a single unified `profile`, organizes profiles into rule-based `audiences`, and activates those audiences out to downstream `destinations` (ads, email, warehouse). Operators (`users`) configure sources, audiences, computed traits, and activations; profile consent state per purpose is tracked separately for compliance. Volumes are skewed: events and identities are high-throughput; profiles, audiences, and configuration entities are low-cardinality and edited deliberately.
 
 ## 2. Entity summary
 
@@ -59,16 +60,16 @@ A Customer Data Platform (CDP) ingests behavioral and attribute data about custo
 flowchart LR
     accounts -->|groups| profiles
     accounts -->|parent of| accounts
-    profiles -->|resolves to| identities
+    profiles -->|unifies| identities
     profiles -->|generated| events
-    profiles -->|recorded for| consent_records
-    sources -->|first seen in| identities
+    profiles -->|is the subject of| consent_records
+    sources -->|first captured| identities
     sources -->|emitted| events
-    sources -->|captured in| consent_records
-    profiles -->|appears in| audience_memberships
+    sources -->|captured| consent_records
+    profiles -->|is recorded in| audience_memberships
     audiences -->|includes| audience_memberships
-    audiences -->|activates| audience_activations
-    destinations -->|targets| audience_activations
+    audiences -->|drives| audience_activations
+    destinations -->|receives| audience_activations
     users -->|created| audiences
     users -->|created| sources
     users -->|created| destinations
@@ -95,7 +96,7 @@ flowchart LR
 | `primary_email` | `email` | no | Primary Email | unique |
 | `primary_phone` | `string` | no | Primary Phone | E.164 format |
 | `account_id` | `reference` | no | Account | → `accounts` (N:1, clear), relationship_label: "groups" |
-| `lifecycle_stage` | `enum` | yes | Lifecycle Stage | values: `anonymous`, `lead`, `prospect`, `customer`, `churned` |
+| `lifecycle_stage` | `enum` | yes | Lifecycle Stage | values: `anonymous`, `lead`, `prospect`, `customer`, `churned`; default: "anonymous" |
 | `first_seen_at` | `date-time` | no | First Seen At | |
 | `last_seen_at` | `date-time` | no | Last Seen At | |
 | `country` | `string` | no | Country | ISO 3166-1 alpha-2 |
@@ -125,10 +126,10 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `identity_label` | `string` | yes | Identity | label_column; populated as `"{identity_type}: {identity_value}"` |
-| `identity_type` | `enum` | yes | Identity Type | values: `anonymous_id`, `user_id`, `email`, `phone`, `device_id`, `advertising_id`, `external_id` |
+| `identity_type` | `enum` | yes | Identity Type | values: `anonymous_id`, `user_id`, `email`, `phone`, `device_id`, `advertising_id`, `external_id`; default: "anonymous_id" |
 | `identity_value` | `string` | yes | Identity Value | the actual identifier string |
-| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "resolves to" |
-| `source_id` | `reference` | no | First Seen In Source | → `sources` (N:1, clear), relationship_label: "first seen in" |
+| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "unifies" |
+| `source_id` | `reference` | no | First Seen In Source | → `sources` (N:1, clear), relationship_label: "first captured" |
 | `first_seen_at` | `date-time` | no | First Seen At | |
 | `last_seen_at` | `date-time` | no | Last Seen At | |
 | `is_primary` | `boolean` | no | Is Primary | one primary per `identity_type` per profile |
@@ -145,7 +146,7 @@ flowchart LR
 **Plural label:** Accounts
 **Label column:** `account_name`
 **Audit log:** yes
-**Description:** A B2B company record. Profiles can belong to an account; accounts can themselves nest under a parent account (e.g. subsidiary → parent).
+**Description:** A B2B company record. Profiles can belong to an account; accounts can themselves nest under a parent account (e.g. subsidiary to parent).
 
 **Fields**
 
@@ -157,7 +158,7 @@ flowchart LR
 | `employee_count` | `integer` | no | Employee Count | |
 | `annual_revenue` | `number` | no | Annual Revenue | precision: 2 |
 | `country` | `string` | no | Country | ISO 3166-1 alpha-2 |
-| `lifecycle_stage` | `enum` | yes | Lifecycle Stage | values: `prospect`, `customer`, `churned` |
+| `lifecycle_stage` | `enum` | yes | Lifecycle Stage | values: `prospect`, `customer`, `churned`; default: "prospect" |
 | `parent_account_id` | `reference` | no | Parent Account | → `accounts` (N:1, self-reference, clear), relationship_label: "parent of" |
 
 **Relationships**
@@ -180,7 +181,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `event_name` | `string` | yes | Event Name | label_column, e.g. `"Order Completed"` |
-| `event_type` | `enum` | yes | Event Type | values: `track`, `page`, `screen`, `identify`, `group`, `alias` |
+| `event_type` | `enum` | yes | Event Type | values: `track`, `page`, `screen`, `identify`, `group`, `alias`; default: "track" |
 | `profile_id` | `reference` | no | Profile | → `profiles` (N:1, clear); null until identity resolution; relationship_label: "generated" |
 | `anonymous_id` | `string` | no | Anonymous ID | pre-identification client ID |
 | `source_id` | `reference` | yes | Source | → `sources` (N:1, restrict), relationship_label: "emitted" |
@@ -211,7 +212,7 @@ flowchart LR
 | `trait_name` | `string` | yes | Trait Name | label_column; unique; e.g. `"lifetime_value"` |
 | `display_label` | `string` | no | Display Label | human-friendly name |
 | `description` | `text` | no | Description | |
-| `data_type` | `enum` | yes | Data Type | values: `string`, `number`, `boolean`, `date`, `datetime`, `list` |
+| `data_type` | `enum` | yes | Data Type | values: `string`, `number`, `boolean`, `date`, `datetime`, `list`; default: "string" |
 | `definition` | `text` | yes | Definition | SQL or rule expression |
 | `compute_frequency` | `enum` | yes | Compute Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`, `weekly`; default: "on_demand" |
 | `last_computed_at` | `date-time` | no | Last Computed At | |
@@ -228,7 +229,7 @@ flowchart LR
 **Plural label:** Audiences
 **Label column:** `audience_name`
 **Audit log:** yes
-**Description:** A defined customer segment with rule logic. Membership is materialised in `audience_memberships`. An audience can be activated to one or more destinations via `audience_activations`.
+**Description:** A defined customer segment with rule logic. Membership is materialized in `audience_memberships`. An audience can be activated to one or more destinations via `audience_activations`.
 
 **Fields**
 
@@ -236,9 +237,9 @@ flowchart LR
 |---|---|---|---|---|
 | `audience_name` | `string` | yes | Audience Name | label_column |
 | `description` | `text` | no | Description | |
-| `audience_type` | `enum` | yes | Audience Type | values: `rule_based`, `sql`, `lookalike`, `manual` |
+| `audience_type` | `enum` | yes | Audience Type | values: `rule_based`, `sql`, `lookalike`, `manual`; default: "rule_based" |
 | `definition` | `text` | yes | Definition | rule logic (JSON) or SQL |
-| `status` | `enum` | yes | Status | values: `draft`, `active`, `paused`, `archived` |
+| `status` | `enum` | yes | Status | values: `draft`, `active`, `paused`, `archived`; default: "draft" |
 | `profile_count` | `integer` | no | Profile Count | denormalized current size |
 | `refresh_frequency` | `enum` | yes | Refresh Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`; default: "on_demand" |
 | `last_computed_at` | `date-time` | no | Last Computed At | |
@@ -265,7 +266,7 @@ flowchart LR
 |---|---|---|---|---|
 | `membership_label` | `string` | yes | Membership | label_column; populated as `"{audience_name} / {profile_label}"` on create |
 | `audience_id` | `parent` | yes | Audience | ↳ `audiences` (N:1, cascade), relationship_label: "includes" |
-| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "appears in" |
+| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "is recorded in" |
 | `joined_at` | `date-time` | yes | Joined At | |
 | `left_at` | `date-time` | no | Left At | null while still a member |
 | `is_active` | `boolean` | yes | Is Active | |
@@ -289,7 +290,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `source_name` | `string` | yes | Source Name | label_column |
-| `source_type` | `enum` | yes | Source Type | values: `web_sdk`, `mobile_sdk_ios`, `mobile_sdk_android`, `server`, `cloud_app`, `warehouse`, `file_upload`, `http_api` |
+| `source_type` | `enum` | yes | Source Type | values: `web_sdk`, `mobile_sdk_ios`, `mobile_sdk_android`, `server`, `cloud_app`, `warehouse`, `file_upload`, `http_api`; default: "web_sdk" |
 | `write_key` | `string` | yes | Write Key | unique; ingestion auth token |
 | `description` | `text` | no | Description | |
 | `is_active` | `boolean` | yes | Is Active | |
@@ -318,7 +319,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `destination_name` | `string` | yes | Destination Name | label_column |
-| `destination_type` | `enum` | yes | Destination Type | values: `advertising`, `email`, `sms`, `push`, `analytics`, `warehouse`, `crm`, `custom_webhook` |
+| `destination_type` | `enum` | yes | Destination Type | values: `advertising`, `email`, `sms`, `push`, `analytics`, `warehouse`, `crm`, `custom_webhook`; default: "advertising" |
 | `vendor` | `string` | no | Vendor | e.g. `"Meta Ads"`, `"Salesforce"` |
 | `configuration` | `json` | no | Configuration | non-secret connection settings |
 | `is_active` | `boolean` | yes | Is Active | |
@@ -345,11 +346,11 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `activation_label` | `string` | yes | Activation | label_column; populated as `"{audience_name} → {destination_name}"` on create |
-| `audience_id` | `parent` | yes | Audience | ↳ `audiences` (N:1, cascade), relationship_label: "activates" |
-| `destination_id` | `parent` | yes | Destination | ↳ `destinations` (N:1, cascade), relationship_label: "targets" |
+| `audience_id` | `parent` | yes | Audience | ↳ `audiences` (N:1, cascade), relationship_label: "drives" |
+| `destination_id` | `parent` | yes | Destination | ↳ `destinations` (N:1, cascade), relationship_label: "receives" |
 | `sync_mode` | `enum` | yes | Sync Mode | values: `incremental`, `full_resync`, `mirror`; default: "incremental" |
 | `sync_frequency` | `enum` | yes | Sync Frequency | values: `on_demand`, `realtime`, `hourly`, `daily`; default: "on_demand" |
-| `field_mappings` | `json` | no | Field Mappings | profile field → destination field |
+| `field_mappings` | `json` | no | Field Mappings | profile field to destination field |
 | `is_active` | `boolean` | yes | Is Active | |
 | `last_sync_at` | `date-time` | no | Last Sync At | |
 | `last_sync_status` | `enum` | yes | Last Sync Status | values: `pending`, `success`, `partial`, `failed`; default: "pending" (correct state for a never-run activation) |
@@ -375,10 +376,10 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `consent_label` | `string` | yes | Consent | label_column; populated as `"{profile_label} / {consent_purpose} / {status}"` on create |
-| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "recorded for" |
-| `consent_purpose` | `enum` | yes | Purpose | values: `marketing`, `analytics`, `advertising`, `personalization`, `sale_of_data`, `all` |
+| `profile_id` | `parent` | yes | Profile | ↳ `profiles` (N:1, cascade), relationship_label: "is the subject of" |
+| `consent_purpose` | `enum` | yes | Purpose | values: `marketing`, `analytics`, `advertising`, `personalization`, `sale_of_data`, `all`; default: "marketing" |
 | `status` | `enum` | yes | Status | values: `unknown`, `granted`, `denied`, `withdrawn`; default: "unknown" (explicit consent must be set deliberately) |
-| `source_id` | `reference` | no | Captured In Source | → `sources` (N:1, clear), relationship_label: "captured in" |
+| `source_id` | `reference` | no | Captured In Source | → `sources` (N:1, clear), relationship_label: "captured" |
 | `jurisdiction` | `string` | no | Jurisdiction | e.g. `GDPR-EU`, `CCPA-CA` |
 | `granted_at` | `date-time` | no | Granted At | |
 | `withdrawn_at` | `date-time` | no | Withdrawn At | |
@@ -416,7 +417,7 @@ flowchart LR
 - A `user` may have created many `sources` (1:N, via `sources.created_by_user_id`).
 - A `user` may have created many `destinations` (1:N, via `destinations.created_by_user_id`).
 - A `user` may have created many `audience_activations` (1:N, via `audience_activations.created_by_user_id`).
-- Role assignments and permissions use the Semantius platform-native `roles` / `user_roles` mechanism — not modeled as custom entities here.
+- Role assignments and permissions use the Semantius platform-native `roles` / `user_roles` mechanism, not modeled as custom entities here.
 
 ---
 
@@ -561,13 +562,29 @@ flowchart LR
 - `denied`
 - `withdrawn`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+The CDP is the canonical customer master in this enterprise architecture. Sibling modules typically host their own person/company records that should resolve back to the CDP's unified `profiles` and `accounts` rather than duplicate them. The deployer applies each row when the `From` table later arrives in the catalog; rows whose source table is not present are silently skipped.
 
-*None. All previously open questions have been resolved; see §6.3 for the resolution log.*
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `contacts` | `profiles` | unifies | N:1 | clear |
+| `companies` | `accounts` | consolidates | N:1 | clear |
+| `campaigns` | `audiences` | powers | N:1 | clear |
 
-### 6.2 🟡 Future considerations (deferred scope)
+Notes:
+
+- `contacts → profiles` and `companies → accounts` are the inbound CRM links. When a CRM module is deployed (Salesforce-style or HubSpot-style), each CRM contact / company should carry an FK back to the unified CDP record so sales activity resolves to the same person and company that marketing sees.
+- `campaigns → audiences` is the inbound marketing-automation link. When a campaign / messaging module is deployed, every campaign should target a real CDP audience rather than a standalone segment list.
+- The `users` entity is intentionally **not** in §6. It is shared master data that the deployer reconciles via its built-in name-collision flow against the Semantius platform `users` table, not via a cross-model FK hint.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
+
+None.
+
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should `computed_traits` values be stored in a dedicated `profile_trait_values` junction (profile_id, trait_id, value, computed_at) instead of inside `profiles.custom_traits` JSON? The JSON approach is simpler but limits per-trait history, time-series querying, and trait-level access control.
 - Should `sessions` be modeled as a first-class entity, or stay derived from `events.session_id`? A dedicated entity helps if session-level metrics (duration, page count, exit page) become a primary product surface.
@@ -578,17 +595,17 @@ flowchart LR
 - Should `events` have a denormalized `account_id` for fast B2B segmentation, or always be reached through `events.profile_id → profiles.account_id`? The denormalization helps query performance but adds write-time consistency cost.
 - Should `consent_records.granted_at` / `withdrawn_at` be enforced as write-time invariants tied to `status` (granted_at required when `status = granted`, withdrawn_at required when `status = withdrawn`)? Semantius cannot enforce conditional-required declaratively, so this is currently an implementer convention. Worth promoting to a check constraint or trigger if compliance audits start flagging missing timestamps.
 
-### 6.3 ✅ Resolved decisions
+### 7.3 ✅ Resolved decisions
 
 - **`consent_records.profile_id` cascades on profile delete.** GDPR / CCPA right-to-be-forgotten is the dominant compliance pressure for a CDP, and retaining consent records for a person who no longer exists in the platform is internally inconsistent. Operators in retention-heavy regimes (e.g. regulated financial services) can override the FK to `restrict` at deploy time and adopt a soft-delete pattern on `profiles` instead. Resolved 2026-05-04.
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
-A short checklist for the agent who will materialise this model in Semantius (or equivalent):
+A short checklist for the agent who will materialize this model in Semantius (or equivalent):
 
-1. Create one module named `customer_data_platform` and two baseline permissions (`customer_data_platform:read`, `customer_data_platform:manage`) before any entity.
+1. Create one module named `cdp` and two baseline permissions (`cdp:read`, `cdp:manage`) before any entity.
 2. Create entities in dependency order (parents before children that reference them):
-   1. `users` — reuse Semantius built-in if present.
+   1. `users`, reuse Semantius built-in if present.
    2. `accounts` (self-reference; create entity, add `parent_account_id` field after).
    3. `sources`
    4. `destinations`
@@ -600,9 +617,9 @@ A short checklist for the agent who will materialise this model in Semantius (or
    10. `audience_memberships`
    11. `audience_activations`
    12. `consent_records`
-3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "customer_data_platform:read"`, `edit_permission: "customer_data_platform:manage"`. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table`, `reference_delete_mode` consistent with §4, and the `relationship_label` value from the Notes column. For `enum` fields, pass `enum_values` matching §5 in the listed order (the first value is the auto-default for required enums). For `accounts.annual_revenue` pass `format: "number"` and `precision: 2`.
-5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Where the §3 Label for the label_column row differs from `singular_label`, follow up with `update_field` to set the correct title — passing the composite string id `"{table_name}.{field_name}"` (as a **string**, not an integer). Specifically:
+3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "cdp:read"`, `edit_permission: "cdp:manage"`. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table`, `reference_delete_mode` consistent with §4, and the `relationship_label` value from the Notes column. For `enum` fields, pass `enum_values` matching §5 in the listed order and pass the explicit `default_value` from the Notes column where one is declared. For `accounts.annual_revenue` pass `format: "number"` and `precision: 2`.
+5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Where the §3 Label for the label_column row differs from `singular_label`, follow up with `update_field` to set the correct title, passing the composite string id `"{table_name}.{field_name}"` (as a **string**, not an integer). Specifically:
    - `profiles.profile_label` → title `"Profile Name"`
    - `identities.identity_label` → title `"Identity"`
    - `events.event_name` → title `"Event Name"`
@@ -615,28 +632,7 @@ A short checklist for the agent who will materialise this model in Semantius (or
    - `consent_records.consent_label` → title `"Consent"`
    - `accounts.account_name` → title `"Account Name"`
    - `users.user_name` → title `"Display Name"`
-6. **Deduplicate `users` against the Semantius built-in.** This model declares `users`, which already exists in Semantius as a built-in. Read Semantius first: if the built-in covers the field set, **skip the create** and reuse the built-in as the `reference_table` target (e.g. `audiences.created_by_user_id` → `reference_table: "users"`). Only add missing fields to the built-in if the model requires them (additive only). Roles, permissions, and user-role assignments are handled entirely by the platform's native `roles` / `permissions` / `user_roles` tables — this model does not declare any of them.
-7. After creation, populate junction `*_label` fields (`membership_label`, `activation_label`, `consent_label`) on insert as the documented composite strings (e.g. `"{audience_name} / {profile_label}"`) so the auto-wired label resolves to a meaningful value.
-8. After creation, spot-check that `label_column` on each entity resolves to a real field and that all `reference_table` targets exist.
-
-## 8. Related domains
-
-The CDP is the canonical customer master in this enterprise architecture. The siblings below are declared so the deployer can reconcile shared entities additively when those modules later arrive (or are already present).
-
-### crm
-
-- **Exposes**: `profiles`, `accounts` — the canonical person/company master that a CRM module's contact/company records should link back to rather than duplicate.
-- **Expects on sibling**: `crm.contacts.profile_id → profiles`, `crm.companies.account_id → accounts` when CRM is deployed, so that sales activity records resolve to the unified profile.
-- **Defers to sibling**: none. The CDP is upstream of the CRM for identity; it does not defer customer master to it.
-
-### marketing_automation
-
-- **Exposes**: `audiences`, `audience_memberships`, `audience_activations` — segment definitions and membership state that a marketing-automation / messaging module consumes for campaign targeting.
-- **Expects on sibling**: `marketing_automation.campaigns.audience_id → audiences` when deployed, so campaigns target real CDP audiences instead of standalone segment lists.
-- **Defers to sibling**: none.
-
-### identity_and_access
-
-- **Exposes**: none. `users` is declared in this model only for self-containment; the canonical owner is `identity_and_access` when present.
-- **Expects on sibling**: none.
-- **Defers to sibling**: `users`. When `identity_and_access` is deployed, the deployer reuses its built-in `users` table as the `reference_table` target for every `created_by_user_id` FK in this model and skips creating a local copy. Roles, permissions, and user-role assignments are owned by the Semantius platform-native tables (`roles`, `permissions`, `user_roles`) regardless of whether `identity_and_access` is deployed.
+6. **Deduplicate `users` against the Semantius built-in.** This model declares `users`, which already exists in Semantius as a built-in. Read Semantius first: if the built-in covers the field set, **skip the create** and reuse the built-in as the `reference_table` target (e.g. `audiences.created_by_user_id` → `reference_table: "users"`). Only add missing fields to the built-in if the model requires them (additive only). Roles, permissions, and user-role assignments are handled entirely by the platform's native `roles` / `permissions` / `user_roles` tables, this model does not declare any of them.
+7. **Apply §6 cross-model link suggestions.** After the model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `From` table in the live catalog: when it exists, propose an additive `create_field` on `From` using the auto-generated `<target_singular>_id` field name (e.g. `profile_id` for target `profiles`), with the row's `Verb` as `relationship_label` and `Delete` as `reference_delete_mode`; when several candidate sources match, batch a single user confirmation; when no candidate matches, skip silently. All three §6 rows are inbound (the FK lands on the sibling's table when the sibling is deployed), and all three are strictly additive.
+8. After creation, populate junction `*_label` fields (`membership_label`, `activation_label`, `consent_label`) on insert as the documented composite strings (e.g. `"{audience_name} / {profile_label}"`) so the auto-wired label resolves to a meaningful value.
+9. After creation, spot-check that `label_column` on each entity resolves to a real field and that all `reference_table` targets exist.

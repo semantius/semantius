@@ -1,10 +1,11 @@
 ---
 artifact: semantic-model
+version: "1.0"
 system_name: CMDB
 system_slug: cmdb
 domain: CMDB
 naming_mode: agent-optimized
-created_at: 2026-05-06
+created_at: 2026-05-08
 entities:
   - configuration_items
   - ci_types
@@ -211,7 +212,7 @@ flowchart LR
 | `business_owner_user_id` | `reference` | no | Business Sponsor | → `users` (N:1, clear), `relationship_label: "sponsors"` |
 | `criticality` | `enum` | yes | Criticality | values: `low`, `medium`, `high`, `mission_critical`. default: `medium` |
 | `service_status` | `enum` | yes | Service Status | values: `planning`, `active`, `deprecated`, `retired`. default: `active` (most services in a CMDB are live; auto-default `planning` would be wrong) |
-| `sla_tier` | `enum` | no | SLA Tier | values: `bronze`, `silver`, `gold`, `platinum` |
+| `sla_tier` | `enum` | no | SLA Tier | values: `none`, `bronze`, `silver`, `gold`, `platinum`. default: `none` (sentinel; auto-default would otherwise silently classify every tier-less service as `bronze`) |
 
 **Relationships**
 
@@ -457,6 +458,7 @@ M:N relationships expressed via junctions:
 - `retired`
 
 ### 5.6 `business_services.sla_tier`
+- `none`
 - `bronze`
 - `silver`
 - `gold`
@@ -501,13 +503,32 @@ M:N relationships expressed via junctions:
 - `inactive`
 - `suspended`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+These are hint rows for the deployer. Each row describes an additive FK that should be created when the target entity is deployed; if the target does not exist at deploy-time, the row is silently skipped. Entity-overlap (vendors, users, teams) is handled by the deployer's name-collision flow at deploy-time and is intentionally not declared here.
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `incidents` | `configuration_items` | is affected by | N:1 | restrict |
+| `problems` | `configuration_items` | is the root cause of | N:1 | restrict |
+| `change_requests` | `configuration_items` | is affected by | N:1 | restrict |
+| `software_installs` | `configuration_items` | hosts | N:1 | restrict |
+| `software_licenses` | `vendors` | supplies | N:1 | restrict |
+| `hardware_assets` | `configuration_items` | is tracked as | N:1 | clear |
+| `hardware_assets` | `vendors` | supplies | N:1 | clear |
+| `checks` | `configuration_items` | is monitored by | N:1 | restrict |
+| `alerts` | `configuration_items` | triggers | N:1 | restrict |
+| `alerts` | `business_services` | triggers | N:1 | restrict |
+
+All rows are inbound: the FK column lives on the sibling's table and points back into CMDB. None of these targets are in this model's §3, so each row only takes effect once the corresponding sibling module (`itsm`, `software_asset_management`, `itam`, `monitoring`) is deployed.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
 
 None.
 
-### 6.2 🟡 Future considerations (deferred scope)
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should `configuration_items.attributes` (currently a free-form JSON bag) be promoted to a normalized `ci_type_attribute_definitions` plus `ci_attribute_values` model so type-specific attributes can be queried, validated, and indexed? Trigger: when operators routinely filter or report on attribute values across CIs of the same type.
 - Should a `discovery_sources` entity be added to record which scanner, agent, or import job contributed each CI and each relationship? Trigger: when more than one discovery source feeds the CMDB and conflicts must be reconciled.
@@ -516,7 +537,7 @@ None.
 - Should `ci_relationships.criticality` be promoted from a four-value enum to a numeric blast-radius score (e.g. 1 to 5 or 1 to 100) for quantitative impact analysis? Trigger: when impact-analysis tooling needs ordinal arithmetic over criticality values.
 - Should `configuration_items.hostname` and `configuration_items.ip_address` be made unique (perhaps scoped by `environment_id`)? Today only `ci_code` is unique; duplicates on hostname or IP are allowed. Trigger: when discovery-source dedup needs uniqueness enforcement at the DB level.
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
 A short checklist for the agent who will materialize this model in Semantius:
 
@@ -527,55 +548,3 @@ A short checklist for the agent who will materialize this model in Semantius:
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. Many entities in this model have a label_column whose §3 Label is more specific than the entity's `singular_label` (for example, entity `configuration_items` with `singular_label: "Configuration Item"` and `label_column: "ci_name"` yields an auto-field `configuration_items.ci_name` with title `"Configuration Item"`; the §3 Label is `"CI Name"`). For every such case, follow up with `update_field` to set the correct title. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"` (e.g. `"configuration_items.ci_name"`, `"ci_types.type_name"`, `"vendors.vendor_name"`); pass it as a string, not an integer, or the update will fail. Apply the fixup to: `configuration_items.ci_name` (`CI Name`), `ci_types.type_name` (`Type Name`), `relationship_types.relationship_name` (`Relationship Name`), `ci_relationships.relationship_label_text` (`Display`), `business_services.service_name` (`Service Name`), `service_components.component_label` (`Display`), `environments.environment_name` (`Environment Name`), `locations.location_name` (`Location Name`), `teams.team_name` (`Team Name`), `vendors.vendor_name` (`Vendor Name`), `users.full_name` (`Full Name`), `team_members.member_label` (`Display`).
 6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists as a Semantius built-in. Read Semantius first: if the built-in `users` table covers the fields in §3.11, skip the `create_entity` call and reuse the built-in as the `reference_table` target for every FK that points to `users`. If any §3.11 fields are missing on the built-in (e.g. `job_title`, `timezone`), add them additively with `create_field` against the built-in `users` table only if the model genuinely requires them.
 7. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the `relationship_label` on every FK matches §3 byte-for-byte.
-
-## 8. Related domains
-
-This model declares the sibling modules CMDB participates in so the deployer can reconcile foreign keys, exposed entities, and master-data ownership across modules at deploy-time. Slugs match each sibling's `system_slug`. If a sibling is not deployed, its contract is dormant and triggers no action.
-
-### 8.1 `itsm` (peer)
-
-ITSM (incident, problem, change management) is a downstream consumer of CMDB topology.
-
-- **Exposes:** `configuration_items`, `business_services`. ITSM records FK back to these so tickets resolve to live CIs and to the services they affect.
-- **Expects on sibling:** when `itsm` is deployed, FKs of the shape `itsm.incidents.affected_ci_id`, `itsm.problems.root_cause_ci_id`, and `itsm.change_requests.affected_ci_id`, all pointing at `cmdb.configuration_items` with `reference_delete_mode: restrict` so an open ticket cannot orphan a CI.
-- **Defers to sibling:** none.
-
-### 8.2 `software_asset_management` (peer)
-
-SAM tracks installed software products and license entitlements; it consumes CMDB host inventory.
-
-- **Exposes:** `configuration_items`, `vendors`.
-- **Expects on sibling:** when `software_asset_management` is deployed, `software_asset_management.software_installs.host_ci_id` points at `cmdb.configuration_items`, and `software_asset_management.software_licenses.vendor_id` points at `cmdb.vendors`.
-- **Defers to sibling:** none. The §6.2 deferred-scope note about adding `software_installs` and `software_licenses` directly to this CMDB is superseded by this contract: SAM owns those entities, CMDB exposes the inventory they reference.
-
-### 8.3 `itam` (peer)
-
-ITAM (IT Asset Management) tracks hardware-asset lifecycle (procurement, depreciation, disposal, warranty) and is distinct from CMDB's operational topology view. When both are deployed, ITAM hardware records and CMDB CIs typically pair 1:1 for physical assets while CIs that aren't physical (logical apps, business services, cloud-tenant CIs) have no ITAM counterpart.
-
-- **Exposes:** `configuration_items`, `vendors`. ITAM links its hardware records to the operating CI and to the supplying vendor.
-- **Expects on sibling:** when `itam` is deployed, `itam.hardware_assets.ci_id` points at `cmdb.configuration_items` with `reference_delete_mode: clear` (an asset can outlive its operational CI in the asset register), and `itam.hardware_assets.vendor_id` points at `cmdb.vendors`.
-- **Defers to sibling:** none. If the org decides ITAM owns the canonical asset master, a future iteration may flip this to defer hardware-style CIs to ITAM; for now CMDB stays operational-topology-canonical.
-
-### 8.4 `monitoring` (peer)
-
-Monitoring (alerting, observability, synthetic checks) consumes CMDB topology so that alerts and checks resolve to live CIs and so that incident runbooks know which team owns the affected service.
-
-- **Exposes:** `configuration_items`, `business_services`.
-- **Expects on sibling:** when `monitoring` is deployed, FKs of the shape `monitoring.checks.target_ci_id`, `monitoring.alerts.affected_ci_id`, and (optionally) `monitoring.alerts.affected_service_id` pointing at `cmdb.configuration_items` and `cmdb.business_services` with `reference_delete_mode: restrict` so an active alert cannot orphan its target.
-- **Defers to sibling:** none.
-
-### 8.5 `vendor_management` (upstream master)
-
-When a dedicated vendor management module is deployed, it owns the canonical vendor master and the CMDB-local `vendors` entity is deduplicated against it.
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `vendors`. At deploy-time, if `vendor_management.vendors` exists, skip the `create_entity` for the local `vendors` (the same dedup pattern §7 step 6 applies to `users`) and rewire `configuration_items.vendor_id` and any other vendor FKs to the sibling's table. CMDB-specific fields not present on the sibling's `vendors` are added additively with `create_field`.
-
-### 8.6 `identity_and_access` (upstream master)
-
-When an identity and access management module is deployed, it owns canonical user and team rosters.
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `users` and `teams`. The `users` defer is already called out in §7 step 6 and applies whether the sibling is `identity_and_access` or the Semantius built-in `users` table. `teams` follows the same pattern: if `identity_and_access.teams` exists, skip creating the local `teams` entity, rewire the team FKs (`configuration_items.owner_team_id`, `business_services.service_owner_team_id`, `team_members.team_id`), and add any CMDB-specific team fields additively.

@@ -1,10 +1,12 @@
 ---
 artifact: semantic-model
+version: "1.0"
 system_name: IT Service Management
+system_description: IT Support & Tickets
 system_slug: itsm
 domain: ITSM
 naming_mode: agent-optimized
-created_at: 2026-05-06
+created_at: 2026-05-08
 entities:
   - users
   - teams
@@ -19,13 +21,18 @@ entities:
   - knowledge_articles
   - service_level_agreements
   - ticket_comments
-related_models:
-  - cmdb
-  - software_asset_management
-  - itam
-  - monitoring
-  - vendor_management
-  - identity_and_access
+related_domains:
+  - CMDB
+  - SAM
+  - ITAM
+  - Monitoring
+  - Vendor Management
+  - Identity & Access
+  - Project Management
+  - Product Roadmap
+  - Risk Management
+  - Compliance
+  - Workforce Planning
 departments:
   - IT
 initial_request: |
@@ -275,7 +282,7 @@ flowchart LR
 | `short_description` | `string` | yes | Short Description | |
 | `description` | `text` | no | Description | |
 | `status` | `enum` | yes | Status | values: `new`, `approval_pending`, `approved`, `in_progress`, `fulfilled`, `closed`, `cancelled`; default: "new" |
-| `priority` | `enum` | yes | Priority | values: `p4_low`, `p3_normal`, `p2_high`, `p1_critical`; default: "p3_normal" |
+| `priority` | `enum` | no | Priority | values: `p4_low`, `p3_normal`, `p2_high`, `p1_critical`; default: "p3_normal" |
 | `requested_at` | `date-time` | yes | Requested At | |
 | `approved_at` | `date-time` | no | Approved At | |
 | `fulfilled_at` | `date-time` | no | Fulfilled At | |
@@ -288,7 +295,7 @@ flowchart LR
 - A `service_request` is raised by one requester `user` (N:1, required, clear on delete).
 - A `service_request` may be raised on behalf of one beneficiary `user` (N:1, optional, clear).
 - A `service_request` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
-- A `service_request` accumulates many `ticket_comments` (1:N, via `ticket_comments.service_request_id`, cascade on delete).
+- A `service_request` accumulates many `ticket_comments` (1:N, via `ticket_comments.service_request_id`, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
 
 ### 3.7 `incidents` — Incident
 
@@ -331,7 +338,7 @@ flowchart LR
 - An `incident` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
 - An `incident` may roll up to one `problem` (N:1, optional, clear).
 - An `incident` may be governed by one `service_level_agreement` (N:1, optional, clear).
-- An `incident` accumulates many `ticket_comments` (1:N, cascade on delete).
+- An `incident` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
 
 ### 3.8 `problems` — Problem
 
@@ -367,7 +374,7 @@ flowchart LR
 - A `problem` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
 - A `problem` may concern one affected `configuration_item` (N:1, optional, clear).
 - A `problem` may explain many `incidents` (1:N, via `incidents.problem_id`, clear on delete).
-- A `problem` accumulates many `ticket_comments` (1:N, cascade on delete).
+- A `problem` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
 
 ### 3.9 `change_requests` — Change Request
 
@@ -409,7 +416,7 @@ flowchart LR
 - A `change_request` may be performed by one external `vendor` (N:1, optional, clear).
 - A `change_request` may resolve many `problems` (1:N, via `problems.resolution_change_request_id`, clear on delete).
 - A `change_request` ↔ `configuration_items` is many-to-many through the `change_configuration_items` junction (cascade on delete).
-- A `change_request` accumulates many `ticket_comments` (1:N, cascade on delete).
+- A `change_request` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
 
 ### 3.10 `change_configuration_items` — Change CI
 
@@ -430,7 +437,7 @@ flowchart LR
 **Relationships**
 
 - A `change_configuration_item` belongs to exactly one `change_request` (N:1, required, cascade on delete).
-- A `change_configuration_item` references exactly one `configuration_item` (N:1, required, cascade on delete).
+- A `change_configuration_item` references exactly one `configuration_item` (N:1, required, cascade on delete). Whether `configuration_item` deletion should cascade through the junction (current model) or be blocked (`restrict`) while change history exists is tracked in §7.2.
 
 ### 3.11 `knowledge_articles` — Knowledge Article
 
@@ -507,15 +514,15 @@ flowchart LR
 | `problem_id` | `reference` | no | Problem | → `problems` (N:1), relationship_label: "accumulates" |
 | `change_request_id` | `reference` | no | Change Request | → `change_requests` (N:1), relationship_label: "accumulates" |
 | `author_user_id` | `reference` | yes | Author | → `users` (N:1), relationship_label: "writes" |
-| `body` | `text` | yes | Body | |
+| `body` | `text` | no | Body | non-empty body should be enforced at the application layer; the platform's auto-default for required `text` is `''` which is rarely the desired stored value |
 | `visibility` | `enum` | yes | Visibility | values: `public`, `internal`; default: "internal" |
 | `posted_at` | `date-time` | yes | Posted At | |
 
 **Relationships**
 
-- A `ticket_comment` belongs to exactly one parent ticket. Caller invariant: exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching the value of `ticket_type`. The DB allows nulls on each individually; enforcement is application-level (see §6.1).
+- A `ticket_comment` belongs to exactly one parent ticket. Caller invariant: exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching the value of `ticket_type`. The DB allows nulls on each individually; the as-shipped contract is application-level enforcement (option (a) in §7.1, which tracks whether to harden this later).
 - A `ticket_comment` is written by one author `user` (N:1, required, clear on delete).
-- A `ticket_comment` cascades on delete with whichever ticket parent owns it.
+- A `ticket_comment`'s parent FKs use `reference` + `clear` because the four columns must be nullable (only one is populated per row) and the platform reserves `cascade` for `format: parent` (which is NOT NULL). Cascading deletion of comments when their parent ticket is deleted is therefore an **application-layer responsibility**, not a DB-level guarantee. See §7.1 for the open question on hardening this.
 
 ## 4. Relationship summary
 
@@ -555,10 +562,10 @@ flowchart LR
 | `change_configuration_items` | `configuration_item_id` | `configuration_items` | N:1 | parent (junction) | cascade |
 | `knowledge_articles` | `author_user_id` | `users` | N:1 | reference | clear |
 | `knowledge_articles` | `owning_team_id` | `teams` | N:1 | reference | clear |
-| `ticket_comments` | `incident_id` | `incidents` | N:1 | reference | cascade |
-| `ticket_comments` | `service_request_id` | `service_requests` | N:1 | reference | cascade |
-| `ticket_comments` | `problem_id` | `problems` | N:1 | reference | cascade |
-| `ticket_comments` | `change_request_id` | `change_requests` | N:1 | reference | cascade |
+| `ticket_comments` | `incident_id` | `incidents` | N:1 | reference | clear |
+| `ticket_comments` | `service_request_id` | `service_requests` | N:1 | reference | clear |
+| `ticket_comments` | `problem_id` | `problems` | N:1 | reference | clear |
+| `ticket_comments` | `change_request_id` | `change_requests` | N:1 | reference | clear |
 | `ticket_comments` | `author_user_id` | `users` | N:1 | reference | clear |
 
 `change_requests` ↔ `configuration_items` is M:N realised by the `change_configuration_items` junction (two N:1 rows above).
@@ -704,27 +711,59 @@ flowchart LR
 - `public`
 - `internal`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed (blockers)
+The hint table below describes FKs that *could* exist between this model's entities and entities owned by other modules. The deployer reads each row, looks up the `To` concept in the live catalog at deploy time, and proposes an additive FK only when the target is actually deployed. Targets that are missing are silently skipped; targets that match multiple candidates surface a single confirmation widget. Entries are hints, not contracts.
 
-- How should the `ticket_comments` polymorphic invariant ("exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching `ticket_type`") be enforced? Options: (a) application-level only, accepting that direct DB writes can violate it; (b) a database `CHECK` constraint added by the implementer outside the semantic-model deployer; (c) split `ticket_comments` into four type-specific comment tables to remove the polymorphism entirely. The current model assumes (a); confirm before implementation.
+Rows are split into **inbound** (FK lives on a sibling table that does not exist in this model; created on the sibling at its deploy time) and **outbound** (FK lives on one of this model's tables; created here when the target sibling is deployed). Mixing both is intentional: ITSM is a hub that other operational domains naturally link into, and one that draws on adjacent domains (vendor management, project portfolio, product roadmap, risk and compliance) when richer context is available.
 
-### 6.2 🟡 Future considerations (deferred scope)
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `software_installs` | `configuration_items` | hosts | N:1 | clear |
+| `hardware_assets` | `configuration_items` | tracks | N:1 | clear |
+| `alerts` | `incidents` | spawns | N:1 | clear |
+| `outages` | `configuration_items` | experiences | N:1 | clear |
+| `outages` | `incidents` | encompasses | N:1 | clear |
+| `monitoring_metrics` | `configuration_items` | is measured by | N:1 | clear |
+| `risk_assessments` | `change_requests` | is assessed by | N:1 | clear |
+| `risk_assessments` | `configuration_items` | is assessed for | N:1 | clear |
+| `compliance_controls` | `configuration_items` | governs | N:1 | clear |
+| `audit_events` | `configuration_items` | records changes to | N:1 | clear |
+| `change_requests` | `vendor_contracts` | governs | N:1 | clear |
+| `change_requests` | `releases` | bundles | N:1 | clear |
+| `change_requests` | `features` | is implemented by | N:1 | clear |
+| `change_requests` | `projects` | delivers | N:1 | clear |
+| `service_catalog_items` | `products` | is offered as | N:1 | clear |
+| `knowledge_articles` | `products` | is documented by | N:1 | clear |
+| `users` | `positions` | is held by | N:1 | clear |
+
+The inbound rows above name tables that live on sibling modules (`software_asset_management.software_installs`, `itam.hardware_assets`, `monitoring.alerts` / `monitoring.monitoring_metrics`, `service_operations.outages`, `risk_management.risk_assessments`, `compliance.compliance_controls`, `audit.audit_events`). The outbound rows name tables this model would FK into when their owning sibling is deployed (`vendor_management.vendor_contracts`, `product_roadmap.releases` / `product_roadmap.features`, `project_management.projects`, `pim.products`, `workforce_planning.positions`). The deployer's CMDB dedup pass automatically retargets the `configuration_items` rows to `cmdb.configuration_items` when the `cmdb` module is also deployed.
+
+Entity-overlap dedup for shared-master-data tables (`users` against the Semantius built-in or `identity_and_access`, `vendors` against `vendor_management`, `configuration_items` against `cmdb`) is handled by the deployer's name-collision flow at deploy time and is not declared here.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed (blockers)
+
+- How should the `ticket_comments` polymorphic invariant ("exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching `ticket_type`") be enforced? Options: (a) application-level only, accepting that direct DB writes can violate it; (b) a database `CHECK` constraint added by the implementer outside the semantic-model deployer; (c) split `ticket_comments` into four type-specific comment tables (`incident_comments`, `service_request_comments`, `problem_comments`, `change_request_comments`) to remove the polymorphism entirely and let each table use `format: parent` + `cascade`. The as-shipped contract is (a); the open question is whether to harden to (b) or (c) later.
+- How should cascade-on-delete of `ticket_comments` be enforced? The platform's `format: reference` is incompatible with `cascade`, and `format: parent` is NOT NULL (which the polymorphic shape forbids). The as-shipped behavior is application-layer cleanup of comments when a parent ticket is deleted; option (c) above (split into four type-specific tables) would let the platform enforce cascade natively. Should this be addressed alongside the polymorphism decision?
+
+### 7.2 🟡 Future considerations (deferred scope)
 
 - Should `users` ↔ `teams` be modeled as M:N via a `team_memberships` junction so a user can belong to multiple support groups, or is the current single `primary_team_id` sufficient?
 - Should `incidents` ↔ `configuration_items` be M:N (multiple impacted CIs per incident) via an `incident_configuration_items` junction, or is one primary `affected_configuration_item_id` enough?
 - Should `service_catalog_items.category` (and similar flat enums) be promoted to a hierarchical `categories` lookup table if the taxonomy needs grow?
 - Should `attachments` become a first-class polymorphic entity attached to tickets and articles, or stay as a platform-level concern outside this model?
-- Should `releases` and `deployments` be added to bundle multiple change_requests into a coordinated release window?
-- Should `cab_meetings` (Change Advisory Board) be a first-class entity tracking which meeting approved which change_requests, or is the per-change `approver_user_id` enough?
+- Should `releases` and `deployments` be added to bundle multiple `change_requests` into a coordinated release window, or is the cross-model link to `product_roadmap.releases` (§6) sufficient?
+- Should `cab_meetings` (Change Advisory Board) be a first-class entity tracking which meeting approved which `change_requests`, or is the per-change `approver_user_id` enough?
 - Should SLA matching support more dimensions (category, customer segment, business-hours window definitions per region) than the current `(ticket_type, priority)` key plus single `business_hours_only` flag?
 - Should `incidents.priority` be a stored field (current model) or computed deterministically from `impact` × `urgency`? If computed, the field becomes derived and the priority enum lives only as a display vocabulary.
-- Should CI dependencies be richer than the single `parent_ci_id` self-reference, e.g. a `ci_relationships` entity capturing typed links (depends_on, runs_on, communicates_with) between configuration_items?
+- Should CI dependencies be richer than the single `parent_ci_id` self-reference, e.g. a `ci_relationships` entity capturing typed links (`depends_on`, `runs_on`, `communicates_with`) between configuration_items?
 - Should `incident_tasks` and `change_tasks` be added as work-breakdown sub-entities, or is the parent-ticket-plus-comments pattern sufficient?
 - Should `problems` carry a workaround-effectiveness assessment or per-incident-cost rollup for prioritization?
+- Should deletion of a `configuration_item` cascade through `change_configuration_items` (the current model) or be `restrict`-ed while change history references the CI? `restrict` preserves audit trail at the cost of a heavier delete UX; `cascade` cleans up junction rows but loses the reference from historical changes.
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes for the downstream agent
 
 1. Create one module named `itsm` (the module name **must** equal the `system_slug` from the front-matter, do not invent a different module slug here) and two baseline permissions (`itsm:read`, `itsm:manage`) before any entity.
 2. Create entities in §2 order: entities referenced by others first. Concretely: `users` → `teams` → `vendors` → `configuration_items` → `service_catalog_items` → `service_level_agreements` → `knowledge_articles` → `problems` → `change_requests` → `incidents` → `service_requests` → `change_configuration_items` → `ticket_comments`. (Some FKs are mutually referential between `incidents` ↔ `problems` and `problems` ↔ `change_requests` ↔ `knowledge_articles`; create the entity first with non-FK fields, then add the FK fields once both targets exist.)
@@ -747,80 +786,7 @@ flowchart LR
 
    For each, follow up `create_entity` with `update_field` using the composite **string** id `"{table_name}.{field_name}"` (e.g. `"vendors.vendor_name"`, `"configuration_items.ci_name"`). Pass the id as a string, not an integer, or the update will fail.
 6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists in Semantius as a built-in. For `users`, **skip the create** and reuse the built-in as the `reference_table` target for every FK that points at `users`. Add the domain-specific fields (`is_agent`, `primary_team_id`, `manager_user_id`, `employee_id`, `job_title`, `department`, `location`, `phone`) to the built-in only if missing (additive, low-risk). If `roles`, `permissions`, or other built-ins overlap with anything below, apply the same dedup rule.
-7. **Reconcile against related modules (§8).** After this model's own creates and the built-in dedup pass, walk the front-matter `related_models` array. For each sibling slug already deployed (`cmdb`, `software_asset_management`, `itam`, `monitoring`, `vendor_management`, `identity_and_access`), walk its §8 sub-section: apply **Defers to sibling** entries the same way as built-in dedup (skip the local create and rewire FKs), and propose **Expects on sibling** entries as additive FKs on the sibling's tables (always user-confirmed, never auto-applied). **Exposes** entries are informational and indexed for future sibling deploys. All cross-module changes are additive only; declines persist on sibling module metadata so the same proposal does not reappear on every redeploy.
+7. **Apply §6 cross-model link hints.** After this model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `To` table in the live catalog: when it is deployed, propose the FK on the row's `From` table (always user-confirmed, never auto-applied) using the row's verb, cardinality, and delete behavior; when it is missing or ambiguous across multiple candidates, silently skip or surface a single confirmation widget. Cross-module changes are additive only; declines persist on the sibling module so the same proposal does not reappear on every redeploy. Entity-overlap dedup against Semantius built-ins and other already-deployed sibling tables (the `users` / `vendors` / `configuration_items` overlaps with `identity_and_access`, `vendor_management`, and `cmdb`) is performed by the deployer's name-collision flow at deploy time and does not need to be pre-declared here.
 8. **Populate label values for junction-style entities.** `change_configuration_items.change_ci_label` and `ticket_comments.ticket_comment_label` are not auto-derivable from a single column. Callers (UIs, scripts, integrations) must populate these on insert: for `change_configuration_items` use `"{change_number} / {ci_name}"`; for `ticket_comments` use `"{ticket_type}-{ticket_number} #{seq}"` where `seq` is a 1-based per-ticket counter. Document this contract in the deployer notes so downstream tooling does not leave the label blank.
-9. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the four nullable FKs on `ticket_comments` correctly point at four different ticket-type tables.
-
-## 8. Related domains
-
-### 8.1 `cmdb` — Configuration Management Database
-
-**Relationship:** upstream (canonical owner of CI master data when deployed).
-
-**Exposes:** none (this model is the consumer of CMDB data, not the producer).
-
-**Expects on sibling:**
-- none (this model does not propose new FKs on `cmdb`'s tables; it only reuses CMDB's `configuration_items` table).
-
-**Defers to sibling:**
-- `itsm.configuration_items` should be reused from `cmdb.configuration_items` if that module is deployed. The deployer should skip creating the local `configuration_items` table and rewire every FK in this model that points at it (`incidents.affected_configuration_item_id`, `problems.affected_configuration_item_id`, `change_configuration_items.configuration_item_id`, `configuration_items.parent_ci_id` self-ref). ITSM-specific fields on the local model that the canonical CMDB likely already has (vendor_id, owner_user_id, support_team_id, ci_type, environment, status, asset_tag, serial_number, hostname, ip_address, location, purchase_date, warranty_expires_at) should overlap; any non-overlapping fields the deployer detects should be proposed as additive extensions on the CMDB's `configuration_items` table.
-
-### 8.2 `vendor_management` — Vendor Management
-
-**Relationship:** upstream (canonical owner of vendor master data when deployed).
-
-**Exposes:** none.
-
-**Expects on sibling:**
-- none.
-
-**Defers to sibling:**
-- `itsm.vendors` should be reused from `vendor_management.vendors` if that module is deployed. The deployer should skip creating the local `vendors` table and rewire `configuration_items.vendor_id` and `change_requests.vendor_id`. Domain-specific fields on the local model (vendor_type, contact_name, contact_email, contact_phone, website, support_url, account_number, is_active) should be proposed as additive extensions on the canonical `vendors` table if they are not already present.
-
-### 8.3 `identity_and_access` — Identity and Access Management
-
-**Relationship:** upstream (canonical owner of user and access-control master data when deployed, beyond the Semantius built-in `users`).
-
-**Exposes:** none.
-
-**Expects on sibling:**
-- none.
-
-**Defers to sibling:**
-- `itsm.users` should be reused from `identity_and_access.users` if that module is deployed (taking precedence over the Semantius built-in dedup). The deployer should skip creating the local `users` table and rewire every FK that points at users (`users.primary_team_id` does not point at users; the user FKs are: `users.manager_user_id`, `teams.team_lead_user_id`, `service_requests.requested_by_user_id`, `service_requests.requested_for_user_id`, `service_requests.assigned_to_user_id`, `incidents.reported_by_user_id`, `incidents.affected_user_id`, `incidents.assigned_to_user_id`, `problems.assigned_to_user_id`, `change_requests.requested_by_user_id`, `change_requests.assigned_to_user_id`, `change_requests.approver_user_id`, `knowledge_articles.author_user_id`, `ticket_comments.author_user_id`, `configuration_items.owner_user_id`). ITSM-specific fields (is_agent, employee_id, job_title, department, location, phone) should be proposed as additive extensions on the IAM-owned users table.
-
-### 8.4 `software_asset_management` — Software Asset Management
-
-**Relationship:** downstream peer (SAM tracks software installs and licenses on top of the CIs this model exposes).
-
-**Exposes:** `configuration_items` (SAM cross-links its install records back to ITSM's CI table).
-
-**Expects on sibling:**
-- `software_asset_management.software_installs.host_configuration_item_id → itsm.configuration_items` (N:1, clear), so each software install is anchored to the CI it runs on. The deployer's CMDB dedup pass will automatically retarget this FK to `cmdb.configuration_items` when the cmdb module is also deployed.
-
-**Defers to sibling:**
-- none.
-
-### 8.5 `itam` — IT Asset Management
-
-**Relationship:** peer (canonical owner of hardware-asset lifecycle, cost, depreciation, and disposal when deployed; complementary to CMDB which owns logical service architecture).
-
-**Exposes:** `configuration_items` (ITAM cross-links its hardware-asset records back to ITSM's CI table for the hardware subset).
-
-**Expects on sibling:**
-- `itam.hardware_assets.linked_configuration_item_id → itsm.configuration_items` (N:1, clear), so each hardware asset is anchored to the CI that represents it in service-management terms. The CMDB dedup pass automatically retargets this FK to `cmdb.configuration_items` when cmdb is deployed.
-
-**Defers to sibling:**
-- none.
-
-### 8.6 `monitoring` — Infrastructure Monitoring
-
-**Relationship:** upstream peer (monitoring tools detect outages and auto-create incidents in this model).
-
-**Exposes:** `incidents` (monitoring tools record which incident an alert spawned).
-
-**Expects on sibling:**
-- `monitoring.alerts.created_incident_id → itsm.incidents` (N:1, clear), so each monitoring alert that escalated to a ticket records the incident it created.
-
-**Defers to sibling:**
-- none.
+9. **`ticket_comments` cascade is application-layer.** The four polymorphic FKs (`incident_id`, `service_request_id`, `problem_id`, `change_request_id`) are `format: reference` with `clear` delete behavior because the platform reserves `cascade` for `format: parent` (which is NOT NULL and therefore incompatible with the polymorphic shape, only one of the four is populated per row). Application code, or a dedicated DB trigger added outside the semantic-model deployer, must delete a ticket's comments before or alongside deleting the ticket itself; the deployer should not attempt to wire a cascade here. See §7.1 for the open hardening question.
+10. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the four nullable FKs on `ticket_comments` correctly point at four different ticket-type tables.

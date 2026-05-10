@@ -1,13 +1,21 @@
 ---
 artifact: semantic-model
+version: "1.0"
 system_name: SaaS Expense Tracker & Budget
+system_description: SaaS Spend & Budgeting
 system_slug: saas_expense_tracker
 domain: SaaS Management
 departments:
   - Finance
   - IT
+related_domains:
+  - Finance
+  - Vendor Management
+  - HRIS
+  - ITAM
+  - ITSM
 naming_mode: agent-optimized
-created_at: 2026-05-03
+created_at: 2026-05-08
 entities:
   - vendors
   - subscriptions
@@ -16,31 +24,27 @@ entities:
   - budget_lines
   - license_assignments
   - users
-related_models:
-  - finance
-  - vendor_management
-  - hris
 initial_request: |
   I want to track and budget our saas expenses
 ---
 
-# SaaS Expense Tracker & Budget — Semantic Model
+# SaaS Expense Tracker & Budget, Semantic Model
 
 ## 1. Overview
 
-An internal SaaS spend management system that records the company's SaaS subscriptions (the app, the vendor, the commercial terms, and the contract details on a single record), the departments that own the spend, the budgets planned against them, and which internal users consume seats. Finance and IT use it to track planned vs. expected spend, allocate costs to departments, detect unused licenses, and manage upcoming renewals. All monetary amounts are stored in a single implicit base currency; multi-currency support is deferred (see §6.2).
+An internal SaaS spend management system that records the company's SaaS subscriptions (the app, the vendor, the commercial terms, and the contract details on a single record), the departments that own the spend, the budgets planned against them, and which internal users consume seats. Finance and IT use it to track planned vs. expected spend, allocate costs to departments, detect unused licenses, and manage upcoming renewals. All monetary amounts are stored in a single implicit base currency; multi-currency support is deferred (see §7.2).
 
 ## 2. Entity summary
 
 | # | Table name | Singular label | Purpose |
 |---|---|---|---|
 | 1 | `vendors` | Vendor | The company that sells a SaaS product (e.g. Slack Technologies, Atlassian) |
-| 2 | `subscriptions` | Subscription | A SaaS subscription we pay for — combines the product, commercial terms (seats, price, cadence, dates), and contract details on one record |
+| 2 | `subscriptions` | Subscription | A SaaS subscription we pay for; combines product, commercial terms (seats, price, cadence, dates), and contract details on one record |
 | 3 | `departments` | Department | Cost center / org unit that owns part of the spend |
 | 4 | `budget_periods` | Budget Period | A fiscal year or quarter container for budgeting |
 | 5 | `budget_lines` | Budget Line | Planned spend allocated to a department / subscription for a budget period |
 | 6 | `license_assignments` | License Assignment | Which internal user is consuming a seat on which subscription |
-| 7 | `users` | User | Internal employee — subscription owner, license holder, budget owner, approver |
+| 7 | `users` | User | Internal employee, acts as subscription owner, license holder, budget owner, or approver |
 
 ### Entity-relationship diagram
 
@@ -62,7 +66,7 @@ flowchart LR
 
 ## 3. Entities
 
-### 3.1 `vendors` — Vendor
+### 3.1 `vendors`, Vendor
 
 **Plural label:** Vendors
 **Label column:** `vendor_name`  _(the human-identifying field; auto-wired by Semantius)_
@@ -79,7 +83,7 @@ flowchart LR
 | `tax_id` | `string` | no | Tax ID | VAT / EIN |
 | `notes` | `text` | no | Notes | |
 
-> Do not include `id`, `created_at`, `updated_at`, or the auto-generated `label` field — Semantius creates these automatically.
+> Do not include `id`, `created_at`, `updated_at`, or the auto-generated `label` field; Semantius creates these automatically.
 
 **Relationships**
 
@@ -87,7 +91,7 @@ flowchart LR
 
 ---
 
-### 3.2 `subscriptions` — Subscription
+### 3.2 `subscriptions`, Subscription
 
 **Plural label:** Subscriptions
 **Label column:** `subscription_name`  _(the human-identifying field; auto-wired by Semantius)_
@@ -97,7 +101,7 @@ flowchart LR
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `subscription_name` | `string` | yes | Subscription Name | label_column; e.g. "Slack Business+ — Engineering" |
+| `subscription_name` | `string` | yes | Subscription Name | label_column; e.g. "Slack Business+, Engineering" |
 | `vendor_id` | `reference` | yes | Vendor | → `vendors` (N:1, restrict), relationship_label: "sells" |
 | `business_owner_id` | `reference` | no | Business Owner | → `users` (N:1, clear); internal owner responsible for the app, relationship_label: "owns" |
 | `primary_department_id` | `reference` | no | Owning Department | → `departments` (N:1, clear), relationship_label: "funds" |
@@ -135,7 +139,7 @@ flowchart LR
 
 ---
 
-### 3.3 `departments` — Department
+### 3.3 `departments`, Department
 
 **Plural label:** Departments
 **Label column:** `department_name`  _(the human-identifying field; auto-wired by Semantius)_
@@ -154,7 +158,7 @@ flowchart LR
 **Relationships**
 
 - A `department` may have one `manager` user (N:1, optional, delete: clear).
-- A `department` may have one `parent_department` (N:1, optional, delete: clear — self-reference for hierarchy).
+- A `department` may have one `parent_department` (N:1, optional, delete: clear; self-reference for hierarchy).
 - A `department` may have many child departments (1:N, via self-reference).
 - A `department` may employ many `users` (1:N, via `users.department_id`).
 - A `department` may fund many `subscriptions` (1:N, via `subscriptions.primary_department_id`).
@@ -162,7 +166,7 @@ flowchart LR
 
 ---
 
-### 3.4 `budget_periods` — Budget Period
+### 3.4 `budget_periods`, Budget Period
 
 **Plural label:** Budget Periods
 **Label column:** `period_name`  _(the human-identifying field; auto-wired by Semantius)_
@@ -184,7 +188,7 @@ flowchart LR
 
 ---
 
-### 3.5 `budget_lines` — Budget Line
+### 3.5 `budget_lines`, Budget Line
 
 **Plural label:** Budget Lines
 **Label column:** `budget_line_name`  _(the human-identifying field; auto-wired by Semantius)_
@@ -204,13 +208,13 @@ flowchart LR
 
 **Relationships**
 
-- A `budget_line` belongs to one `budget_period` (N:1, required, delete: cascade — parent).
+- A `budget_line` belongs to one `budget_period` (N:1, required, delete: cascade, parent).
 - A `budget_line` may link to one `department` (N:1, optional, delete: clear).
 - A `budget_line` may link to one `subscription` (N:1, optional, delete: clear).
 
 ---
 
-### 3.6 `license_assignments` — License Assignment
+### 3.6 `license_assignments`, License Assignment
 
 **Plural label:** License Assignments
 **Label column:** `assignment_label`  _(the human-identifying field; auto-wired by Semantius)_
@@ -230,17 +234,17 @@ flowchart LR
 
 **Relationships**
 
-- A `license_assignment` belongs to one `subscription` (N:1, required, delete: cascade — parent).
-- A `license_assignment` belongs to one `user` (N:1, required, delete: cascade — parent).
+- A `license_assignment` belongs to one `subscription` (N:1, required, delete: cascade, parent).
+- A `license_assignment` belongs to one `user` (N:1, required, delete: cascade, parent).
 - Together the two parent FKs form the M:N junction between `subscriptions` and `users`.
 
 ---
 
-### 3.7 `users` — User
+### 3.7 `users`, User
 
 **Plural label:** Users
 **Label column:** `full_name`  _(the human-identifying field; auto-wired by Semantius)_
-**Description:** An internal employee who may own subscriptions, sign contracts, manage departments, or hold license assignments. The `table_name` matches the Semantius built-in `users` table so the downstream implementer can deduplicate — fields here describe the domain-required shape; the implementer reconciles with built-in fields and adds only what's missing.
+**Description:** An internal employee who may own subscriptions, sign contracts, manage departments, or hold license assignments. The `table_name` matches the Semantius built-in `users` so the deployer can deduplicate at deploy-time; fields here describe the domain-required shape and the deployer reconciles with built-in fields, adding only what is missing.
 
 **Fields**
 
@@ -375,29 +379,47 @@ _(Note: shares most values with `subscriptions.category` plus `unallocated` for 
 - `inactive`
 - `offboarded`
 
-## 6. Open questions
+## 6. Cross-model link suggestions
 
-### 6.1 🔴 Decisions needed
+Hint rows the deployer evaluates against the live catalog at deploy-time. Targets that do not exist yet are silently skipped; ambiguous matches trigger a single confirmation widget. Entity-overlap deduplication for shared-master tables (`users`, `vendors`, `departments`) is the deployer's responsibility and is not declared here.
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `invoices` | `subscriptions` | generates | N:1 | restrict |
+| `gl_postings` | `budget_lines` | tracks | N:1 | restrict |
+| `software_installs` | `subscriptions` | licenses | N:1 | clear |
+| `tickets` | `subscriptions` | is the subject of | N:1 | clear |
+
+Notes:
+
+- `invoices → subscriptions` (inbound): when a finance / AP module deploys, its `invoices` table FKs back to `subscriptions` so a posted invoice cannot orphan its source subscription.
+- `gl_postings → budget_lines` (inbound): when a finance / GL module deploys, its `gl_postings` table FKs back to `budget_lines` for plan-vs-actual reconciliation.
+- `software_installs → subscriptions` (inbound): when an ITAM / SAM module deploys, installed software records FK back to the subscription that licenses them. `clear` because uninstalling software should not block subscription edits.
+- `tickets → subscriptions` (inbound): when an ITSM module deploys, tickets reporting issues with a SaaS app FK back to the subscription. `clear` so historical tickets survive subscription archival.
+
+## 7. Open questions
+
+### 7.1 🔴 Decisions needed
 
 None.
 
-### 6.2 🟡 Future considerations
+### 7.2 🟡 Future considerations
 
-- **Should multi-currency support be added — a `currency` field (ISO 4217) on each money-bearing record plus an `exchange_rates` (date, from_currency, to_currency, rate) entity?** All amounts are currently stored in a single implicit base currency; international finance teams would need both pieces to report budget-vs-actual in a single reporting currency.
-- **Should `invoices` and `invoice_line_items` be added once AP-level tracking (paid vs. due, dispute handling, line-level allocations) is in scope?** This model intentionally omits them; "expected" spend is computed from `subscriptions.recurring_amount` × cadence across a budget period, not from received bills.
-- **Should contracts be promoted out of `subscriptions` into a separate `contracts` entity to support MSAs covering multiple sub-products?** A subscription currently carries its own `contract_number`, `signed_date`, `document_url`, `total_contract_value`, `renewal_notice_days`, `negotiated_savings` — fine for 1:1 contract-to-subscription, but not for one contract spanning several subscriptions.
+- **Should multi-currency support be added, with a `currency` field (ISO 4217) on each money-bearing record plus an `exchange_rates` (date, from_currency, to_currency, rate) entity?** All amounts are currently stored in a single implicit base currency; international finance teams would need both pieces to report budget-vs-actual in a single reporting currency.
+- **Should AP-level entities (`invoices`, `invoice_line_items`) ever be tracked here, or always remain in a sibling `finance` module that links via `invoices.subscription_id`?** This model intentionally omits AP entities and computes expected spend from `subscriptions.recurring_amount` × cadence; the §6 cross-model link declares the inbound FK from `finance.invoices` for when finance is deployed.
+- **Should contracts be promoted out of `subscriptions` into a separate `contracts` entity to support MSAs covering multiple sub-products?** A subscription currently carries its own `contract_number`, `signed_date`, `document_url`, `total_contract_value`, `renewal_notice_days`, `negotiated_savings`. This is fine for 1:1 contract-to-subscription, but not for one contract spanning several subscriptions.
 - **Should product identity be re-split from commercial terms into a separate `saas_applications` entity?** A single `subscriptions` record carries both product and terms; multiple concurrent subscriptions for the same product work as multiple rows, but product-level reporting (without double-counting) would require the split.
 - **Should `approval_requests` / `purchase_orders` be modelled in this system?** No approval workflow entities are present; significant addition if purchase, renewal, or budget-change approvals must be tracked here rather than in a separate tool.
 - **Should a `usage_events` entity be added for richer engagement analytics?** `license_assignments.last_active_date` captures a single timestamp for basic unused-license detection; per-user activity or feature adoption would need a dedicated event log.
 - **Should `subscriptions.category` and `budget_lines.category` be promoted to a shared lookup table to avoid enum drift?** The two enums diverge only in that `budget_lines` has `unallocated`; a lookup table would keep them aligned as the taxonomy evolves.
 
-## 7. Implementation notes for the downstream agent
+## 8. Implementation notes
 
 1. Create one module named `saas_expense_tracker` and two baseline permissions (`saas_expense_tracker:read`, `saas_expense_tracker:manage`) before any entity.
 2. Create entities in this order so referenced tables exist first: `departments` → `users` → `vendors` → `subscriptions` → `budget_periods` → `budget_lines` → `license_assignments`. Note that `departments` ↔ `users` have a mutual reference (`departments.manager_user_id` and `users.department_id`); create both entities first, then add the cross-references as a second pass.
 3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "saas_expense_tracker:read"`, `edit_permission: "saas_expense_tracker:manage"`. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. For required `enum` fields, also pass `default_value` (taken from the §3 Notes `default: "<value>"` annotation) so existing rows backfill cleanly when the column is added to a non-empty table. The §3 `Required` column is analyst intent; the platform manages nullability internally based on `format` + `reference_delete_mode` and does not accept an `is_nullable` parameter.
-5. **Fix up label-column titles.** `create_entity` auto-creates a field whose `field_name` equals `label_column` and whose `title` defaults to `singular_label`. Every entity in this model has a Label for the label_column row that differs from `singular_label` (intentional — `singular_label` stays a bare singular for plural/singular symmetry, while the field-level title is more specific). After each `create_entity`, call `update_field` with the composite string id `"{table_name}.{label_column}"` (passed as a **string**, not an integer) to set the correct title:
+5. **Fix up label-column titles.** `create_entity` auto-creates a field whose `field_name` equals `label_column` and whose `title` defaults to `singular_label`. Every entity in this model has a Label for the label_column row that differs from `singular_label` (intentional: `singular_label` stays a bare singular for plural/singular symmetry, while the field-level title is more specific). After each `create_entity`, call `update_field` with the composite string id `"{table_name}.{label_column}"` (passed as a **string**, not an integer) to set the correct title:
    - `"vendors.vendor_name"` → `"Vendor Name"`
    - `"subscriptions.subscription_name"` → `"Subscription Name"`
    - `"departments.department_name"` → `"Department Name"`
@@ -405,36 +427,7 @@ None.
    - `"budget_lines.budget_line_name"` → `"Budget Line Name"`
    - `"license_assignments.assignment_label"` → `"Assignment"`
    - `"users.full_name"` → `"Full Name"`
-6. **Deduplicate against Semantius built-in tables.** This model declares `users` which already exists as a Semantius built-in. Read the built-in first: if it already covers the required shape, **skip the `create_entity` call** and reuse the built-in as the `reference_table` target for `departments.manager_user_id`, `subscriptions.business_owner_id`, `subscriptions.signatory_user_id`, `license_assignments.user_id`, and `users.department_id`. Add only the missing fields in §3.7 that are not present on the built-in (`department_id`, `job_title`, `employee_id` are the likely additions; check before creating each). Additive changes only. If the built-in is reused, skip the step 5 `update_field` for `"users.full_name"` unless the built-in's existing title needs correcting.
-7. **Caller-populated label columns.** Two entities have label_columns with no natural source field; front-end callers must populate them on create:
-   - `license_assignments.assignment_label` — e.g. `"{user.full_name} / {subscription.subscription_name}"` (junction has no natural string identifier).
-   - `budget_lines.budget_line_name` — e.g. `"{department.department_name} — {category} — {budget_period.period_name}"` (no single source field identifies a budget line).
-8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that each label-column field's `title` matches the §3 Label (not `singular_label`).
-
-## 8. Related domains
-
-This model declares the sibling modules SaaS Expense Tracker participates in so the deployer can reconcile foreign keys, exposed entities, and master-data ownership across modules at deploy-time. Slugs match each sibling's `system_slug`. If a sibling is not deployed, its contract is dormant and triggers no action.
-
-### 8.1 `finance` (peer)
-
-A finance / accounts-payable module is a downstream consumer of recurring SaaS spend and planned budget allocations, used to post actuals against the GL and reconcile invoices to subscriptions.
-
-- **Exposes:** `subscriptions`, `budget_periods`, `budget_lines`. Finance records FK back to these so invoices and GL postings link to recurring-spend records and planned allocations.
-- **Expects on sibling:** when `finance` is deployed, FKs of the shape `finance.invoices.subscription_id` pointing at `saas_expense_tracker.subscriptions`, and `finance.gl_postings.budget_line_id` pointing at `saas_expense_tracker.budget_lines`, both with `reference_delete_mode: restrict` so a posted invoice cannot orphan its source subscription or budget line.
-- **Defers to sibling:** none. The §6.2 deferred-scope note about adding `invoices` and `invoice_line_items` directly to this module is superseded by this contract: finance owns AP-level entities; this module exposes the recurring-spend records they reference.
-
-### 8.2 `vendor_management` (upstream master)
-
-When a dedicated vendor management module is deployed, it owns the canonical vendor master and the local `vendors` entity is deduplicated against it.
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `vendors`. At deploy-time, if `vendor_management.vendors` exists, skip the `create_entity` for the local `vendors` (the same dedup pattern §7 step 6 applies to `users`) and rewire `subscriptions.vendor_id` to the sibling's table. SaaS-specific fields not present on the sibling's `vendors` are added additively with `create_field`.
-
-### 8.3 `hris` (upstream master)
-
-When an HRIS module is deployed, it owns the canonical employee and department roster, and this module's `users` and `departments` defer to it.
-
-- **Exposes:** none.
-- **Expects on sibling:** none.
-- **Defers to sibling:** `users` and `departments`. The `users` defer is already called out in §7 step 6 and applies whether the sibling is `hris` or the Semantius built-in `users` table. `departments` follows the same pattern: if `hris.departments` exists, skip creating the local `departments` entity, rewire the department FKs (`subscriptions.primary_department_id`, `budget_lines.department_id`, `users.department_id`, `departments.parent_department_id`), rewire `departments.manager_user_id` against the canonical `hris.users`, and add any module-specific department fields additively.
+6. **Caller-populated label columns.** Two entities have label_columns with no natural source field; front-end callers must populate them on create:
+   - `license_assignments.assignment_label`, e.g. `"{user.full_name} / {subscription.subscription_name}"` (junction has no natural string identifier).
+   - `budget_lines.budget_line_name`, e.g. `"{department.department_name}, {category}, {budget_period.period_name}"` (no single source field identifies a budget line).
+7. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that each label-column field's `title` matches the §3 Label (not `singular_label`).
