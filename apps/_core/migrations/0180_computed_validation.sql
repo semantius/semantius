@@ -13,6 +13,7 @@
 --   $today    -> server date
 --   $now      -> server timestamp
 --   $user_id  -> internal user_id from JWT context, null when no context
+--   $old      -> previous row as JSON on UPDATE, null on INSERT
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -135,10 +136,11 @@ BEGIN
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
                        ELSE to_jsonb(v_uid_text::int)
-                   END
+                   END,
+        '$old',     CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE 'null'::jsonb END
     );
 %s
-    v_data := v_data - '$today' - '$now' - '$user_id';
+    v_data := v_data - '$today' - '$now' - '$user_id' - '$old';
     NEW := jsonb_populate_record(NULL::public.%I, v_data);
     RETURN NEW;
 END;

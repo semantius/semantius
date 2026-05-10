@@ -3,7 +3,7 @@
 -- reserved variables ($today, $now, $user_id), and validation-rule enforcement.
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(35);
 
 SELECT authenticate_as('user3');
 
@@ -261,6 +261,59 @@ SELECT is(
     (SELECT writer_id FROM cv_reserved_test WHERE label = 'probe'),
     rbac.user_id(),
     '$user_id reserved variable resolves to the writing user');
+
+-- =====================================================
+-- Test: $old reserved variable — null on INSERT, previous values on UPDATE
+-- =====================================================
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    computed_fields)
+VALUES ('cv_old_test', 'cv_old', 'Old', 'Olds', '$old reserved-var probe',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[
+        {"name": "old_label",  "jsonlogic": {"if": [{"var": "$old"}, {"var": "$old.label"}, ""]}},
+        {"name": "old_is_null","jsonlogic": {"==": [{"var": "$old"}, null]}}
+    ]'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES
+    ('cv_old_test', 'old_label',   'Old Label',   'text',    10),
+    ('cv_old_test', 'old_is_null', 'Old Is Null', 'boolean', 20);
+
+-- INSERT: $old should be null
+INSERT INTO cv_old_test (label) VALUES ('first');
+
+SELECT is(
+    (SELECT old_label FROM cv_old_test WHERE label = 'first'),
+    '',
+    '$old.label is empty string (default) on INSERT because $old is null');
+
+SELECT is(
+    (SELECT old_is_null FROM cv_old_test WHERE label = 'first'),
+    TRUE,
+    '$old is null on INSERT');
+
+-- UPDATE: $old should contain previous row values
+UPDATE cv_old_test SET label = 'second' WHERE label = 'first';
+
+SELECT is(
+    (SELECT old_label FROM cv_old_test WHERE label = 'second'),
+    'first',
+    '$old.label contains previous label value on UPDATE');
+
+SELECT is(
+    (SELECT old_is_null FROM cv_old_test WHERE label = 'second'),
+    FALSE,
+    '$old is not null on UPDATE');
+
+-- UPDATE again: $old should reflect the row before this update
+UPDATE cv_old_test SET label = 'third' WHERE label = 'second';
+
+SELECT is(
+    (SELECT old_label FROM cv_old_test WHERE label = 'third'),
+    'second',
+    '$old.label contains previous label value on second UPDATE');
 
 -- =====================================================
 -- Test 2: invalid jsonlogic surfaces with rule name on evaluation
