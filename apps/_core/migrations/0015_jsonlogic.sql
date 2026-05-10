@@ -16,11 +16,32 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
 CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
+DECLARE
+    txt_val text;
 BEGIN
     IF val IS NULL THEN RETURN 0; END IF;
+
     CASE jsonb_typeof(val)
-        WHEN 'number' THEN RETURN val::text::numeric;
-        WHEN 'string' THEN RETURN (val #>> '{}')::numeric;
+        WHEN 'number' THEN
+            RETURN val::text::numeric;
+
+        WHEN 'string' THEN
+            txt_val := val #>> '{}';
+
+            -- First try numeric coercion to preserve original JsonLogic behavior.
+            BEGIN
+                RETURN txt_val::numeric;
+            EXCEPTION WHEN invalid_text_representation THEN
+                NULL;
+            END;
+
+            -- Then try timestamp/date coercion for ISO-like date strings.
+            BEGIN
+                RETURN extract(epoch FROM txt_val::timestamp)::numeric;
+            EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow THEN
+                RETURN 0;
+            END;
+
         WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1 ELSE 0 END;
         WHEN 'null' THEN RETURN 0;
         ELSE RETURN 0;
