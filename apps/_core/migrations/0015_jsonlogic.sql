@@ -598,10 +598,37 @@ BEGIN
         RETURN a;
     END IF;
 
+    -- ===================== require_permission =====================
+    -- Calls rbac.require_permission with the given permission name.
+    -- Returns true when the user has the permission; throws an error otherwise.
+    IF op = 'require_permission' THEN
+        PERFORM rbac.require_permission(jl_to_text(a));
+        RETURN 'true'::jsonb;
+    END IF;
+
+    -- ===================== value_changed =====================
+    -- Checks if a field value has changed compared to $old.
+    -- When $old is missing or null in data, always returns true (new record).
+    -- When $old is present, compares $old.<field> with current <field>.
+    IF op = 'value_changed' THEN
+        var_key := jl_to_text(a);
+        nav := data -> '$old';
+        -- If $old is absent or null, treat as new record => always changed
+        IF nav IS NULL OR jsonb_typeof(nav) = 'null' THEN
+            RETURN 'true'::jsonb;
+        END IF;
+        -- Compare old value with current value
+        IF (nav -> var_key) IS DISTINCT FROM (data -> var_key) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
     -- Unknown operator
     RAISE EXCEPTION 'Unrecognized operation: %', op;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 -- Revoke public execute on all jsonlogic functions
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
@@ -609,3 +636,11 @@ REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
+
+-- Grant execute to semantius_user for jsonlogic functions
+-- Required for require_permission and value_changed operators which need an authenticated user context
+GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
