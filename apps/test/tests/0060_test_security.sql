@@ -93,8 +93,11 @@ SELECT is(
             'validate_permission_exists',
             'validate_api_key',
             'apply_field_ddl',
-            'build_record_logic_trigger'
+            'build_record_logic_trigger',
+            'build_select_rule_policy'
         )
+        -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
+        AND p.proname NOT LIKE 'select\_rule\_%'
     ),
     NULL::text,
     'All non-trigger SECURITY DEFINER functions must call rbac.uid()'

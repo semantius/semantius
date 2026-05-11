@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS entities (
     audit_log BOOLEAN NOT NULL DEFAULT FALSE,
     computed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
     validation_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+    select_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -46,7 +47,9 @@ CREATE TABLE IF NOT EXISTS entities (
 
     -- computed_fields and validation_rules must be JSON arrays
     CONSTRAINT computed_fields_is_array CHECK (jsonb_typeof(computed_fields) = 'array'),
-    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array')
+    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array'),
+    -- select_rule must be a JSON object
+    CONSTRAINT select_rule_is_object CHECK (jsonb_typeof(select_rule) = 'object')
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -70,6 +73,8 @@ COMMENT ON COLUMN entities.computed_fields IS
 'Ordered list of {name, jsonlogic, description?} entries. Each entry derives the named field from the same record before write. Default [].';
 COMMENT ON COLUMN entities.validation_rules IS
 'Ordered list of {code, message, jsonlogic, description?} entries. Each entry must evaluate truthy for the write to succeed. Default [].';
+COMMENT ON COLUMN entities.select_rule IS
+'JsonLogic rule evaluated per row for FOR SELECT RLS policy. When non-empty, generates a policy function that returns true only when the rule evaluates truthy. Default {}.';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -100,6 +105,7 @@ CREATE TABLE IF NOT EXISTS fields (
     plural_label_parent TEXT NOT NULL DEFAULT '',
     unique_value BOOLEAN NOT NULL DEFAULT FALSE,
     cube_type TEXT NOT NULL DEFAULT 'auto',
+    view_condition JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -407,6 +413,7 @@ BEGIN
       ('fields', 'plural_label_parent', 'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 142, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'unique_value',        'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL,                           '',          '',        ''),
       ('fields', 'cube_type',           'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 144, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
+      ('fields', 'view_condition',      'View Condition',       'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 145, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'created_at',          'Created At',           '',                                                                       '',         'date-time', FALSE, 140, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'updated_at',          'Updated At',           '',                                                                       '',         'date-time', FALSE, 150, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        '');
 
@@ -437,6 +444,7 @@ VALUES
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'json',      FALSE, 123, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'json',      FALSE, 124, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        '');
 

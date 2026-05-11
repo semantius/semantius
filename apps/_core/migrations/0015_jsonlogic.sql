@@ -598,6 +598,17 @@ BEGIN
         RETURN a;
     END IF;
 
+    -- ===================== has_permission =====================
+    -- Calls rbac.has_permission with the given permission name.
+    -- Returns true when the user has the permission; false otherwise.
+    IF op = 'has_permission' THEN
+        IF rbac.has_permission(jl_to_text(a)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
     -- ===================== require_permission =====================
     -- Calls rbac.require_permission with the given permission name.
     -- Returns true when the user has the permission; throws an error otherwise.
