@@ -1,7 +1,7 @@
 -- Test public.get_schema() function
 BEGIN;
 
-SELECT plan(141);
+SELECT plan(142);
 
 -- =====================================================
 -- TEST: get_schema() returns correct data for existing table
@@ -283,10 +283,16 @@ SELECT is(
     'get_schema() should return format "email" for email field'
 );
 
--- Test format field is not present for primitive types
+-- Test format field is present for plain text fields (format: text is now returned)
 SELECT ok(
-    NOT ((public.get_schema('customers_test')::jsonb)->'properties'->'customer_name' ? 'format'),
-    'get_schema() should not include format field for plain text fields'
+    (public.get_schema('customers_test')::jsonb)->'properties'->'customer_name' ? 'format',
+    'get_schema() should include format field for plain text fields'
+);
+
+SELECT is(
+    (public.get_schema('customers_test')::jsonb)->'properties'->'customer_name'->>'format',
+    'text',
+    'get_schema() should return format "text" for plain text fields'
 );
 
 -- Test integer type mapping

@@ -299,7 +299,6 @@ BEGIN
             CASE 
                 WHEN format IS NOT NULL 
                      AND format != '' 
-                     AND format != 'text'
                      AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb

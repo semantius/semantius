@@ -22,8 +22,8 @@ SELECT setval('modules_id_seq', (SELECT MAX(id) FROM modules), true);
 
 -- Add custom permissions for sales module
 INSERT INTO permissions (permission_name, description, module_id) VALUES
-    ('sales:read', 'Permission to read sales information', 1001),
-    ('sales:manage', 'Permission to manage sales (includes read, create, update, delete)', 1001);
+    ('sales:read', 'Read sales information', 1001),
+    ('sales:manage', 'Manage sales (includes read, create, update, delete)', 1001);
 
 -- Add custom role "Sales User" for CRM module
 INSERT INTO roles (role_name, description, module_id) VALUES
