@@ -254,8 +254,7 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
 
     -- If select_rule is empty, restore the default permission-only policy
-    IF v_entity.select_rule IS NULL
-       OR v_entity.select_rule = '{}'::jsonb THEN
+    IF v_entity.select_rule = '{}'::jsonb THEN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
             v_policy_name, p_table_name, v_entity.view_permission);
