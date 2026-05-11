@@ -474,7 +474,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    TRUE, FALSE, '',        '',      ''),
     ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
-    ('roles', 'description', 'Description', '',                              'multiline',  FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
+    ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
     ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
@@ -484,7 +484,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('permissions', 'id',              'Id',              '',                                    'int32',     TRUE,  1,  'readonly', 'default', 'id',    TRUE, FALSE, '',        '',      ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
-    ('permissions', 'description',     'Description',     '',                                    'multiline',  FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
+    ('permissions', 'description',     'Description',     '',                                    'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
     ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
