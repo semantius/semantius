@@ -266,7 +266,7 @@ SELECT authenticate_as('user1');
 SELECT throws_ok(
     $$
     SELECT evaluate_json_logic(
-        '{"if":[{"and":[{"value_changed":"status"},{"==":["approved",{"var":"status"}]}]},{"require_permission":"admin"},true]}'::jsonb,
+        '{"if":[{"and":[{"value_changed":"status"},{"==":[{"var":"status"},"approved"]}]},{"require_permission":"admin"},true]}'::jsonb,
         '{"status":"approved","$old":{"status":"pending"}}'::jsonb
     )
     $$,
