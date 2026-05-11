@@ -12,8 +12,8 @@ VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind
 
 -- Permissions
 INSERT INTO permissions (permission_name, description, module_id) VALUES
-    ('nwind:view',   'Permission to view Northwind data',   (SELECT id FROM modules WHERE module_name = 'Northwind')),
-    ('nwind:manage', 'Permission to manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
+    ('nwind:view',   'View Northwind data',   (SELECT id FROM modules WHERE module_name = 'Northwind')),
+    ('nwind:manage', 'Manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
 
 -- Permission hierarchy: nwind:manage implies nwind:view
 INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id)

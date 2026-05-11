@@ -8,10 +8,10 @@
 -- =====================================================
 
 INSERT INTO permissions (id, permission_name, description) VALUES
-    (1, 'user:read', 'Permission to read user information'),
-    (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)'),
-    (3, 'public:read', 'Permission to read public information'),
-    (4, 'admin', 'Permission to manage administrative functions');
+    (1, 'user:read', 'Read user information'),
+    (2, 'user:manage', 'Manage users (includes read, create, update, delete)'),
+    (3, 'public:read', 'Read public information'),
+    (4, 'admin', 'Manage administrative functions');
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
