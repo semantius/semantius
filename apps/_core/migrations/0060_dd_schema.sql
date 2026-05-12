@@ -347,7 +347,7 @@ DECLARE
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
   cube_mode_values TEXT[] := ARRAY['disabled', 'auto'];
-  cube_type_values TEXT[] := ARRAY['disabled', 'auto', 'dimension', 'measure'];
+  cube_type_values TEXT[] := ARRAY['auto', 'dimension', 'measure', 'disabled'];
 BEGIN
   -- Add enum constraints
   EXECUTE format(
@@ -390,39 +390,57 @@ BEGIN
   -- All field definitions for the fields table are consolidated here with NO duplication
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
   VALUES
-      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  1,   'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 10,  'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade', 'has fields'),
-      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 20,  'required', 'default', NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 30,  'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 40,  'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'string',   'enum',      FALSE, 50,  'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          '',        ''),
-      ('fields', 'is_pk',               'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 60,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'is_nullable',         'Is Nullable',          'Whether this field allows NULL values (computed from format)',            '',         'boolean',   FALSE, 70,  'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'default_value',       'Default Value',        '',                                                                       '',         'text',      FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'field_order',         'Field Order',          '',                                                                       '',         'int32',     FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'input_type',          'Input Type',           '',                                                                       'default',  'enum',      FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
-      ('fields', 'width',               'Width',                '',                                                                       'default',  'enum',      FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          '',        ''),
-      ('fields', 'ctype',               'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 120, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          '',        ''),
-      ('fields', 'is_core',             'Is Core',              '',                                                                       '',         'boolean',   FALSE, 130, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'searchable',          'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 135, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'enum_values',         'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 137, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'precision',           'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_table',     'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                       'restrict', 'enum',      FALSE, 139, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
-      ('fields', 'relationship_label',  'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',  'has',      'text',      FALSE, 140, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 141, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'plural_label_parent', 'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 142, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'unique_value',        'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL,                           '',          '',        ''),
-      ('fields', 'cube_type',           'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 144, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
-      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 145, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'created_at',          'Created At',           '',                                                                       '',         'date-time', FALSE, 140, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'updated_at',          'Updated At',           '',                                                                       '',         'date-time', FALSE, 150, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        '');
+      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  10,     'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade', 'has fields'),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 30,     'required', 'default', NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, 40,     'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          '',        ''),
+      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'is_nullable',          'Is Nullable',          'Whether this field allows NULL values (computed from format)',           '',         'boolean',   FALSE, 80,     'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
+      ('fields', 'width',                'Width',                '',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          '',        ''),
+      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          '',        ''),
+      ('fields', 'is_core',              'Is Core',              '',                                                                       '',         'boolean',   FALSE, 140,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'searchable',           'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'enum_values',          'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'precision',            'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'reference_table',      'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 180,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
+      ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',   'has',      'text',      FALSE, 200,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 210,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 220,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 230, 'hidden',  'default', NULL, TRUE, FALSE, NULL,                           '',          '',        ''),
+      ('fields', 'cube_type',            'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
+      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 250,    'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
   VALUES
       ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', '', ''),
       ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '', '');
+
+  -- Conditional visibility rules for format-dependent fields on the fields table.
+  -- These fields default to 'hidden' and become visible/required only when the
+  -- selected format makes them meaningful.
+  UPDATE fields SET input_type_rule = rule::jsonb
+  FROM (VALUES
+    ('enum_values',          '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'),
+    ('precision',            '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'),
+    ('reference_table',      '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('reference_delete_mode','{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('relationship_label',   '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
+    ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
+    ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
+  ) AS r(field_name, rule)
+  WHERE fields.table_name = 'fields' AND fields.field_name = r.field_name;
 END $$;
 
 -- Insert fields metadata for entities table
