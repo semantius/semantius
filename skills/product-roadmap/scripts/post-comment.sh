@@ -1,93 +1,89 @@
 #!/usr/bin/env bash
-# post-comment.sh: POST a comment on a feature. Composes comment_label
-# deterministically from comment_body: if body is at most 80 chars,
-# label=body verbatim; otherwise the first 80 chars are cut at the
-# last whitespace position when one exists in the prefix (else cut
-# mid-word), trailing whitespace is stripped, and the Unicode
-# horizontal ellipsis (U+2026) is appended. The body is left intact
-# in comment_body.
+# post-comment.sh: Post a comment on a feature, composing the
+# `comment_label` deterministically from the body. The author is
+# required on insert (platform-enforced via author_required_on_insert).
 #
-# Usage: post-comment.sh <feature_id> <author_id> <comment_body>
-#        comment_body is one positional argument; the caller must
-#        quote it if it contains spaces or special characters.
+# Usage: post-comment.sh <feature-title> <user-email> <comment-body>
+#
 # Exit:  0 on success
-#        1 on usage / precondition failure (bad args, empty body,
-#          feature or author not found)
-#        2 on platform error (a semantius call failed)
+#        1 on usage / validation failure (bad args, unresolved title or email,
+#          empty body)
+#        2 on platform error (semantius call failed)
 #
-# NOT idempotent: every run POSTs a new row. Comments are append-only
-# by design; the caller must guard against accidental retries.
+# Label composition: first 80 chars of comment_body. If the cut falls
+# mid-word (char 80 is not a space and char 81 exists and is not a
+# space), retract to the last space at or before position 80. If the
+# body was longer than the cut, append the literal '…' (U+2026); no
+# trailing space. If the body is <= 80 chars, the label is the body
+# verbatim.
 #
-# Locale: requires a UTF-8 locale (LC_ALL=C.UTF-8 or similar) so that
-# awk's length() and substr() count characters rather than bytes when
-# the body contains non-ASCII text.
+# Idempotent: comments are append-only; re-running posts another
+# comment. The script does not dedupe; that is by design.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "Usage: $(basename "$0") <feature_id> <author_id> <comment_body>" >&2
+if [ "$#" -lt 3 ]; then
+  echo "Usage: $(basename "$0") <feature-title> <user-email> <comment-body>" >&2
   exit 1
 fi
 
-feature_id="$1"
-author_id="$2"
-body="$3"
+feature_title="$1"
+user_email="$2"
+shift 2
+body="$*"
+posted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-if [ -z "$body" ]; then
-  echo "step 0: comment_body must not be empty" >&2
+# Trim leading/trailing whitespace
+body_trimmed="$(printf '%s' "$body" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if [ -z "$body_trimmed" ]; then
+  echo "step 0: comment_body is empty after trimming whitespace" >&2
   exit 1
 fi
 
-# Step 1: confirm both parents exist. No dependency between these
-# reads; bash sequences them but each is cheap.
-# expect: --single per read; exit 1 from semantius means the parent
-#         is missing (zero rows) or ambiguous (impossible on id=eq.).
-semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/features?id=eq.$feature_id&select=id\"}" \
-  >/dev/null \
-  || { echo "step 1: feature $feature_id not found" >&2; exit 1; }
+# Compose label
+body_len=${#body_trimmed}
+if [ "$body_len" -le 80 ]; then
+  label="$body_trimmed"
+else
+  cut="${body_trimmed:0:80}"
+  next_char="${body_trimmed:80:1}"
+  last_char="${cut: -1}"
+  if [ "$last_char" != " " ] && [ "$next_char" != " " ]; then
+    # mid-word; retract to last space at or before position 80
+    cut="${cut% *}"
+    if [ "$cut" = "${body_trimmed:0:80}" ]; then
+      # no space in the first 80 chars; keep the hard cut
+      cut="${body_trimmed:0:80}"
+    fi
+  fi
+  # strip trailing whitespace from cut
+  cut="$(printf '%s' "$cut" | sed -e 's/[[:space:]]*$//')"
+  label="${cut}…"
+fi
 
-semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/users?id=eq.$author_id&select=id\"}" \
-  >/dev/null \
-  || { echo "step 1: author $author_id not found" >&2; exit 1; }
+# Step 1: parallel-fetch
+feature=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/features?search_vector=wfts(simple).${feature_title// /%20}&select=id,feature_title\"}") \
+  || { echo "step 1a: feature '$feature_title' not found or ambiguous" >&2; exit 1; }
+user=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/users?user_email=eq.$user_email&select=id\"}") \
+  || { echo "step 1b: user '$user_email' not found" >&2; exit 1; }
 
-# Step 2: compose comment_label. The awk program counts characters
-# under a UTF-8 locale and emits the U+2026 ellipsis as its three
-# UTF-8 bytes when truncation occurred.
-label=$(LC_ALL=C.UTF-8 awk -v body="$body" 'BEGIN{
-  n = length(body)
-  if (n <= 80) { printf "%s", body; exit }
-  prefix = substr(body, 1, 80)
-  next_char = substr(body, 81, 1)
-  last_char = substr(prefix, 80, 1)
-  if (next_char ~ /[[:space:]]/ || last_char ~ /[[:space:]]/) {
-    sub(/[[:space:]]+$/, "", prefix)
-    printf "%s\xe2\x80\xa6", prefix
-    exit
-  }
-  for (i = 79; i >= 1; i--) {
-    if (substr(prefix, i, 1) ~ /[[:space:]]/) {
-      cut = substr(prefix, 1, i-1)
-      sub(/[[:space:]]+$/, "", cut)
-      printf "%s\xe2\x80\xa6", cut
-      exit
-    }
-  }
-  printf "%s\xe2\x80\xa6", prefix
-}')
+feature_id=$(printf '%s' "$feature" | grep -oE '"id":"[^"]+"' | head -n1 | cut -d'"' -f4)
+author_id=$(printf '%s' "$user" | grep -oE '"id":"[^"]+"' | head -n1 | cut -d'"' -f4)
 
-# Escape JSON-special characters in label and body. The body may
-# contain newlines; collapse them to \n.
-json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g' -e 's/\r/\\r/g' -e 's/\t/\\t/g'
-}
-label_json=$(json_escape "$label")
-body_json=$(json_escape "$body")
+# Step 2: POST. Escape backslashes and double-quotes for JSON.
+body_json=$(printf '%s' "$body_trimmed" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+label_json=$(printf '%s' "$label" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
 
-posted_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+response=$(semantius call crud postgrestRequest "{\"method\":\"POST\",\"path\":\"/comments\",\"body\":{\"feature_id\":\"$feature_id\",\"author_id\":\"$author_id\",\"comment_body\":\"$body_json\",\"comment_label\":\"$label_json\",\"posted_at\":\"$posted_at\"}}") \
+  || { echo "step 2: POST /comments failed; if author_required_on_insert was returned, the user lookup leaked through; surface the platform code verbatim" >&2; exit 2; }
 
-# Step 3: POST.
-# expect: array (write returns the inserted row); exit-code guard only.
-semantius call crud postgrestRequest "{\"method\":\"POST\",\"path\":\"/comments\",\"body\":{\"comment_label\":\"$label_json\",\"feature_id\":\"$feature_id\",\"author_id\":\"$author_id\",\"comment_body\":\"$body_json\",\"posted_at\":\"$posted_at\"}}" \
-  >/dev/null \
-  || { echo "step 3 (POST comment) failed" >&2; exit 2; }
+new_id=$(printf '%s' "$response" | grep -oE '"id":"[^"]+"' | head -n1 | cut -d'"' -f4)
+if [ -z "$new_id" ]; then
+  echo "step 2: POST /comments returned no id" >&2
+  exit 2
+fi
+
+verify=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/comments?id=eq.$new_id&select=id,comment_label,feature_id,author_id\"}") \
+  || { echo "step 3: verify read failed" >&2; exit 2; }
 
 echo "post-comment: ok"
+printf '%s\n' "$verify"

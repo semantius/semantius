@@ -1,17 +1,14 @@
 ---
 name: product-roadmap
 description: >-
-  Use this skill for anything involving the Product Roadmap, the in-house
-  domain that tracks features (new ideas, enhancements, change requests, bugs,
-  tech debt) from intake through RICE scoring, objective alignment, release
-  scheduling, and ship. Trigger when the user says: "capture a new feature
-  request", "score this feature with RICE", "rescore the dark mode feature",
-  "triage the under-review backlog", "schedule feature X into v2.5", "ship the
-  March 2026 release", "vote for the dark mode feature", "tag this as mobile",
-  "comment on this feature", "what's the top-voted feature this quarter",
-  "what's our planned spend by cost center", "show pipeline by status". Loads
-  alongside `use-semantius`, which owns CLI install, PostgREST encoding, and
-  cube query mechanics.
+  Use this skill for anything involving the Product Roadmap, the
+  in-house domain that captures features, scores them with RICE,
+  rolls them up to objectives, and schedules committed work into
+  releases, plus stakeholder votes, comments, and tags. Trigger
+  when the user wants to schedule a feature into a release, start
+  work on a feature, ship a feature, cast a vote on behalf of a
+  user, tag a feature, post a comment, or pull pipeline /
+  RICE / throughput reports.
 semantic_model: product_roadmap
 ---
 
@@ -27,101 +24,129 @@ If a task is purely about defining schema, managing permissions, or
 running ad-hoc queries against tables you already know, call
 `use-semantius` directly, going through this skill adds nothing.
 
-**Auto-managed fields** (set by Semantius on every table; never
-include in POST/PATCH bodies): `id`, `created_at`, `updated_at`. The
-three caller-populated junction and sub-entity label columns
-(`feature_vote_label`, `comment_label`, `feature_tag_label`) are
-**not** auto-managed: they are required on insert and must appear in
-every POST body. Composition rules live in each affected JTBD.
+**Auto-managed fields** (set by Semantius on every table; never include
+in POST/PATCH bodies): `id`, `created_at`, `updated_at`. The
+`label_column` field is **required on insert and caller-populated** on
+every entity unless the model explicitly says it is auto-derived. For
+this domain that means `feature_vote_label` on `feature_votes`,
+`feature_tag_label` on `feature_tags`, and `comment_label` on
+`comments` are all required on POST and the recipe must compose the
+value (see each JTBD for the composition rule). Do not omit `*_label`
+from POST bodies.
 
-For bulk CSV / Excel import of features, votes, or tags, see
-`use-semantius` `references/webhook-import.md`; this skill does not
-script imports.
+**Platform-derived fields** (set by the platform's per-entity
+`computed_fields` triggers on every INSERT/UPDATE; never include in
+POST/PATCH bodies, the platform overwrites caller payloads):
+
+- `features.rice_score`: (reach × impact × confidence) / effort, null
+  when effort is missing or 0.
+
+**Platform-enforced invariants** (entity-level `validation_rules`
+triggered on every INSERT/UPDATE; the platform rejects writes that
+violate them with `{ "errors": [{ "code", "message" }, ...] }`. The
+recipes here do NOT pre-validate these; they surface the platform's
+error to the user verbatim if the write fails):
+
+- `objectives` rule `objective_terminal_is_one_way`: Once an objective
+  is achieved, missed, or cancelled, its status cannot change. Why:
+  achieved / missed / cancelled record the outcome of a strategic
+  period; reopening a closed objective is a data-integrity bug.
+- `features` rule `release_only_when_committed`: A release can only be
+  assigned once the feature is planned, in_progress, or shipped. Why:
+  release_id is only meaningful once the feature is committed.
+- `features` rule `release_required_when_shipped`: A shipped feature
+  must reference the release it shipped in.
+- `features` rule `feature_shipped_is_one_way`: Once a feature is
+  shipped, its status cannot change. Why: shipped is the terminal
+  outcome; reopening should be a new feature record.
+- `features` rule `target_dates_ordered`: Target start date must be
+  on or before target completion date.
+- `features` rule `actual_dates_ordered`: Actual start date must be
+  on or before actual completion date.
+- `features` rule `actual_start_only_when_in_progress_or_later`:
+  Actual start date can only be set once the feature is in_progress
+  or shipped.
+- `features` rule `actual_completion_only_when_shipped`: Actual
+  completion date can only be set once the feature is shipped.
+- `features` rule `actual_completion_required_when_shipped`: A
+  shipped feature must record its actual completion date.
+- `features` rule `reach_score_non_negative`: Reach must be zero or
+  greater.
+- `features` rule `impact_score_non_negative`: Impact must be zero
+  or greater.
+- `features` rule `confidence_score_in_range`: Confidence must be
+  between 0 and 100.
+- `features` rule `effort_score_positive`: Effort must be greater
+  than zero. Why: 0 has no domain meaning and breaks the RICE
+  divisor.
+- `releases` rule `actual_date_only_when_released`: Actual release
+  date can only be set once the release status is released.
+- `releases` rule `released_requires_actual_date`: A released release
+  must record its actual release date.
+- `releases` rule `release_released_is_one_way`: Once a release is
+  released, its status cannot change.
+- `feature_votes` rule `vote_weight_positive`: Vote weight must be
+  at least 1.
+- `comments` rule `author_required_on_insert`: Author must be set
+  when a comment is created. Why: author is required on insert but
+  storage is nullable so a deleted user's comments survive as
+  orphaned records.
 
 ---
 
 ## Domain glossary
 
-The roadmap funnel runs **Feature intake → RICE scoring → Triage →
-Release scheduling → Ship**, with `Objectives` as the strategic frame
-features roll up to, `Cost centers` as the funding bucket, and
-`Votes` / `Tags` / `Comments` as stakeholder signals around each
-feature.
-
 | Concept | Table | Notes |
 |---|---|---|
-| Objective | `objectives` | Strategic goal or theme features roll up to (e.g. "Reduce churn by 10%") |
-| Feature | `features` | The central roadmap entity: idea, enhancement, change request, bug, or tech debt; carries `estimated_cost` and `actual_cost` (numeric, scale 2) plus the four RICE inputs feeding the stored `rice_score` |
-| Release | `releases` | A planned release with target and actual ship dates; features schedule into one |
-| Cost Center | `cost_centers` | Funding bucket a feature is charged to; supports cost roll-up vs `annual_budget` |
-| User | `users` | PMs, owners, requesters, voters (deduped against the Semantius built-in `users`) |
-| Feature Vote | `feature_votes` | Junction, weighted user vote on a feature; caller composes `feature_vote_label` |
-| Comment | `comments` | Discussion message on a feature; caller composes `comment_label` |
-| Tag | `tags` | Reusable category label (e.g. `mobile`, `enterprise`); `tag_name` unique |
-| Feature Tag | `feature_tags` | Junction linking features to tags; caller composes `feature_tag_label` |
-
-**Commitment rule.** A feature is **committed** when
-`feature_status` is one of `planned`, `in_progress`, `shipped`. The
-flag is derived, there is no separate boolean. `release_id` should
-agree: a committed feature has a `release_id` set, and a
-non-committed feature does not.
-
-**Feature stored fields with computed value.** `features.rice_score`
-is `numeric` with scale 4 and is computed as
-`(reach_score * impact_score * confidence_score) / effort_score`. It
-must be recomputed in the same call as any RICE input change; see
-the *Score a feature with RICE* JTBD for the rule.
+| Objective | `objectives` | Strategic goal or theme features roll up to |
+| Feature | `features` | Central entity, anything on the roadmap (idea, enhancement, change request, bug, tech debt). Carries RICE scores, status, target / actual dates, optional release |
+| User | `users` | PMs, owners, requesters, voters, stakeholders. Reused from the Semantius built-in `users` table |
+| Release | `releases` | Planned release with target / actual ship dates |
+| Feature Vote | `feature_votes` | Junction: a user's vote on a feature. M:N with optional weight |
+| Comment | `comments` | Discussion message posted on a feature |
+| Tag | `tags` | Reusable label for categorizing features |
+| Feature Tag | `feature_tags` | Junction: feature ↔ tag M:N |
 
 ## Key enums
 
-Only the enums that gate JTBDs are listed; full sets live in the
-semantic model. Arrows mark the typical lifecycle path; `|` separates
-terminal-ish states.
+- `features.feature_status`: `new` → `under_review` → `planned` → `in_progress` → `shipped`. Sidetracks: `declined`, `parked` (both reversible). `shipped` is terminal one-way. Commitment is derived: status ∈ {planned, in_progress, shipped} ⇒ committed.
+- `features.feature_type`: `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt`.
+- `features.feature_priority`: `critical`, `high`, `medium`, `low`.
+- `features.feature_source`: `unspecified`, `customer`, `support`, `sales`, `internal`, `partner`.
+- `releases.release_status`: `planned` → `in_progress` → `released`. Sidetrack: `cancelled` (reversible). `released` is terminal one-way.
+- `objectives.objective_status`: `proposed` → `active` → `achieved` | `missed` | `cancelled`. The three terminal values are one-way.
 
-- `features.feature_status`: `new` → `under_review` → `planned` → `in_progress` → `shipped` | `declined` | `parked` (committed iff status ∈ {`planned`, `in_progress`, `shipped`})
-- `features.feature_type`: `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt`
-- `features.feature_priority`: `critical`, `high`, `medium`, `low`
-- `features.feature_source`: `unspecified`, `customer`, `support`, `sales`, `internal`, `partner`
-- `releases.release_status`: `planned` → `in_progress` → `released` | `cancelled`
-- `objectives.objective_status`: `proposed` → `active` → `achieved` | `missed` | `cancelled`
+## When the runtime disagrees with the recipe
 
-## Foreign-key cheatsheet
+The FK shape and audit-logging facts in each JTBD's reference file
+are baked in at skill-generation time. The live schema can drift,
+admins can add a unique index, drop an FK, or toggle audit-logging
+on a table without regenerating this skill. The recipes are not
+self-correcting on their own, but the agent has an escape hatch.
 
-Only the FKs that JTBDs cross. Format: `child.field → parent.id`
-(delete behavior in parens).
+When a recipe gets a `409 Conflict`, `422 Unprocessable Entity`, or
+any other write failure the JTBD's reference file did not predict,
+the recovery move is **read the live schema, then decide**:
 
-- `features.objective_id → objectives.id` (clear)
-- `features.release_id → releases.id` (clear; null until scheduled)
-- `features.cost_center_id → cost_centers.id` (clear)
-- `features.requester_id → users.id` (clear)
-- `features.owner_id → users.id` (clear)
-- `objectives.objective_owner_id → users.id` (clear)
-- `cost_centers.cost_center_owner_id → users.id` (clear)
-- `feature_votes.feature_id → features.id` (parent, cascade)
-- `feature_votes.user_id → users.id` (parent, cascade)
-- `comments.feature_id → features.id` (parent, cascade)
-- `comments.author_id → users.id` (set null; orphaned comments survive a deleted user)
-- `feature_tags.feature_id → features.id` (parent, cascade)
-- `feature_tags.tag_id → tags.id` (parent, cascade)
+```bash
+# What FKs does this entity actually have right now?
+semantius call crud read_field '{"filters": "entity=eq.<entity_id>"}'
 
-**Unique columns** (409 on duplicate POST): `users.user_email`,
-`releases.release_name`, `tags.tag_name`,
-`cost_centers.cost_center_code`.
+# Or, more targeted, what does field <name> reference today?
+semantius call crud read_field '{"filters": "entity=eq.<entity_id>,name=eq.<field_name>"}'
+```
 
-**No DB-level uniqueness on the natural junction keys.** Neither
-`feature_votes(feature_id, user_id)` nor `feature_tags(feature_id,
-tag_id)` is constrained. Recipes that would create one must read
-first.
-
-**Audit-logged tables** (Semantius writes the audit rows
-automatically; recipes do not manage them): `objectives`, `features`,
-`releases`, `cost_centers`.
+If the live shape contradicts the recipe's assumption, abort with a
+clear stderr message naming the drift; do not silently "fix it up"
+with extra writes. Then surface to the user that the skill is out of
+date and recommend regenerating via `semantius-skill-maker`. Drift
+recovery is the user's call, not the agent's.
 
 ## Lookup convention
 
 Semantius adds a `search_vector` column to searchable entities for
 full-text search across all text fields. Use it whenever the user
-passes a name, title, or description, not a UUID:
+passes a name, title, email, or description, not a UUID:
 
 ```bash
 semantius call crud postgrestRequest '{"method":"GET","path":"/<table>?search_vector=wfts(simple).<term>&select=id,<label_column>"}'
@@ -129,344 +154,231 @@ semantius call crud postgrestRequest '{"method":"GET","path":"/<table>?search_ve
 
 Use `wfts(simple).<term>` for fuzzy text searches; never `ilike` and
 never `fts`, they bypass the search index and mismatch the platform
-convention. `<column>=eq.<value>` is the right tool for known-exact
-values (UUIDs, FK ids, status enums, unique columns like `tag_name`,
-`release_name`, `cost_center_code`, `user_email`). If a fuzzy lookup
-returns more than one row, present the candidates and ask. If zero,
-ask the user to clarify rather than guessing.
+convention.
+
+Field-equality (`<column>=eq.<value>`) is the right tool for a
+*different* job: filtering on a known-exact value. Use it for UUIDs,
+FK ids, status enums, and unique columns whose values the caller
+already knows verbatim (e.g. `tag_name`, `user_email`,
+`release_name`). The two patterns are not in competition:
+`wfts(simple)` resolves a fuzzy human input to a row; `eq` selects
+rows whose column exactly equals a known value.
+
+If a lookup returns more than one row, present the candidates and
+ask. If zero, ask the user to clarify rather than guessing.
 
 ## Timestamps in recipe bodies
 
 Every `*_at` field, `*_date` field, or other moment-of-action value
-in a recipe body (`submitted_at`, `voted_at`, `posted_at`,
-`actual_release_date`, `target_start_date`, `target_completion_date`)
-is a placeholder the calling agent fills at call time, not a literal
-copied from the example. The recipes use `<current ISO timestamp>`
-and `<today's date, YYYY-MM-DD>`; do not copy those strings into a
-real call. This applies in SKILL.md, in every reference file, in
-the Common queries appendix, and in any script.
+in a recipe body is a placeholder the calling agent fills at call
+time, not a literal copied from the example. The Recipe templates
+use `<current ISO timestamp>` and `<today's date, YYYY-MM-DD>`; do
+not copy those strings into a real call. This applies in SKILL.md,
+in every reference file, in the Common queries appendix, and in any
+script the calling agent invokes.
 
 ---
 
 ## Jobs to be done
 
-### Capture a new feature (intake)
-
-**Triggers:** `capture a new feature request`, `add this idea to the
-backlog`, `log a bug as a feature`, `create a change request`
-
-**Inputs:**
-
-| Name | Required | Notes |
-|---|---|---|
-| `feature_title` | yes | label_column; what the user typed as the idea |
-| `feature_type` | yes | One of `new_feature`, `enhancement`, `change_request`, `bug`, `tech_debt` |
-| `feature_status` | no | Defaults to `new`; must NOT be `planned`/`in_progress`/`shipped` here, those route to the schedule JTBD |
-| `feature_priority` | no | Default `medium` |
-| `feature_source` | no | `customer`, `support`, `sales`, `internal`, `partner`, `unspecified` |
-| `requester_id` | no | Resolve via `user_email=eq.<email>` |
-| `owner_id` | no | The PM owning the feature; resolve by email |
-| `objective_id` | no | Resolve by `objective_name` via `wfts(simple)` |
-| `cost_center_id` | no | Resolve by `cost_center_code=eq.<code>` (unique) |
-| `submitted_at` | no | Set to the current ISO timestamp at intake |
-| RICE inputs (`reach_score`, `impact_score`, `confidence_score`, `effort_score`) | no | If any are passed, recipe recomputes `rice_score` |
-
-**Recipe:** see [`references/capture-feature.md`](references/capture-feature.md).
-
-**Validation:** new row exists with the resolved FKs; `feature_status`
-matches what the caller asked for (default `new`); if any RICE input
-was passed and `effort_score` is non-zero, `rice_score` equals
-`(reach * impact * confidence) / effort` rounded to 4 decimals.
-
-**Failure modes:**
-- Caller asks for `feature_status=planned` at intake → refuse and
-  route to the *Schedule a feature into a release* JTBD.
-- `objective_id` resolves to a `cancelled`/`missed` objective, or
-  `cost_center_status=inactive` → ask the user before proceeding.
-
----
-
-### Score a feature with RICE (recompute)
-
-**Triggers:** `score this feature with RICE`, `update the RICE
-score`, `rescore X`, `set reach to 5000`
-
-**Inputs:**
-
-| Name | Required | Notes |
-|---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| Any of `reach_score`, `impact_score`, `confidence_score`, `effort_score` | yes | At least one must be provided |
-
-**Recipe:** run `scripts/score-rice.sh <feature_id> [reach=<n>] [impact=<n>] [confidence=<n>] [effort=<n>]`.
-The script reads current scores, overlays the caller's deltas,
-recomputes `rice_score` rounded to 4 decimals (or null if effort is
-null/zero), and PATCHes everything in one call. Exit 0 on success,
-1 on bad inputs / feature not found, 2 on platform error.
-
-**Validation:** all four RICE inputs on the row reflect the merged
-values; `rice_score` equals `(reach * impact * confidence) / effort`
-with the post-PATCH inputs rounded to 4 decimals; OR `rice_score`
-is null and `effort_score` is null/zero.
-
-**Failure modes:**
-- `effort_score` is null or zero after the PATCH → division
-  undefined; PATCH `rice_score` to null, do not write a placeholder.
-- Score field PATCHed without `rice_score` recomputed → silent
-  corruption; recover by reading the row, recomputing, and
-  re-PATCHing.
-
----
-
-### Triage a feature (move to under_review / declined / parked)
-
-**Triggers:** `triage the backlog`, `move X to under review`,
-`decline this feature`, `park this idea for next quarter`
-
-**Inputs:**
-
-| Name | Required | Notes |
-|---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| Target `feature_status` | yes | One of `under_review`, `declined`, `parked`, `new` (promotion to `planned` is the schedule JTBD, not this one) |
-
-**Recipe:** see [`references/triage-feature.md`](references/triage-feature.md).
-
-**Validation:** `feature_status` matches the target; for `declined`
-or `parked`, `release_id` is null (a non-committed feature with a
-release_id breaks release-content reports).
-
-**Failure modes:**
-- Caller asks to promote to `planned` here → refuse and route to the
-  schedule JTBD.
-- Source status is `shipped` → refuse; reopening a shipped feature
-  is a model-level decision, not a triage step.
-
----
-
 ### Schedule a feature into a release
 
-**Triggers:** `schedule X into v2.5`, `add this feature to the March
-2026 release`, `commit the dark mode work to v3.0`, `move this off
-the v2.5 release`
+**Triggers:** `schedule feature X for release Y`, `commit X to release Y`, `plan feature X`, `add feature X to the v2.5 release`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `release_id` | yes for scheduling, null for unscheduling | Resolve by `release_name=eq.<name>` (unique) |
-| `target_start_date`, `target_completion_date` | no | Set if the user named them |
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `release_name` | optional | Resolve via `release_name=eq.<name>` against `/releases` (column is unique). Omit if scheduling status only without committing to a release |
+| `target_start_date` | optional | YYYY-MM-DD |
+| `target_completion_date` | optional | YYYY-MM-DD; if both target dates are set, must be >= target_start_date |
 
-**Recipe:** see [`references/schedule-feature.md`](references/schedule-feature.md).
+**Recipe:** run `scripts/schedule-feature.sh <feature-title> [<release-name>] [<target-start-YYYY-MM-DD>] [<target-completion-YYYY-MM-DD>]`. The agent invokes; do not paste the script body here. Exit `0` on success, `1` on bad args / unresolved title or release / release in terminal state, `2` on platform error.
 
-**Validation:** if `release_id` is set, `feature_status ∈ {planned,
-in_progress, shipped}`; if `release_id` is null, `feature_status ∈
-{new, under_review, declined, parked}`; the release the feature
-points at is not `released` or `cancelled`.
+**Validation:** read the feature back; `feature_status` is `planned`, `release_id` matches the resolved release id (or null if no release was passed), target dates match what the caller passed.
 
 **Failure modes:**
-- Resolved release has `release_status` in `(released, cancelled)`
-  → refuse; ask the user to pick a different release.
-- `feature_status=planned` written without `release_id` set in the
-  same call → silent commitment-rule break; recover by PATCH-ing
-  `release_id` or reverting the status.
+
+- Platform code `feature_shipped_is_one_way` → the feature is already shipped. Recovery: tell the user; if a follow-up is needed, capture it as a new feature.
+- Release is `released` or `cancelled` → script refuses before writing; tell the user to pick a non-terminal release or omit `release_name` to schedule status only.
+- Platform code `target_dates_ordered` → the caller passed a target completion that precedes target start. Recovery: ask the user for corrected dates.
 
 ---
 
-### Ship a release
+### Start work on a feature
 
-**Triggers:** `ship the March 2026 release`, `release v2.5`,
-`mark v3.0 as released`, `the release went out yesterday`
+**Triggers:** `start work on X`, `mark feature X in progress`, `move X to in_progress`, `kick off X`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
-| `release_id` | yes | Resolve by `release_name=eq.<name>` (unique) |
-| `actual_release_date` | yes | The date it actually shipped (YYYY-MM-DD) |
-| `release_notes` | no | HTML string published with the release |
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `actual_start_date` | optional | YYYY-MM-DD; defaults to today if omitted |
 
-**Recipe:** run `scripts/ship-release.sh <release_id> <actual_release_date> [release_notes_html]`.
-The script PATCHes the release, sweeps `planned`/`in_progress`
-features on the release to `shipped`, and verifies no committed
-features remain. Exit 0 on success, 1 on bad inputs / already
-released, 2 on platform error (rerun is a deterministic no-op for
-already-shipped rows).
+**Recipe:** run `scripts/start-feature.sh <feature-title> [<actual-start-YYYY-MM-DD>]`. Exit `0` on success, `1` on bad args / unresolved title / feature not in `planned` (the only state from which work can start cleanly), `2` on platform error.
 
-**Validation:** the release row shows `release_status=released` and
-non-null `actual_release_date`; every feature on the release is in
-`{shipped, declined, parked}`; none remain at `planned` or
-`in_progress`. Features at `new` / `under_review` on a shipped
-release are surfaced as a data-quality warning, not swept.
+**Validation:** read back; `feature_status` is `in_progress`, `actual_start_date` matches the date passed (or today).
 
 **Failure modes:**
-- Release is already `released` or `cancelled` → script exits 1;
-  do not re-ship, the original `actual_release_date` stands.
-- Step 2 (release PATCH) succeeded but step 3 (sweep) failed →
-  script exits 2 naming the failed step. Rerun the script; the
-  feature filter is `feature_status in (planned, in_progress)`, so
-  already-shipped rows are not re-touched.
+
+- Feature in `under_review` or `new` → script refuses; tell the user to schedule it first (Schedule a feature).
+- Feature already `shipped` → `feature_shipped_is_one_way` rejects.
+- `actual_start_only_when_in_progress_or_later` rejects → script writes status and date in one PATCH; if this fires, the platform is stricter than the recipe expects, surface verbatim.
 
 ---
 
-### Vote on a feature
+### Ship a feature
 
-**Triggers:** `vote for the dark mode feature`, `record Alice's vote
-on X`, `Alex wants this feature too`, `bump the weight on this vote`
+**Triggers:** `ship feature X`, `mark X shipped`, `complete X`, `X is done`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `user_id` | yes | Resolve by `user_email=eq.<email>` (unique) |
-| `vote_weight` | no | Default 1; higher = stronger signal |
-| `voted_at` | no | Set to the current ISO timestamp at vote time |
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `release_name` | yes (if not already set) | Resolve via `release_name=eq.<name>`. Required because shipped features must reference a release; if the feature already has `release_id` set, this can be omitted |
+| `actual_completion_date` | optional | YYYY-MM-DD; defaults to today if omitted |
 
-**Recipe:** run `scripts/cast-vote.sh <feature_id> <user_id> [vote_weight]`.
-The script reads both parents to compose
-`feature_vote_label = "<user_full_name> -> <feature_title>"`, dedupes
-on the `(feature_id, user_id)` pair, PATCHes if the row exists or
-POSTs otherwise, and refreshes `voted_at` to the current timestamp.
-Exit 0 on success, 1 on bad inputs / parents not found, 2 on platform
-error.
+**Recipe:** run `scripts/ship-feature.sh <feature-title> [<release-name>] [<actual-completion-YYYY-MM-DD>]`. Exit `0` on success, `1` on bad args / unresolved title or release / feature not in `in_progress`, `2` on platform error.
 
-**Validation:** exactly one row exists for the
-`(feature_id, user_id)` pair; `feature_vote_label` matches the
-`"<user_full_name> -> <feature_title>"` composition.
+**Validation:** read back; `feature_status` is `shipped`, `release_id` is set, `actual_completion_date` matches.
 
 **Failure modes:**
-- POST without the read-first dedupe → duplicate row, vote count
-  inflates; recover by deleting duplicates by `voted_at`.
-- User not in `users` yet → create via `use-semantius`, do not
-  invent a fake id.
+
+- Feature in `planned` (no work started) → script refuses; tell the user to start work first.
+- Platform code `release_required_when_shipped` → no release on the feature and none was supplied. Recovery: re-run with `<release-name>`.
+- Platform code `actual_dates_ordered` → completion date precedes the recorded `actual_start_date`. Recovery: ask the user for a corrected completion date.
+
+---
+
+### Cast a vote on a feature
+
+**Triggers:** `vote for X`, `record a vote on X for user Y`, `add weighted vote (3) for X for user Y`, `upvote X`
+
+**Inputs:**
+
+| Name | Required | Notes |
+|---|---|---|
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `user_email` | yes | Resolve via `user_email=eq.<email>` against `/users` (column is unique) |
+| `vote_weight` | optional | Integer >= 1; defaults to 1 |
+
+**Recipe:** run `scripts/cast-vote.sh <feature-title> <user-email> [<weight>]`. The script reads the parents, dedupes against the (`feature_id`, `user_id`) pair, and either INSERTs a new vote or PATCHes the weight on the existing one. Exit `0` on success, `1` on bad args / unresolved title or email / pre-existing duplicate junction rows, `2` on platform error.
+
+**Validation:** read back the matching `feature_votes` row by `(feature_id, user_id)`; weight matches and `feature_vote_label` is `"<user_full_name> -> <feature_title>"`.
+
+**Failure modes:**
+
+- Two `feature_votes` rows already exist for the same `(feature_id, user_id)` (data corruption from before this skill was used) → script aborts and tells the user to clean up the duplicates manually before retrying. The dedupe path assumes at most one prior row.
+- Platform code `vote_weight_positive` → caller passed weight < 1. Recovery: re-run with weight >= 1.
+- User is `inactive` → not blocked by the platform but worth surfacing; script proceeds and prints a warning to stderr.
 
 ---
 
 ### Tag a feature
 
-**Triggers:** `tag this as mobile`, `add the enterprise tag to X`,
-`categorize this feature as platform`, `untag this`
+**Triggers:** `tag X with mobile`, `add tag enterprise to feature X`, `apply tag platform to X`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `tag_id` | yes | Resolve by `tag_name=eq.<name>` (unique). If absent, ask before creating one |
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `tag_name` | yes | Looked up via `tag_name=eq.<name>` against `/tags` (column is unique). If absent, this JTBD asks the user before creating the tag |
 
-**Recipe:** see [`references/tag-feature.md`](references/tag-feature.md).
+**Recipe:** see [`references/tag-feature.md`](references/tag-feature.md). Tagging has a user-confirmation branch (creating a missing tag) so it lives as a reference, not a script.
 
-**Validation:** add: exactly one `feature_tags` row for the pair,
-`feature_tag_label` matches `"<feature_title> / <tag_name>"`; remove:
-zero rows match the pair.
+**Validation:** read the matching `feature_tags` row by `(feature_id, tag_id)`; `feature_tag_label` is `"<feature_title> / <tag_name>"`.
 
 **Failure modes:**
-- Tag named by the user does not exist → ask before creating; do
-  not auto-create (taxonomy fragmentation: `mobile`, `Mobile`,
-  `mobile-app` co-existing).
-- POST without the read-first dedupe → duplicate row; recover by
-  deleting the extra.
+
+- The `(feature_id, tag_id)` junction row already exists → recipe is a no-op; report "already tagged" rather than re-inserting.
+- `tag_name` not found and the user declines to create it → recipe aborts cleanly; do not silently fall through.
 
 ---
 
-### Comment on a feature
+### Post a comment on a feature
 
-**Triggers:** `comment on this feature`, `add a note to X`, `reply
-to the discussion on the dark mode feature`
+**Triggers:** `comment on X saying ...`, `post comment on feature X for user Y`, `add note to X`
 
 **Inputs:**
 
 | Name | Required | Notes |
 |---|---|---|
-| `feature_id` | yes | Resolve by `feature_title` via `wfts(simple)` |
-| `author_id` | yes on insert | Resolve by `user_email=eq.<email>`; storage is nullable so a deleted user's comments survive, but the caller must always pass it |
-| `comment_body` | yes | The full text the user wrote |
-| `posted_at` | no | Set to the current ISO timestamp at post time |
+| `feature_title` | yes | Resolve via `search_vector=wfts(simple).<term>` against `/features` |
+| `user_email` | yes | Resolve via `user_email=eq.<email>`. `author_required_on_insert` rejects an INSERT with no author |
+| `comment_body` | yes | Free text; the script composes `comment_label` from the first 80 chars deterministically |
 
-**Recipe:** run `scripts/post-comment.sh <feature_id> <author_id> <comment_body>`.
-The script verifies both parents exist, composes `comment_label`
-deterministically (verbatim if body is at most 80 chars; otherwise
-the first 80 chars cut at the last whitespace position when one
-exists, with the U+2026 ellipsis appended), and POSTs the row with
-`posted_at` set to the current timestamp. NOT idempotent: every run
-POSTs a new row. Exit 0 on success, 1 on bad inputs / parents not
-found, 2 on platform error.
+**Recipe:** run `scripts/post-comment.sh <feature-title> <user-email> <comment-body>`. Exit `0` on success, `1` on bad args / unresolved title or email / empty body, `2` on platform error.
 
-**Validation:** new row exists; if body ≤80 chars, `comment_label`
-equals `comment_body`; otherwise `comment_label` ends with `…`
-(U+2026) and the prefix is at most 80 chars cut at a word boundary
-when one exists; `posted_at` non-null.
+**Validation:** read back the row by `id` (returned from POST); `comment_label` matches the deterministic cut rule from the script.
 
 **Failure modes:**
-- `comment_label` set to the full body when body > 80 chars → list
-  views break; PATCH `comment_label` per the composition rule.
-- `author_id` omitted on POST → required-on-insert; resolve user
-  first.
+
+- `author_required_on_insert` rejects → the email was not resolved and the script tried to POST anyway; should not fire because the script aborts on unresolved email, but if it does, surface verbatim.
+- Body is empty after trimming → script refuses; the model requires `comment_body`.
 
 ---
 
 ## Common queries
 
-These are starting points, not contracts. Cube schema names drift
-when the model is regenerated, so always run `cube discover '{}'`
-first and map the dimension and measure names below against
-`discover`'s output. The cube name is usually the entity's table
-name with the first letter capitalized (e.g. `Features`), but
-verify.
+Always run `cube discover '{}'` first to refresh the schema. Match
+the dimension and measure names below against what `discover`
+returns; field names drift when the model is regenerated, and
+`discover` is the source of truth at query time.
 
 ```bash
-# Always first
-semantius call cube discover '{}'
-```
-
-```bash
-# RICE-ranked backlog: top features by rice_score, only non-terminal statuses
+# Roadmap pipeline: feature count by current status
 semantius call cube load '{"query":{
-  "measures":["Features.count"],
-  "dimensions":["Features.feature_title","Features.feature_status","Features.rice_score","Features.feature_priority"],
-  "filters":[{"member":"Features.feature_status","operator":"equals","values":["new","under_review","planned"]}],
-  "order":{"Features.rice_score":"desc"},
-  "limit":50
+  "measures":["features.count"],
+  "dimensions":["features.feature_status"],
+  "order":{"features.count":"desc"}
 }}'
 ```
 
 ```bash
-# Pipeline counts by feature_status
+# Top RICE features still in flight (exclude shipped / declined / parked)
 semantius call cube load '{"query":{
-  "measures":["Features.count"],
-  "dimensions":["Features.feature_status"],
-  "order":{"Features.count":"desc"}
-}}'
-```
-
-```bash
-# Cost rollup: estimated and actual cost by cost center, vs annual_budget
-semantius call cube load '{"query":{
-  "measures":["Features.sum_estimated_cost","Features.sum_actual_cost"],
-  "dimensions":["CostCenters.cost_center_code","CostCenters.cost_center_name","CostCenters.annual_budget"],
-  "order":{"Features.sum_estimated_cost":"desc"}
-}}'
-```
-
-```bash
-# Top-voted features (sum of vote_weight per feature)
-semantius call cube load '{"query":{
-  "measures":["FeatureVotes.sum_vote_weight","FeatureVotes.count"],
-  "dimensions":["Features.feature_title","Features.feature_status"],
-  "order":{"FeatureVotes.sum_vote_weight":"desc"},
+  "measures":["features.avg_rice_score"],
+  "dimensions":["features.feature_title","features.feature_priority"],
+  "filters":[
+    {"member":"features.feature_status","operator":"notEquals","values":["shipped","declined","parked"]}
+  ],
+  "order":{"features.avg_rice_score":"desc"},
   "limit":20
 }}'
 ```
 
 ```bash
-# Release contents and ship dates: features grouped by release, last 12 months
+# Release throughput: shipped feature count per release
 semantius call cube load '{"query":{
-  "measures":["Features.count"],
-  "dimensions":["Releases.release_name","Releases.release_status"],
-  "timeDimensions":[{"dimension":"Releases.actual_release_date","granularity":"month","dateRange":"last 12 months"}],
-  "order":{"Releases.actual_release_date":"desc"}
+  "measures":["features.count"],
+  "dimensions":["releases.release_name","releases.actual_release_date"],
+  "filters":[
+    {"member":"features.feature_status","operator":"equals","values":["shipped"]}
+  ],
+  "order":{"releases.actual_release_date":"desc"}
+}}'
+```
+
+```bash
+# Top-voted features by total vote weight
+semantius call cube load '{"query":{
+  "measures":["feature_votes.sum_vote_weight","feature_votes.count"],
+  "dimensions":["features.feature_title","features.feature_status"],
+  "order":{"feature_votes.sum_vote_weight":"desc"},
+  "limit":20
+}}'
+```
+
+```bash
+# Pipeline by objective: feature count grouped by objective and status
+semantius call cube load '{"query":{
+  "measures":["features.count"],
+  "dimensions":["objectives.objective_name","features.feature_status"],
+  "order":{"objectives.objective_name":"asc"}
 }}'
 ```
 
@@ -474,70 +386,31 @@ semantius call cube load '{"query":{
 
 ## Guardrails
 
-- Never PATCH `features.feature_status` to `planned` without setting
-  `release_id` in the same call; the commitment rule (committed iff
-  status ∈ {planned, in_progress, shipped} and release_id is set)
-  must hold.
-- Never PATCH any of `features.{reach_score, impact_score,
-  confidence_score, effort_score}` without recomputing
-  `rice_score = (reach * impact * confidence) / effort` rounded to
-  4 decimals in the same call; if `effort_score` ends up null or
-  zero, set `rice_score` to null rather than writing a placeholder.
-- Never PATCH `releases.release_status=released` without setting
-  `actual_release_date` in the same call, and always sweep the
-  release's `planned`/`in_progress` features to `shipped` in the
-  same operation; the `scripts/ship-release.sh` script does this
-  atomically.
-- Never POST to `feature_votes` for a `(feature_id, user_id)` pair
-  that already exists; PATCH the existing row's `vote_weight`
-  instead.
-- Never POST to `feature_tags` for a `(feature_id, tag_id)` pair
-  that already exists; the row is the link, there is nothing to
-  update on it.
-- Never auto-create tags from a casual user mention; ask first.
-  `tag_name` is unique, but the taxonomy fragments
-  (`mobile-app` / `mobile` / `Mobile`) if every typo becomes a new
-  tag.
-- Never schedule a feature into a release whose `release_status` is
-  `released` or `cancelled`.
-- Lookups for human-friendly identifiers (titles, names,
-  descriptions) use `search_vector=wfts(simple).<term>`; never
-  `ilike` and never `fts`.
-- `users` may already exist as a Semantius built-in in this
-  deployment; treat it as the authoritative table and reference it
-  rather than creating a parallel one.
+- Never PATCH `features.rice_score` directly; it is platform-derived. Write the inputs (`reach_score`, `impact_score`, `confidence_score`, `effort_score`) and let the trigger recompute.
+- Never PATCH `features.feature_status` to `shipped` without `release_id` and `actual_completion_date` set in the same call; the platform rejects in two separate ways otherwise.
+- Never PATCH a feature whose current `feature_status` is `shipped`; the platform refuses every write that changes status (one-way).
+- Never PATCH `releases.release_status` to `released` without `actual_release_date` in the same call.
+- Never PATCH an objective whose current `objective_status` is `achieved`, `missed`, or `cancelled`; one-way terminal.
+- Never POST a `feature_votes`, `feature_tags`, or `comments` row without the caller-populated `*_label` field; defaults are empty strings, but the value carries the human-readable display.
+- Junction inserts (`feature_votes`, `feature_tags`) have **no DB-level uniqueness** on the natural key pair; always read first and dedupe.
+- `comments.author_id` is required on every INSERT (platform-enforced); resolve the user before POSTing.
+- Built-in `users` table: this domain reuses Semantius's built-in `users`; do not create a duplicate `users` table.
 
 ## What this skill does NOT do
 
 - Schema changes, use `use-semantius` directly.
 - RBAC / permissions, use `use-semantius` directly.
-- One-off seed data, write a script, do not bake it into a JTBD.
-- Bulk import of features / votes / tags from CSV or Excel; see
-  `use-semantius` `references/webhook-import.md`.
-- Splitting a feature across multiple releases (no
-  `feature_releases` junction with phase metadata exists yet).
-- RICE history: only the current scores live on the feature; no
-  separate `estimates` entity captures who scored what when.
-- Cost history: only current `estimated_cost` and `actual_cost`
-  live on the feature; no `cost_estimates` entity timestamps the
-  values.
-- Multi-currency cost tracking: no `currency_code` field on
-  features or cost centers.
-- Splitting a feature across multiple cost centers; no
-  `feature_cost_allocations` junction exists.
-- Period-scoped cost-center budgets: only a single `annual_budget`
-  field, not a `cost_center_budgets` per fiscal period.
-- Linking features to specific customers / accounts; no
-  `customer_requests` entity exists.
-- Feature dependencies (predecessor / successor); no
-  `feature_dependencies` self-junction exists.
-- Promoting `feature_source` from an enum to its own table; sources
-  carry no metadata beyond the enum value.
-- Attachments (mockups, specs, screenshots) on features; no
-  `attachments` entity exists.
-- Release capacity (team capacity vs. allocated effort); no
-  capacity fields on `releases`.
-- A strategic tier above `objectives` (e.g. `initiatives`) for
-  multi-objective programs.
-- Multi-product roadmaps; this model is single-product (no
-  `products` entity above objectives, features, and releases).
+- One-off seed data, write a script, don't bake it into a JTBD.
+- Per-feature cost tracking; the model defers that to a Budgeting sibling domain.
+- Making `declined` or `parked` one-way terminal states; only `shipped` is currently terminal.
+- Cancelling releases as a one-way terminal record; `cancelled` is reversible by design.
+- Splitting a feature across multiple releases (no `feature_releases` junction yet).
+- Tracking RICE estimate history; scores live as fields on `features`, not as a separate `estimates` entity.
+- Linking features to specific customer accounts beyond the cross-model FK hint; no `customer_requests` M:N junction.
+- Promoting `objective_period` from a freeform string to a structured `time_periods` entity.
+- Modeling feature dependencies (no `feature_dependencies` self-junction).
+- Promoting `feature_source` from an enum to its own `feature_sources` entity.
+- Modeling attachments (mockups, specs, screenshots) as a first-class `attachments` entity.
+- Release-load planning with team capacity vs. allocated effort.
+- A strategic tier above `objectives` (e.g. `initiatives`).
+- Multi-product roadmaps (no `products` entity that owns objectives, features, and releases).

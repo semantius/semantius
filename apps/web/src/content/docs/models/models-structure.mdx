@@ -1,0 +1,233 @@
+---
+title: 'Model Structure'
+navTitle: 'Structure'
+description: 'The anatomy of a Semantius semantic model file: front-matter, entities, fields, relationships, validation, and implementation notes.'
+order: 2
+---
+
+This page is a technical reference for what a `*-semantic-model.md` file actually contains. It is the companion to the [Models Overview](/docs/models-overview): the overview tells you what a model is for, this page tells you what is in the file. If you are about to read, write, or review one by hand, start here.
+
+A model file is a single self-contained Markdown document. The body is organized into eight numbered sections, and the front-matter at the top carries identity and discovery metadata. The [Business Analyst](/docs/models-create) skill writes this format, the [Deployer](/docs/models-deploy) skill consumes it, and the [Optimizer](/docs/models-optimize) skill regenerates it from live state, so all three tools agree on the same shape byte-for-byte.
+
+## Front-matter
+
+YAML front-matter at the top of the file. It identifies the model and lists the entities so other tooling can index it without parsing the body.
+
+```yaml
+artifact: semantic-model
+version: "1.11"
+system_name: ATS
+system_description: Applicant Tracking System
+system_slug: ats
+domain: ATS
+naming_mode: agent-optimized
+created_at: 2026-05-11
+entities:
+  - users
+  - departments
+  - job_openings
+  # ...
+related_domains:
+  - HRIS
+  - Workforce Planning
+departments:
+  - HR
+initial_request: |
+  I need an applicant tracking system ATS
+```
+
+Key fields:
+
+- `system_slug` is the module identifier inside Semantius. The deployer uses it to decide whether to create a new module or update an existing one in place. It must equal the module name on deploy; do not rename it later.
+- `naming_mode` is either `agent-optimized` (self-describing names that LLMs can reason about) or `vendor-template` (mirrors a specific incumbent system for easy data migration).
+- `entities` lists every entity declared in section 3, in declared order. It is the discovery index for tooling.
+- `related_domains` records other model families this one talks to. The deployer uses them to drive the cross-model link suggestions in section 6.
+
+## Section 1, Overview
+
+A short prose description of the system: who uses it, what it tracks, where it sits in the broader stack. One or two paragraphs. The downstream agent does not read this section programmatically; it exists so a human reviewer can understand the model in 30 seconds.
+
+## Section 2, Entity summary
+
+A single table with one row per entity:
+
+| # | Table name | Singular label | Purpose |
+|---|---|---|---|
+| 1 | `users` | User | System users (recruiters, hiring managers, interviewers, coordinators). |
+| 2 | `departments` | Department | Organizational units that own job openings. |
+
+Followed by an entity-relationship diagram in Mermaid syntax. Each edge in the diagram corresponds to a foreign-key field with a human-readable `relationship_label` verb:
+
+```text
+flowchart LR
+    candidates -->|submits| job_applications
+    job_openings -->|receives| job_applications
+    application_stages -->|groups| job_applications
+```
+
+The diagram is decorative for humans and analytical for agents: it is the fastest way to spot a missing or wrong relationship before deploying.
+
+## Section 3, Entities
+
+The bulk of the document. One block per entity, in the same order as the front-matter `entities` list. Each block has four parts.
+
+### Header
+
+```markdown
+### 3.7 `job_applications`, Job Application
+
+**Plural label:** Job Applications
+**Label column:** `application_label`
+**Audit log:** yes
+**Description:** The central pipeline record: a specific candidate applying to a specific job opening...
+```
+
+- **Table name** uses `snake_case` and is always plural. Singular table names are a deploy-time violation.
+- **Singular label** and **Plural label** are the human-readable display strings shown in generated UIs.
+- **Label column** names the field that represents a row to a human (typically a name or title field). The runtime uses this for picker dropdowns, breadcrumbs, and audit-log lines.
+- **Audit log** toggles whether the platform preserves a change history for every row of the entity. Set to `yes` on entities whose state changes are decisions of record (offers, status transitions, salary bands, personal data subject to GDPR).
+
+### Fields table
+
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `application_label` | `string` | yes | Application |  | label_column |
+| `candidate_id` | `parent` | yes | Candidate |  | ↳ `candidates` (N:1, cascade), relationship_label: "submits" |
+| `job_opening_id` | `reference` | yes | Job Opening |  | → `job_openings` (N:1, restrict), relationship_label: "receives" |
+| `status` | `enum` | yes | Status |  | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold`; default: "active" |
+| `applied_at` | `date-time` | yes | Applied At |  |  |
+
+Notable conventions:
+
+- **Format** is one of `string`, `text`, `html`, `email`, `url`, `integer`, `number`, `boolean`, `date`, `date-time`, `enum`, `reference`, `parent`. Formats are immutable in Semantius once an entity is deployed; the deployer flags format conflicts rather than performing a destructive change.
+- **Required** is analyst intent, not a database flag. The platform manages nullability internally.
+- **Reference / Notes** is a single cell carrying everything else: FK target, delete mode, uniqueness, default value, label-column marker, enum values. The deployer parses it.
+- **Label columns** for some entities are caller-composed strings (e.g. `"Resume, Jane Doe"`, `"Alex Kim, Hiring Manager, Senior Engineer"`). The model annotates these in the description so the inserting caller knows to compose the label, not the column itself.
+
+### Relationships
+
+A bullet list paraphrasing the FK rows from the table. This block is for human reviewers: the canonical edge list lives in section 4.
+
+### Validation rules
+
+Optional. A JSON array of rules, each with `code`, `message`, `description`, and `jsonlogic`. The `jsonlogic` payload uses standard [JsonLogic](https://jsonlogic.com/) operators plus two platform extensions:
+
+- `value_changed`: true on update when the named field changed.
+- `require_permission`: throws an authorization error when the caller lacks the named permission.
+
+Example, taken verbatim from the ATS model:
+
+```json
+{
+  "code": "approve_offer_requires_approver_permission",
+  "message": "Only users with the offer-approver permission can mark an offer approved.",
+  "jsonlogic": {
+    "if": [
+      {
+        "and": [
+          {"value_changed": "status"},
+          {"==": [{"var": "status"}, "approved"]}
+        ]
+      },
+      {"require_permission": "ats:approve_offer"},
+      true
+    ]
+  }
+}
+```
+
+Rules are passed to `create_entity` byte-for-byte. The deployer does not rewrite them.
+
+## Section 4, Relationship summary
+
+A single flat table listing every FK in the model:
+
+| From | Field | To | Cardinality | Kind | Delete behavior |
+|---|---|---|---|---|---|
+| `job_applications` | `candidate_id` | `candidates` | N:1 | parent | cascade |
+| `job_applications` | `job_opening_id` | `job_openings` | N:1 | reference | restrict |
+| `offers` | `application_id` | `job_applications` | N:1 | reference | restrict |
+
+This section is the authoritative edge list. Section 3 reuses the same information in prose for human review; section 4 is what tooling diffs.
+
+The **Kind** column distinguishes the two relationship formats Semantius supports:
+
+- `reference`: a cross-entity link where the target has an independent lifecycle. Default delete mode is `restrict`, protecting the target from accidental deletion. Use when the child can exist or be meaningful without the parent (Order , Customer).
+- `parent`: ownership or composition. The child's lifecycle is bound to the parent. Default delete mode is `cascade` (deleting the parent removes the children). Use when the child cannot meaningfully exist without the parent (OrderLine inside Order), and for both FK fields of a junction table.
+
+Delete behaviors are `cascade`, `restrict`, or `clear` (set null on parent deletion).
+
+## Section 5, Enumerations
+
+One subsection per enum field, listing the allowed values. Enums are scoped to a single field; if two fields use the same set, each gets its own subsection.
+
+```markdown
+### 5.7 `job_applications.status`
+- `active`
+- `hired`
+- `rejected`
+- `withdrawn`
+- `on_hold`
+```
+
+The values must match the `values:` annotation in the field's Notes cell.
+
+## Section 6, Cross-model link suggestions
+
+Suggested FK columns to add to this model, or to a sibling model, when other domains are deployed in the same Semantius instance:
+
+| From | To | Verb | Cardinality | Delete |
+|---|---|---|---|---|
+| `job_openings` | `salary_bands` | anchors | N:1 | clear |
+| `employees` | `candidates` | is the source for | N:1 | clear |
+
+Outbound rows put the FK on this model. Inbound rows put the FK on the sibling model. The deployer walks this table at deploy time, inspects the live catalog, and applies the rows whose target tables are actually present. Missing targets are skipped silently.
+
+This section is what makes a Semantius platform a unified catalog rather than a pile of independent silos. The same `candidates` table can hand off to `hris.employees` on hire, to `onboarding.onboarding_cases` on offer acceptance, and to `background_check.checks` for screening, without any of those models needing to know about each other in isolation.
+
+## Section 7, Open questions
+
+Two subsections:
+
+- **7.1 Decisions needed (blockers)**: anything that must be resolved before the model can be deployed safely. If this section is non-empty, the deployer refuses to run.
+- **7.2 Future considerations (deferred scope)**: questions the analyst flagged as worth revisiting once the model is in production. These are explicitly non-blocking; the model deploys with current assumptions, and the audit log captures any divergence.
+
+Typical deferred questions: should an enum become a configurable lookup table, should a single FK become a multi-step workflow, are status transitions one-way or reversible.
+
+## Section 8, Implementation notes for the downstream agent
+
+A numbered, step-by-step recipe for the [Deployer](/docs/models-deploy) skill. The Business Analyst writes this section so the deployer can execute the model without re-deriving anything from the prose above. Typical contents:
+
+1. **Module and permissions setup**, before any entity. Three baseline permissions per module:
+   - `<slug>:read`: baseline read access for every entity.
+   - `<slug>:manage`: baseline write access for every entity; the default `view_permission` and `edit_permission` for every entity.
+   - `<slug>:admin`: rollup tier for elevated authority.
+
+   Plus zero or more **workflow permissions** that gate specific actions (e.g. `ats:approve_offer`, `ats:manage_all_notes`). Workflow permissions deliberately do **not** roll up under `manage`, only under `admin`, so that holding the baseline write permission does not automatically grant elevated authority.
+
+   Permission hierarchies are declared explicitly: `admin` includes `manage`, `manage` includes `read`, `admin` includes each workflow permission.
+
+2. **Entity creation order**, referenced entities first. Self-references and circular references are handled by creating the entity first, then adding the FK field after.
+
+3. **Per-entity setup**: `label_column`, `view_permission`, `edit_permission`, `audit_log`, and the section 3 `validation_rules` block passed byte-for-byte. The `id`, `created_at`, and `updated_at` fields are managed by the platform and never created manually.
+
+4. **Per-field setup**: format, label, description, reference target and delete mode, enum values, defaults, uniqueness flags.
+
+5. **Label-column title fixup**: `create_entity` auto-creates the label-column field with a default title. If the section 3 label differs, patch it with `update_field` using the composite id `"<table_name>.<field_name>"`.
+
+6. **Built-in deduplication**: Semantius ships built-in tables (`users`, `roles`, `permissions`). The deployer reuses them rather than creating duplicates, additively adding any extra fields the model declares with the operator's confirmation.
+
+7. **Cross-model link application**: walk section 6, look up each target in the live catalog, propose additive `create_field` calls for matches.
+
+8. **Verification**: spot-check that every `label_column` resolves to a real field, every `reference_table` target exists, self-references resolved, and junction FKs are wired correctly.
+
+## Working with the file by hand
+
+In day-to-day use you rarely open a model file by hand. The [Create](/docs/models-create), [Deploy](/docs/models-deploy), and [Optimize](/docs/models-optimize) skills do the reading, writing, and diffing for you, and the file is large enough that manual edits are error-prone. When you do need to edit it directly (a quick rename, a description tweak, adding an enum value), the conventions to preserve are:
+
+- Keep section numbers and headings stable. Tooling locates content by section number.
+- Mirror every FK in three places: the field row in section 3, the relationship bullet list in section 3, and the row in section 4. The deployer cross-checks them.
+- Keep enum values in section 5 in sync with the `values:` annotation in the field's Notes cell.
+- Do not rename `system_slug` after deploy. It is the module identifier.
+
+For a fully worked example, browse the [SaaS Expense Tracker model](/models/saas_expense_tracker/model) or any entry in the [Templates](/docs/models-templates) library.

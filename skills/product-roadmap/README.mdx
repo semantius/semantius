@@ -1,28 +1,43 @@
 ---
 title: Product Roadmap Skill
-description: Plans features through intake, RICE scoring, objective alignment, release scheduling, and ship, with votes, tags, comments, and cost roll-up.
+description: Plans features through intake, RICE scoring, objective alignment, release scheduling, voting, tagging, comments, and ship.
 ---
 
 # Product Roadmap Skill
 
-A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as `features`, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic `objectives`, and schedule the committed work into `releases`. Features carry estimated and actual cost and are assigned to a `cost_center` so spend can be rolled up. Stakeholders contribute through `feature_votes` and `comments`; `tags` provide cross-cutting categorization.
+A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as features, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic objectives, and schedule the committed work into releases. Stakeholders contribute through votes and comments; tags provide cross-cutting categorization.
 
-The Product Roadmap model plans how every idea moves from intake through RICE scoring and release commitment to a shipped feature, with the rationale weighing each one and the release it lands in. The Product Roadmap Skill teaches an agent how to use that model to plan the roadmap reliably and the same way every time, so RICE scores stay current and a release ships with every feature in it actually marked shipped. Without it, a release can be marked shipped while features in it still sit at "in progress"; a feature can get rescored on reach or effort but its RICE score stays stale and the backlog ranking lies; the same person can vote twice on the same feature and silently inflate the signal.
+The Product Roadmap model plans how every idea moves from intake through scoring and release commitment to a shipped feature, with the rationale weighing each one and the release it lands in. The Product Roadmap Skill teaches an agent how to use that model to plan a feature from intake through to a shipped release reliably, without the handoffs between PM, design, and engineering quietly going missing. Without it, an idea can get scheduled with no recorded owner; a release can ship with features still marked "in progress"; a stakeholder vote can be double-counted because the second cast did not find and replace the first.
 
 ## Sample prompts
 
-- "capture a new feature request"
-- "score this feature with RICE"
-- "rescore the dark mode feature"
-- "triage the under-review backlog"
-- "schedule feature X into v2.5"
-- "ship the March 2026 release"
-- "vote for the dark mode feature"
-- "tag this as mobile"
-- "comment on this feature"
-- "what's the top-voted feature this quarter"
-- "what's our planned spend by cost center"
-- "show pipeline by status"
+- "Schedule the dark-mode feature into the v2.5 release"
+- "Plan the SSO feature for March 2026, target start next Monday"
+- "Start work on the API rate-limiting feature today"
+- "Mark the onboarding revamp in progress"
+- "Ship the export-to-CSV feature in v2.4 with completion date today"
+- "The mobile push notifications feature is done, ship it"
+- "Cast a vote for the dark-mode feature for jane@acme.com with weight 3"
+- "Sarah voted for the SSO feature, record it"
+- "Tag the rate-limiting feature with platform"
+- "Add the tag enterprise to the SSO feature"
+- "Comment on the dark-mode feature for jane@acme.com saying we should align this with the brand refresh"
+- "Post a note on the SSO feature for the security team"
+- "Show the roadmap pipeline by status"
+- "Which features have the highest RICE score right now"
+- "How many features shipped in v2.4"
+- "Top-voted features by total weight"
+- "Pipeline grouped by objective"
+
+## What it covers
+
+- Schedule a feature into a release with target dates
+- Start work on a feature and record the actual start date
+- Ship a feature with the release it shipped in and the completion date
+- Cast or update weighted votes on features without duplicating junction rows
+- Tag features, asking before creating tags that do not exist yet
+- Post comments with a deterministic short-form label for list display
+- Common reports: pipeline by status, top RICE features, release throughput, top-voted features, pipeline by objective
 
 ## Semantic model
 
@@ -30,11 +45,9 @@ The Product Roadmap model plans how every idea moves from intake through RICE sc
 flowchart LR
     objectives -->|rolls up| features
     releases -->|contains| features
-    cost_centers -->|funds| features
     users -->|owns| objectives
     users -->|owns| features
     users -->|requests| features
-    users -->|owns| cost_centers
     users -->|authors| comments
     features -->|collects| comments
     features -->|collects votes via| feature_votes

@@ -1,14 +1,13 @@
 ---
 artifact: semantic-model
-version: "1.0"
+version: "1.7"
 system_name: ITAM
 system_description: IT Asset Management
 system_slug: itam
 domain: ITAM
 naming_mode: agent-optimized
-created_at: 2026-05-08
+created_at: 2026-05-10
 entities:
-  - asset_categories
   - manufacturers
   - vendors
   - locations
@@ -28,9 +27,12 @@ related_domains:
   - SAM
   - Fixed Assets
   - HRIS
-  - Org Management
+  - Identity & Access
+  - Vendor Management
   - Contract Management
   - Procurement
+  - Org Management
+  - Compliance
 departments:
   - IT
   - Finance
@@ -42,32 +44,30 @@ initial_request: |
 
 ## 1. Overview
 
-IT Asset Management (ITAM) tracks the hardware, software, and licenses an organization owns or leases, who has them, where they live, what they cost, and which contracts cover them. The model serves IT asset managers (lifecycle, audit, end-of-life), finance (cost tracking, depreciation, chargeback), and procurement (vendor records, purchase orders). Maintenance and incident handling are deliberately deferred to a sibling ITSM module, so this model carries warranty/contract metadata but not service tickets.
+IT Asset Management (ITAM) tracks the hardware, software, and licenses an organization owns or leases, who has them, where they live, what they cost, and which contracts cover them. The model serves IT asset managers (lifecycle, audit, end-of-life), finance (cost tracking, depreciation, chargeback), and procurement (vendor records, purchase orders).
 
 ## 2. Entity summary
 
 | # | Table name | Singular label | Purpose |
 |---|---|---|---|
-| 1 | `asset_categories` | Asset Category | Taxonomy for hardware items (laptop, server, monitor, mobile phone, network equipment, etc.) |
-| 2 | `manufacturers` | Manufacturer | Companies that make the hardware or publish the software (Dell, Apple, Microsoft, Adobe) |
-| 3 | `vendors` | Vendor | Suppliers we purchase from and partners that resell or provide support (CDW, Insight, direct) |
-| 4 | `locations` | Location | Physical places where assets live: offices, data centers, warehouses, remote homes, in-transit |
-| 5 | `cost_centers` | Cost Center | Financial buckets used for chargeback (Engineering, Sales-EU, Shared Services, etc.) |
-| 6 | `departments` | Department | Organizational units that employees belong to (IT, Finance, Sales, Engineering) |
-| 7 | `users` | User | People who can be assigned hardware or named-user licenses (employees, contractors) |
-| 8 | `hardware_assets` | Hardware Asset | Physical IT items tracked by asset tag and serial number (laptops, servers, monitors, phones) |
-| 9 | `software_products` | Software Product | Catalog of software titles tracked in this ITAM (Microsoft 365, Adobe Creative Cloud, AutoCAD) |
-| 10 | `software_licenses` | Software License | Entitlements purchased for a software product: type, seats, validity window, cost |
-| 11 | `software_installations` | Software Installation | Junction recording which software product is installed on which hardware asset, against which license |
-| 12 | `asset_assignments` | Asset Assignment | History of who held a hardware asset, when, and why the assignment ended |
-| 13 | `contracts` | Contract | Agreements covering assets: warranty, support, maintenance, SLA, MSA, lease |
-| 14 | `purchase_orders` | Purchase Order | Procurement records: what was bought, from whom, when, at what total cost |
+| 1 | `manufacturers` | Manufacturer | Companies that make the hardware or publish the software (Dell, Apple, Microsoft, Adobe) |
+| 2 | `vendors` | Vendor | Suppliers we purchase from and partners that resell or provide support (CDW, Insight, direct) |
+| 3 | `locations` | Location | Physical places where assets live: offices, data centers, warehouses, remote homes, in-transit |
+| 4 | `cost_centers` | Cost Center | Financial buckets used for chargeback (Engineering, Sales-EU, Shared Services, etc.) |
+| 5 | `departments` | Department | Organizational units that employees belong to (IT, Finance, Sales, Engineering) |
+| 6 | `users` | User | People who can be assigned hardware or named-user licenses (employees, contractors) |
+| 7 | `hardware_assets` | Hardware Asset | Physical IT items tracked by asset tag and serial number (laptops, servers, monitors, phones) |
+| 8 | `software_products` | Software Product | Catalog of software titles tracked in this ITAM (Microsoft 365, Adobe Creative Cloud, AutoCAD) |
+| 9 | `software_licenses` | Software License | Entitlements purchased for a software product: type, seats, validity window, cost |
+| 10 | `software_installations` | Software Installation | Junction recording which software product is installed on which hardware asset, against which license |
+| 11 | `asset_assignments` | Asset Assignment | History of who held a hardware asset, when, and why the assignment ended |
+| 12 | `contracts` | Contract | Agreements covering assets: warranty, support, maintenance, SLA, MSA, lease |
+| 13 | `purchase_orders` | Purchase Order | Procurement records: what was bought, from whom, when, at what total cost |
 
 ### Entity-relationship diagram
 
 ```mermaid
 flowchart LR
-    asset_categories -->|contains| asset_categories
     locations -->|contains| locations
     cost_centers -->|contains| cost_centers
     departments -->|contains| departments
@@ -78,7 +78,6 @@ flowchart LR
     departments -->|employs| users
     users -->|leads| departments
 
-    asset_categories -->|classifies| hardware_assets
     manufacturers -->|manufactures| hardware_assets
     vendors -->|supplied| hardware_assets
     purchase_orders -->|procured| hardware_assets
@@ -110,29 +109,7 @@ flowchart LR
 
 ## 3. Entities
 
-### 3.1 `asset_categories`, Asset Category
-
-**Plural label:** Asset Categories
-**Label column:** `category_name`
-**Audit log:** no
-**Description:** Hierarchical taxonomy for hardware items so reports can group by type (Laptops, Monitors, Network Equipment, Peripherals, etc.). Categories can nest (Computers > Laptops > Ultrabooks).
-
-**Fields**
-
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `category_name` | `string` | yes | Category Name | unique; label_column |
-| `parent_category_id` | `reference` | no | Parent Category | → `asset_categories` (N:1), relationship_label: "contains"; for hierarchies |
-| `description` | `text` | no | Description | |
-
-**Relationships**
-
-- An `asset_category` may have many child `asset_categories` (1:N self-reference, via `parent_category_id`).
-- An `asset_category` classifies many `hardware_assets` (1:N, via `hardware_assets.asset_category_id`).
-
----
-
-### 3.2 `manufacturers`, Manufacturer
+### 3.1 `manufacturers`, Manufacturer
 
 **Plural label:** Manufacturers
 **Label column:** `manufacturer_name`
@@ -144,6 +121,7 @@ flowchart LR
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
 | `manufacturer_name` | `string` | yes | Manufacturer Name | unique; label_column |
+| `manufacturer_type` | `enum` | yes | Type | values: `hardware`, `software`, `both`; default: "hardware" |
 | `support_url` | `url` | no | Support URL | |
 | `support_phone` | `string` | no | Support Phone | |
 | `support_email` | `email` | no | Support Email | |
@@ -156,7 +134,7 @@ flowchart LR
 
 ---
 
-### 3.3 `vendors`, Vendor
+### 3.2 `vendors`, Vendor
 
 **Plural label:** Vendors
 **Label column:** `vendor_name`
@@ -184,7 +162,7 @@ flowchart LR
 
 ---
 
-### 3.4 `locations`, Location
+### 3.3 `locations`, Location
 
 **Plural label:** Locations
 **Label column:** `location_name`
@@ -212,7 +190,7 @@ flowchart LR
 
 ---
 
-### 3.5 `cost_centers`, Cost Center
+### 3.4 `cost_centers`, Cost Center
 
 **Plural label:** Cost Centers
 **Label column:** `cost_center_code`
@@ -237,12 +215,12 @@ flowchart LR
 
 ---
 
-### 3.6 `departments`, Department
+### 3.5 `departments`, Department
 
 **Plural label:** Departments
 **Label column:** `department_name`
 **Audit log:** no
-**Description:** Organizational units employees belong to. Hierarchical so sub-departments can roll up. Lightweight by design, because a deployed `hris` sibling module owns the canonical org structure if present (see §8).
+**Description:** Organizational units employees belong to. Hierarchical so sub-departments can roll up. Lightweight by design, because a deployed `hris` sibling module owns the canonical org structure if present.
 
 **Fields**
 
@@ -262,12 +240,12 @@ flowchart LR
 
 ---
 
-### 3.7 `users`, User
+### 3.6 `users`, User
 
 **Plural label:** Users
 **Label column:** `full_name`
 **Audit log:** no
-**Description:** People who can be assigned hardware or named-user software licenses. Includes employees and contractors. The `users` table name matches the Semantius built-in so the deployer can deduplicate at deploy-time and reuse the existing table; the fields below are the additive set this model needs.
+**Description:** People who can be assigned hardware or named-user software licenses. Includes employees and contractors.
 
 **Fields**
 
@@ -293,9 +271,22 @@ flowchart LR
 - A `user` received many `asset_assignments` over time (1:N, via `asset_assignments.assigned_user_id`).
 - A `user` requested many `purchase_orders` (1:N, via `purchase_orders.requester_user_id`).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "employment_dates_ordered",
+    "description": "End date must be on or after start date.",
+    "message": "End date cannot be before start date.",
+    "jsonlogic": {"or": [{"==": [{"var": "end_date"}, null]}, {"==": [{"var": "start_date"}, null]}, {">=": [{"var": "end_date"}, {"var": "start_date"}]}]}
+  }
+]
+```
+
 ---
 
-### 3.8 `hardware_assets`, Hardware Asset
+### 3.7 `hardware_assets`, Hardware Asset
 
 **Plural label:** Hardware Assets
 **Label column:** `asset_tag`
@@ -309,10 +300,12 @@ flowchart LR
 | `asset_tag` | `string` | yes | Asset Tag | unique; label_column; internal tracking number |
 | `serial_number` | `string` | no | Serial Number | unique |
 | `asset_status` | `enum` | yes | Status | values: `in_stock`, `deployed`, `in_repair`, `retired`, `lost`, `disposed`; default: "in_stock" |
-| `asset_category_id` | `reference` | yes | Category | → `asset_categories` (N:1), relationship_label: "classifies" |
+| `asset_category` | `enum` | yes | Category | values: `laptop`, `desktop`, `server`, `monitor`, `phone`, `tablet`, `network_equipment`, `printer`, `peripheral`, `accessory`, `other`; default: "laptop" |
 | `manufacturer_id` | `reference` | yes | Manufacturer | → `manufacturers` (N:1), relationship_label: "manufactures" |
 | `model_name` | `string` | yes | Model Name | e.g. "MacBook Pro 14 M3" |
 | `model_number` | `string` | no | Model Number | manufacturer SKU |
+| `hostname` | `string` | no | Hostname | aids CMDB and network matching for desktops, laptops, servers |
+| `mac_address` | `string` | no | MAC Address | primary NIC; aids network and CMDB matching |
 | `vendor_id` | `reference` | no | Vendor | → `vendors` (N:1), relationship_label: "supplied" |
 | `purchase_order_id` | `reference` | no | Purchase Order | → `purchase_orders` (N:1), relationship_label: "procured" |
 | `purchase_date` | `date` | no | Purchase Date | |
@@ -330,7 +323,6 @@ flowchart LR
 
 **Relationships**
 
-- A `hardware_asset` belongs to one `asset_category` (N:1, restrict on delete).
 - A `hardware_asset` was made by one `manufacturer` (N:1, restrict on delete).
 - A `hardware_asset` was supplied by zero or one `vendor` (N:1, clear on delete).
 - A `hardware_asset` was procured via zero or one `purchase_order` (N:1, clear on delete).
@@ -340,9 +332,52 @@ flowchart LR
 - A `hardware_asset` runs many `software_installations` (1:N, cascade on delete).
 - A `hardware_asset` was deployed as many `asset_assignments` over time (1:N, cascade on delete).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "purchase_cost_non_negative",
+    "description": "Purchase cost cannot be negative.",
+    "message": "Purchase cost must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "purchase_cost"}, 0]}
+  },
+  {
+    "code": "book_value_non_negative",
+    "description": "Current book value cannot be negative.",
+    "message": "Book value must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "current_book_value"}, 0]}
+  },
+  {
+    "code": "useful_life_non_negative",
+    "description": "Useful life in months cannot be negative.",
+    "message": "Useful life cannot be negative.",
+    "jsonlogic": {">=": [{"var": "useful_life_months"}, 0]}
+  },
+  {
+    "code": "warranty_after_purchase",
+    "description": "Warranty end date must be on or after purchase date.",
+    "message": "Warranty end date cannot precede purchase date.",
+    "jsonlogic": {"or": [{"==": [{"var": "warranty_end_date"}, null]}, {"==": [{"var": "purchase_date"}, null]}, {">=": [{"var": "warranty_end_date"}, {"var": "purchase_date"}]}]}
+  },
+  {
+    "code": "eol_after_purchase",
+    "description": "End-of-life date must be on or after purchase date.",
+    "message": "End-of-life date cannot precede purchase date.",
+    "jsonlogic": {"or": [{"==": [{"var": "end_of_life_date"}, null]}, {"==": [{"var": "purchase_date"}, null]}, {">=": [{"var": "end_of_life_date"}, {"var": "purchase_date"}]}]}
+  },
+  {
+    "code": "disposed_is_terminal",
+    "description": "Once disposed, an asset cannot return to any other status (it is physically destroyed or sold).",
+    "message": "A disposed asset cannot change status.",
+    "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.asset_status"}, "disposed"]}, {"==": [{"var": "asset_status"}, "disposed"]}]}
+  }
+]
+```
+
 ---
 
-### 3.9 `software_products`, Software Product
+### 3.8 `software_products`, Software Product
 
 **Plural label:** Software Products
 **Label column:** `product_name`
@@ -368,7 +403,7 @@ flowchart LR
 
 ---
 
-### 3.10 `software_licenses`, Software License
+### 3.9 `software_licenses`, Software License
 
 **Plural label:** Software Licenses
 **Label column:** `license_name`
@@ -403,9 +438,52 @@ flowchart LR
 - A `software_license` is funded by zero or one `cost_center` (N:1, clear on delete).
 - A `software_license` covers many `software_installations` (1:N, clear on delete on the install side).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "seats_purchased_positive",
+    "description": "A license must have at least one seat.",
+    "message": "Seats purchased must be 1 or more.",
+    "jsonlogic": {">=": [{"var": "seats_purchased"}, 1]}
+  },
+  {
+    "code": "seats_in_use_non_negative",
+    "description": "Seats in use cannot be negative.",
+    "message": "Seats in use cannot be negative.",
+    "jsonlogic": {">=": [{"var": "seats_in_use"}, 0]}
+  },
+  {
+    "code": "seats_in_use_within_purchased",
+    "description": "Seats in use cannot exceed seats purchased.",
+    "message": "Seats in use cannot exceed seats purchased.",
+    "jsonlogic": {"<=": [{"var": "seats_in_use"}, {"var": "seats_purchased"}]}
+  },
+  {
+    "code": "license_cost_non_negative",
+    "description": "License cost cannot be negative.",
+    "message": "License cost must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "license_cost"}, 0]}
+  },
+  {
+    "code": "annual_cost_non_negative",
+    "description": "Annual cost cannot be negative.",
+    "message": "Annual cost must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "annual_cost"}, 0]}
+  },
+  {
+    "code": "license_dates_ordered",
+    "description": "License end date must be on or after start date.",
+    "message": "End date cannot precede start date.",
+    "jsonlogic": {"or": [{"==": [{"var": "end_date"}, null]}, {"==": [{"var": "start_date"}, null]}, {">=": [{"var": "end_date"}, {"var": "start_date"}]}]}
+  }
+]
+```
+
 ---
 
-### 3.11 `software_installations`, Software Installation
+### 3.10 `software_installations`, Software Installation
 
 **Plural label:** Software Installations
 **Label column:** `installation_label`
@@ -431,9 +509,34 @@ flowchart LR
 - A `software_installation` records one `software_product` (N:1, restrict on delete).
 - A `software_installation` may consume one `software_license` (N:1, clear on delete).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "installation_dates_ordered",
+    "description": "Uninstalled date must be on or after installed date.",
+    "message": "Uninstalled date cannot precede installed date.",
+    "jsonlogic": {"or": [{"==": [{"var": "uninstalled_at"}, null]}, {"==": [{"var": "installed_at"}, null]}, {">=": [{"var": "uninstalled_at"}, {"var": "installed_at"}]}]}
+  },
+  {
+    "code": "uninstalled_at_only_when_uninstalled",
+    "description": "Uninstalled date may only be set when status is 'uninstalled'.",
+    "message": "Uninstalled date can only be recorded when the installation is uninstalled.",
+    "jsonlogic": {"or": [{"==": [{"var": "uninstalled_at"}, null]}, {"==": [{"var": "installation_status"}, "uninstalled"]}]}
+  },
+  {
+    "code": "uninstalled_at_required_when_uninstalled",
+    "description": "When status is 'uninstalled', the uninstalled date must be recorded.",
+    "message": "Uninstalled date is required when status is 'uninstalled'.",
+    "jsonlogic": {"or": [{"!=": [{"var": "installation_status"}, "uninstalled"]}, {"!=": [{"var": "uninstalled_at"}, null]}]}
+  }
+]
+```
+
 ---
 
-### 3.12 `asset_assignments`, Asset Assignment
+### 3.11 `asset_assignments`, Asset Assignment
 
 **Plural label:** Asset Assignments
 **Label column:** `assignment_label`
@@ -458,14 +561,51 @@ flowchart LR
 - An `asset_assignment` belongs to one `hardware_asset` (N:1 parent, cascade on delete).
 - An `asset_assignment` was given to one `user` (N:1, restrict on delete to preserve history).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "assignment_dates_ordered",
+    "description": "Returned date must be on or after assigned date.",
+    "message": "Returned date cannot precede assigned date.",
+    "jsonlogic": {"or": [{"==": [{"var": "returned_at"}, null]}, {">=": [{"var": "returned_at"}, {"var": "assigned_at"}]}]}
+  },
+  {
+    "code": "returned_at_only_when_returned",
+    "description": "Returned date may only be set when status is 'returned'.",
+    "message": "Returned date can only be recorded when assignment is returned.",
+    "jsonlogic": {"or": [{"==": [{"var": "returned_at"}, null]}, {"==": [{"var": "assignment_status"}, "returned"]}]}
+  },
+  {
+    "code": "returned_at_required_when_returned",
+    "description": "When status is 'returned', the returned date must be recorded.",
+    "message": "Returned date is required when status is 'returned'.",
+    "jsonlogic": {"or": [{"!=": [{"var": "assignment_status"}, "returned"]}, {"!=": [{"var": "returned_at"}, null]}]}
+  },
+  {
+    "code": "return_reason_required_when_returned",
+    "description": "When status is 'returned', a return reason must be recorded.",
+    "message": "Return reason is required when assignment is returned.",
+    "jsonlogic": {"or": [{"!=": [{"var": "assignment_status"}, "returned"]}, {"!=": [{"var": "return_reason"}, null]}]}
+  },
+  {
+    "code": "returned_is_terminal",
+    "description": "Once returned, an assignment cannot return to active; create a new assignment row instead.",
+    "message": "A returned assignment cannot be reactivated.",
+    "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.assignment_status"}, "returned"]}, {"==": [{"var": "assignment_status"}, "returned"]}]}
+  }
+]
+```
+
 ---
 
-### 3.13 `contracts`, Contract
+### 3.12 `contracts`, Contract
 
 **Plural label:** Contracts
 **Label column:** `contract_number`
 **Audit log:** yes
-**Description:** Agreements covering one or more assets: warranty, support, maintenance, MSA, SLA, lease. The model keeps the contract record and its lifecycle here; deeper service-level reporting belongs in an ITSM sibling.
+**Description:** Agreements covering one or more assets: warranty, support, maintenance, MSA, SLA, lease. The model keeps the contract record and its lifecycle here.
 
 **Fields**
 
@@ -489,14 +629,45 @@ flowchart LR
 - A `contract` is provided by one `vendor` (N:1, restrict on delete).
 - A `contract` is funded by zero or one `cost_center` (N:1, clear on delete).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "contract_dates_ordered",
+    "description": "Contract end date must be on or after start date.",
+    "message": "End date cannot precede start date.",
+    "jsonlogic": {"or": [{"==": [{"var": "end_date"}, null]}, {"==": [{"var": "start_date"}, null]}, {">=": [{"var": "end_date"}, {"var": "start_date"}]}]}
+  },
+  {
+    "code": "contract_value_non_negative",
+    "description": "Contract value cannot be negative.",
+    "message": "Contract value must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "contract_value"}, 0]}
+  },
+  {
+    "code": "contract_annual_cost_non_negative",
+    "description": "Annual cost cannot be negative.",
+    "message": "Annual cost must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "annual_cost"}, 0]}
+  },
+  {
+    "code": "cancelled_is_terminal",
+    "description": "A cancelled contract cannot be reactivated. Issue a new contract instead.",
+    "message": "A cancelled contract cannot change status.",
+    "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.contract_status"}, "cancelled"]}, {"==": [{"var": "contract_status"}, "cancelled"]}]}
+  }
+]
+```
+
 ---
 
-### 3.14 `purchase_orders`, Purchase Order
+### 3.13 `purchase_orders`, Purchase Order
 
 **Plural label:** Purchase Orders
 **Label column:** `po_number`
 **Audit log:** yes
-**Description:** A procurement record for hardware, software, or services. Lightweight in this model: links one PO to its vendor, requester, and totals; line-item granularity is deliberately deferred (see §7.2). Hardware assets and software licenses each link back to their PO directly.
+**Description:** A procurement record for hardware, software, or services. Lightweight in this model: links one PO to its vendor, requester, and totals; line-item granularity is deliberately deferred. Hardware assets and software licenses each link back to their PO directly.
 
 **Fields**
 
@@ -523,11 +694,71 @@ flowchart LR
 - A `purchase_order` was requested by zero or one `user` (N:1, clear on delete).
 - A `purchase_order` procured many `hardware_assets` and `software_licenses` (1:N each, clear on delete on the child side).
 
+**Validation rules**
+
+```json
+[
+  {
+    "code": "po_expected_after_order",
+    "description": "Expected delivery date must be on or after order date.",
+    "message": "Expected delivery cannot precede order date.",
+    "jsonlogic": {"or": [{"==": [{"var": "expected_delivery_date"}, null]}, {"==": [{"var": "order_date"}, null]}, {">=": [{"var": "expected_delivery_date"}, {"var": "order_date"}]}]}
+  },
+  {
+    "code": "po_received_after_order",
+    "description": "Received date must be on or after order date.",
+    "message": "Received date cannot precede order date.",
+    "jsonlogic": {"or": [{"==": [{"var": "received_date"}, null]}, {"==": [{"var": "order_date"}, null]}, {">=": [{"var": "received_date"}, {"var": "order_date"}]}]}
+  },
+  {
+    "code": "po_subtotal_non_negative",
+    "description": "Subtotal cannot be negative.",
+    "message": "Subtotal must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "subtotal_amount"}, 0]}
+  },
+  {
+    "code": "po_tax_non_negative",
+    "description": "Tax amount cannot be negative.",
+    "message": "Tax must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "tax_amount"}, 0]}
+  },
+  {
+    "code": "po_total_non_negative",
+    "description": "Total cannot be negative.",
+    "message": "Total must be zero or greater.",
+    "jsonlogic": {">=": [{"var": "total_amount"}, 0]}
+  },
+  {
+    "code": "po_total_equals_subtotal_plus_tax",
+    "description": "When subtotal or tax is provided (non-zero), total must equal subtotal plus tax. Skipped silently when both subtotal and tax are zero (caller did not break down the PO).",
+    "message": "Total must equal subtotal plus tax when broken down.",
+    "jsonlogic": {"or": [{"and": [{"==": [{"var": "subtotal_amount"}, 0]}, {"==": [{"var": "tax_amount"}, 0]}]}, {"==": [{"var": "total_amount"}, {"+": [{"var": "subtotal_amount"}, {"var": "tax_amount"}]}]}]}
+  },
+  {
+    "code": "received_date_required_when_received",
+    "description": "When PO status is 'received', the received date must be recorded.",
+    "message": "Received date is required when PO is received.",
+    "jsonlogic": {"or": [{"!=": [{"var": "po_status"}, "received"]}, {"!=": [{"var": "received_date"}, null]}]}
+  },
+  {
+    "code": "po_cancelled_is_terminal",
+    "description": "A cancelled PO cannot be reactivated. Create a new PO instead.",
+    "message": "A cancelled PO cannot change status.",
+    "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.po_status"}, "cancelled"]}, {"==": [{"var": "po_status"}, "cancelled"]}]}
+  },
+  {
+    "code": "po_received_is_terminal",
+    "description": "Once fully received, a PO cannot transition to any other status.",
+    "message": "A received PO cannot change status.",
+    "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.po_status"}, "received"]}, {"==": [{"var": "po_status"}, "received"]}]}
+  }
+]
+```
+
 ## 4. Relationship summary
 
 | From | Field | To | Cardinality | Kind | Delete behavior |
 |---|---|---|---|---|---|
-| `asset_categories` | `parent_category_id` | `asset_categories` | N:1 | reference | clear |
 | `locations` | `parent_location_id` | `locations` | N:1 | reference | clear |
 | `cost_centers` | `parent_cost_center_id` | `cost_centers` | N:1 | reference | clear |
 | `cost_centers` | `owner_user_id` | `users` | N:1 | reference | clear |
@@ -536,7 +767,6 @@ flowchart LR
 | `users` | `department_id` | `departments` | N:1 | reference | clear |
 | `users` | `cost_center_id` | `cost_centers` | N:1 | reference | clear |
 | `users` | `manager_user_id` | `users` | N:1 | reference | clear |
-| `hardware_assets` | `asset_category_id` | `asset_categories` | N:1 | reference | restrict |
 | `hardware_assets` | `manufacturer_id` | `manufacturers` | N:1 | reference | restrict |
 | `hardware_assets` | `vendor_id` | `vendors` | N:1 | reference | clear |
 | `hardware_assets` | `purchase_order_id` | `purchase_orders` | N:1 | reference | clear |
@@ -561,13 +791,18 @@ flowchart LR
 
 ## 5. Enumerations
 
-### 5.1 `vendors.vendor_type`
+### 5.1 `manufacturers.manufacturer_type`
+- `hardware`
+- `software`
+- `both`
+
+### 5.2 `vendors.vendor_type`
 - `reseller`
 - `manufacturer_direct`
 - `distributor`
 - `msp`
 
-### 5.2 `locations.location_type`
+### 5.3 `locations.location_type`
 - `office`
 - `data_center`
 - `warehouse`
@@ -575,13 +810,13 @@ flowchart LR
 - `in_transit`
 - `retired`
 
-### 5.3 `users.employment_status`
+### 5.4 `users.employment_status`
 - `active`
 - `on_leave`
 - `terminated`
 - `contractor`
 
-### 5.4 `hardware_assets.asset_status`
+### 5.5 `hardware_assets.asset_status`
 - `in_stock`
 - `deployed`
 - `in_repair`
@@ -589,36 +824,49 @@ flowchart LR
 - `lost`
 - `disposed`
 
-### 5.5 `hardware_assets.depreciation_method`
+### 5.6 `hardware_assets.asset_category`
+- `laptop`
+- `desktop`
+- `server`
+- `monitor`
+- `phone`
+- `tablet`
+- `network_equipment`
+- `printer`
+- `peripheral`
+- `accessory`
+- `other`
+
+### 5.7 `hardware_assets.depreciation_method`
 - `straight_line`
 - `declining_balance`
 - `none`
 
-### 5.6 `software_products.product_type`
+### 5.8 `software_products.product_type`
 - `subscription`
 - `saas`
 - `perpetual`
 - `open_source`
 
-### 5.7 `software_licenses.license_type`
+### 5.9 `software_licenses.license_type`
 - `per_user`
 - `per_device`
 - `concurrent`
 - `site`
 - `enterprise`
 
-### 5.8 `software_licenses.license_status`
+### 5.10 `software_licenses.license_status`
 - `pending`
 - `active`
 - `expired`
 - `cancelled`
 
-### 5.9 `software_installations.installation_status`
+### 5.11 `software_installations.installation_status`
 - `installed`
 - `uninstalled`
 - `suspended`
 
-### 5.10 `asset_assignments.return_reason`
+### 5.12 `asset_assignments.return_reason`
 - `returned`
 - `transferred`
 - `lost`
@@ -626,11 +874,11 @@ flowchart LR
 - `retired`
 - `replaced`
 
-### 5.11 `asset_assignments.assignment_status`
+### 5.13 `asset_assignments.assignment_status`
 - `active`
 - `returned`
 
-### 5.12 `contracts.contract_type`
+### 5.14 `contracts.contract_type`
 - `support`
 - `warranty`
 - `maintenance`
@@ -638,14 +886,14 @@ flowchart LR
 - `msa`
 - `sla`
 
-### 5.13 `contracts.contract_status`
+### 5.15 `contracts.contract_status`
 - `draft`
 - `active`
 - `expired`
 - `cancelled`
 - `in_renewal`
 
-### 5.14 `purchase_orders.po_status`
+### 5.16 `purchase_orders.po_status`
 - `draft`
 - `submitted`
 - `approved`
@@ -656,20 +904,38 @@ flowchart LR
 
 ## 6. Cross-model link suggestions
 
-Hints for the deployer about FKs that would add value when sibling modules are deployed. The deployer resolves each `To` against the live catalog at deploy time, proposes the FK as an additive `create_field` when a single match is found, asks the user when several candidates plausibly fit, and silently skips when the target is not deployed. This is a hint table, not a contract; entity-overlap on shared master-data tables (`users`, `departments`, `cost_centers`, `vendors`, `contracts`, `purchase_orders`) is **not** declared here, the deployer's name-collision flow handles those at deploy time.
+Hints for the deployer about FKs that would add value when sibling modules are deployed. The deployer resolves each `To` against the live catalog at deploy time, proposes the FK as an additive `create_field` when a single match is found, asks the user when several candidates plausibly fit, and silently skips when the target is not deployed. This is a hint table, not a contract; entity-overlap on shared master-data tables is not declared here, the deployer's name-collision flow handles those at deploy time.
 
 | From | To | Verb | Cardinality | Delete |
 |---|---|---|---|---|
 | `incidents` | `hardware_assets` | is affected by | N:1 | clear |
-| `changes` | `hardware_assets` | is changed by | N:1 | clear |
 | `problems` | `hardware_assets` | is the subject of | N:1 | clear |
-| `configuration_items` | `hardware_assets` | is represented by | N:1 | clear |
-| `configuration_items` | `software_installations` | is represented by | N:1 | clear |
+| `changes` | `hardware_assets` | is targeted by | N:1 | clear |
+| `service_requests` | `hardware_assets` | is requested in | N:1 | clear |
+| `configuration_items` | `hardware_assets` | is represented by | 1:1 | clear |
+| `configuration_items` | `software_installations` | is represented by | 1:1 | clear |
+| `discovery_records` | `hardware_assets` | is discovered as | N:1 | clear |
 | `entitlement_positions` | `software_licenses` | underpins | N:1 | restrict |
-| `compliance_findings` | `software_products` | is audited by | N:1 | restrict |
-| `asset_records` | `hardware_assets` | is capitalized as | N:1 | restrict |
+| `license_compliance_findings` | `software_products` | is audited by | N:1 | restrict |
+| `software_metering` | `software_installations` | generates | N:1 | clear |
+| `asset_records` | `hardware_assets` | is capitalized as | 1:1 | restrict |
+| `depreciation_schedules` | `hardware_assets` | is depreciated under | N:1 | restrict |
+| `positions` | `users` | holds | N:1 | clear |
+| `employment_history` | `users` | accumulates | N:1 | restrict |
+| `group_memberships` | `users` | is enrolled via | N:1 | clear |
+| `vendor_assessments` | `vendors` | is assessed in | N:1 | clear |
+| `vendor_risk_scores` | `vendors` | is rated by | N:1 | clear |
+| `contract_clauses` | `contracts` | is composed of | N:1 | restrict |
+| `contract_renewals` | `contracts` | is renewed by | N:1 | restrict |
+| `purchase_order_lines` | `purchase_orders` | is itemized by | N:1 | restrict |
+| `purchase_requisitions` | `purchase_orders` | fulfills | N:1 | clear |
+| `supplier_catalogs` | `vendors` | publishes | N:1 | clear |
+| `control_evidence` | `hardware_assets` | substantiates | N:1 | clear |
+| `control_evidence` | `software_licenses` | substantiates | N:1 | clear |
+| `audit_findings` | `hardware_assets` | is flagged by | N:1 | clear |
+| `audit_findings` | `software_licenses` | is flagged by | N:1 | clear |
 
-All rows above are **inbound** (FK lives on the sibling's table at the sibling's deploy time, not on this model). They describe the canonical shape so that when the sibling module arrives, the deployer can propose the FK back into ITAM with the correct verb, cardinality, and delete behavior.
+All rows above are inbound (FK lives on the sibling's table at the sibling's deploy time, not on this model). They describe the canonical shape so that when the sibling module arrives, the deployer can propose the FK back into ITAM with the correct verb, cardinality, and delete behavior. `Org Management` is a related domain but produces no §6 rows: once `departments` and `cost_centers` merge with a sibling `org_units` table, the integration is complete via deduplication and Org Management's other entities (e.g. `org_hierarchies`) do not directly reference our tables.
 
 ## 7. Open questions
 
@@ -686,6 +952,11 @@ None.
 - Should `cost_centers` and `departments` be merged into a single `org_units` entity if the organization adopts a unified org-and-finance hierarchy, or kept distinct because finance-driven cost centers and HR-driven departments evolve independently?
 - Should asset auto-discovery (network scan, MDM agent ingest) be modeled with a separate `discovery_records` entity to capture raw discovery events before they are reconciled into `hardware_assets`?
 - Should `depreciation_method`, `current_book_value`, `useful_life_months`, and `purchase_cost` be dropped from `hardware_assets` and read instead from the linked `fixed_assets.asset_records` row when a fixed-asset accounting module is deployed alongside ITAM?
+- Should `users.employment_status='terminated'` be enforced as a one-way terminal state, or kept reversible to support rehires that re-use the same user record?
+- Should `hardware_assets.asset_status='retired'` and `'lost'` be enforced as one-way terminal states, or kept reversible to support reactivation of recovered or reissued assets?
+- Should `software_licenses.license_status='cancelled'` and `'expired'` be enforced as one-way terminal states, or kept reversible to support late reactivation and auto-renewal flips?
+- Should `purchase_orders.received_date` be gated to fire only on the terminal `received` status, or kept loose so partial receipts can record intermediate dates?
+- Should `asset_categories` be reintroduced as a hierarchical entity (Computers > Laptops > Ultrabooks) if reporting needs grow beyond the flat enum on `hardware_assets.asset_category`?
 
 ## 8. Implementation notes for the downstream agent
 
@@ -695,7 +966,8 @@ A short checklist for the agent who will materialize this model in Semantius:
 2. Create entities in the order given in §2, entities referenced by others first. Note that `users` will be deduplicated against the Semantius built-in (see step 6).
 3. For each entity: set `label_column` to the snake_case field marked as label_column in §3, pass `module_id`, `view_permission`, `edit_permission`, and `audit_log` (true for `cost_centers`, `hardware_assets`, `software_licenses`, `asset_assignments`, `contracts`, `purchase_orders`; false elsewhere). Do not manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table`, a `reference_delete_mode` consistent with §4, and the `relationship_label` annotated in §3 Notes. Pair `format: "number"` with `precision: 2` for every monetary field.
-5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Every entity in this model has a §3 Label on the label_column row that differs from `singular_label` (e.g. entity `vendors` with `singular_label: "Vendor"` and label_column `vendor_name` should display as `"Vendor Name"`). For each affected entity, follow up with `update_field` using the composite string id `"{table_name}.{field_name}"` (e.g. `"vendors.vendor_name"`, passed as a string not an integer) to set the correct title. Apply this for: `asset_categories.category_name`, `manufacturers.manufacturer_name`, `vendors.vendor_name`, `locations.location_name`, `cost_centers.cost_center_code`, `departments.department_name`, `users.full_name`, `hardware_assets.asset_tag`, `software_products.product_name`, `software_licenses.license_name`, `software_installations.installation_label`, `asset_assignments.assignment_label`, `contracts.contract_number`, `purchase_orders.po_number`.
+5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Every entity in this model has a §3 Label on the label_column row that differs from `singular_label` (e.g. entity `vendors` with `singular_label: "Vendor"` and label_column `vendor_name` should display as `"Vendor Name"`). For each affected entity, follow up with `update_field` using the composite string id `"{table_name}.{field_name}"` (e.g. `"vendors.vendor_name"`, passed as a string not an integer) to set the correct title. Apply this for: `manufacturers.manufacturer_name`, `vendors.vendor_name`, `locations.location_name`, `cost_centers.cost_center_code`, `departments.department_name`, `users.full_name`, `hardware_assets.asset_tag`, `software_products.product_name`, `software_licenses.license_name`, `software_installations.installation_label`, `asset_assignments.assignment_label`, `contracts.contract_number`, `purchase_orders.po_number`.
 6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. The Semantius built-in `users` table already exists, so skip the local `create_entity` for `users` and reuse the built-in as the `reference_table` target for every FK in this model that points at `users`. Optionally add the model's missing fields (`employee_id`, `job_title`, `department_id`, `cost_center_id`, `manager_user_id`, `employment_status`, `start_date`, `end_date`) to the built-in only if they are not already present, additive only.
-7. **Apply §6 cross-model link suggestions.** Walk the §6 hint table. For each row, look up the `To` entity in the live catalog. If the target is deployed, propose the FK additively on the `From` side using the row's `Verb` as the `relationship_label` and the row's `Cardinality` and `Delete` as the FK shape; the proposal is always user-confirmed, never auto-applied. If the target is absent, skip silently, the row remains valid and may apply on a future deploy. Entity overlap on shared master-data tables (`users`, `departments`, `cost_centers`, `vendors`, `contracts`, `purchase_orders`) is **not** authored in §6; it is resolved at deploy-time by the deployer's name-collision detection, which inspects the live catalog and asks the user whether to merge, rename incoming, or rename the existing table. Declines persist so the same proposal does not reappear on every redeploy.
-8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that every monetary field has `precision: 2`.
+7. **Apply each entity's `validation_rules` block.** Pass the JSON array byte-for-byte to `create_entity` (or to `update_entity` if the entity already exists and is being extended). Seven entities carry rules: `users`, `hardware_assets`, `software_licenses`, `software_installations`, `asset_assignments`, `contracts`, `purchase_orders`. The platform evaluates them on every INSERT/UPDATE; failed rules return `{ "errors": [{ "code", "message" }, ...] }`.
+8. **Apply §6 cross-model link suggestions.** Walk the §6 hint table. For each row, look up the `To` entity in the live catalog. If the target is deployed, propose the FK additively on the `From` side using the row's `Verb` as the `relationship_label` and the row's `Cardinality` and `Delete` as the FK shape; the proposal is always user-confirmed, never auto-applied. If the target is absent, skip silently, the row remains valid and may apply on a future deploy. Entity overlap on shared master-data tables is not authored in §6; it is resolved at deploy-time by the deployer's name-collision detection, which inspects the live catalog and asks the user whether to merge, rename incoming, or rename the existing table.
+9. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that every monetary field has `precision: 2`.

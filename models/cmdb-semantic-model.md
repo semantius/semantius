@@ -1,11 +1,12 @@
 ---
 artifact: semantic-model
-version: "1.0"
+version: "1.7"
 system_name: CMDB
+system_description: Configuration Management Database
 system_slug: cmdb
 domain: CMDB
 naming_mode: agent-optimized
-created_at: 2026-05-08
+created_at: 2026-05-10
 entities:
   - configuration_items
   - ci_types
@@ -19,15 +20,18 @@ entities:
   - vendors
   - users
   - team_members
+  - discovery_sources
 departments:
   - IT
-related_models:
-  - itsm
-  - software_asset_management
-  - itam
-  - monitoring
-  - vendor_management
-  - identity_and_access
+related_domains:
+  - ITSM
+  - ITAM
+  - SAM
+  - Monitoring
+  - Vendor Management
+  - Identity & Access
+  - Release Management
+  - Change Management
 initial_request: |
   I need a cmdb
 ---
@@ -36,7 +40,7 @@ initial_request: |
 
 ## 1. Overview
 
-A Configuration Management Database (CMDB) for an IT Operations team. The model catalogs every tracked thing in the IT estate (servers, applications, databases, network devices, services), classifies them by type, records typed directional relationships between them, and ties them to the business services they support, the environments they run in, the locations that house them, and the teams and vendors responsible for them. Scope is CMDB-proper: change requests, incidents, asset procurement, and software licensing are deliberately left to neighboring ITSM modules that can reference these CIs by foreign key.
+A Configuration Management Database for an IT Operations team. The model catalogs every tracked thing in the IT estate (servers, applications, databases, network devices, services), classifies them by type, records typed directional relationships between them, and ties them to the business services they support, the environments they run in, the locations that house them, the teams and vendors responsible for them, and the discovery sources that contributed them.
 
 ## 2. Entity summary
 
@@ -52,8 +56,9 @@ A Configuration Management Database (CMDB) for an IT Operations team. The model 
 | 8 | `locations` | Location | Physical site, datacenter, region, or cloud region (hierarchical) |
 | 9 | `teams` | Team | Support or ownership group responsible for CIs and services |
 | 10 | `vendors` | Vendor | Hardware, software, or service provider that supplies CIs |
-| 11 | `users` | User | Operators, CI owners, and team members (deduplicated against the Semantius built-in `users` table at deploy-time) |
+| 11 | `users` | User | Operators, CI owners, and team members |
 | 12 | `team_members` | Team Member | M:N junction linking users to the teams they belong to, with role |
+| 13 | `discovery_sources` | Discovery Source | A scanner, agent, or import job that contributed CIs and relationships; provides provenance |
 
 ### Entity-relationship diagram
 
@@ -67,9 +72,11 @@ flowchart LR
     teams -->|owns| configuration_items
     users -->|operates| configuration_items
     vendors -->|supplies| configuration_items
+    discovery_sources -->|discovered| configuration_items
     configuration_items -->|originates| ci_relationships
     configuration_items -->|receives| ci_relationships
     relationship_types -->|describes| ci_relationships
+    discovery_sources -->|discovered| ci_relationships
     business_services -->|includes| service_components
     configuration_items -->|supports| service_components
     teams -->|owns| business_services
@@ -78,6 +85,8 @@ flowchart LR
     users -->|manages| vendors
     teams -->|includes| team_members
     users -->|holds| team_members
+    vendors -->|supplies| discovery_sources
+    teams -->|operates| discovery_sources
 ```
 
 ## 3. Entities
@@ -101,8 +110,9 @@ flowchart LR
 | `owner_team_id` | `reference` | no | Owner Team | → `teams` (N:1, clear), `relationship_label: "owns"` |
 | `technical_owner_user_id` | `reference` | no | Technical Owner | → `users` (N:1, clear), `relationship_label: "operates"` |
 | `vendor_id` | `reference` | no | Vendor | → `vendors` (N:1, clear), `relationship_label: "supplies"` |
-| `lifecycle_state` | `enum` | yes | Lifecycle State | values: `planned`, `ordered`, `in_stock`, `deployed`, `in_use`, `in_maintenance`, `retired`, `decommissioned`. default: `in_use` (most discovered or imported CIs are already running; auto-default `planned` would be wrong) |
-| `operational_status` | `enum` | yes | Operational Status | values: `operational`, `degraded`, `non_operational`, `unknown`. default: `operational` (auto-default `operational` is the same as the override here, but stated explicitly to lock in intent) |
+| `discovered_by_source_id` | `reference` | no | Discovered By | → `discovery_sources` (N:1, clear), `relationship_label: "discovered"` |
+| `lifecycle_state` | `enum` | yes | Lifecycle State | values: `planned`, `ordered`, `in_stock`, `deployed`, `in_use`, `in_maintenance`, `retired`, `decommissioned`. default: `"in_use"` (most discovered or imported CIs are already running; auto-default `planned` would be wrong) |
+| `operational_status` | `enum` | yes | Operational Status | values: `operational`, `degraded`, `non_operational`, `unknown`. default: `"operational"` |
 | `description` | `text` | no | Description | searchable |
 | `hostname` | `string` | no | Hostname | DNS or short hostname; promoted out of `attributes` because most CI types use it |
 | `ip_address` | `string` | no | IP Address | primary IPv4 or IPv6; additional IPs go in `attributes` |
@@ -114,9 +124,28 @@ flowchart LR
 **Relationships**
 
 - A `configuration_item` belongs to one `ci_type` (N:1, required, restrict on delete).
-- A `configuration_item` may run in one `environment`, sit in one `location`, be owned by one `team`, be operated by one `user`, and be supplied by one `vendor` (all N:1, optional, clear on delete).
+- A `configuration_item` may run in one `environment`, sit in one `location`, be owned by one `team`, be operated by one `user`, be supplied by one `vendor`, and have been discovered by one `discovery_source` (all N:1, optional, clear on delete).
 - A `configuration_item` may participate in many `ci_relationships` as either source or target (1:N).
 - A `configuration_item` ↔ `business_service` is many-to-many through the `service_components` junction.
+
+**Validation rules**
+
+```json
+[
+  {
+    "code": "verified_after_discovered",
+    "message": "Last Verified must be on or after First Discovered.",
+    "description": "When both timestamps are populated, verification cannot precede first discovery.",
+    "expression": {
+      "or": [
+        {"==": [{"var": "last_verified_at"}, null]},
+        {"==": [{"var": "first_discovered_at"}, null]},
+        {">=": [{"var": "last_verified_at"}, {"var": "first_discovered_at"}]}
+      ]
+    }
+  }
+]
+```
 
 ---
 
@@ -183,7 +212,8 @@ flowchart LR
 | `source_ci_id` | `reference` | yes | Source CI | → `configuration_items` (N:1, restrict), `relationship_label: "originates"` |
 | `target_ci_id` | `reference` | yes | Target CI | → `configuration_items` (N:1, restrict), `relationship_label: "receives"` |
 | `relationship_type_id` | `reference` | yes | Type | → `relationship_types` (N:1, restrict), `relationship_label: "describes"` |
-| `criticality` | `enum` | yes | Criticality | values: `low`, `medium`, `high`, `critical`. default: `medium` |
+| `discovered_by_source_id` | `reference` | no | Discovered By | → `discovery_sources` (N:1, clear), `relationship_label: "discovered"` |
+| `criticality` | `enum` | yes | Criticality | values: `low`, `medium`, `high`, `critical`. default: `"medium"` |
 | `description` | `text` | no | Description | optional context for this specific link |
 | `last_verified_at` | `date-time` | no | Last Verified | when this relationship was last confirmed by a discovery scan or human review |
 
@@ -191,6 +221,22 @@ flowchart LR
 
 - A `ci_relationship` references one source `configuration_item` and one target `configuration_item` (both N:1, required, restrict on delete so live links cannot be orphaned).
 - A `ci_relationship` is described by one `relationship_type` (N:1, required, restrict on delete).
+- A `ci_relationship` may have been contributed by one `discovery_source` (N:1, optional, clear on delete).
+
+**Validation rules**
+
+```json
+[
+  {
+    "code": "no_self_loop",
+    "message": "A CI relationship cannot point a CI at itself.",
+    "description": "Source and target must be different configuration items; self-referencing topology has no meaningful semantics for impact analysis.",
+    "expression": {
+      "!=": [{"var": "source_ci_id"}, {"var": "target_ci_id"}]
+    }
+  }
+]
+```
 
 ---
 
@@ -210,9 +256,9 @@ flowchart LR
 | `description` | `text` | no | Description | searchable |
 | `service_owner_team_id` | `reference` | no | Owner Team | → `teams` (N:1, clear), `relationship_label: "owns"` |
 | `business_owner_user_id` | `reference` | no | Business Sponsor | → `users` (N:1, clear), `relationship_label: "sponsors"` |
-| `criticality` | `enum` | yes | Criticality | values: `low`, `medium`, `high`, `mission_critical`. default: `medium` |
-| `service_status` | `enum` | yes | Service Status | values: `planning`, `active`, `deprecated`, `retired`. default: `active` (most services in a CMDB are live; auto-default `planning` would be wrong) |
-| `sla_tier` | `enum` | no | SLA Tier | values: `none`, `bronze`, `silver`, `gold`, `platinum`. default: `none` (sentinel; auto-default would otherwise silently classify every tier-less service as `bronze`) |
+| `criticality` | `enum` | yes | Criticality | values: `low`, `medium`, `high`, `mission_critical`. default: `"medium"` |
+| `service_status` | `enum` | yes | Service Status | values: `planning`, `active`, `deprecated`, `retired`. default: `"active"` (most services in a CMDB are live; auto-default `planning` would be wrong) |
+| `sla_tier` | `enum` | no | SLA Tier | values: `none`, `bronze`, `silver`, `gold`, `platinum`. default: `"none"` (sentinel; auto-default would otherwise silently classify every tier-less service as `bronze`) |
 
 **Relationships**
 
@@ -235,7 +281,7 @@ flowchart LR
 | `component_label` | `string` | yes | Display | label_column; **caller populates** as `"{service.service_name} / {ci.ci_name}"` |
 | `business_service_id` | `parent` | yes | Business Service | ↳ `business_services` (N:1, cascade), `relationship_label: "includes"` |
 | `configuration_item_id` | `parent` | yes | CI | ↳ `configuration_items` (N:1, cascade), `relationship_label: "supports"` |
-| `component_role` | `enum` | yes | Component Role | values: `primary`, `secondary`, `dependency`, `redundant`. default: `primary` |
+| `component_role` | `enum` | yes | Component Role | values: `primary`, `secondary`, `dependency`, `redundant`. default: `"primary"` |
 
 **Relationships**
 
@@ -279,7 +325,7 @@ flowchart LR
 |---|---|---|---|---|
 | `location_name` | `string` | yes | Location Name | label_column |
 | `location_code` | `string` | yes | Location Code | unique |
-| `location_type` | `enum` | yes | Location Type | values: `datacenter`, `office`, `cloud_region`, `colocation`, `remote_site`. default: `datacenter` |
+| `location_type` | `enum` | yes | Location Type | values: `datacenter`, `office`, `cloud_region`, `colocation`, `remote_site`. default: `"datacenter"` |
 | `parent_location_id` | `reference` | no | Parent Location | → `locations` (N:1, clear, self-ref), `relationship_label: "contains"` |
 | `address_line` | `string` | no | Address | street address |
 | `city` | `string` | no | City | |
@@ -315,6 +361,7 @@ flowchart LR
 
 - A `team` may be the parent of many other `teams` (1:N self-reference, optional, clear on delete).
 - A `team` may own many `configuration_items` and many `business_services` (1:N each, optional from the child side).
+- A `team` may operate many `discovery_sources` (1:N, optional from the source side).
 - A `team` ↔ `user` is many-to-many through the `team_members` junction.
 
 ---
@@ -332,17 +379,17 @@ flowchart LR
 |---|---|---|---|---|
 | `vendor_name` | `string` | yes | Vendor Name | label_column |
 | `vendor_code` | `string` | yes | Vendor Code | unique |
-| `vendor_type` | `enum` | yes | Vendor Type | values: `hardware`, `software`, `saas`, `services`, `cloud_provider`, `telecom`, `other`. default: `software` |
+| `vendor_type` | `enum` | yes | Vendor Type | values: `hardware`, `software`, `saas`, `services`, `cloud_provider`, `telecom`, `other`. default: `"software"` |
 | `description` | `text` | no | Description | |
 | `website` | `url` | no | Website | |
 | `support_email` | `email` | no | Support Email | |
 | `support_phone` | `string` | no | Support Phone | |
 | `account_manager_user_id` | `reference` | no | Account Manager | → `users` (N:1, clear), `relationship_label: "manages"` |
-| `vendor_status` | `enum` | yes | Vendor Status | values: `active`, `inactive`, `under_review`, `blacklisted`. default: `active` |
+| `vendor_status` | `enum` | yes | Vendor Status | values: `active`, `inactive`, `under_review`, `blacklisted`. default: `"active"` |
 
 **Relationships**
 
-- A `vendor` may supply many `configuration_items` (1:N, optional from the CI side, clear on delete).
+- A `vendor` may supply many `configuration_items` and many `discovery_sources` (1:N each, optional from the child side, clear on delete).
 - A `vendor` may be managed by one `user` as the internal account manager (N:1, optional, clear on delete).
 
 ---
@@ -352,7 +399,7 @@ flowchart LR
 **Plural label:** Users
 **Label column:** `full_name`
 **Audit log:** no
-**Description:** A person known to the CMDB: operators, CI technical owners, business sponsors, vendor account managers, and team members. Self-contained per the modeling rules. The deployer is expected to deduplicate this entity against Semantius's built-in `users` table at deploy-time and reuse the built-in (only adding fields the built-in does not already cover).
+**Description:** A person known to the CMDB: operators, CI technical owners, business sponsors, vendor account managers, and team members.
 
 **Fields**
 
@@ -361,7 +408,7 @@ flowchart LR
 | `full_name` | `string` | yes | Full Name | label_column |
 | `email` | `email` | yes | Email | unique |
 | `job_title` | `string` | no | Job Title | |
-| `user_status` | `enum` | yes | User Status | values: `active`, `inactive`, `suspended`. default: `active` |
+| `user_status` | `enum` | yes | User Status | values: `active`, `inactive`, `suspended`. default: `"active"` |
 | `timezone` | `string` | no | Timezone | IANA timezone |
 
 **Relationships**
@@ -385,12 +432,60 @@ flowchart LR
 | `member_label` | `string` | yes | Display | label_column; **caller populates** as `"{user.full_name} - {team.team_name}"` |
 | `team_id` | `parent` | yes | Team | ↳ `teams` (N:1, cascade), `relationship_label: "includes"` |
 | `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade), `relationship_label: "holds"` |
-| `role_in_team` | `enum` | yes | Role in Team | values: `member`, `lead`, `deputy`, `oncall`. default: `member` |
+| `role_in_team` | `enum` | yes | Role in Team | values: `member`, `lead`, `deputy`, `oncall`. default: `"member"` |
 | `joined_at` | `date` | no | Joined | when the user joined the team |
 
 **Relationships**
 
 - A `team_member` belongs to one `team` and one `user` (both N:1, required, cascade on delete).
+
+---
+
+### 3.13 `discovery_sources` — Discovery Source
+
+**Plural label:** Discovery Sources
+**Label column:** `source_name`
+**Audit log:** yes  _(source configuration changes inform conflict reconciliation across feeds)_
+**Description:** A scanner, agent, import job, or integration that contributed configuration items and relationships into the CMDB. CIs and CI relationships carry an optional FK back to the source that first reported them, so operators can reconcile conflicts when more than one feed observes the same estate.
+
+**Fields**
+
+| Field name | Format | Required | Label | Reference / Notes |
+|---|---|---|---|---|
+| `source_name` | `string` | yes | Source Name | label_column |
+| `source_code` | `string` | yes | Source Code | unique |
+| `source_type` | `enum` | yes | Source Type | values: `agent_scanner`, `agentless_scanner`, `cloud_native`, `csv_import`, `manual`, `api_integration`, `other`. default: `"agentless_scanner"` |
+| `description` | `text` | no | Description | what this source covers and how it runs |
+| `endpoint_url` | `url` | no | Endpoint | URL or hostname of the source console / agent / API |
+| `vendor_id` | `reference` | no | Vendor | → `vendors` (N:1, clear), `relationship_label: "supplies"` |
+| `owner_team_id` | `reference` | no | Owner Team | → `teams` (N:1, clear), `relationship_label: "operates"` |
+| `is_active` | `boolean` | yes | Active | default: `true` |
+| `last_run_at` | `date-time` | no | Last Run | most recent successful sync |
+| `next_scheduled_at` | `date-time` | no | Next Run | next scheduled sync |
+
+**Relationships**
+
+- A `discovery_source` may be supplied by one `vendor` and operated by one `team` (both N:1, optional, clear on delete).
+- A `discovery_source` may have discovered many `configuration_items` and many `ci_relationships` (1:N each, optional from the child side, clear on delete).
+
+**Validation rules**
+
+```json
+[
+  {
+    "code": "next_after_last",
+    "message": "Next Run must be on or after Last Run.",
+    "description": "When both timestamps are populated, the next scheduled run cannot precede the most recent one.",
+    "expression": {
+      "or": [
+        {"==": [{"var": "next_scheduled_at"}, null]},
+        {"==": [{"var": "last_run_at"}, null]},
+        {">=": [{"var": "next_scheduled_at"}, {"var": "last_run_at"}]}
+      ]
+    }
+  }
+]
+```
 
 ## 4. Relationship summary
 
@@ -402,10 +497,12 @@ flowchart LR
 | `configuration_items` | `owner_team_id` | `teams` | N:1 | reference | clear |
 | `configuration_items` | `technical_owner_user_id` | `users` | N:1 | reference | clear |
 | `configuration_items` | `vendor_id` | `vendors` | N:1 | reference | clear |
+| `configuration_items` | `discovered_by_source_id` | `discovery_sources` | N:1 | reference | clear |
 | `ci_types` | `parent_type_id` | `ci_types` | N:1 | reference | clear |
 | `ci_relationships` | `source_ci_id` | `configuration_items` | N:1 | reference | restrict |
 | `ci_relationships` | `target_ci_id` | `configuration_items` | N:1 | reference | restrict |
 | `ci_relationships` | `relationship_type_id` | `relationship_types` | N:1 | reference | restrict |
+| `ci_relationships` | `discovered_by_source_id` | `discovery_sources` | N:1 | reference | clear |
 | `service_components` | `business_service_id` | `business_services` | N:1 | parent | cascade |
 | `service_components` | `configuration_item_id` | `configuration_items` | N:1 | parent | cascade |
 | `business_services` | `service_owner_team_id` | `teams` | N:1 | reference | clear |
@@ -415,6 +512,8 @@ flowchart LR
 | `vendors` | `account_manager_user_id` | `users` | N:1 | reference | clear |
 | `team_members` | `team_id` | `teams` | N:1 | parent | cascade |
 | `team_members` | `user_id` | `users` | N:1 | parent | cascade |
+| `discovery_sources` | `vendor_id` | `vendors` | N:1 | reference | clear |
+| `discovery_sources` | `owner_team_id` | `teams` | N:1 | reference | clear |
 
 M:N relationships expressed via junctions:
 - `business_services` ↔ `configuration_items` via `service_components`
@@ -503,24 +602,37 @@ M:N relationships expressed via junctions:
 - `inactive`
 - `suspended`
 
+### 5.13 `discovery_sources.source_type`
+- `agent_scanner`
+- `agentless_scanner`
+- `cloud_native`
+- `csv_import`
+- `manual`
+- `api_integration`
+- `other`
+
 ## 6. Cross-model link suggestions
 
-These are hint rows for the deployer. Each row describes an additive FK that should be created when the target entity is deployed; if the target does not exist at deploy-time, the row is silently skipped. Entity-overlap (vendors, users, teams) is handled by the deployer's name-collision flow at deploy-time and is intentionally not declared here.
+These are hint rows for the deployer. Each row describes an additive FK that should be created when the target entity is deployed; if the target does not exist at deploy-time, the row is silently skipped. Shared-master collisions (`vendors`, `users`, `teams`) are intentionally omitted from §6, the deployer's name-collision flow handles those at deploy-time.
 
 | From | To | Verb | Cardinality | Delete |
 |---|---|---|---|---|
 | `incidents` | `configuration_items` | is affected by | N:1 | restrict |
+| `incidents` | `business_services` | is impacted by | N:1 | restrict |
 | `problems` | `configuration_items` | is the root cause of | N:1 | restrict |
-| `change_requests` | `configuration_items` | is affected by | N:1 | restrict |
-| `software_installs` | `configuration_items` | hosts | N:1 | restrict |
-| `software_licenses` | `vendors` | supplies | N:1 | restrict |
+| `change_requests` | `configuration_items` | is changed by | N:1 | restrict |
+| `change_requests` | `business_services` | is changed by | N:1 | restrict |
 | `hardware_assets` | `configuration_items` | is tracked as | N:1 | clear |
-| `hardware_assets` | `vendors` | supplies | N:1 | clear |
+| `software_installs` | `configuration_items` | hosts | N:1 | restrict |
 | `checks` | `configuration_items` | is monitored by | N:1 | restrict |
-| `alerts` | `configuration_items` | triggers | N:1 | restrict |
-| `alerts` | `business_services` | triggers | N:1 | restrict |
+| `checks` | `business_services` | is monitored by | N:1 | restrict |
+| `alerts` | `configuration_items` | is the subject of | N:1 | restrict |
+| `alerts` | `business_services` | is the subject of | N:1 | restrict |
+| `deployments` | `configuration_items` | receives | N:1 | restrict |
+| `deployments` | `environments` | is targeted by | N:1 | restrict |
+| `access_grants` | `configuration_items` | permits access to | N:1 | clear |
 
-All rows are inbound: the FK column lives on the sibling's table and points back into CMDB. None of these targets are in this model's §3, so each row only takes effect once the corresponding sibling module (`itsm`, `software_asset_management`, `itam`, `monitoring`) is deployed.
+All rows are inbound: the FK column lives on the sibling's table and points back into CMDB. None of these targets are in this model's §3, so each row only takes effect once the corresponding sibling module (`itsm`, `itam`, `sam`, `monitoring`, `change_management`, `release_management`, `identity_and_access`) is deployed. The `Vendor Management` related domain has no §6 row because its sibling tables (vendor_contracts, vendor_contacts, vendor_risk_assessments) all target `vendors`, which is shared-master and excluded from §6.
 
 ## 7. Open questions
 
@@ -530,21 +642,26 @@ None.
 
 ### 7.2 🟡 Future considerations (deferred scope)
 
+- Should `configuration_items.lifecycle_state` enforce `retired` and `decommissioned` as one-way terminal states with a state-transition rule? Currently treated as reversible because gear is sometimes pulled from retirement and cloud instances can be re-provisioned under the same identifier.
+- Should `business_services.service_status = retired` be enforced as one-way? Currently reversible because retired services occasionally come back into use without warranting a new service identifier.
+- Should `vendors.vendor_status = blacklisted` be enforced as one-way? Currently reversible because vendors can be un-blacklisted after a re-evaluation.
+- Should `users.user_status = inactive` and `suspended` be enforced as one-way? Currently reversible because users routinely cycle through inactive states (leave, sabbatical, contractor pause).
 - Should `configuration_items.attributes` (currently a free-form JSON bag) be promoted to a normalized `ci_type_attribute_definitions` plus `ci_attribute_values` model so type-specific attributes can be queried, validated, and indexed? Trigger: when operators routinely filter or report on attribute values across CIs of the same type.
-- Should a `discovery_sources` entity be added to record which scanner, agent, or import job contributed each CI and each relationship? Trigger: when more than one discovery source feeds the CMDB and conflicts must be reconciled.
-- Should `vendor_type` and `location_type` be promoted from enums to lookup tables once the value sets need to evolve frequently or carry their own metadata (icons, default settings)? (`relationship_types` is already a lookup table per §3.3.)
+- Should `vendor_type` and `location_type` be promoted from enums to lookup tables once the value sets need to evolve frequently or carry their own metadata (icons, default settings)? `relationship_types` is already a lookup table per §3.3.
 - Should `team_members` carry `left_at` (and a status) so historical membership can be audited, instead of being deleted on offboarding? Trigger: when HR or compliance needs an audit trail of who was on which team and when.
 - Should `ci_relationships.criticality` be promoted from a four-value enum to a numeric blast-radius score (e.g. 1 to 5 or 1 to 100) for quantitative impact analysis? Trigger: when impact-analysis tooling needs ordinal arithmetic over criticality values.
 - Should `configuration_items.hostname` and `configuration_items.ip_address` be made unique (perhaps scoped by `environment_id`)? Today only `ci_code` is unique; duplicates on hostname or IP are allowed. Trigger: when discovery-source dedup needs uniqueness enforcement at the DB level.
+- Should `discovery_sources` carry a `last_run_status` enum (`success`, `partial`, `failed`) and a `last_run_message` string so operators can see at a glance which feeds are healthy? Trigger: when more than two or three sources feed the CMDB and operators need a dashboard view of feed health.
 
 ## 8. Implementation notes for the downstream agent
 
 A short checklist for the agent who will materialize this model in Semantius:
 
 1. Create one module named `cmdb` (matches the front-matter `system_slug` exactly) and two baseline permissions, `cmdb:read` and `cmdb:manage`, before any entity.
-2. Create entities in the order given in §2. The lookup-style entities (`ci_types`, `relationship_types`, `environments`, `locations`, `teams`, `vendors`, `users`) should be created before the entities that reference them. `ci_relationships`, `service_components`, and `team_members` come last because they reference earlier entities on both sides.
-3. For each entity: set `label_column` to the snake_case field marked as label_column in §3, pass `module_id`, `view_permission: "cmdb:read"`, `edit_permission: "cmdb:manage"`. Do not manually create `id`, `created_at`, `updated_at`, or the auto-generated label field. Set `audit_log: true` on `configuration_items`, `ci_relationships`, `business_services`, and `vendors` as called out in their §3 sub-sections.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference` and `parent` fields also `reference_table`, `reference_delete_mode` consistent with §4, and `relationship_label` (the verb annotated in the Notes column). For required enum fields, set `default_value` explicitly when the §3 row specifies a default that differs from the auto-default of `enum_values[0]`.
-5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. Many entities in this model have a label_column whose §3 Label is more specific than the entity's `singular_label` (for example, entity `configuration_items` with `singular_label: "Configuration Item"` and `label_column: "ci_name"` yields an auto-field `configuration_items.ci_name` with title `"Configuration Item"`; the §3 Label is `"CI Name"`). For every such case, follow up with `update_field` to set the correct title. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"` (e.g. `"configuration_items.ci_name"`, `"ci_types.type_name"`, `"vendors.vendor_name"`); pass it as a string, not an integer, or the update will fail. Apply the fixup to: `configuration_items.ci_name` (`CI Name`), `ci_types.type_name` (`Type Name`), `relationship_types.relationship_name` (`Relationship Name`), `ci_relationships.relationship_label_text` (`Display`), `business_services.service_name` (`Service Name`), `service_components.component_label` (`Display`), `environments.environment_name` (`Environment Name`), `locations.location_name` (`Location Name`), `teams.team_name` (`Team Name`), `vendors.vendor_name` (`Vendor Name`), `users.full_name` (`Full Name`), `team_members.member_label` (`Display`).
-6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists as a Semantius built-in. Read Semantius first: if the built-in `users` table covers the fields in §3.11, skip the `create_entity` call and reuse the built-in as the `reference_table` target for every FK that points to `users`. If any §3.11 fields are missing on the built-in (e.g. `job_title`, `timezone`), add them additively with `create_field` against the built-in `users` table only if the model genuinely requires them.
-7. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the `relationship_label` on every FK matches §3 byte-for-byte.
+2. Create entities in the order given in §2. The lookup-style entities (`ci_types`, `relationship_types`, `environments`, `locations`, `teams`, `vendors`, `users`, `discovery_sources`) should be created before the entities that reference them. `ci_relationships`, `service_components`, and `team_members` come last because they reference earlier entities on both sides. `discovery_sources` itself depends on `vendors` and `teams` so it lands after those.
+3. For each entity: set `label_column` to the snake_case field marked as label_column in §3, pass `module_id`, `view_permission: "cmdb:read"`, `edit_permission: "cmdb:manage"`. Do not manually create `id`, `created_at`, `updated_at`, or the auto-generated label field. Set `audit_log: true` on `configuration_items`, `ci_relationships`, `business_services`, `vendors`, and `discovery_sources` as called out in their §3 sub-sections.
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference` and `parent` fields also `reference_table`, `reference_delete_mode` consistent with §4, and `relationship_label` (the verb annotated in the Notes column). For required enum fields, set `default_value` explicitly to the value annotated in the §3 Notes column (do not rely on `enum_values[0]` auto-fallback).
+5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. Many entities in this model have a label_column whose §3 Label is more specific than the entity's `singular_label` (for example, entity `configuration_items` with `singular_label: "Configuration Item"` and `label_column: "ci_name"` yields an auto-field `configuration_items.ci_name` with title `"Configuration Item"`; the §3 Label is `"CI Name"`). For every such case, follow up with `update_field` to set the correct title. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"` (e.g. `"configuration_items.ci_name"`, `"ci_types.type_name"`, `"vendors.vendor_name"`); pass it as a string, not an integer, or the update will fail. Apply the fixup to: `configuration_items.ci_name` (`CI Name`), `ci_types.type_name` (`Type Name`), `relationship_types.relationship_name` (`Relationship Name`), `ci_relationships.relationship_label_text` (`Display`), `business_services.service_name` (`Service Name`), `service_components.component_label` (`Display`), `environments.environment_name` (`Environment Name`), `locations.location_name` (`Location Name`), `teams.team_name` (`Team Name`), `vendors.vendor_name` (`Vendor Name`), `users.full_name` (`Full Name`), `team_members.member_label` (`Display`), `discovery_sources.source_name` (`Source Name`).
+6. **Pass through the `validation_rules` arrays from §3 byte-for-byte** when calling `create_entity` for `configuration_items`, `ci_relationships`, and `discovery_sources`. Do not transform or simplify the JsonLogic expressions. The platform evaluates these on every INSERT and UPDATE.
+7. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists as a Semantius built-in. Read Semantius first: if the built-in `users` table covers the fields in §3.11, skip the `create_entity` call and reuse the built-in as the `reference_table` target for every FK that points to `users`. If any §3.11 fields are missing on the built-in (e.g. `job_title`, `timezone`), add them additively with `create_field` against the built-in `users` table only if the model genuinely requires them.
+8. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the `relationship_label` on every FK matches §3 byte-for-byte.

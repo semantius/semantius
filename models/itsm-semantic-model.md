@@ -1,12 +1,12 @@
 ---
 artifact: semantic-model
-version: "1.0"
+version: "1.7"
 system_name: IT Service Management
-system_description: IT Support & Tickets
+system_description: IT Service Management
 system_slug: itsm
 domain: ITSM
 naming_mode: agent-optimized
-created_at: 2026-05-08
+created_at: 2026-05-10
 entities:
   - users
   - teams
@@ -20,18 +20,23 @@ entities:
   - change_configuration_items
   - knowledge_articles
   - service_level_agreements
-  - ticket_comments
+  - incident_comments
+  - service_request_comments
+  - problem_comments
+  - change_request_comments
 related_domains:
   - CMDB
-  - SAM
   - ITAM
+  - SAM
   - Monitoring
-  - Vendor Management
   - Identity & Access
-  - Project Management
-  - Product Roadmap
+  - HRIS
+  - Vendor Management
   - Risk Management
   - Compliance
+  - Project Management
+  - Product Roadmap
+  - PIM
   - Workforce Planning
 departments:
   - IT
@@ -43,13 +48,13 @@ initial_request: |
 
 ## 1. Overview
 
-An IT Service Management (ITSM) system that captures the four core ITIL processes (incident, problem, change, service request) on top of a configuration management database (CMDB) and a service catalog. Used by IT support agents, engineers, change managers, and end users across an organization. The system answers questions like "what is broken right now", "what caused the recurring printer outages last quarter", "what changes are scheduled for tonight's maintenance window", and "how do I request a new laptop".
+An IT Service Management system that captures the four core ITIL processes (incident, problem, change, and service request) on top of a configuration management database and a service catalog. Used by IT support agents, engineers, change managers, and end users across an organization. The system answers questions like "what is broken right now", "what caused the recurring printer outages last quarter", "what changes are scheduled for tonight's maintenance window", and "how do I request a new laptop".
 
 ## 2. Entity summary
 
 | # | Table name | Singular label | Purpose |
 |---|---|---|---|
-| 1 | `users` | User | Everyone in the system: end users who raise tickets, IT agents who resolve them, managers who approve changes. |
+| 1 | `users` | User | Identity for everyone in the system: end users who raise tickets, IT agents who resolve them, managers who approve changes. |
 | 2 | `teams` | Team | IT support groups and queues that own categories of work (Service Desk, Network, DBA, Security). |
 | 3 | `vendors` | Vendor | External providers (hardware OEMs, SaaS vendors, MSPs) referenced from CIs and changes. |
 | 4 | `configuration_items` | Configuration Item | The CMDB: every hardware, software, or service component IT manages and that incidents and changes reference. |
@@ -59,9 +64,12 @@ An IT Service Management (ITSM) system that captures the four core ITIL processe
 | 8 | `problems` | Problem | Underlying root causes that explain one or more incidents. |
 | 9 | `change_requests` | Change Request | Planned additions, modifications, or removals affecting CIs, with risk, schedule, and approval. |
 | 10 | `change_configuration_items` | Change CI | Junction: which CIs are affected by a given change request (M:N). |
-| 11 | `knowledge_articles` | Knowledge Article | Documented solutions, runbooks, FAQs, known errors used for self-service and agent reference. |
+| 11 | `knowledge_articles` | Knowledge Article | Documented solutions, runbooks, FAQs, and known errors used for self-service and agent reference. |
 | 12 | `service_level_agreements` | Service Level Agreement | Response and resolution time targets keyed off ticket type and priority. |
-| 13 | `ticket_comments` | Ticket Comment | Public replies and internal work-notes on incidents, service requests, problems, and changes. |
+| 13 | `incident_comments` | Incident Comment | Public replies and internal work-notes attached to an incident. |
+| 14 | `service_request_comments` | Service Request Comment | Public replies and internal work-notes attached to a service request. |
+| 15 | `problem_comments` | Problem Comment | Public replies and internal work-notes attached to a problem. |
+| 16 | `change_request_comments` | Change Request Comment | Public replies and internal work-notes attached to a change request. |
 
 ### Entity-relationship diagram
 
@@ -79,10 +87,12 @@ flowchart LR
   change_configuration_items
   knowledge_articles
   service_level_agreements
-  ticket_comments
+  incident_comments
+  service_request_comments
+  problem_comments
+  change_request_comments
 
   teams -->|employs| users
-  users -->|manages| users
   users -->|leads| teams
   vendors -->|supplies| configuration_items
   users -->|owns| configuration_items
@@ -115,11 +125,14 @@ flowchart LR
   configuration_items -->|appears in| change_configuration_items
   users -->|authors| knowledge_articles
   teams -->|owns| knowledge_articles
-  incidents -->|accumulates| ticket_comments
-  service_requests -->|accumulates| ticket_comments
-  problems -->|accumulates| ticket_comments
-  change_requests -->|accumulates| ticket_comments
-  users -->|writes| ticket_comments
+  incidents -->|accumulates| incident_comments
+  users -->|writes| incident_comments
+  service_requests -->|accumulates| service_request_comments
+  users -->|writes| service_request_comments
+  problems -->|accumulates| problem_comments
+  users -->|writes| problem_comments
+  change_requests -->|accumulates| change_request_comments
+  users -->|writes| change_request_comments
 ```
 
 ## 3. Entities
@@ -127,9 +140,9 @@ flowchart LR
 ### 3.1 `users` — User
 
 **Plural label:** Users
-**Label column:** `user_name`  _(the human-identifying field; auto-wired by Semantius)_
+**Label column:** `user_name`
 **Audit log:** no
-**Description:** A person who interacts with the ITSM system: an end user raising tickets, an IT agent resolving them, or a manager approving changes. The `is_agent` flag distinguishes IT staff from regular users.
+**Description:** A person who interacts with the ITSM system. The `is_agent` flag distinguishes IT staff (who resolve tickets, implement changes, author articles) from regular end users. Identity-only here; employment context (manager, department, position, contact details) lives in adjacent HR and identity systems.
 
 **Fields**
 
@@ -137,20 +150,13 @@ flowchart LR
 |---|---|---|---|---|
 | `user_name` | `string` | yes | Full Name | label_column |
 | `email` | `email` | yes | Email | unique |
-| `employee_id` | `string` | no | Employee ID | |
-| `job_title` | `string` | no | Job Title | |
-| `department` | `string` | no | Department | |
-| `primary_team_id` | `reference` | no | Primary Team | → `teams` (N:1), relationship_label: "employs" |
-| `manager_user_id` | `reference` | no | Manager | → `users` (N:1, self-ref), relationship_label: "manages" |
 | `is_agent` | `boolean` | yes | Is IT Agent | auto-default `FALSE` |
+| `primary_team_id` | `reference` | no | Primary Team | → `teams` (N:1), relationship_label: "employs" |
 | `is_active` | `boolean` | yes | Active | default: "true" |
-| `phone` | `string` | no | Phone | |
-| `location` | `string` | no | Location | |
 
 **Relationships**
 
 - A `user` may belong to one primary `team` (N:1, optional, clear on team delete).
-- A `user` may report to one manager `user` (N:1, self-ref, optional, clear on manager delete).
 
 ### 3.2 `teams` — Team
 
@@ -205,7 +211,7 @@ flowchart LR
 **Plural label:** Configuration Items
 **Label column:** `ci_name`
 **Audit log:** yes
-**Description:** A hardware, software, or service component tracked in the CMDB. CIs are the targets of incidents (something is broken on this CI) and changes (this CI is being modified).
+**Description:** A hardware, software, or service component tracked in the CMDB. CIs are the targets of incidents (something is broken on this CI) and changes (this CI is being modified). Once a CI reaches `retired` status it does not return to an active status. Warranty expiration cannot precede the purchase date.
 
 **Fields**
 
@@ -236,12 +242,21 @@ flowchart LR
 - A `configuration_item` may have one parent `configuration_item` (N:1, self-ref, optional, clear), forming a service-component hierarchy.
 - A `configuration_item` may be referenced by many `incidents`, `problems`, and `change_configuration_items` rows.
 
+**Validation rules**
+
+```json
+[
+  {"code": "warranty_after_purchase", "description": "Warranty expiration cannot precede the purchase date.", "message": "Warranty expiration must be on or after the purchase date.", "logic": {"or": [{"==": [{"var": "purchase_date"}, null]}, {"==": [{"var": "warranty_expires_at"}, null]}, {">=": [{"var": "warranty_expires_at"}, {"var": "purchase_date"}]}]}},
+  {"code": "retired_is_terminal", "description": "A retired CI cannot return to an active status.", "message": "Retired configuration items cannot be moved back to an active status.", "logic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.status"}, "retired"]}, {"==": [{"var": "status"}, "retired"]}]}}
+]
+```
+
 ### 3.5 `service_catalog_items` — Service Catalog Item
 
 **Plural label:** Service Catalog Items
 **Label column:** `catalog_item_name`
 **Audit log:** yes
-**Description:** A definition of a standard requestable service (new laptop, VPN access, software install). End users browse the catalog and raise service requests against these items.
+**Description:** A definition of a standard requestable service (new laptop, VPN access, software install). End users browse the catalog and raise service requests against these items. Price and target delivery days cannot be negative.
 
 **Fields**
 
@@ -262,12 +277,21 @@ flowchart LR
 - A `service_catalog_item` may be fulfilled by one delivery `team` (N:1, optional, clear).
 - A `service_catalog_item` may drive many `service_requests` (1:N, via `service_requests.catalog_item_id`, restrict on delete).
 
+**Validation rules**
+
+```json
+[
+  {"code": "delivery_days_non_negative", "description": "Target delivery days cannot be negative.", "message": "Target delivery days must be zero or greater.", "logic": {"or": [{"==": [{"var": "target_delivery_days"}, null]}, {">=": [{"var": "target_delivery_days"}, 0]}]}},
+  {"code": "price_non_negative", "description": "Catalog item price cannot be negative.", "message": "Price must be zero or greater.", "logic": {"or": [{"==": [{"var": "price"}, null]}, {">=": [{"var": "price"}, 0]}]}}
+]
+```
+
 ### 3.6 `service_requests` — Service Request
 
 **Plural label:** Service Requests
 **Label column:** `request_number`
 **Audit log:** yes
-**Description:** An instance of a user requesting a catalog item. Has its own approval, fulfillment, and closure lifecycle, separate from incidents.
+**Description:** An instance of a user requesting a catalog item. Has its own approval, fulfillment, and closure lifecycle, separate from incidents. Closure timestamps may only be set once the request reaches a terminal status, and date orderings (requested → fulfilled, requested → closed) cannot be inverted.
 
 **Fields**
 
@@ -295,14 +319,25 @@ flowchart LR
 - A `service_request` is raised by one requester `user` (N:1, required, clear on delete).
 - A `service_request` may be raised on behalf of one beneficiary `user` (N:1, optional, clear).
 - A `service_request` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
-- A `service_request` accumulates many `ticket_comments` (1:N, via `ticket_comments.service_request_id`, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
+- A `service_request` accumulates many `service_request_comments` (1:N, cascade on delete via `format: parent`).
+
+**Validation rules**
+
+```json
+[
+  {"code": "closed_at_only_when_terminal", "description": "closed_at populated only on terminal statuses.", "message": "Closed timestamp may only be set when status is closed or cancelled.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {"in": [{"var": "status"}, ["closed", "cancelled"]]}]}},
+  {"code": "closed_required_when_closed", "description": "A closed status implies closed_at is recorded.", "message": "Closed timestamp is required once status is closed.", "logic": {"or": [{"!=": [{"var": "status"}, "closed"]}, {"!=": [{"var": "closed_at"}, null]}]}},
+  {"code": "fulfilled_after_requested", "description": "Fulfilled timestamp cannot precede requested timestamp.", "message": "Fulfilled timestamp must be on or after requested timestamp.", "logic": {"or": [{"==": [{"var": "fulfilled_at"}, null]}, {">=": [{"var": "fulfilled_at"}, {"var": "requested_at"}]}]}},
+  {"code": "closed_after_requested", "description": "Closed timestamp cannot precede requested timestamp.", "message": "Closed timestamp must be on or after requested timestamp.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {">=": [{"var": "closed_at"}, {"var": "requested_at"}]}]}}
+]
+```
 
 ### 3.7 `incidents` — Incident
 
 **Plural label:** Incidents
 **Label column:** `incident_number`
 **Audit log:** yes
-**Description:** An unplanned interruption or quality degradation in a service. Reported by a user (or detected by monitoring), assigned to a team, resolved by an agent, optionally rolled up to a problem if a recurring root cause is suspected.
+**Description:** An unplanned interruption or quality degradation in a service. Reported by a user (or detected by monitoring), assigned to a team, resolved by an agent, optionally rolled up to a problem if a recurring root cause is suspected. Resolution and closure timestamps may only be set once status reaches the matching terminal state, and timestamp orderings (reported → resolved → closed) cannot be inverted.
 
 **Fields**
 
@@ -338,14 +373,27 @@ flowchart LR
 - An `incident` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
 - An `incident` may roll up to one `problem` (N:1, optional, clear).
 - An `incident` may be governed by one `service_level_agreement` (N:1, optional, clear).
-- An `incident` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
+- An `incident` accumulates many `incident_comments` (1:N, cascade on delete via `format: parent`).
+
+**Validation rules**
+
+```json
+[
+  {"code": "resolved_only_when_resolved_or_closed", "description": "resolved_at populated only on resolved or closed.", "message": "Resolved timestamp may only be set when status is resolved or closed.", "logic": {"or": [{"==": [{"var": "resolved_at"}, null]}, {"in": [{"var": "status"}, ["resolved", "closed"]]}]}},
+  {"code": "resolved_required_when_resolved", "description": "A resolved status implies resolved_at is recorded.", "message": "Resolved timestamp is required once status is resolved.", "logic": {"or": [{"!=": [{"var": "status"}, "resolved"]}, {"!=": [{"var": "resolved_at"}, null]}]}},
+  {"code": "closed_at_only_when_terminal", "description": "closed_at populated only on terminal statuses.", "message": "Closed timestamp may only be set when status is closed or cancelled.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {"in": [{"var": "status"}, ["closed", "cancelled"]]}]}},
+  {"code": "closed_required_when_closed", "description": "A closed status implies closed_at is recorded.", "message": "Closed timestamp is required once status is closed.", "logic": {"or": [{"!=": [{"var": "status"}, "closed"]}, {"!=": [{"var": "closed_at"}, null]}]}},
+  {"code": "resolved_after_reported", "description": "Resolved cannot precede reported.", "message": "Resolved timestamp must be on or after reported timestamp.", "logic": {"or": [{"==": [{"var": "resolved_at"}, null]}, {">=": [{"var": "resolved_at"}, {"var": "reported_at"}]}]}},
+  {"code": "closed_after_resolved", "description": "Closed cannot precede resolved.", "message": "Closed timestamp must be on or after resolved timestamp.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {"==": [{"var": "resolved_at"}, null]}, {">=": [{"var": "closed_at"}, {"var": "resolved_at"}]}]}}
+]
+```
 
 ### 3.8 `problems` — Problem
 
 **Plural label:** Problems
 **Label column:** `problem_number`
 **Audit log:** yes
-**Description:** An underlying root cause that explains one or more incidents. Investigated by a team, optionally documented in a known-error knowledge article, and ultimately resolved by a change request.
+**Description:** An underlying root cause that explains one or more incidents. Investigated by a team, optionally documented in a known-error knowledge article, and ultimately resolved by a change request. Resolution and closure timestamps may only be set on the matching terminal status; openings cannot post-date resolutions.
 
 **Fields**
 
@@ -374,14 +422,25 @@ flowchart LR
 - A `problem` may be assigned to one `user` and one `team` (N:1 each, optional, clear).
 - A `problem` may concern one affected `configuration_item` (N:1, optional, clear).
 - A `problem` may explain many `incidents` (1:N, via `incidents.problem_id`, clear on delete).
-- A `problem` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
+- A `problem` accumulates many `problem_comments` (1:N, cascade on delete via `format: parent`).
+
+**Validation rules**
+
+```json
+[
+  {"code": "resolved_only_when_resolved_or_closed", "description": "resolved_at populated only on resolved or closed.", "message": "Resolved timestamp may only be set when status is resolved or closed.", "logic": {"or": [{"==": [{"var": "resolved_at"}, null]}, {"in": [{"var": "status"}, ["resolved", "closed"]]}]}},
+  {"code": "closed_at_only_when_closed", "description": "closed_at populated only on closed.", "message": "Closed timestamp may only be set when status is closed.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {"==": [{"var": "status"}, "closed"]}]}},
+  {"code": "resolved_after_opened", "description": "Resolved cannot precede opened.", "message": "Resolved timestamp must be on or after opened timestamp.", "logic": {"or": [{"==": [{"var": "resolved_at"}, null]}, {">=": [{"var": "resolved_at"}, {"var": "opened_at"}]}]}},
+  {"code": "closed_after_opened", "description": "Closed cannot precede opened.", "message": "Closed timestamp must be on or after opened timestamp.", "logic": {"or": [{"==": [{"var": "closed_at"}, null]}, {">=": [{"var": "closed_at"}, {"var": "opened_at"}]}]}}
+]
+```
 
 ### 3.9 `change_requests` — Change Request
 
 **Plural label:** Change Requests
 **Label column:** `change_number`
 **Audit log:** yes
-**Description:** A planned addition, modification, or removal affecting one or more CIs. Carries risk and impact assessments, an implementation plan, a rollback plan, an approver, and scheduled execution windows.
+**Description:** A planned addition, modification, or removal affecting one or more CIs. Carries risk and impact assessments, an implementation plan, a rollback plan, an approver, and scheduled execution windows. Planned start/end and actual start/end ordering must hold. Closed, cancelled, and failed are terminal states a change request cannot leave.
 
 **Fields**
 
@@ -416,7 +475,17 @@ flowchart LR
 - A `change_request` may be performed by one external `vendor` (N:1, optional, clear).
 - A `change_request` may resolve many `problems` (1:N, via `problems.resolution_change_request_id`, clear on delete).
 - A `change_request` ↔ `configuration_items` is many-to-many through the `change_configuration_items` junction (cascade on delete).
-- A `change_request` accumulates many `ticket_comments` (1:N, clear on delete; cascade-on-delete is application-layer responsibility, see §7.1).
+- A `change_request` accumulates many `change_request_comments` (1:N, cascade on delete via `format: parent`).
+
+**Validation rules**
+
+```json
+[
+  {"code": "planned_dates_ordered", "description": "Planned end cannot precede planned start.", "message": "Planned end must be on or after planned start.", "logic": {"or": [{"==": [{"var": "planned_start_at"}, null]}, {"==": [{"var": "planned_end_at"}, null]}, {">=": [{"var": "planned_end_at"}, {"var": "planned_start_at"}]}]}},
+  {"code": "actual_dates_ordered", "description": "Actual end cannot precede actual start.", "message": "Actual end must be on or after actual start.", "logic": {"or": [{"==": [{"var": "actual_start_at"}, null]}, {"==": [{"var": "actual_end_at"}, null]}, {">=": [{"var": "actual_end_at"}, {"var": "actual_start_at"}]}]}},
+  {"code": "terminal_status_one_way", "description": "Closed, cancelled, and failed are terminal change states.", "message": "Closed, cancelled, or failed change requests cannot be reopened.", "logic": {"or": [{"==": [{"var": "$old"}, null]}, {"!": {"in": [{"var": "$old.status"}, ["closed", "cancelled", "failed"]]}}, {"==": [{"var": "status"}, {"var": "$old.status"}]}]}}
+]
+```
 
 ### 3.10 `change_configuration_items` — Change CI
 
@@ -444,7 +513,7 @@ flowchart LR
 **Plural label:** Knowledge Articles
 **Label column:** `article_title`
 **Audit log:** yes
-**Description:** A documented solution, runbook, FAQ, or known-error write-up. Used by end users for self-service and by agents during ticket handling. Articles have a publication lifecycle (draft, in_review, published, archived).
+**Description:** A documented solution, runbook, FAQ, or known-error write-up. Used by end users for self-service and by agents during ticket handling. Articles have a publication lifecycle (draft, in_review, published, archived). View counts cannot be negative; archival is a one-way state.
 
 **Fields**
 
@@ -470,12 +539,23 @@ flowchart LR
 - A `knowledge_article` may be owned by one `team` (N:1, optional, clear).
 - A `knowledge_article` may document many `problems` as a known-error reference (1:N, via `problems.known_error_article_id`, clear on delete).
 
+**Validation rules**
+
+```json
+[
+  {"code": "view_count_non_negative", "description": "View count cannot be negative.", "message": "View count must be zero or greater.", "logic": {">=": [{"var": "view_count"}, 0]}},
+  {"code": "published_at_only_when_published_or_archived", "description": "published_at populated only when status is published or archived.", "message": "Published timestamp may only be set when status is published or archived.", "logic": {"or": [{"==": [{"var": "published_at"}, null]}, {"in": [{"var": "status"}, ["published", "archived"]]}]}},
+  {"code": "published_required_when_published", "description": "A published status implies published_at is recorded.", "message": "Published timestamp is required once status is published.", "logic": {"or": [{"!=": [{"var": "status"}, "published"]}, {"!=": [{"var": "published_at"}, null]}]}},
+  {"code": "archived_is_terminal", "description": "Archived articles cannot return to draft, in_review, or published.", "message": "Archived articles cannot be unarchived.", "logic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.status"}, "archived"]}, {"==": [{"var": "status"}, "archived"]}]}}
+]
+```
+
 ### 3.12 `service_level_agreements` — Service Level Agreement
 
 **Plural label:** Service Level Agreements
 **Label column:** `sla_name`
 **Audit log:** yes
-**Description:** A response and resolution time target that applies to incidents (and potentially other ticket types) matching a given ticket type and priority. The implementing system uses these to compute SLA due timestamps and breach flags on each ticket.
+**Description:** A response and resolution time target that applies to incidents (and potentially other ticket types) matching a given ticket type and priority. The implementing system uses these to compute SLA due timestamps and breach flags on each ticket. Both targets are positive; resolution target cannot be tighter than response target; effective-from and effective-until orderings hold.
 
 **Fields**
 
@@ -496,40 +576,114 @@ flowchart LR
 
 - A `service_level_agreement` may govern many `incidents` (1:N, via `incidents.sla_id`, clear on delete).
 
-### 3.13 `ticket_comments` — Ticket Comment
+**Validation rules**
 
-**Plural label:** Ticket Comments
-**Label column:** `ticket_comment_label`
+```json
+[
+  {"code": "response_target_positive", "description": "Response target must be a positive number of minutes.", "message": "Response target minutes must be greater than zero.", "logic": {">": [{"var": "response_target_minutes"}, 0]}},
+  {"code": "resolution_target_positive", "description": "Resolution target must be a positive number of minutes.", "message": "Resolution target minutes must be greater than zero.", "logic": {">": [{"var": "resolution_target_minutes"}, 0]}},
+  {"code": "resolution_at_least_response", "description": "Resolution target cannot be tighter than response target.", "message": "Resolution target must be at least as long as response target.", "logic": {">=": [{"var": "resolution_target_minutes"}, {"var": "response_target_minutes"}]}},
+  {"code": "effective_dates_ordered", "description": "Effective until cannot precede effective from.", "message": "Effective until must be on or after effective from.", "logic": {"or": [{"==": [{"var": "effective_from"}, null]}, {"==": [{"var": "effective_until"}, null]}, {">=": [{"var": "effective_until"}, {"var": "effective_from"}]}]}}
+]
+```
+
+### 3.13 `incident_comments` — Incident Comment
+
+**Plural label:** Incident Comments
+**Label column:** `incident_comment_label`
 **Audit log:** yes
-**Description:** A reply or work-note attached to exactly one ticket of any of the four ticket types. The `ticket_type` discriminator names which of the four FK columns is populated (caller invariant; not enforced at the database level in this model).
+**Description:** A reply or work-note attached to exactly one incident. Cascades natively when the parent incident is deleted via `format: parent`.
 
 **Fields**
 
 | Field name | Format | Required | Label | Reference / Notes |
 |---|---|---|---|---|
-| `ticket_comment_label` | `string` | yes | Label | label_column. Caller populates as `"{ticket_type}-{ticket_number} #{seq}"` on create. |
-| `ticket_type` | `enum` | yes | Ticket Type | values: `incident`, `service_request`, `problem`, `change_request`; default: "incident" |
-| `incident_id` | `reference` | no | Incident | → `incidents` (N:1), relationship_label: "accumulates" |
-| `service_request_id` | `reference` | no | Service Request | → `service_requests` (N:1), relationship_label: "accumulates" |
-| `problem_id` | `reference` | no | Problem | → `problems` (N:1), relationship_label: "accumulates" |
-| `change_request_id` | `reference` | no | Change Request | → `change_requests` (N:1), relationship_label: "accumulates" |
+| `incident_comment_label` | `string` | yes | Label | label_column. Caller populates as `"{incident_number} #{seq}"` on create, where `seq` is a 1-based per-incident counter. |
+| `incident_id` | `parent` | yes | Incident | → `incidents` (N:1), relationship_label: "accumulates" |
 | `author_user_id` | `reference` | yes | Author | → `users` (N:1), relationship_label: "writes" |
-| `body` | `text` | no | Body | non-empty body should be enforced at the application layer; the platform's auto-default for required `text` is `''` which is rarely the desired stored value |
+| `body` | `text` | no | Body | |
 | `visibility` | `enum` | yes | Visibility | values: `public`, `internal`; default: "internal" |
 | `posted_at` | `date-time` | yes | Posted At | |
 
 **Relationships**
 
-- A `ticket_comment` belongs to exactly one parent ticket. Caller invariant: exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching the value of `ticket_type`. The DB allows nulls on each individually; the as-shipped contract is application-level enforcement (option (a) in §7.1, which tracks whether to harden this later).
-- A `ticket_comment` is written by one author `user` (N:1, required, clear on delete).
-- A `ticket_comment`'s parent FKs use `reference` + `clear` because the four columns must be nullable (only one is populated per row) and the platform reserves `cascade` for `format: parent` (which is NOT NULL). Cascading deletion of comments when their parent ticket is deleted is therefore an **application-layer responsibility**, not a DB-level guarantee. See §7.1 for the open question on hardening this.
+- An `incident_comment` belongs to exactly one `incident` (N:1, required, cascade on delete).
+- An `incident_comment` is written by one author `user` (N:1, required, clear on delete).
+
+### 3.14 `service_request_comments` — Service Request Comment
+
+**Plural label:** Service Request Comments
+**Label column:** `service_request_comment_label`
+**Audit log:** yes
+**Description:** A reply or work-note attached to exactly one service request. Cascades natively when the parent service request is deleted via `format: parent`.
+
+**Fields**
+
+| Field name | Format | Required | Label | Reference / Notes |
+|---|---|---|---|---|
+| `service_request_comment_label` | `string` | yes | Label | label_column. Caller populates as `"{request_number} #{seq}"` on create, where `seq` is a 1-based per-request counter. |
+| `service_request_id` | `parent` | yes | Service Request | → `service_requests` (N:1), relationship_label: "accumulates" |
+| `author_user_id` | `reference` | yes | Author | → `users` (N:1), relationship_label: "writes" |
+| `body` | `text` | no | Body | |
+| `visibility` | `enum` | yes | Visibility | values: `public`, `internal`; default: "internal" |
+| `posted_at` | `date-time` | yes | Posted At | |
+
+**Relationships**
+
+- A `service_request_comment` belongs to exactly one `service_request` (N:1, required, cascade on delete).
+- A `service_request_comment` is written by one author `user` (N:1, required, clear on delete).
+
+### 3.15 `problem_comments` — Problem Comment
+
+**Plural label:** Problem Comments
+**Label column:** `problem_comment_label`
+**Audit log:** yes
+**Description:** A reply or work-note attached to exactly one problem. Cascades natively when the parent problem is deleted via `format: parent`.
+
+**Fields**
+
+| Field name | Format | Required | Label | Reference / Notes |
+|---|---|---|---|---|
+| `problem_comment_label` | `string` | yes | Label | label_column. Caller populates as `"{problem_number} #{seq}"` on create, where `seq` is a 1-based per-problem counter. |
+| `problem_id` | `parent` | yes | Problem | → `problems` (N:1), relationship_label: "accumulates" |
+| `author_user_id` | `reference` | yes | Author | → `users` (N:1), relationship_label: "writes" |
+| `body` | `text` | no | Body | |
+| `visibility` | `enum` | yes | Visibility | values: `public`, `internal`; default: "internal" |
+| `posted_at` | `date-time` | yes | Posted At | |
+
+**Relationships**
+
+- A `problem_comment` belongs to exactly one `problem` (N:1, required, cascade on delete).
+- A `problem_comment` is written by one author `user` (N:1, required, clear on delete).
+
+### 3.16 `change_request_comments` — Change Request Comment
+
+**Plural label:** Change Request Comments
+**Label column:** `change_request_comment_label`
+**Audit log:** yes
+**Description:** A reply or work-note attached to exactly one change request. Cascades natively when the parent change request is deleted via `format: parent`.
+
+**Fields**
+
+| Field name | Format | Required | Label | Reference / Notes |
+|---|---|---|---|---|
+| `change_request_comment_label` | `string` | yes | Label | label_column. Caller populates as `"{change_number} #{seq}"` on create, where `seq` is a 1-based per-change counter. |
+| `change_request_id` | `parent` | yes | Change Request | → `change_requests` (N:1), relationship_label: "accumulates" |
+| `author_user_id` | `reference` | yes | Author | → `users` (N:1), relationship_label: "writes" |
+| `body` | `text` | no | Body | |
+| `visibility` | `enum` | yes | Visibility | values: `public`, `internal`; default: "internal" |
+| `posted_at` | `date-time` | yes | Posted At | |
+
+**Relationships**
+
+- A `change_request_comment` belongs to exactly one `change_request` (N:1, required, cascade on delete).
+- A `change_request_comment` is written by one author `user` (N:1, required, clear on delete).
 
 ## 4. Relationship summary
 
 | From | Field | To | Cardinality | Kind | Delete behavior |
 |---|---|---|---|---|---|
 | `users` | `primary_team_id` | `teams` | N:1 | reference | clear |
-| `users` | `manager_user_id` | `users` | N:1 (self) | reference | clear |
 | `teams` | `team_lead_user_id` | `users` | N:1 | reference | clear |
 | `configuration_items` | `vendor_id` | `vendors` | N:1 | reference | clear |
 | `configuration_items` | `owner_user_id` | `users` | N:1 | reference | clear |
@@ -562,11 +716,14 @@ flowchart LR
 | `change_configuration_items` | `configuration_item_id` | `configuration_items` | N:1 | parent (junction) | cascade |
 | `knowledge_articles` | `author_user_id` | `users` | N:1 | reference | clear |
 | `knowledge_articles` | `owning_team_id` | `teams` | N:1 | reference | clear |
-| `ticket_comments` | `incident_id` | `incidents` | N:1 | reference | clear |
-| `ticket_comments` | `service_request_id` | `service_requests` | N:1 | reference | clear |
-| `ticket_comments` | `problem_id` | `problems` | N:1 | reference | clear |
-| `ticket_comments` | `change_request_id` | `change_requests` | N:1 | reference | clear |
-| `ticket_comments` | `author_user_id` | `users` | N:1 | reference | clear |
+| `incident_comments` | `incident_id` | `incidents` | N:1 | parent | cascade |
+| `incident_comments` | `author_user_id` | `users` | N:1 | reference | clear |
+| `service_request_comments` | `service_request_id` | `service_requests` | N:1 | parent | cascade |
+| `service_request_comments` | `author_user_id` | `users` | N:1 | reference | clear |
+| `problem_comments` | `problem_id` | `problems` | N:1 | parent | cascade |
+| `problem_comments` | `author_user_id` | `users` | N:1 | reference | clear |
+| `change_request_comments` | `change_request_id` | `change_requests` | N:1 | parent | cascade |
+| `change_request_comments` | `author_user_id` | `users` | N:1 | reference | clear |
 
 `change_requests` ↔ `configuration_items` is M:N realised by the `change_configuration_items` junction (two N:1 rows above).
 
@@ -701,13 +858,13 @@ flowchart LR
 - `customer`
 - `public`
 
-### 5.18 Ticket type _(shared by `service_level_agreements.ticket_type`, `ticket_comments.ticket_type`)_
+### 5.18 `service_level_agreements.ticket_type`
 - `incident`
 - `service_request`
 - `problem`
 - `change_request`
 
-### 5.19 `ticket_comments.visibility`
+### 5.19 Comment visibility _(shared by `incident_comments.visibility`, `service_request_comments.visibility`, `problem_comments.visibility`, `change_request_comments.visibility`)_
 - `public`
 - `internal`
 
@@ -715,38 +872,40 @@ flowchart LR
 
 The hint table below describes FKs that *could* exist between this model's entities and entities owned by other modules. The deployer reads each row, looks up the `To` concept in the live catalog at deploy time, and proposes an additive FK only when the target is actually deployed. Targets that are missing are silently skipped; targets that match multiple candidates surface a single confirmation widget. Entries are hints, not contracts.
 
-Rows are split into **inbound** (FK lives on a sibling table that does not exist in this model; created on the sibling at its deploy time) and **outbound** (FK lives on one of this model's tables; created here when the target sibling is deployed). Mixing both is intentional: ITSM is a hub that other operational domains naturally link into, and one that draws on adjacent domains (vendor management, project portfolio, product roadmap, risk and compliance) when richer context is available.
+Rows are split into **inbound** (FK lives on a sibling table that does not exist in this model; created on the sibling at its deploy time) and **outbound** (FK lives on one of this model's tables; created here when the target sibling is deployed).
 
 | From | To | Verb | Cardinality | Delete |
 |---|---|---|---|---|
+| `ci_relationships` | `configuration_items` | links | N:1 | clear |
+| `discovery_sources` | `configuration_items` | discovers | N:1 | clear |
+| `hardware_assets` | `configuration_items` | is tracked as | N:1 | clear |
 | `software_installs` | `configuration_items` | hosts | N:1 | clear |
-| `hardware_assets` | `configuration_items` | tracks | N:1 | clear |
-| `alerts` | `incidents` | spawns | N:1 | clear |
-| `outages` | `configuration_items` | experiences | N:1 | clear |
-| `outages` | `incidents` | encompasses | N:1 | clear |
+| `service_catalog_items` | `software_licenses` | provisions | N:1 | clear |
+| `alerts` | `incidents` | consolidates | N:1 | clear |
+| `incidents` | `outages` | encompasses | N:1 | clear |
 | `monitoring_metrics` | `configuration_items` | is measured by | N:1 | clear |
+| `employees` | `users` | is the account of | N:1 | clear |
 | `risk_assessments` | `change_requests` | is assessed by | N:1 | clear |
 | `risk_assessments` | `configuration_items` | is assessed for | N:1 | clear |
-| `compliance_controls` | `configuration_items` | governs | N:1 | clear |
-| `audit_events` | `configuration_items` | records changes to | N:1 | clear |
+| `compliance_controls` | `configuration_items` | is governed by | N:1 | clear |
+| `audit_events` | `configuration_items` | is audited by | N:1 | clear |
 | `change_requests` | `vendor_contracts` | governs | N:1 | clear |
 | `change_requests` | `releases` | bundles | N:1 | clear |
 | `change_requests` | `features` | is implemented by | N:1 | clear |
-| `change_requests` | `projects` | delivers | N:1 | clear |
+| `change_requests` | `projects` | scopes | N:1 | clear |
 | `service_catalog_items` | `products` | is offered as | N:1 | clear |
 | `knowledge_articles` | `products` | is documented by | N:1 | clear |
 | `users` | `positions` | is held by | N:1 | clear |
 
-The inbound rows above name tables that live on sibling modules (`software_asset_management.software_installs`, `itam.hardware_assets`, `monitoring.alerts` / `monitoring.monitoring_metrics`, `service_operations.outages`, `risk_management.risk_assessments`, `compliance.compliance_controls`, `audit.audit_events`). The outbound rows name tables this model would FK into when their owning sibling is deployed (`vendor_management.vendor_contracts`, `product_roadmap.releases` / `product_roadmap.features`, `project_management.projects`, `pim.products`, `workforce_planning.positions`). The deployer's CMDB dedup pass automatically retargets the `configuration_items` rows to `cmdb.configuration_items` when the `cmdb` module is also deployed.
+The inbound rows above name tables that live on sibling modules (CMDB `ci_relationships` / `discovery_sources`, ITAM `hardware_assets`, SAM `software_installs` / `software_licenses`, Monitoring `alerts` / `monitoring_metrics`, Service Operations `outages`, HRIS `employees`, Risk Management `risk_assessments`, Compliance `compliance_controls`, Audit `audit_events`). The outbound rows name tables this model would FK into when their owning sibling is deployed (Vendor Management `vendor_contracts`, Product Roadmap `releases` / `features`, Project Management `projects`, PIM `products`, Workforce Planning `positions`). The deployer's CMDB dedup pass automatically retargets `configuration_items` rows when the `cmdb` module is also deployed.
 
-Entity-overlap dedup for shared-master-data tables (`users` against the Semantius built-in or `identity_and_access`, `vendors` against `vendor_management`, `configuration_items` against `cmdb`) is handled by the deployer's name-collision flow at deploy time and is not declared here.
+Entity-overlap dedup for shared-master-data tables (`users` against the platform built-in or Identity & Access, `vendors` against Vendor Management, `configuration_items` against CMDB) is handled by the deployer's name-collision flow at deploy time and is not declared here.
 
 ## 7. Open questions
 
 ### 7.1 🔴 Decisions needed (blockers)
 
-- How should the `ticket_comments` polymorphic invariant ("exactly one of `incident_id`, `service_request_id`, `problem_id`, `change_request_id` is set, matching `ticket_type`") be enforced? Options: (a) application-level only, accepting that direct DB writes can violate it; (b) a database `CHECK` constraint added by the implementer outside the semantic-model deployer; (c) split `ticket_comments` into four type-specific comment tables (`incident_comments`, `service_request_comments`, `problem_comments`, `change_request_comments`) to remove the polymorphism entirely and let each table use `format: parent` + `cascade`. The as-shipped contract is (a); the open question is whether to harden to (b) or (c) later.
-- How should cascade-on-delete of `ticket_comments` be enforced? The platform's `format: reference` is incompatible with `cascade`, and `format: parent` is NOT NULL (which the polymorphic shape forbids). The as-shipped behavior is application-layer cleanup of comments when a parent ticket is deleted; option (c) above (split into four type-specific tables) would let the platform enforce cascade natively. Should this be addressed alongside the polymorphism decision?
+None.
 
 ### 7.2 🟡 Future considerations (deferred scope)
 
@@ -754,7 +913,7 @@ Entity-overlap dedup for shared-master-data tables (`users` against the Semantiu
 - Should `incidents` ↔ `configuration_items` be M:N (multiple impacted CIs per incident) via an `incident_configuration_items` junction, or is one primary `affected_configuration_item_id` enough?
 - Should `service_catalog_items.category` (and similar flat enums) be promoted to a hierarchical `categories` lookup table if the taxonomy needs grow?
 - Should `attachments` become a first-class polymorphic entity attached to tickets and articles, or stay as a platform-level concern outside this model?
-- Should `releases` and `deployments` be added to bundle multiple `change_requests` into a coordinated release window, or is the cross-model link to `product_roadmap.releases` (§6) sufficient?
+- Should `releases` and `deployments` be added to bundle multiple `change_requests` into a coordinated release window, or is the cross-model link to Product Roadmap `releases` sufficient?
 - Should `cab_meetings` (Change Advisory Board) be a first-class entity tracking which meeting approved which `change_requests`, or is the per-change `approver_user_id` enough?
 - Should SLA matching support more dimensions (category, customer segment, business-hours window definitions per region) than the current `(ticket_type, priority)` key plus single `business_hours_only` flag?
 - Should `incidents.priority` be a stored field (current model) or computed deterministically from `impact` × `urgency`? If computed, the field becomes derived and the priority enum lives only as a display vocabulary.
@@ -766,27 +925,30 @@ Entity-overlap dedup for shared-master-data tables (`users` against the Semantiu
 ## 8. Implementation notes for the downstream agent
 
 1. Create one module named `itsm` (the module name **must** equal the `system_slug` from the front-matter, do not invent a different module slug here) and two baseline permissions (`itsm:read`, `itsm:manage`) before any entity.
-2. Create entities in §2 order: entities referenced by others first. Concretely: `users` → `teams` → `vendors` → `configuration_items` → `service_catalog_items` → `service_level_agreements` → `knowledge_articles` → `problems` → `change_requests` → `incidents` → `service_requests` → `change_configuration_items` → `ticket_comments`. (Some FKs are mutually referential between `incidents` ↔ `problems` and `problems` ↔ `change_requests` ↔ `knowledge_articles`; create the entity first with non-FK fields, then add the FK fields once both targets exist.)
+2. Create entities in §2 order: entities referenced by others first. Concretely: `users` → `teams` → `vendors` → `configuration_items` → `service_catalog_items` → `service_level_agreements` → `knowledge_articles` → `problems` → `change_requests` → `incidents` → `service_requests` → `change_configuration_items` → `incident_comments` → `service_request_comments` → `problem_comments` → `change_request_comments`. Some FKs are mutually referential between `incidents` ↔ `problems` and `problems` ↔ `change_requests` ↔ `knowledge_articles`; create the entity first with non-FK fields, then add the FK fields once both targets exist.
 3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission` (`itsm:read`), `edit_permission` (`itsm:manage`). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with the §4 Delete behavior column. Persist the `relationship_label` annotation on each FK field so navigation breadcrumbs and ER docs render the verb. (The §3 `Required` column is analyst intent; the platform manages nullability internally and does not need a per-field flag.)
-5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. Several entities in this model have label_column titles that differ from `singular_label`:
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with the §4 Delete behavior column. Persist the `relationship_label` annotation on each FK field so navigation breadcrumbs and ER docs render the verb. Persist the `validation_rules` JSON arrays from §3 verbatim on the corresponding entities.
+5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, and its `title` defaults to `singular_label`. The following label-column titles differ from `singular_label` and must be updated:
    - `users.user_name` → title `"Full Name"` (not `"User"`)
+   - `teams.team_name` → title `"Team Name"` (not `"Team"`)
+   - `vendors.vendor_name` → title `"Vendor Name"` (not `"Vendor"`)
    - `configuration_items.ci_name` → title `"Name"` (not `"Configuration Item"`)
    - `service_catalog_items.catalog_item_name` → title `"Name"` (not `"Service Catalog Item"`)
-   - `service_requests.request_number` → title `"Request Number"` (matches singular form, but explicit fixup is safe)
-   - `incidents.incident_number` → title `"Incident Number"`
-   - `problems.problem_number` → title `"Problem Number"`
-   - `change_requests.change_number` → title `"Change Number"`
+   - `service_requests.request_number` → title `"Request Number"` (not `"Service Request"`)
+   - `incidents.incident_number` → title `"Incident Number"` (not `"Incident"`)
+   - `problems.problem_number` → title `"Problem Number"` (not `"Problem"`)
+   - `change_requests.change_number` → title `"Change Number"` (not `"Change Request"`)
    - `change_configuration_items.change_ci_label` → title `"Label"` (not `"Change CI"`)
    - `knowledge_articles.article_title` → title `"Title"` (not `"Knowledge Article"`)
    - `service_level_agreements.sla_name` → title `"Name"` (not `"Service Level Agreement"`)
-   - `ticket_comments.ticket_comment_label` → title `"Label"` (not `"Ticket Comment"`)
-   - `vendors.vendor_name` → title `"Vendor Name"` (not `"Vendor"`)
-   - `teams.team_name` → title `"Team Name"` (not `"Team"`)
+   - `incident_comments.incident_comment_label` → title `"Label"` (not `"Incident Comment"`)
+   - `service_request_comments.service_request_comment_label` → title `"Label"` (not `"Service Request Comment"`)
+   - `problem_comments.problem_comment_label` → title `"Label"` (not `"Problem Comment"`)
+   - `change_request_comments.change_request_comment_label` → title `"Label"` (not `"Change Request Comment"`)
 
    For each, follow up `create_entity` with `update_field` using the composite **string** id `"{table_name}.{field_name}"` (e.g. `"vendors.vendor_name"`, `"configuration_items.ci_name"`). Pass the id as a string, not an integer, or the update will fail.
-6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists in Semantius as a built-in. For `users`, **skip the create** and reuse the built-in as the `reference_table` target for every FK that points at `users`. Add the domain-specific fields (`is_agent`, `primary_team_id`, `manager_user_id`, `employee_id`, `job_title`, `department`, `location`, `phone`) to the built-in only if missing (additive, low-risk). If `roles`, `permissions`, or other built-ins overlap with anything below, apply the same dedup rule.
-7. **Apply §6 cross-model link hints.** After this model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `To` table in the live catalog: when it is deployed, propose the FK on the row's `From` table (always user-confirmed, never auto-applied) using the row's verb, cardinality, and delete behavior; when it is missing or ambiguous across multiple candidates, silently skip or surface a single confirmation widget. Cross-module changes are additive only; declines persist on the sibling module so the same proposal does not reappear on every redeploy. Entity-overlap dedup against Semantius built-ins and other already-deployed sibling tables (the `users` / `vendors` / `configuration_items` overlaps with `identity_and_access`, `vendor_management`, and `cmdb`) is performed by the deployer's name-collision flow at deploy time and does not need to be pre-declared here.
-8. **Populate label values for junction-style entities.** `change_configuration_items.change_ci_label` and `ticket_comments.ticket_comment_label` are not auto-derivable from a single column. Callers (UIs, scripts, integrations) must populate these on insert: for `change_configuration_items` use `"{change_number} / {ci_name}"`; for `ticket_comments` use `"{ticket_type}-{ticket_number} #{seq}"` where `seq` is a 1-based per-ticket counter. Document this contract in the deployer notes so downstream tooling does not leave the label blank.
-9. **`ticket_comments` cascade is application-layer.** The four polymorphic FKs (`incident_id`, `service_request_id`, `problem_id`, `change_request_id`) are `format: reference` with `clear` delete behavior because the platform reserves `cascade` for `format: parent` (which is NOT NULL and therefore incompatible with the polymorphic shape, only one of the four is populated per row). Application code, or a dedicated DB trigger added outside the semantic-model deployer, must delete a ticket's comments before or alongside deleting the ticket itself; the deployer should not attempt to wire a cascade here. See §7.1 for the open hardening question.
-10. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, and that the four nullable FKs on `ticket_comments` correctly point at four different ticket-type tables.
+6. **Deduplicate against Semantius built-in tables.** This model is self-contained and declares `users`, which already exists in Semantius as a built-in. For `users`, **skip the create** and reuse the built-in as the `reference_table` target for every FK that points at `users`. Add the domain-specific fields (`is_agent`, `primary_team_id`) to the built-in only if missing (additive, low-risk). If `roles`, `permissions`, or other built-ins overlap with anything below, apply the same dedup rule.
+7. **Apply §6 cross-model link hints.** After this model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `To` table in the live catalog: when it is deployed, propose the FK on the row's `From` table (always user-confirmed, never auto-applied) using the row's verb, cardinality, and delete behavior; when it is missing or ambiguous across multiple candidates, silently skip or surface a single confirmation widget. Cross-module changes are additive only; declines persist on the sibling module so the same proposal does not reappear on every redeploy. Entity-overlap dedup against Semantius built-ins and other already-deployed sibling tables (the `users` / `vendors` / `configuration_items` overlaps with Identity & Access, Vendor Management, and CMDB) is performed by the deployer's name-collision flow at deploy time and does not need to be pre-declared here.
+8. **Populate label values for junction-style and child entities.** `change_configuration_items.change_ci_label` and the four `*_comment_label` fields are not auto-derivable from a single column. Callers (UIs, scripts, integrations) must populate these on insert: for `change_configuration_items` use `"{change_number} / {ci_name}"`; for each comment table use `"{ticket_number} #{seq}"` where `seq` is a 1-based per-ticket counter. Document this contract in the deployer notes so downstream tooling does not leave the label blank.
+9. **Comment cascades are native.** Every comment table's parent FK uses `format: parent` with `cascade` delete behavior. When a parent ticket is deleted, the platform removes its comments without application-layer cleanup.
+10. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that `format: parent` FKs on the comment tables resolve to the correct parent ticket table, and that each `validation_rules` block was persisted on its entity.
