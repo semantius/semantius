@@ -254,6 +254,10 @@ BEGIN
             f.cube_type,
             f.singular_label_parent,
             f.plural_label_parent,
+            f.unique_value,
+            f."precision",
+            f.relationship_label,
+            f.input_type_rule,
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
             -- doesn't exist or is missing columns. These fields are only added to JSON output when
@@ -295,6 +299,20 @@ BEGIN
             jsonb_build_object('searchable', searchable) ||
             -- Add cube_type field
             jsonb_build_object('cube_type', cube_type) ||
+            -- Add unique_value field
+            jsonb_build_object('unique_value', unique_value) ||
+            -- Add precision only for number formats
+            CASE
+                WHEN format_to_json_type(format)::text = '"number"'
+                THEN jsonb_build_object('precision', "precision")
+                ELSE '{}'::jsonb
+            END ||
+            -- Add input_type_rule only when a non-empty JsonLogic rule is set
+            CASE
+                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+                THEN jsonb_build_object('input_type_rule', input_type_rule)
+                ELSE '{}'::jsonb
+            END ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
             CASE 
                 WHEN format IS NOT NULL 
@@ -313,8 +331,9 @@ BEGIN
             CASE 
                 WHEN format IN ('reference', 'parent') AND reference_table != ''
                 THEN jsonb_build_object(
-                    'reference_table', reference_table, 
+                    'reference_table', reference_table,
                     'reference_delete_mode', reference_delete_mode,
+                    'relationship_label', relationship_label,
                     'reference_table_id_column', reference_table_id_column,
                     'reference_table_label_column', reference_table_label_column,
                     'reference_table_singular_label', reference_table_singular_label,
