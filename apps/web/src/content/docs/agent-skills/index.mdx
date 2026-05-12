@@ -1,8 +1,7 @@
 ---
-title: 'Agent Skills Overview'
-navTitle: 'Overview'
+title: 'Agent Skills'
 description: 'Agent Skills for working with Semantius models from coding agents.'
-order: 1
+order: 3
 ---
 
 **Agent Skills** let coding agents do real work on your Semantius platform: generate models, evolve schemas, configure RBAC, and deploy changes. They install into any agent that supports the Agent Skills format.
@@ -11,17 +10,17 @@ order: 1
 
 Each skill is a structured, repeatable procedure an agent can invoke:
 
-- **[Business Analyst](/docs/models-create)**: build a custom model from scratch by interviewing the domain.
-- **Schema Editor**: add, rename, or refactor entities and fields without breaking existing data ([Customize or Extend](/docs/models-create#customize-or-extend-an-existing-model) flow).
+- **[Business Analyst](/docs/models/create)**: build a custom model from scratch by interviewing the domain.
+- **Schema Editor**: add, rename, or refactor entities and fields without breaking existing data ([Customize or Extend](/docs/models/create#customize-or-extend-an-existing-model) flow).
 - **RBAC Configurator**: define roles, permissions, and access policies.
-- **[Deployer](/docs/models-deploy)**: roll changes forward to a live environment when you're ready.
-- **[Optimizer](/docs/models-optimize)**: reverse-engineer a live module back into a markdown spec to audit and refine.
+- **[Deployer](/docs/models/deploy)**: roll changes forward to a live environment when you're ready.
+- **[Optimizer](/docs/models/optimize)**: reverse-engineer a live module back into a markdown spec to audit and refine.
 
-Skills give agents a vocabulary and a workflow, instead of leaving them to improvise. The artifact they produce is a [semantic model](/docs/models-overview) file.
+Skills give agents a vocabulary and a workflow, instead of leaving them to improvise. The artifact they produce is a [semantic model](/docs/models) file.
 
 ## Installation
 
-[Install the Semantius CLI and skills](/docs/agent-skills-installation) into your agent of choice. The skills are agent-agnostic: anything that supports Agent Skills can use them.
+[Install the Semantius CLI and skills](/docs/agent-skills/installation) into your agent of choice. The skills are agent-agnostic: anything that supports Agent Skills can use them.
 
 Among the agents we test against:
 
@@ -30,16 +29,16 @@ Among the agents we test against:
 
 If your agent supports Agent Skills, it works.
 
-The skills also call into your platform's [MCP connectors](/docs/mcp-connectors-overview) under the hood, so make sure those are wired up too.
+The skills also call into your platform's [MCP connectors](/docs/mcp-connectors) under the hood, so make sure those are wired up too.
 
 ## Ready-to-Use Models
 
-Skills are also how ready-to-use models are installed and customized. You can pull a [published template](/docs/models-templates) into your platform, fork it, and let the skills handle the migration steps so the underlying data stays consistent.
+Skills are also how ready-to-use models are installed and customized. You can pull a [published template](/docs/models/templates) into your platform, fork it, and let the skills handle the migration steps so the underlying data stays consistent.
 
 ## Next Steps
 
-- **[Installation →](/docs/agent-skills-installation)**: install the CLI, set credentials, and add the skills to your agent.
-- **[Create a Model →](/docs/models-create)**: build a custom semantic model from scratch.
-- **[Templates →](/docs/models-templates)**: browse curated models you can deploy as-is.
-- **[Deploy →](/docs/models-deploy)**: ship a model to a live Semantius instance.
-- **[Optimize →](/docs/models-optimize)**: pull a live module back into a markdown spec.
+- **[Installation →](/docs/agent-skills/installation)**: install the CLI, set credentials, and add the skills to your agent.
+- **[Create a Model →](/docs/models/create)**: build a custom semantic model from scratch.
+- **[Templates →](/docs/models/templates)**: browse curated models you can deploy as-is.
+- **[Deploy →](/docs/models/deploy)**: ship a model to a live Semantius instance.
+- **[Optimize →](/docs/models/optimize)**: pull a live module back into a markdown spec.

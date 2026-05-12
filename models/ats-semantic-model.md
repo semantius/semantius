@@ -6,7 +6,7 @@ system_description: Applicant Tracking System
 system_slug: ats
 domain: ATS
 naming_mode: agent-optimized
-created_at: 2026-05-11
+created_at: 2026-05-12
 entities:
   - users
   - departments
@@ -96,11 +96,14 @@ flowchart LR
 | `ats:read` | baseline-read | Read access to every entity in the module. | every entity (`view_permission`) | `ats:manage` |
 | `ats:manage` | baseline-manage | Write access to operational entities; default `edit_permission` for entities not annotated `admin`. | `users`, `job_openings`, `candidates`, `job_applications`, `candidate_documents`, `application_notes`, `interviews`, `interview_feedback`, `offers`, `hiring_team_members` (`edit_permission`) | `ats:admin` |
 | `ats:admin` | baseline-admin | Write access to reference / config entities AND rollup target for workflow permissions. | `departments`, `application_stages`, `candidate_sources` (`edit_permission`); rolled up under for `ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback` | — |
+| `ats:interview` | workflow | Narrow write access to `interview_feedback` for users who participate in hiring panels but are not part of the core recruiting team (engineers, PMs, AEs assigned to a panel). Held alongside `ats:read`, never alone. Combined with the `feedback_write_restricted_to_interviewer` row-level rule, an `ats:interview` holder can only write scorecards where they are the assigned interviewer. | `interview_feedback` (`edit_permission`); `interview_feedback` rule `feedback_write_restricted_to_interviewer` | `ats:manage` |
 | `ats:approve_offer` | workflow | Gates the `offers.status` value_changed → `approved` transition (the budget-commitment authorization event). Granted to hiring leaders and recruiting directors with offer-approval authority. | `offers` rule `approve_offer_requires_approver_permission` | `ats:admin` |
 | `ats:manage_all_notes` | workflow | Elevated override for editing or deleting an `application_notes` row authored by another user. Granted to HR partners and hiring leads who occasionally redact or correct another author's note. | `application_notes` rule `edit_restricted_to_author_or_manager` | `ats:admin` |
-| `ats:manage_all_feedback` | workflow | Elevated override for flipping `interview_feedback.is_submitted` on a scorecard owned by another interviewer. Granted to HR / RecOps who must occasionally finalize a scorecard the original interviewer cannot submit themselves. | `interview_feedback` rule `submit_feedback_restricted_to_interviewer` | `ats:admin` |
+| `ats:manage_all_feedback` | workflow | Elevated override for writing or submitting an `interview_feedback` row owned by another interviewer (covers both per-row writes and the `is_submitted` lock-flip). Granted to HR / RecOps who must occasionally finalize a scorecard the original interviewer cannot submit themselves. | `interview_feedback` rules `feedback_write_restricted_to_interviewer` and `submit_feedback_restricted_to_interviewer` | `ats:admin` |
 
-The three workflow permissions deliberately roll up under `ats:admin`, not `ats:manage`. If they rolled up under `ats:manage`, every recruiter holding the baseline `manage` permission would automatically inherit offer-approval authority and the two manager-overrides, defeating the family-12 / family-13 conditional gates.
+The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback`) deliberately roll up under `ats:admin`, not `ats:manage`. If they rolled up under `ats:manage`, every recruiter holding the baseline `manage` permission would automatically inherit offer-approval authority and the two manager-overrides, defeating the family-12 / family-13 conditional gates.
+
+`ats:interview` rolls up under `ats:manage` in the opposite direction: it is a *narrower* tier, not an elevated one, and `ats:manage` holders should transitively pass any check `ats:interview` satisfies. External panel interviewers hold `ats:read` + `ats:interview` directly; core recruiters and hiring managers hold `ats:manage` and pick up `ats:interview` via the rollup. The row-level `feedback_write_restricted_to_interviewer` rule narrows the grant to "only your own scorecard" so an external interviewer cannot use the permission to write someone else's row.
 
 ## 3. Entities
 
@@ -203,7 +206,7 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `salary_min` | `number` | no | Salary Min |  | precision: 2 |
 | `salary_max` | `number` | no | Salary Max |  | precision: 2 |
 | `job_description` | `html` | no | Description |  |  |
-| `job_requirements` | `text` | no | Requirements | Required experience and skills |  |
+| `job_requirements` | `multiline` | no | Requirements | Required experience and skills |  |
 
 **Relationships**
 
@@ -323,7 +326,7 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `stage_order` | `integer` | yes | Order | Sort order in the pipeline (ascending) | unique |
 | `stage_category` | `enum` | yes | Category |  | values: `pre_screen`, `screening`, `interview`, `offer`, `hired`, `rejected`; default: "pre_screen" |
 | `is_active` | `boolean` | yes | Active |  | default: "true" |
-| `description` | `text` | no | Description |  |  |
+| `description` | `multiline` | no | Description |  |  |
 
 **Relationships**
 
@@ -346,7 +349,7 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `source_name` | `string` | yes | Source Name |  | label_column; unique |
 | `source_type` | `enum` | yes | Source Type |  | values: `job_board`, `referral`, `agency`, `inbound`, `sourced`, `social_media`, `career_site`, `event`, `other`; default: "inbound" |
 | `is_active` | `boolean` | yes | Active |  | default: "true" |
-| `description` | `text` | no | Description |  |  |
+| `description` | `multiline` | no | Description |  |  |
 
 **Relationships**
 
@@ -379,7 +382,7 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `source_id` | `reference` | no | Source |  | → `candidate_sources` (N:1, clear), relationship_label: "sources" |
 | `referrer_user_id` | `reference` | no | Referred By | Employee who made the referral, when source is a referral | → `users` (N:1, clear), relationship_label: "refers" |
 | `candidate_status` | `enum` | yes | Candidate Status |  | values: `active`, `hired`, `archived`, `do_not_contact`; default: "active" |
-| `notes` | `text` | no | Notes | Candidate-level notes (vs. application-level) |  |
+| `notes` | `multiline` | no | Notes | Candidate-level notes (vs. application-level) |  |
 
 **Relationships**
 
@@ -559,7 +562,7 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `note_subject` | `string` | yes | Subject |  | label_column |
 | `application_id` | `reference` | yes | Application |  | → `job_applications` (N:1, cascade), relationship_label: "records" |
 | `author_user_id` | `reference` | yes | Author |  | → `users` (N:1, restrict), relationship_label: "authors" |
-| `note_body` | `text` | yes | Note |  |  |
+| `note_body` | `multiline` | yes | Note |  |  |
 | `visibility` | `enum` | yes | Visibility |  | values: `hiring_team`, `recruiter_only`, `public`; default: "hiring_team" |
 | `noted_at` | `date-time` | yes | Noted At |  |  |
 
@@ -652,7 +655,8 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 **Plural label:** Interview Feedback
 **Label column:** `feedback_label`
 **Audit log:** yes  _(scorecards are decision evidence; preserve change history)_
-**Description:** One interviewer's scorecard for one interview. An interview can have multiple feedback rows when multiple people attended (e.g. a panel). `is_submitted` distinguishes a draft scorecard from a finalized one; only the assigned interviewer (or a user holding `ats:manage_all_feedback`) may flip it. The `feedback_label` label column is caller-composed on insert (e.g. `"Alex Kim, Tech Phone Screen for Jane Doe"`). The FK to `interviews` is `reference + cascade`: the cascade-delete behavior is preserved (when an interview is removed, its scorecards go with it), and the `reference` shape declaration acknowledges that scorecard ownership is per-interviewer, not shared with the parent interview's permission scope.
+**Edit permission:** interview
+**Description:** One interviewer's scorecard for one interview. An interview can have multiple feedback rows when multiple people attended (e.g. a panel). `is_submitted` distinguishes a draft scorecard from a finalized one; only the assigned interviewer (or a user holding `ats:manage_all_feedback`) may flip it. The `feedback_label` label column is caller-composed on insert (e.g. `"Alex Kim, Tech Phone Screen for Jane Doe"`). The FK to `interviews` is `reference + cascade`: the cascade-delete behavior is preserved (when an interview is removed, its scorecards go with it), and the `reference` shape declaration acknowledges that scorecard ownership is per-interviewer, not shared with the parent interview's permission scope. The `edit_permission` is the narrow `ats:interview` tier (not `ats:manage`); core recruiters with `ats:manage` pick it up via the hierarchy rollup, and external panel interviewers hold `ats:interview` directly without the rest of the recruiter grant. The row-level `feedback_write_restricted_to_interviewer` rule then restricts every write to the row's assigned interviewer (or an `ats:manage_all_feedback` holder), so an `ats:interview` holder can only write their own scorecards.
 
 **Fields**
 
@@ -663,9 +667,9 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
 | `interviewer_user_id` | `reference` | yes | Interviewer |  | → `users` (N:1, restrict), relationship_label: "gives" |
 | `overall_rating` | `enum` | no | Overall Rating |  | values: `strong_yes`, `yes`, `lean_yes`, `lean_no`, `no`, `strong_no` |
 | `recommendation` | `enum` | no | Recommendation |  | values: `advance`, `hold`, `reject` |
-| `strengths` | `text` | no | Strengths |  |  |
-| `concerns` | `text` | no | Concerns |  |  |
-| `detailed_notes` | `text` | no | Detailed Notes |  |  |
+| `strengths` | `multiline` | no | Strengths |  |  |
+| `concerns` | `multiline` | no | Concerns |  |  |
+| `detailed_notes` | `multiline` | no | Detailed Notes |  |  |
 | `is_submitted` | `boolean` | yes | Submitted |  | default: "false" |
 | `submitted_at` | `date-time` | no | Submitted At |  |  |
 
@@ -697,6 +701,28 @@ The three workflow permissions deliberately roll up under `ats:admin`, not `ats:
       "or": [
         {"==": [{"var": "submitted_at"}, null]},
         {"==": [{"var": "is_submitted"}, true]}
+      ]
+    }
+  },
+  {
+    "code": "feedback_write_restricted_to_interviewer",
+    "message": "Only the assigned interviewer or a user with manage-all-feedback can write this scorecard.",
+    "description": "The entity's `edit_permission` is the narrow `ats:interview` tier so external panel interviewers (engineers, PMs, AEs) can submit scorecards without holding the full `ats:manage` recruiter grant. This row-level rule then restricts writes to the row's owner: an `ats:interview` holder can only INSERT a scorecard where they are the interviewer, and can only UPDATE a scorecard whose existing `interviewer_user_id` equals their own. HR / RecOps holding the elevated `ats:manage_all_feedback` permission may write any scorecard (the original interviewer's identity is preserved by the companion `interviewer_immutable_after_first_save` rule). The two branches of the `if` differentiate INSERT (`$old == null`, check the proposed `interviewer_user_id`) from UPDATE (check `$old.interviewer_user_id` so a caller cannot reassign authorship to themselves before passing the check).",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "$old"}, null]},
+        {
+          "or": [
+            {"==": [{"var": "interviewer_user_id"}, {"var": "$user_id"}]},
+            {"require_permission": "ats:manage_all_feedback"}
+          ]
+        },
+        {
+          "or": [
+            {"==": [{"var": "$old.interviewer_user_id"}, {"var": "$user_id"}]},
+            {"require_permission": "ats:manage_all_feedback"}
+          ]
+        }
       ]
     }
   },
@@ -1122,11 +1148,12 @@ None.
 - Is `interviews.status` reaching `completed`, `cancelled`, or `no_show` truly one-way, or do coordinators reverse these often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
 - Should `offers.status` and `offers.candidate_response` be required to agree (e.g. `status='accepted'` ⇔ `candidate_response='accepted'`)? Currently a workflow convention, not enforced; the audit log captures any divergence.
 - Should `(hiring_team_members.job_opening_id, user_id, team_role)` be enforced unique to prevent duplicate role assignments? Currently a recruiter-discipline matter.
-- `application_notes.application_id` and `interview_feedback.interview_id` use `reference + cascade`: cascade-on-parent-delete is preserved (so an application or interview cleanup wipes its dependent rows), and the `reference` shape declaration acknowledges that note authorship and scorecard authorship have their own per-row permission scope distinct from the parent's static `edit_permission`. The deployer will flag this combination as 🟡 high-risk on every audit pass; the trade-off is intentional. If the audit-trail value of orphan-preserving notes or scorecards ever outweighs the operational simplicity of cascade, flip either or both to `reference + restrict` (parent delete blocked until decision evidence is explicitly removed).
+- Should `application_notes.application_id` and `interview_feedback.interview_id` keep `reference + cascade`, or flip to `reference + restrict`? Cascade is the current choice for operational simplicity (an application or interview cleanup wipes its dependent rows), and the `reference` shape declaration acknowledges divergent per-author permission scope. If the audit-trail value of orphan-preserving decision evidence ever outweighs that simplicity, switch to `restrict` so parent delete is blocked until notes / scorecards are explicitly removed.
+- Read-side scoping for external panel interviewers is **not** modeled here. The `ats:interview` permission grants narrow write access to `interview_feedback` (only the holder's own rows, per the row-level rule), but `ats:read` is table-level — every read-capable user sees every row in every table, including offer salaries, rejection reasons, and personal notes across the company. Narrowing reads to "interviewers see only the candidates they are paired with" requires per-row policies (row-security rules, cube row filters, view-level predicates) that live at the platform layer, not in the semantic model. If external interviewers are added in volume and the read exposure becomes material, address as a platform-level policy rather than as a new permission tier.
 
 ## 8. Implementation notes for the downstream agent
 
-1. **Create the module and all permissions.** Create one module named `ats` (the module name **must** equal the `system_slug` from the front-matter; do not rename). Then iterate the §2 Permissions summary table top-to-bottom: for each row, call `create_permission` with the `Permission` cell and the `Description` cell. After all permissions exist, iterate the table again: for each row whose `Hierarchy parent` cell is non-`—`, call `create_permission_hierarchy` so the parent includes the row's permission. The hierarchy chain that results: `ats:admin` includes `ats:manage` includes `ats:read` (baseline tier rollup), plus `ats:admin` includes each of `ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback` (workflow rollup). The workflow permissions deliberately do **not** roll up under `ats:manage`; if they did, every baseline manager would automatically inherit offer-approval authority, the manager-override on notes, and the manager-override on scorecards, defeating the conditional gates.
+1. **Create the module and all permissions.** Create one module named `ats` (the module name **must** equal the `system_slug` from the front-matter; do not rename). Then iterate the §2 Permissions summary table top-to-bottom: for each row, call `create_permission` with the `Permission` cell and the `Description` cell. After all permissions exist, iterate the table again: for each row whose `Hierarchy parent` cell is non-`—`, call `create_permission_hierarchy` so the parent includes the row's permission. The hierarchy chain that results: `ats:admin` includes `ats:manage` includes `ats:read` (baseline tier rollup); `ats:manage` also includes `ats:interview` (narrow-tier rollup, so any `ats:manage` holder can write scorecards via the same path an external interviewer uses); and `ats:admin` includes each of `ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback` (elevated-workflow rollup). The three elevated workflow permissions deliberately do **not** roll up under `ats:manage`; if they did, every baseline manager would automatically inherit offer-approval authority, the manager-override on notes, and the manager-override on scorecards, defeating the conditional gates. `ats:interview` is the opposite case (a narrower tier than `ats:manage`), so its rollup under `ats:manage` is correct.
 2. **Create entities in dependency order.** Referenced entities first. Suggested order:
    1. `users` (deduped against built-in; see step 6)
    2. `departments` (self-references and references `users`; create the entity, then add the self-ref FK after the entity exists)
@@ -1141,7 +1168,7 @@ None.
    11. `interview_feedback`
    12. `offers`
    13. `hiring_team_members`
-3. **Per-entity create parameters.** Set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "ats:read"`, and `edit_permission` per the §3 annotation: `ats:admin` for entities whose §3 carries `**Edit permission:** admin` (`departments`, `application_stages`, `candidate_sources`), and `ats:manage` for every other entity. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Pass the `validation_rules` block from §3 byte-for-byte for entities that declare one (`departments`, `job_openings`, `job_applications`, `application_notes`, `interviews`, `interview_feedback`, `offers`). The `application_notes`, `interview_feedback`, and `offers` blocks invoke the platform-extension JsonLogic operators `value_changed` and `require_permission`; they reference the workflow permissions (`ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback`) created in step 1, so step 1 must complete before any entity carrying those rules is written. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
+3. **Per-entity create parameters.** Set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "ats:read"`, and `edit_permission` per the §3 annotation: `ats:admin` for entities whose §3 carries `**Edit permission:** admin` (`departments`, `application_stages`, `candidate_sources`); `ats:interview` for `interview_feedback` (`**Edit permission:** interview`); and `ats:manage` for every other entity. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Pass the `validation_rules` block from §3 byte-for-byte for entities that declare one (`departments`, `job_openings`, `job_applications`, `application_notes`, `interviews`, `interview_feedback`, `offers`). The `application_notes`, `interview_feedback`, and `offers` blocks invoke the platform-extension JsonLogic operators `value_changed` and `require_permission`; they reference the workflow permissions (`ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback`) created in step 1, so step 1 must complete before any entity carrying those rules is written. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. **Per-field create parameters.** For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), the `description` cell (passed verbatim to `create_field`'s `description` parameter), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. The §3 `Required` column is analyst intent; the platform manages nullability internally and does not need a per-field flag. Pass `enum_values` for every `enum` field, taken from §5. Apply `default: "<value>"` annotations from §3 Notes verbatim, in particular `job_openings.headcount` must be created with `default: "1"` so a fresh form does not open prefilled with `0` and fail the `headcount_positive` rule. Set `unique_value: true` on `departments.department_name`, `departments.department_code`, `job_openings.job_code`, `application_stages.stage_name`, `application_stages.stage_order`, `candidate_sources.source_name`, `candidates.email_address`, and `users.email_address`.
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. For most entities in this model, the §3 Label of the label_column field differs from `singular_label` and the title must be patched with `update_field`. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"`; pass it as a **string**, not an integer. Required updates:
    - `"users.display_name"` → title `"Display Name"`

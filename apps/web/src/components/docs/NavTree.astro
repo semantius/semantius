@@ -1,0 +1,111 @@
+---
+import { clsx } from 'clsx';
+import NavTree from './NavTree.astro';
+import type { NavNode } from '~/lib/docs-tree';
+
+interface Props {
+  nodes: NavNode[];
+  currentPath: string;
+  depth?: number;
+}
+
+const { nodes, currentPath, depth = 0 } = Astro.props;
+
+function isCurrentOrAncestor(node: NavNode, current: string): boolean {
+  if (node.path === current) return true;
+  for (const c of node.children) if (isCurrentOrAncestor(c, current)) return true;
+  return false;
+}
+---
+
+<ul class={clsx('list-none p-0 m-0 space-y-1', depth > 0 && 'pl-3 ml-2 border-l border-foreground/10')}>
+  {nodes.map((node) => {
+    const isExact = currentPath === node.path;
+    const hasChildren = node.children.length > 0;
+
+    if (!hasChildren) {
+      return (
+        <li>
+          <a
+            href={node.path}
+            class={clsx(
+              'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
+              isExact
+                ? 'text-primary font-semibold'
+                : 'text-foreground/60 hover:text-foreground hover:bg-foreground/5'
+            )}
+          >
+            <span class="truncate">{node.navTitle}</span>
+          </a>
+        </li>
+      );
+    }
+
+    const openByDefault = isCurrentOrAncestor(node, currentPath);
+    const isTop = depth === 0;
+
+    return (
+      <li>
+        <details class="nav-section" open={openByDefault}>
+          <summary class={clsx(
+            'list-none cursor-pointer outline-none rounded-md hover:bg-foreground/5 transition-colors',
+            isExact && 'bg-foreground/5'
+          )}>
+            <div class={clsx(
+              'flex items-center gap-2 px-3 py-1.5 text-sm',
+              isTop ? 'font-semibold' : '',
+              isExact
+                ? 'text-primary'
+                : isTop
+                  ? 'text-foreground/80 hover:text-foreground'
+                  : 'text-foreground/70 hover:text-foreground'
+            )}>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="nav-chevron opacity-60 shrink-0"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+              {node.doc ? (
+                <a
+                  href={node.path}
+                  onclick="event.stopPropagation()"
+                  class={clsx(
+                    'flex-1 truncate tracking-wide',
+                    isExact ? 'text-primary' : 'hover:text-foreground'
+                  )}
+                >
+                  {node.navTitle}
+                </a>
+              ) : (
+                <span class="flex-1 truncate tracking-wide">{node.navTitle}</span>
+              )}
+            </div>
+          </summary>
+          <div class="mt-1 pb-1">
+            <NavTree nodes={node.children} currentPath={currentPath} depth={depth + 1} />
+          </div>
+        </details>
+      </li>
+    );
+  })}
+</ul>
+
+<style>
+  .nav-section > summary .nav-chevron {
+    transition: transform 0.2s ease;
+    transform: rotate(-90deg);
+  }
+  .nav-section[open] > summary .nav-chevron {
+    transform: rotate(0deg);
+  }
+</style>

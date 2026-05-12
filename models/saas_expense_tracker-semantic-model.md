@@ -1,12 +1,12 @@
 ---
 artifact: semantic-model
-version: "1.7"
+version: "2.2"
 system_name: SaaS Expense Tracker & Budget
 system_description: SaaS Spend & Budgeting
 system_slug: saas_expense_tracker
 domain: SaaS Management
 naming_mode: agent-optimized
-created_at: 2026-05-10
+created_at: 2026-05-12
 entities:
   - vendors
   - subscriptions
@@ -27,6 +27,8 @@ related_domains:
   - SAM
   - ITSM
   - CMDB
+  - CLM
+  - Expense Management
 departments:
   - Finance
   - IT
@@ -38,7 +40,7 @@ initial_request: |
 
 ## 1. Overview
 
-An internal SaaS spend management system that records the company's SaaS subscriptions (the app, the vendor, the commercial terms, and the contract details on a single record), the departments that own the spend, the budgets planned against them, the actual expenses paid against them, and which internal users consume seats. Finance and IT use it to track planned-vs-actual spend, allocate costs to departments, detect unused licenses, and manage upcoming renewals. All monetary amounts are stored in a single implicit base currency.
+An internal SaaS spend management system that records the company's SaaS subscriptions (the app, the vendor, the commercial terms, and the contract details on a single record), the departments that own the spend, the budgets planned against them, the actual expenses paid against them, and which internal users consume seats. Finance and IT use it to track plan-vs-actual spend, allocate costs to departments, detect unused licenses, and manage upcoming renewals. All monetary amounts are stored in a single implicit base currency.
 
 ## 2. Entity summary
 
@@ -75,6 +77,15 @@ flowchart LR
     users -->|paid| expenses
 ```
 
+### Permissions summary
+
+| Permission | Type | Description | Used by | Hierarchy parent |
+|---|---|---|---|---|
+| `saas_expense_tracker:read` | baseline-read | Read access to every entity in the module. Typically: every finance and IT user of the module. | every entity (`view_permission`) | — |
+| `saas_expense_tracker:manage` | baseline-manage | Edit operational records (vendors, subscriptions, expenses, budget_periods, budget_lines, license_assignments, users). Typically: finance ops, IT SaaS admins, AP clerks. | every operational entity (`edit_permission`) | `saas_expense_tracker:admin` |
+| `saas_expense_tracker:admin` | baseline-admin | Edit reference/config records (departments) and inherit every workflow override. Typically: finance leadership, FP&A. | `departments` (`edit_permission`); rollup target for `saas_expense_tracker:close_budget_period` | — |
+| `saas_expense_tracker:close_budget_period` | workflow | Close a budget period (move status to closed). Typically: controllers, FP&A leads. | `budget_periods` rule `close_budget_period_requires_permission` (`require_permission`) | `saas_expense_tracker:admin` |
+
 ## 3. Entities
 
 ### 3.1 `vendors`, Vendor
@@ -85,14 +96,14 @@ flowchart LR
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `vendor_name` | `string` | yes | Vendor Name | label_column; unique |
-| `website_url` | `url` | no | Website | |
-| `support_email` | `email` | no | Support Email | |
-| `billing_contact_email` | `email` | no | Billing Contact | |
-| `tax_id` | `string` | no | Tax ID | VAT / EIN |
-| `notes` | `text` | no | Notes | |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `vendor_name` | `string` | yes | Vendor Name |  | label_column; unique |
+| `website_url` | `url` | no | Website |  |  |
+| `support_email` | `email` | no | Support Email |  |  |
+| `billing_contact_email` | `email` | no | Billing Contact |  |  |
+| `tax_id` | `string` | no | Tax ID | VAT, EIN, or local equivalent |  |
+| `notes` | `multiline` | no | Notes |  |  |
 
 > Do not include `id`, `created_at`, `updated_at`, or the auto-generated `label` field; Semantius creates these automatically.
 
@@ -108,38 +119,38 @@ flowchart LR
 **Plural label:** Subscriptions
 **Label column:** `subscription_name`  _(the human-identifying field; auto-wired by Semantius)_
 **Audit log:** yes
-**Description:** A SaaS subscription we pay for. Each record represents one product-commercial pairing: which app, from which vendor, on what terms (seats, price, cadence, dates), under which contract. Created when a subscription starts; superseded when renewed.
+**Description:** A SaaS subscription we pay for. Each record represents one product-commercial pairing: which app, from which vendor, on what terms (seats, price, cadence, dates), under which contract. Created when a subscription starts; superseded when renewed. Subscriptions are collaborative records: finance ops, IT SaaS admins, and the business owner all edit during the subscription lifecycle.
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `subscription_name` | `string` | yes | Subscription Name | label_column; e.g. "Slack Business+, Engineering" |
-| `vendor_id` | `reference` | yes | Vendor | → `vendors` (N:1, restrict), relationship_label: "sells" |
-| `business_owner_id` | `reference` | no | Business Owner | → `users` (N:1, clear); internal owner responsible for the app, relationship_label: "owns" |
-| `primary_department_id` | `reference` | no | Owning Department | → `departments` (N:1, clear), relationship_label: "funds" |
-| `signatory_user_id` | `reference` | no | Internal Signatory | → `users` (N:1, clear); signed the contract, relationship_label: "signs" |
-| `category` | `enum` | no | Category | values listed in §5.1 |
-| `criticality` | `enum` | no | Criticality | values listed in §5.2 |
-| `description` | `text` | no | Description | |
-| `website_url` | `url` | no | Product Website | |
-| `billing_cycle` | `enum` | yes | Billing Cycle | values listed in §5.3; default: "monthly" |
-| `seat_count` | `integer` | no | Seat Count | |
-| `unit_price` | `number` | no | Unit Price | precision: 2; price per seat per billing cycle |
-| `recurring_amount` | `number` | yes | Recurring Amount | precision: 2; total per billing cycle (base currency) |
-| `start_date` | `date` | yes | Start Date | |
-| `end_date` | `date` | no | End Date | |
-| `auto_renew` | `boolean` | no | Auto-Renew | |
-| `payment_method` | `enum` | no | Payment Method | values listed in §5.4 |
-| `payment_terms` | `enum` | no | Payment Terms | values listed in §5.5 |
-| `contract_number` | `string` | no | Contract Number | from the signed agreement, if any |
-| `signed_date` | `date` | no | Contract Signed Date | |
-| `total_contract_value` | `number` | no | Total Contract Value | precision: 2; whole-contract value if multi-period |
-| `renewal_notice_days` | `integer` | no | Renewal Notice Days | days before `end_date` to give notice |
-| `negotiated_savings` | `number` | no | Negotiated Savings | precision: 2; vs list price |
-| `document_url` | `url` | no | Contract Document | signed PDF link |
-| `status` | `enum` | yes | Status | values listed in §5.6; default: "pending" |
-| `notes` | `text` | no | Notes | |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `subscription_name` | `string` | yes | Subscription Name |  | label_column; e.g. "Slack Business+, Engineering" |
+| `vendor_id` | `reference` | yes | Vendor |  | → `vendors` (N:1, restrict), relationship_label: "sells" |
+| `business_owner_id` | `reference` | no | Business Owner | Internal owner responsible for the app | → `users` (N:1, clear), relationship_label: "owns" |
+| `primary_department_id` | `reference` | no | Owning Department |  | → `departments` (N:1, clear), relationship_label: "funds" |
+| `signatory_user_id` | `reference` | no | Internal Signatory | Internal user who signed the contract | → `users` (N:1, clear), relationship_label: "signs" |
+| `category` | `enum` | no | Category |  | values listed in §5.1 |
+| `criticality` | `enum` | no | Criticality |  | values listed in §5.2 |
+| `description` | `multiline` | no | Description |  |  |
+| `website_url` | `url` | no | Product Website |  |  |
+| `billing_cycle` | `enum` | yes | Billing Cycle |  | values listed in §5.3; default: "monthly" |
+| `seat_count` | `integer` | no | Seat Count |  |  |
+| `unit_price` | `number` | no | Unit Price | Price per seat per billing cycle in base currency | precision: 2 |
+| `recurring_amount` | `number` | yes | Recurring Amount | Total per billing cycle in base currency | precision: 2 |
+| `start_date` | `date` | yes | Start Date |  |  |
+| `end_date` | `date` | no | End Date |  |  |
+| `auto_renew` | `boolean` | no | Auto-Renew |  |  |
+| `payment_method` | `enum` | no | Payment Method |  | values listed in §5.4 |
+| `payment_terms` | `enum` | no | Payment Terms |  | values listed in §5.5 |
+| `contract_number` | `string` | no | Contract Number | From the signed agreement, if any |  |
+| `signed_date` | `date` | no | Contract Signed Date |  |  |
+| `total_contract_value` | `number` | no | Total Contract Value | Whole-contract value if multi-period, in base currency | precision: 2 |
+| `renewal_notice_days` | `integer` | no | Renewal Notice Days | Days before the end date to give notice |  |
+| `negotiated_savings` | `number` | no | Negotiated Savings | Negotiated discount vs list price, in base currency | precision: 2 |
+| `document_url` | `url` | no | Contract Document | Signed contract PDF link |  |
+| `status` | `enum` | yes | Status |  | values listed in §5.6; default: "pending" |
+| `notes` | `multiline` | no | Notes |  |  |
 
 **Relationships**
 
@@ -167,6 +178,19 @@ flowchart LR
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {"field": "unit_price", "description": "Commercial terms freeze once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}},
+  {"field": "recurring_amount", "description": "Commercial terms freeze once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}},
+  {"field": "start_date", "description": "Start date freezes once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}},
+  {"field": "end_date", "description": "End date freezes once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}},
+  {"field": "total_contract_value", "description": "Whole-contract value freezes once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}},
+  {"field": "signed_date", "description": "Contract signed date freezes once a subscription is archived.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "archived"]}, "readonly", "default"]}}
+]
+```
+
 ---
 
 ### 3.3 `expenses`, Expense
@@ -178,24 +202,24 @@ flowchart LR
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `expense_label` | `string` | yes | Expense | label_column; caller-populated scalar |
-| `vendor_id` | `reference` | yes | Vendor | → `vendors` (N:1, restrict), relationship_label: "charges" |
-| `subscription_id` | `reference` | no | Subscription | → `subscriptions` (N:1, clear); null until matched, relationship_label: "accrues" |
-| `department_id` | `reference` | no | Department | → `departments` (N:1, clear); chargeback target, relationship_label: "incurs" |
-| `payer_user_id` | `reference` | no | Paid By | → `users` (N:1, clear); card holder for card-feed sources, relationship_label: "paid" |
-| `transaction_date` | `date` | yes | Transaction Date | when money moved |
-| `posted_date` | `date` | no | Posted Date | when GL posting was made |
-| `amount` | `number` | yes | Amount | precision: 2; base currency; negative for refunds |
-| `payment_method` | `enum` | no | Payment Method | values listed in §5.4 (same vocab as `subscriptions.payment_method`) |
-| `source_system` | `enum` | yes | Source System | values listed in §5.13; default: "manual" |
-| `source_reference` | `string` | no | Source Reference | external transaction id; unique per (source_system, source_reference) |
-| `gl_category` | `enum` | no | GL Category | values listed in §5.14 (same vocab as `subscriptions.category`) |
-| `gl_account_code` | `string` | no | GL Account Code | e.g. "6420-SAAS" |
-| `match_status` | `enum` | yes | Match Status | values listed in §5.15; default: "unmatched" |
-| `description` | `text` | no | Description | |
-| `notes` | `text` | no | Notes | |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `expense_label` | `string` | yes | Expense |  | label_column; caller-populated scalar |
+| `vendor_id` | `reference` | yes | Vendor |  | → `vendors` (N:1, restrict), relationship_label: "charges" |
+| `subscription_id` | `reference` | no | Subscription | Null until Match Status reaches `auto_matched` or `manual_matched` | → `subscriptions` (N:1, clear), relationship_label: "accrues" |
+| `department_id` | `reference` | no | Department | Chargeback target | → `departments` (N:1, clear), relationship_label: "incurs" |
+| `payer_user_id` | `reference` | no | Paid By | Card holder for card-feed sources | → `users` (N:1, clear), relationship_label: "paid" |
+| `transaction_date` | `date` | yes | Transaction Date | When money moved |  |
+| `posted_date` | `date` | no | Posted Date | When the GL posting was made |  |
+| `amount` | `number` | yes | Amount | In base currency; negative for refunds | precision: 2 |
+| `payment_method` | `enum` | no | Payment Method |  | values listed in §5.4 (same vocab as `subscriptions.payment_method`) |
+| `source_system` | `enum` | yes | Source System |  | values listed in §5.13; default: "manual" |
+| `source_reference` | `string` | no | Source Reference | External transaction id from the source system; unique per (source_system, source_reference) |  |
+| `gl_category` | `enum` | no | GL Category |  | values listed in §5.14 (same vocab as `subscriptions.category`) |
+| `gl_account_code` | `string` | no | GL Account Code | GL account string, e.g. '6420-SAAS' |  |
+| `match_status` | `enum` | yes | Match Status |  | values listed in §5.15; default: "unmatched" |
+| `description` | `multiline` | no | Description |  |  |
+| `notes` | `multiline` | no | Notes |  |  |
 
 **Relationships**
 
@@ -213,23 +237,32 @@ flowchart LR
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {"field": "subscription_id", "description": "Subscription field is hidden until match status reaches a matched value, then becomes required for save (pairs with the server-side subscription_required_when_matched rule).", "jsonlogic": {"if": [{"in": [{"var": "match_status"}, ["auto_matched", "manual_matched"]]}, "required", "hidden"]}}
+]
+```
+
 ---
 
 ### 3.4 `departments`, Department
 
 **Plural label:** Departments
 **Label column:** `department_name`  _(the human-identifying field; auto-wired by Semantius)_
-**Description:** A cost center or organizational unit against which spend is allocated and budgets are set. Self-referencing for hierarchy.
+**Edit permission:** admin
+**Description:** A cost center or organizational unit against which spend is allocated and budgets are set. Self-referencing for hierarchy. Admin-tier because the org structure is a slow-moving lookup referenced by users, subscriptions, expenses, and budget lines; finance leadership maintains it.
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `department_name` | `string` | yes | Department Name | label_column |
-| `department_code` | `string` | no | Code | unique; e.g. "ENG", "MKT" |
-| `manager_user_id` | `reference` | no | Manager | → `users` (N:1, clear), relationship_label: "manages" |
-| `parent_department_id` | `reference` | no | Parent Department | → `departments` (N:1, clear); self-ref for hierarchy, relationship_label: "parent of" |
-| `status` | `enum` | yes | Status | values listed in §5.7; default: "active" |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `department_name` | `string` | yes | Department Name |  | label_column |
+| `department_code` | `string` | no | Code | Short code, e.g. 'ENG', 'MKT' | unique |
+| `manager_user_id` | `reference` | no | Manager |  | → `users` (N:1, clear), relationship_label: "manages" |
+| `parent_department_id` | `reference` | no | Parent Department |  | → `departments` (N:1, clear), relationship_label: "parent of"; self-ref for hierarchy |
+| `status` | `enum` | yes | Status |  | values listed in §5.7; default: "active" |
 
 **Relationships**
 
@@ -248,17 +281,17 @@ flowchart LR
 **Plural label:** Budget Periods
 **Label column:** `period_name`  _(the human-identifying field; auto-wired by Semantius)_
 **Audit log:** yes
-**Description:** A time container (fiscal year, quarter, or custom range) inside which budgets are planned and tracked. Created at planning time.
+**Description:** A time container (fiscal year, quarter, or custom range) inside which budgets are planned and tracked. Created at planning time. Closing a period is a controller act gated by the `saas_expense_tracker:close_budget_period` workflow permission; archiving is one-way.
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `period_name` | `string` | yes | Period Name | label_column; unique; e.g. "FY2026", "Q1 2026" |
-| `period_type` | `enum` | yes | Period Type | values listed in §5.8; default: "fiscal_year" |
-| `start_date` | `date` | yes | Start Date | |
-| `end_date` | `date` | yes | End Date | |
-| `status` | `enum` | yes | Status | values listed in §5.9; default: "draft" |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `period_name` | `string` | yes | Period Name | Freeform period label, e.g. 'FY2026', 'Q1 2026' | label_column; unique |
+| `period_type` | `enum` | yes | Period Type |  | values listed in §5.8; default: "fiscal_year" |
+| `start_date` | `date` | yes | Start Date |  |  |
+| `end_date` | `date` | yes | End Date |  |  |
+| `status` | `enum` | yes | Status |  | values listed in §5.9; default: "draft" |
 
 **Relationships**
 
@@ -269,7 +302,18 @@ flowchart LR
 ```json
 [
   {"code": "period_dates_ordered", "description": "End date cannot precede start date.", "message": "End date must be on or after start date.", "jsonlogic": {">=": [{"var": "end_date"}, {"var": "start_date"}]}},
-  {"code": "period_archive_is_terminal", "description": "Archived is one-way. Closed stays reopen-able with permissions (see §7.2).", "message": "An archived budget period cannot be reopened.", "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.status"}, "archived"]}, {"==": [{"var": "status"}, "archived"]}]}}
+  {"code": "period_archive_is_terminal", "description": "Archived is one-way. Closed stays reopen-able by admins (see §7.2); the close transition itself is gated by close_budget_period_requires_permission.", "message": "An archived budget period cannot be reopened.", "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.status"}, "archived"]}, {"==": [{"var": "status"}, "archived"]}]}},
+  {"code": "close_budget_period_requires_permission", "description": "Closing a budget period locks it for year-end / quarter-end reporting; restricted to controllers and FP&A leads holding saas_expense_tracker:close_budget_period. Reopening (closed to open) is not gated by this rule; admins can reopen via admin-tier escalation.", "message": "Closing this budget period requires the close-budget-period permission.", "jsonlogic": {"if": [{"and": [{"value_changed": "status"}, {"==": [{"var": "status"}, "closed"]}]}, {"require_permission": "saas_expense_tracker:close_budget_period"}, true]}}
+]
+```
+
+**Input type rules**
+
+```json
+[
+  {"field": "period_type", "description": "Period type freezes once the period is closed or archived; reopening (admin escalation) returns it to editable.", "jsonlogic": {"if": [{"in": [{"var": "status"}, ["closed", "archived"]]}, "readonly", "default"]}},
+  {"field": "start_date", "description": "Start date freezes once the period is closed or archived.", "jsonlogic": {"if": [{"in": [{"var": "status"}, ["closed", "archived"]]}, "readonly", "default"]}},
+  {"field": "end_date", "description": "End date freezes once the period is closed or archived.", "jsonlogic": {"if": [{"in": [{"var": "status"}, ["closed", "archived"]]}, "readonly", "default"]}}
 ]
 ```
 
@@ -284,15 +328,15 @@ flowchart LR
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `budget_line_name` | `string` | yes | Budget Line Name | label_column; e.g. "Engineering, Dev Tools, FY2026" |
-| `budget_period_id` | `parent` | yes | Budget Period | ↳ `budget_periods` (N:1, cascade), relationship_label: "contains" |
-| `department_id` | `reference` | no | Department | → `departments` (N:1, clear), relationship_label: "allocates" |
-| `subscription_id` | `reference` | no | Subscription | → `subscriptions` (N:1, clear); null if allocated at category level, relationship_label: "forecasts" |
-| `category` | `enum` | no | Category | values listed in §5.10 |
-| `planned_amount` | `number` | yes | Planned Amount | precision: 2; base currency |
-| `notes` | `text` | no | Notes | |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `budget_line_name` | `string` | yes | Budget Line Name |  | label_column; e.g. "Engineering, Dev Tools, FY2026" |
+| `budget_period_id` | `parent` | yes | Budget Period |  | ↳ `budget_periods` (N:1, cascade), relationship_label: "contains" |
+| `department_id` | `reference` | no | Department |  | → `departments` (N:1, clear), relationship_label: "allocates" |
+| `subscription_id` | `reference` | no | Subscription | Null if allocated at category level | → `subscriptions` (N:1, clear), relationship_label: "forecasts" |
+| `category` | `enum` | no | Category |  | values listed in §5.10 |
+| `planned_amount` | `number` | yes | Planned Amount | Planned spend in base currency | precision: 2 |
+| `notes` | `multiline` | no | Notes |  |  |
 
 **Relationships**
 
@@ -319,15 +363,15 @@ flowchart LR
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `assignment_label` | `string` | yes | Assignment | label_column; caller-populated scalar (must not be a FK per Semantius label rules) |
-| `subscription_id` | `parent` | yes | Subscription | ↳ `subscriptions` (N:1, cascade), relationship_label: "includes" |
-| `user_id` | `parent` | yes | User | ↳ `users` (N:1, cascade), relationship_label: "holds" |
-| `assigned_date` | `date` | no | Assigned Date | |
-| `last_active_date` | `date` | no | Last Active | for unused-license detection |
-| `monthly_cost_allocation` | `number` | no | Monthly Cost Allocation | precision: 2; per-seat chargeback |
-| `status` | `enum` | yes | Status | values listed in §5.11; default: "active" |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `assignment_label` | `string` | yes | Assignment |  | label_column; caller-populated scalar (must not be a FK per Semantius label rules) |
+| `subscription_id` | `parent` | yes | Subscription |  | ↳ `subscriptions` (N:1, cascade), relationship_label: "includes" |
+| `user_id` | `parent` | yes | User |  | ↳ `users` (N:1, cascade), relationship_label: "holds" |
+| `assigned_date` | `date` | no | Assigned Date |  |  |
+| `last_active_date` | `date` | no | Last Active | Used for unused-license detection |  |
+| `monthly_cost_allocation` | `number` | no | Monthly Cost Allocation | Per-seat chargeback in base currency | precision: 2 |
+| `status` | `enum` | yes | Status |  | values listed in §5.11; default: "active" |
 
 **Relationships**
 
@@ -345,6 +389,15 @@ flowchart LR
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {"field": "last_active_date", "description": "Last-active date freezes once an assignment is revoked.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "revoked"]}, "readonly", "default"]}},
+  {"field": "monthly_cost_allocation", "description": "Per-seat chargeback freezes once an assignment is revoked.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "revoked"]}, "readonly", "default"]}}
+]
+```
+
 ---
 
 ### 3.8 `users`, User
@@ -355,14 +408,14 @@ flowchart LR
 
 **Fields**
 
-| Field name | Format | Required | Label | Reference / Notes |
-|---|---|---|---|---|
-| `full_name` | `string` | yes | Full Name | label_column |
-| `email` | `email` | yes | Email | unique |
-| `department_id` | `reference` | no | Department | → `departments` (N:1, clear), relationship_label: "employs" |
-| `job_title` | `string` | no | Job Title | |
-| `employee_id` | `string` | no | Employee ID | unique |
-| `status` | `enum` | yes | Status | values listed in §5.12; default: "active" |
+| Field name | Format | Required | Label | Description | Reference / Notes |
+|---|---|---|---|---|---|
+| `full_name` | `string` | yes | Full Name |  | label_column |
+| `email` | `email` | yes | Email |  | unique |
+| `department_id` | `reference` | no | Department |  | → `departments` (N:1, clear), relationship_label: "employs" |
+| `job_title` | `string` | no | Job Title |  |  |
+| `employee_id` | `string` | no | Employee ID |  | unique |
+| `status` | `enum` | yes | Status |  | values listed in §5.12; default: "active" |
 
 **Relationships**
 
@@ -378,6 +431,16 @@ flowchart LR
 ```json
 [
   {"code": "user_offboarded_is_terminal", "description": "Offboarding is one-way. Rehire is a new user record.", "message": "An offboarded user cannot be reactivated.", "jsonlogic": {"or": [{"==": [{"var": "$old"}, null]}, {"!=": [{"var": "$old.status"}, "offboarded"]}, {"==": [{"var": "status"}, "offboarded"]}]}}
+]
+```
+
+**Input type rules**
+
+```json
+[
+  {"field": "email", "description": "Email freezes once a user is offboarded.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "offboarded"]}, "readonly", "default"]}},
+  {"field": "employee_id", "description": "Employee ID freezes once a user is offboarded.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "offboarded"]}, "readonly", "default"]}},
+  {"field": "department_id", "description": "Department assignment freezes once a user is offboarded.", "jsonlogic": {"if": [{"==": [{"var": "status"}, "offboarded"]}, "readonly", "default"]}}
 ]
 ```
 
@@ -540,32 +603,48 @@ Hint rows the deployer evaluates against the live catalog at deploy-time. Target
 
 | From | To | Verb | Cardinality | Delete |
 |---|---|---|---|---|
+| `subscriptions` | `contracts` | covers | N:1 | clear |
 | `invoice_line_items` | `subscriptions` | generates | N:1 | restrict |
 | `gl_postings` | `expenses` | generates | N:1 | restrict |
-| `gl_postings` | `budget_lines` | tracks | N:1 | restrict |
+| `gl_postings` | `budget_lines` | is tracked by | N:1 | restrict |
 | `purchase_orders` | `subscriptions` | is procured by | N:1 | clear |
 | `purchase_orders` | `budget_lines` | authorizes | N:1 | clear |
+| `vendor_contacts` | `vendors` | is represented by | N:1 | clear |
+| `vendor_risk_assessments` | `vendors` | is assessed by | N:1 | clear |
+| `vendor_certifications` | `vendors` | holds | N:1 | clear |
+| `positions` | `departments` | staffs | N:1 | clear |
+| `employment_records` | `users` | is employed via | N:1 | clear |
+| `sessions` | `users` | authenticates | N:1 | clear |
+| `sso_grants` | `subscriptions` | is provisioned via | N:1 | clear |
 | `software_installs` | `subscriptions` | licenses | N:1 | clear |
+| `software_entitlements` | `subscriptions` | entitles | N:1 | clear |
 | `tickets` | `subscriptions` | is the subject of | N:1 | clear |
+| `incidents` | `subscriptions` | is affected by | N:1 | clear |
+| `change_requests` | `subscriptions` | is changed by | N:1 | clear |
+| `contract_renewals` | `subscriptions` | is renewed via | N:1 | clear |
+| `employee_expense_lines` | `expenses` | aggregates | N:1 | clear |
 
 Notes:
 
-- `invoice_line_items → subscriptions` (inbound): when a finance / AP module deploys, its line-item table FKs back to `subscriptions` so each line item ties to the subscription it billed. Header-level `invoices` typically cover multiple subscriptions, so the FK lives on the line item.
+- `subscriptions → contracts` (outbound): when a CLM module deploys with a `contracts` entity, each subscription gets a FK to its covering contract. This is the only outbound row in §6; all others are inbound from siblings that don't yet exist in the catalog.
+- `invoice_line_items → subscriptions` (inbound): when a finance / AP module deploys, its line-item table FKs back to `subscriptions` so each line item ties to the subscription it billed.
 - `gl_postings → expenses` (inbound): when a finance / GL module deploys, its postings table FKs back to `expenses` so the journal effect of an expense is traceable.
-- `gl_postings → budget_lines` (inbound): when a finance / GL module deploys, postings FK back to `budget_lines` for plan-vs-actual reconciliation at the budget-line level.
+- `gl_postings → budget_lines` (inbound): postings FK back to `budget_lines` for plan-vs-actual reconciliation at the budget-line level.
 - `purchase_orders → subscriptions` (inbound): when a procurement module deploys, POs for SaaS purchases FK back to the subscription they procured.
-- `purchase_orders → budget_lines` (inbound): when a procurement module deploys, POs FK back to the budget_line they were authorized against.
-- `software_installs → subscriptions` (inbound): when an ITAM / SAM module deploys, installed software records FK back to the subscription that licenses them. `clear` because uninstalling software should not block subscription edits.
-- `tickets → subscriptions` (inbound): when an ITSM module deploys, tickets reporting issues with a SaaS app FK back to the subscription. `clear` so historical tickets survive subscription archival.
+- `purchase_orders → budget_lines` (inbound): POs FK back to the budget_line they were authorized against.
+- `vendor_contacts → vendors`, `vendor_risk_assessments → vendors`, `vendor_certifications → vendors` (inbound): when a Vendor Management module deploys, its sibling entities FK back to the merged `vendors` table.
+- `positions → departments`, `employment_records → users` (inbound): when an HRIS module deploys, its sibling entities FK back to the merged `departments` and `users` tables.
+- `sessions → users`, `sso_grants → subscriptions` (inbound): when an Identity & Access module deploys, sessions FK to users; SSO grants link a user to the SaaS app they were provisioned into via `subscriptions`.
+- `software_installs → subscriptions`, `software_entitlements → subscriptions` (inbound): when a SAM module deploys, installed software and entitlement records FK back to the subscription that licenses them.
+- `tickets → subscriptions`, `incidents → subscriptions`, `change_requests → subscriptions` (inbound): when an ITSM module deploys, tickets / incidents / change requests targeting a SaaS app FK back to the subscription. `clear` so historical records survive subscription archival.
+- `contract_renewals → subscriptions` (inbound): when a CLM module deploys, renewal records FK back to the subscription being renewed.
+- `employee_expense_lines → expenses` (inbound): when an Expense Management module deploys, employee-submitted expense lines that post into AP / the canonical expense ledger FK back to the resulting `expenses` row.
 
 Domains in `related_domains` with no §6 row (one-line reason each):
 
-- `Budgeting`, pair-overlaps on `budget_periods` and `budget_lines`; other Budgeting entities (`budgets`, `forecasts`, `variance_records`) aggregate from `budget_lines` rather than carrying back-FKs.
-- `Vendor Management`, pair-overlaps on `vendors`; sibling entities (`vendor_contacts`, `vendor_risk_assessments`, `vendor_certifications`) all FK back into the merged `vendors` table.
-- `HRIS`, pair-overlaps on `users` and `departments`; sibling entities (`positions`, `employment_records`) FK into those merged tables.
-- `Identity & Access`, pair-overlaps on `users`; partial pair-overlap on `license_assignments` (as entitlements); other entities (groups, sessions, SSO configs) extend `users` upward.
-- `ITAM`, hardware-focused; entities don't materially FK into this model beyond `users` (pair overlap).
-- `CMDB`, pair-overlap-or-separate ambiguity on `subscriptions` (as configuration_items). Letting the deployer's similarity heuristic flag at deploy time rather than pre-declaring a brittle row.
+- `Budgeting`, pair-overlaps on `budget_periods` and `budget_lines`; other Budgeting entities (`forecasts`, `variance_records`) aggregate from `budget_lines` rather than carrying back-FKs.
+- `ITAM`, hardware-focused; sibling entities (`hardware_assets`, `asset_lifecycle_events`) don't materially FK into this model beyond `users` (pair overlap).
+- `CMDB`, pair-overlap-or-separate ambiguity on `subscriptions` (as `configuration_items`). Letting the deployer's similarity heuristic flag at deploy time rather than pre-declaring a brittle row.
 
 ## 7. Open questions
 
@@ -576,25 +655,28 @@ None.
 ### 7.2 🟡 Future considerations
 
 - **Should multi-currency support be added, with a `currency` field (ISO 4217) on each money-bearing record plus an `exchange_rates` (date, from_currency, to_currency, rate) entity?** All amounts are currently stored in a single implicit base currency; international finance teams would need both pieces to report budget-vs-actual in a single reporting currency.
-- **Should contracts be promoted out of `subscriptions` into a separate `contracts` entity to support MSAs covering multiple sub-products?** A subscription currently carries its own `contract_number`, `signed_date`, `document_url`, `total_contract_value`, `renewal_notice_days`, `negotiated_savings`. Fine for 1:1 contract-to-subscription; breaks down when one contract spans several subscriptions.
+- **Should contracts be promoted out of `subscriptions` into a separate `contracts` entity to support MSAs covering multiple sub-products?** A subscription currently carries its own `contract_number`, `signed_date`, `document_url`, `total_contract_value`, `renewal_notice_days`, `negotiated_savings`. Fine for 1:1 contract-to-subscription; breaks down when one contract spans several subscriptions. The §6 hint `subscriptions → contracts` anticipates the split landing in a CLM module rather than here.
 - **Should product identity be re-split from commercial terms into a separate `saas_applications` entity?** A single `subscriptions` record carries both product and terms; multiple concurrent subscriptions for the same product work as multiple rows, but product-level reporting without double-counting would require the split.
-- **Should `approval_requests` / `purchase_orders` be modelled in this system?** No approval workflow entities are present; significant addition if purchase, renewal, or budget-change approvals must be tracked here rather than in a separate procurement tool.
+- **Should `approval_requests` / `purchase_orders` be modelled in this system?** No approval workflow entities are present; significant addition if purchase, renewal, or budget-change approvals must be tracked here rather than in a separate procurement tool. The §6 hint `purchase_orders → subscriptions` / `→ budget_lines` anticipates POs landing in a procurement module.
 - **Should a `usage_events` entity be added for richer engagement analytics?** `license_assignments.last_active_date` captures a single timestamp for basic unused-license detection; per-user activity or feature adoption would need a dedicated event log.
 - **Should `subscriptions.category`, `budget_lines.category`, and `expenses.gl_category` be promoted to a shared lookup table to avoid enum drift?** The three enums share most values; a lookup table would keep them aligned as the taxonomy evolves.
 - **Should `expense_line_items` ever be tracked here for AP-grade detail (GL distributions, tax jurisdictions, multi-account splits)?** This model intentionally keeps `expenses` flat, one row per money-moved event; consolidated invoices are split into multiple rows at ingestion time. AP-grade detail lives in a sibling finance module and links via `invoice_line_items → subscriptions`.
-- **Should `cancelled`, `expired`, and `deprecated` subscription statuses be made terminal (one-way)?** Currently reversible to handle mistaken cancellations, vendor reinstatements, and revived sunset products; only `archived` is one-way.
-- **Should `budget_periods.status = closed` be made terminal?** Currently reopen-able with permissions to allow year-end adjustments; only `archived` is one-way.
-- **Should `license_assignments.status = inactive` be made terminal?** Currently reversible to handle temporary deactivation; only `revoked` is one-way (re-granting access creates a new assignment).
+- **Should `cancelled`, `expired`, and `deprecated` subscription statuses be made terminal (one-way)?** Currently reversible to handle mistaken cancellations, vendor reinstatements, and revived sunset products; only `archived` is one-way. Cancellation is also currently treated as operational `manage` work rather than gated as a controller act; if cancellation policy tightens, add a family-12 rule `saas_expense_tracker:cancel_subscription`.
+- **Should `budget_periods.status = closed` be made terminal?** Currently reopen-able by admins to allow year-end adjustments; only `archived` is one-way. The close transition itself is gated by `saas_expense_tracker:close_budget_period`; reopening (closed to open) currently requires admin-tier escalation rather than a dedicated permission.
+- **Should `license_assignments.status = inactive` be made terminal?** Currently reversible to handle temporary deactivation; only `revoked` is one-way (re-granting access creates a new assignment). Revocation is currently treated as operational `manage` work; if revocation should be IT-admin-only, add a family-12 rule.
 - **Should `users.status = inactive` be made terminal?** Currently reversible to handle leaves of absence; only `offboarded` is one-way (rehire is a new user record).
 - **Should `expenses.match_status = ignored` be made terminal?** Currently reversible to allow correcting mistakenly-ignored expenses.
 - **Should audit logging be extended to `vendors`, `departments`, and `users`?** Currently set on `subscriptions`, `expenses`, `budget_periods`, `budget_lines`, `license_assignments` (the money-bearing entities); finance / compliance teams may want it on master data as well.
+- **Should `budget_lines.planned_amount` be locked at the field level when its parent budget period is closed or archived?** A client-side `input_type_rule` cannot dereference the parent's `status` (per-record evaluation only), so the lock is enforced today only by the parent's own freeze and by Stage-8 validation rules at the parent level. If field-level lock-via-parent is needed, options are (a) denormalize a `parent_period_status` column onto `budget_lines` and write the rule against that, (b) enforce write-blocking server-side via a validation rule whose JsonLogic the platform extends to cross-table reads, or (c) accept the parent-level lock alone as sufficient.
+- **Should row-level read-access (`select_rule`) be added for confidentiality-sensitive subscriptions (e.g. executive coaching apps, sensitive HR tooling) so non-finance staff see fewer rows than finance leadership?** Today every user with `saas_expense_tracker:read` sees every row. If row-level scoping is wanted, decide first which mechanism (per Stage 12 architectural options A/B/C/D): (A) accept uniform filter, (B) encode confidentiality in a column the rule reads, (C) split a separate restricted-subscriptions entity / cube view, or (D) provision `BYPASSRLS` on the `saas_expense_tracker:admin` Postgres role for unrestricted finance-leadership access.
+- **Should `license_assignments.last_active_date` be readonly for non-IT users (it is typically populated by automated IT processes / SCIM feeds)?** Today the field is `manage`-tier-editable by anyone with `saas_expense_tracker:manage`. A role-conditional `input_type_rule` is not currently supported in the platform's client-render context; if IT-only edit is needed, a viable path is a Stage-8 family-12 rule that requires a workflow permission `saas_expense_tracker:edit_license_activity` on writes.
 
 ## 8. Implementation notes
 
-1. Create one module named `saas_expense_tracker` and two baseline permissions (`saas_expense_tracker:read`, `saas_expense_tracker:manage`) before any entity.
+1. Create one module named `saas_expense_tracker` and create every permission listed in the §2 Permissions summary table, in table order. For each row with a non-`—` `Hierarchy parent`, also create the matching `create_permission_hierarchy` row (`<parent> includes <permission>`). The table is the single source of truth for the module's permission catalog; do not enumerate permissions inline here.
 2. Create entities in this order so referenced tables exist first: `departments` → `users` → `vendors` → `subscriptions` → `budget_periods` → `budget_lines` → `license_assignments` → `expenses`. Note that `departments` ↔ `users` have a mutual reference (`departments.manager_user_id` and `users.department_id`); create both entities first, then add the cross-references as a second pass.
-3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "saas_expense_tracker:read"`, `edit_permission: "saas_expense_tracker:manage"`, and `audit_log: true` for `subscriptions`, `expenses`, `budget_periods`, `budget_lines`, `license_assignments` (leave default `false` for `vendors`, `departments`, `users`). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. For required `enum` fields also pass `default_value` (taken from the §3 Notes `default: "<value>"` annotation) so existing rows backfill cleanly when the column is added to a non-empty table. The §3 `Required` column is analyst intent; the platform manages nullability internally based on `format` + `reference_delete_mode` and does not accept an `is_nullable` parameter.
+3. For each entity: set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "saas_expense_tracker:read"`, `edit_permission` per the entity's §3 `**Edit permission:**` annotation (`saas_expense_tracker:admin` for `departments`; `saas_expense_tracker:manage` for every other entity), and `audit_log: true` for `subscriptions`, `expenses`, `budget_periods`, `budget_lines`, `license_assignments` (leave default `false` for `vendors`, `departments`, `users`). Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
+4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), `description` (the Description column when non-empty), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. For required `enum` fields also pass `default_value` (taken from the §3 Notes `default: "<value>"` annotation) so existing rows backfill cleanly when the column is added to a non-empty table. The §3 `Required` column is analyst intent; the platform manages nullability internally based on `format` + `reference_delete_mode` and does not accept an `is_nullable` parameter.
 5. **Fix up label-column titles.** `create_entity` auto-creates a field whose `field_name` equals `label_column` and whose `title` defaults to `singular_label`. Every entity in this model except `expenses` has a Label for the label_column row that differs from `singular_label` (intentional: `singular_label` stays a bare singular for plural/singular symmetry, while the field-level title is more specific). After each `create_entity`, call `update_field` with the composite string id `"{table_name}.{label_column}"` (passed as a **string**, not an integer) to set the correct title:
    - `"vendors.vendor_name"` → `"Vendor Name"`
    - `"subscriptions.subscription_name"` → `"Subscription Name"`
@@ -608,6 +690,7 @@ None.
    - `license_assignments.assignment_label`, e.g. `"{user.full_name} / {subscription.subscription_name}"` (junction has no natural string identifier).
    - `budget_lines.budget_line_name`, e.g. `"{department.department_name}, {category}, {budget_period.period_name}"` (no single source field identifies a budget line).
    - `expenses.expense_label`, e.g. `"{vendor.vendor_name} {transaction_date} {amount}"` (no single source field identifies a money-moved event).
-7. **Pass `validation_rules` arrays byte-for-byte** to `create_entity` (or `update_entity` post-creation) for entities that declare them in §3: `subscriptions` (9 rules), `expenses` (2 rules), `budget_periods` (2 rules), `budget_lines` (1 rule), `license_assignments` (3 rules), `users` (1 rule). The platform parses the array, validates each `code` is snake_case and unique within the entity, and rejects malformed JsonLogic at deploy time.
-8. **Apply §6 cross-model link suggestions** after the model's own creates and the built-in dedup pass. Walk each row; for each `To` look up the target in the live catalog; propose an additive `create_field` on `From` with the row's `Verb` as `relationship_label` and `Delete` as `reference_delete_mode` when a single match is found; ask the user when multiple candidates fit; skip silently when no candidate is deployed yet.
-9. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that each label-column field's `title` matches the §3 Label (not `singular_label`), and that `audit_log` is set as specified in step 3.
+7. **Pass `validation_rules` arrays byte-for-byte** to `create_entity` (or `update_entity` post-creation) for entities that declare them in §3: `subscriptions` (9 rules), `expenses` (2 rules), `budget_periods` (3 rules including the workflow gate `close_budget_period_requires_permission`), `budget_lines` (1 rule), `license_assignments` (3 rules), `users` (1 rule). The platform parses the array, validates each `code` is snake_case and unique within the entity, walks each rule's JsonLogic for `require_permission` calls and confirms the permission code exists, and rejects malformed JsonLogic at deploy time.
+8. **Apply `Input type rules` arrays** by walking every entity's `Input type rules` JSON array (when present) and calling `update_field` for each `<table>.<field>` composite id with the entry's `jsonlogic` body. Entities with `Input type rules` blocks in this model: `subscriptions` (6 entries), `expenses` (1 entry), `budget_periods` (3 entries), `license_assignments` (2 entries), `users` (3 entries). The platform parses each JsonLogic object client-side at form render against the current record; the static `input_type` on the field remains the fallback for empty / malformed / out-of-enum results.
+9. **Apply §6 cross-model link suggestions** after the model's own creates and the built-in dedup pass. Walk each row; for each `To` look up the target in the live catalog; propose an additive `create_field` on `From` with the row's `Verb` as `relationship_label` and `Delete` as `reference_delete_mode` when a single match is found; ask the user when multiple candidates fit; skip silently when no candidate is deployed yet.
+10. After creation, spot-check that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that each label-column field's `title` matches the §3 Label (not `singular_label`), that `audit_log` is set as specified in step 3, that the permissions in §2's Permissions summary all exist with the correct hierarchy rows, and that every `Input type rules` entry was applied to its target field.

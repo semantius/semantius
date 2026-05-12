@@ -7,7 +7,7 @@ order: 6
 
 import Command from '~/components/common/Command.astro';
 
-The `/semantic-model-optimizer` [agent skill](/docs/agent-skills-overview) closes the loop in the [model lifecycle](/docs/models-overview). It reads a live Semantius module and writes a `*-semantic-model.md` file that is byte-compatible with the format the [Business Analyst](/docs/models-create) produces and the [Deployer](/docs/models-deploy) consumes. From there you can audit it, refine it, and ship the corrected version back.
+The `/semantic-model-optimizer` [agent skill](/docs/agent-skills) closes the loop in the [model lifecycle](/docs/models). It reads a live Semantius module and writes a `*-semantic-model.md` file that is byte-compatible with the format the [Business Analyst](/docs/models/create) produces and the [Deployer](/docs/models/deploy) consumes. From there you can audit it, refine it, and ship the corrected version back.
 
 ## Optimize a Live Module
 
@@ -34,10 +34,10 @@ The skill is **read-only against Semantius**: it never writes to the platform.
 
 ## Audit and Redeploy
 
-Once the file is saved, you can opt in to an audit pass that flags missing label columns, FK-as-label-column traps, singular `table_name` violations, missing descriptions, and other drift artifacts. Apply the fixes to the markdown, and the [Deployer](/docs/models-deploy) can roll the corrected shape back to Semantius, completing the loop. If you want to expand the model further before redeploying, point the [Business Analyst](/docs/models-create) at the optimized file in customize or extend mode.
+Once the file is saved, you can opt in to an audit pass that flags missing label columns, FK-as-label-column traps, singular `table_name` violations, missing descriptions, and other drift artifacts. Apply the fixes to the markdown, and the [Deployer](/docs/models/deploy) can roll the corrected shape back to Semantius, completing the loop. If you want to expand the model further before redeploying, point the [Business Analyst](/docs/models/create) at the optimized file in customize or extend mode.
 
 ## Get the Skill
 
-Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+Install the Semantius CLI and the [agent skills](/docs/agent-skills) bundle to add this skill to your agent.
 
-[Install the Agent Skills →](/docs/agent-skills-installation)
+[Install the Agent Skills →](/docs/agent-skills/installation)

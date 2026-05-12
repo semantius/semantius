@@ -5,22 +5,13 @@ import DocsLayout from '~/layouts/DocsLayout.astro';
 
 export async function getStaticPaths() {
 	const docs = await getCollection('docs');
-	// Routes are flat: content/docs/<any/path>/foo.mdx → /docs/foo.
-	// This decouples URLs from on-disk folder structure so files can be reorganized
-	// without breaking deep links. Filenames must therefore be unique across folders.
-	const seen = new Map<string, string>();
+	// Routes mirror the on-disk folder structure under content/docs.
+	// A folder's `index.mdx` becomes the bare folder URL (e.g. models/index.mdx → /docs/models).
 	return docs.map((doc) => {
 		const fullSlug = doc.id.replace(/\.[^/.]+$/, "");
-		const flatSlug = fullSlug.split('/').pop()!;
-		const previous = seen.get(flatSlug);
-		if (previous) {
-			throw new Error(
-				`Docs route collision on "/docs/${flatSlug}": both "${previous}" and "${doc.id}" resolve here. Rename one of the files.`
-			);
-		}
-		seen.set(flatSlug, doc.id);
+		const routeSlug = fullSlug.replace(/(^|\/)index$/, '');
 		return {
-			params: { slug: flatSlug },
+			params: { slug: routeSlug || undefined },
 			props: doc,
 		};
 	});

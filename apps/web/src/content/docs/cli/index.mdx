@@ -1,11 +1,10 @@
 ---
-title: 'CLI Overview'
-navTitle: 'Overview'
+title: 'CLI'
 description: 'The Semantius CLI: scripting and automation for headless agents and shell workflows.'
-order: 1
+order: 4
 ---
 
-The **Semantius CLI** is a single binary, `semantius`, that gives you full access to your Semantius platform from a regular shell. Where the [MCP connectors](/docs/mcp-connectors-overview) target interactive AI chats and the [agent skills](/docs/agent-skills-overview) target IDE-based coding agents, the CLI is the layer underneath: a scriptable, no-frills entry point built for **automation and headless agents**.
+The **Semantius CLI** is a single binary, `semantius`, that gives you full access to your Semantius platform from a regular shell. Where the [MCP connectors](/docs/mcp-connectors) target interactive AI chats and the [agent skills](/docs/agent-skills) target IDE-based coding agents, the CLI is the layer underneath: a scriptable, no-frills entry point built for **automation and headless agents**.
 
 ## What the CLI Is For
 
@@ -16,7 +15,7 @@ Use the CLI whenever you need Semantius to run **without a human in the loop**:
 - **Recurring or scheduled jobs** that seed data, run nightly imports, or fan out an analytical query across many tables.
 - **One-off tasks** in the terminal: search tools, inspect a tool's schema, or call a tool with inline JSON.
 
-The CLI works in two modes: `crud` for managing your model and reading or writing records, and `cube` for CubeJS-compatible analytics. Any tool you can call from Claude or ChatGPT through the [MCP connectors](/docs/mcp-connectors-overview), you can call from a shell, with the same arguments.
+The CLI works in two modes: `crud` for managing your model and reading or writing records, and `cube` for CubeJS-compatible analytics. Any tool you can call from Claude or ChatGPT through the [MCP connectors](/docs/mcp-connectors), you can call from a shell, with the same arguments.
 
 ## Why a CLI in Addition to MCP
 
@@ -31,11 +30,11 @@ The MCP connectors are perfect for conversational use, but they assume an MCP ho
 
 The CLI is installed as part of the **Agent Skills** setup, since the skills call the local `semantius` binary under the hood. Follow the installer for your OS, then verify with `semantius --version`:
 
-[Install the Semantius CLI](/docs/agent-skills-installation#1-install-the-semantius-cli)
+[Install the Semantius CLI](/docs/agent-skills/installation#1-install-the-semantius-cli)
 
 The same page covers credential setup (`SEMANTIUS_API_KEY`, `SEMANTIUS_ORG`) via either shell exports or a `.env` file. Once that is done, the CLI is ready to use on its own, with or without an agent.
 
 ## Next Steps
 
-- **[The semantius command →](/docs/cli-command)**: learn the basic command surface, the `crud` and `cube` modes, and how to call them.
-- **[use-semantius skill →](/docs/cli-skill)**: drop-in skill that teaches an agent to use the CLI productively.
+- **[The semantius command →](/docs/cli/command)**: learn the basic command surface, the `crud` and `cube` modes, and how to call them.
+- **[use-semantius skill →](/docs/cli/skill)**: drop-in skill that teaches an agent to use the CLI productively.

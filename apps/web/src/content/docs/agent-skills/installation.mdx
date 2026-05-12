@@ -9,7 +9,7 @@ import { Image } from 'astro:assets';
 import Command from '~/components/common/Command.astro';
 import getCliConfig from '~/assets/docs/getcliconfig.png';
 
-Getting Semantius **[Agent Skills](/docs/agent-skills-overview)** running takes three steps: install the Semantius CLI, set up credentials, then add the skills to your agent.
+Getting Semantius **[Agent Skills](/docs/agent-skills)** running takes three steps: install the Semantius CLI, set up credentials, then add the skills to your agent.
 
 ## 1. Install the Semantius CLI
 
@@ -31,7 +31,7 @@ Verify the install by running:
 
 ## 2. Set Up Credentials
 
-The CLI needs two values to talk to your platform: an API key and an organization name. The easiest way to get both is to ask your Ops MCP for them. Make sure the [Ops MCP connector is installed first](/docs/mcp-connectors-installation), then send this prompt to your agent:
+The CLI needs two values to talk to your platform: an API key and an organization name. The easiest way to get both is to ask your Ops MCP for them. Make sure the [Ops MCP connector is installed first](/docs/mcp-connectors/installation), then send this prompt to your agent:
 
 <Command mode="chat" command="I need the cli config" />
 
@@ -88,7 +88,7 @@ If the agent invokes a Semantius skill and returns your model, everything is wir
 
 With the skills installed, pick a starting point:
 
-- **[Create a Model →](/docs/models-create)**: build a custom semantic model from scratch with the Business Analyst skill.
-- **[Templates →](/docs/models-templates)**: browse curated, ready-to-use models you can deploy as-is or customize first.
-- **[Deploy →](/docs/models-deploy)**: ship a model file to a live Semantius instance.
-- **[Optimize →](/docs/models-optimize)**: pull a live module back into a markdown spec to audit and refine.
+- **[Create a Model →](/docs/models/create)**: build a custom semantic model from scratch with the Business Analyst skill.
+- **[Templates →](/docs/models/templates)**: browse curated, ready-to-use models you can deploy as-is or customize first.
+- **[Deploy →](/docs/models/deploy)**: ship a model file to a live Semantius instance.
+- **[Optimize →](/docs/models/optimize)**: pull a live module back into a markdown spec to audit and refine.

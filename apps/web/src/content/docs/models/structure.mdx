@@ -5,9 +5,9 @@ description: 'The anatomy of a Semantius semantic model file: front-matter, enti
 order: 2
 ---
 
-This page is a technical reference for what a `*-semantic-model.md` file actually contains. It is the companion to the [Models Overview](/docs/models-overview): the overview tells you what a model is for, this page tells you what is in the file. If you are about to read, write, or review one by hand, start here.
+This page is a technical reference for what a `*-semantic-model.md` file actually contains. It is the companion to the [Models Overview](/docs/models): the overview tells you what a model is for, this page tells you what is in the file. If you are about to read, write, or review one by hand, start here.
 
-A model file is a single self-contained Markdown document. The body is organized into eight numbered sections, and the front-matter at the top carries identity and discovery metadata. The [Business Analyst](/docs/models-create) skill writes this format, the [Deployer](/docs/models-deploy) skill consumes it, and the [Optimizer](/docs/models-optimize) skill regenerates it from live state, so all three tools agree on the same shape byte-for-byte.
+A model file is a single self-contained Markdown document. The body is organized into eight numbered sections, and the front-matter at the top carries identity and discovery metadata. The [Business Analyst](/docs/models/create) skill writes this format, the [Deployer](/docs/models/deploy) skill consumes it, and the [Optimizer](/docs/models/optimize) skill regenerates it from live state, so all three tools agree on the same shape byte-for-byte.
 
 ## Front-matter
 
@@ -196,7 +196,7 @@ Typical deferred questions: should an enum become a configurable lookup table, s
 
 ## Section 8, Implementation notes for the downstream agent
 
-A numbered, step-by-step recipe for the [Deployer](/docs/models-deploy) skill. The Business Analyst writes this section so the deployer can execute the model without re-deriving anything from the prose above. Typical contents:
+A numbered, step-by-step recipe for the [Deployer](/docs/models/deploy) skill. The Business Analyst writes this section so the deployer can execute the model without re-deriving anything from the prose above. Typical contents:
 
 1. **Module and permissions setup**, before any entity. Three baseline permissions per module:
    - `<slug>:read`: baseline read access for every entity.
@@ -223,11 +223,11 @@ A numbered, step-by-step recipe for the [Deployer](/docs/models-deploy) skill. T
 
 ## Working with the file by hand
 
-In day-to-day use you rarely open a model file by hand. The [Create](/docs/models-create), [Deploy](/docs/models-deploy), and [Optimize](/docs/models-optimize) skills do the reading, writing, and diffing for you, and the file is large enough that manual edits are error-prone. When you do need to edit it directly (a quick rename, a description tweak, adding an enum value), the conventions to preserve are:
+In day-to-day use you rarely open a model file by hand. The [Create](/docs/models/create), [Deploy](/docs/models/deploy), and [Optimize](/docs/models/optimize) skills do the reading, writing, and diffing for you, and the file is large enough that manual edits are error-prone. When you do need to edit it directly (a quick rename, a description tweak, adding an enum value), the conventions to preserve are:
 
 - Keep section numbers and headings stable. Tooling locates content by section number.
 - Mirror every FK in three places: the field row in section 3, the relationship bullet list in section 3, and the row in section 4. The deployer cross-checks them.
 - Keep enum values in section 5 in sync with the `values:` annotation in the field's Notes cell.
 - Do not rename `system_slug` after deploy. It is the module identifier.
 
-For a fully worked example, browse the [SaaS Expense Tracker model](/models/saas_expense_tracker/model) or any entry in the [Templates](/docs/models-templates) library.
+For a fully worked example, browse the [SaaS Expense Tracker model](/models/saas_expense_tracker/model) or any entry in the [Templates](/docs/models/templates) library.

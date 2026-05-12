@@ -1,15 +1,15 @@
 ---
 import Layout from '~/layouts/Layout.astro';
 import { getCollection } from 'astro:content';
+import { buildDocsTree, flattenTree } from '~/lib/docs-tree';
 
-// Use ?? not || so that order: 0 (the canonical landing page) isn't coerced to 99.
-const docs = (await getCollection('docs')).sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99));
-const firstDoc = docs[0];
+const docs = await getCollection('docs');
+const tree = buildDocsTree(docs);
+const flat = flattenTree(tree);
+const first = flat[0];
 
-if (firstDoc) {
-    // Routes are flat (see pages/docs/[...slug].astro): strip extension AND folder prefix.
-    const flatSlug = firstDoc.id.replace(/\.[^/.]+$/, "").split('/').pop();
-    return Astro.redirect(`/docs/${flatSlug}`);
+if (first) {
+    return Astro.redirect(first.path);
 }
 ---
 

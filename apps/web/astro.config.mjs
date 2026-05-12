@@ -301,10 +301,30 @@ function getAdapter() {
   }
 }
 
+// Legacy flat docs URLs (kept around because they were the only scheme before
+// the nested-folder refactor). 301 to the new nested URL so external links and
+// blog posts keep working.
+const docsLegacyRedirects = {
+  '/docs/models-overview': '/docs/models',
+  '/docs/models-structure': '/docs/models/structure',
+  '/docs/models-create': '/docs/models/create',
+  '/docs/models-templates': '/docs/models/templates',
+  '/docs/models-deploy': '/docs/models/deploy',
+  '/docs/models-optimize': '/docs/models/optimize',
+  '/docs/mcp-connectors-overview': '/docs/mcp-connectors',
+  '/docs/mcp-connectors-installation': '/docs/mcp-connectors/installation',
+  '/docs/agent-skills-overview': '/docs/agent-skills',
+  '/docs/agent-skills-installation': '/docs/agent-skills/installation',
+  '/docs/cli-overview': '/docs/cli',
+  '/docs/cli-command': '/docs/cli/command',
+  '/docs/cli-skill': '/docs/cli/skill',
+};
+
 // https://astro.build/config
 export default defineConfig({
   site: process.env.SITE_URL || 'https://www.semantius.com',
   output: 'static',
+  redirects: docsLegacyRedirects,
   image: {
     service: { entrypoint: 'astro/assets/services/sharp' },
     domains: ['vitejs.dev', 'upload.wikimedia.org', 'astro.build', 'pagepro.co'],

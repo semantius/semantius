@@ -1,10 +1,6 @@
 # Submit a job application
 
-Create a new `job_applications` row for a candidate against a specific
-`job_openings`. The recipe handles candidate-exists branching (look up
-by email; if found, reuse; if not, ask the user before creating a new
-candidate row), composes the caller-populated `application_label`, and
-resolves the first active `application_stages` row by `stage_order`.
+Create a new `job_applications` row for a candidate against a specific `job_openings`. The recipe handles candidate-exists branching (look up by email; if found, reuse; if not, ask the user before creating a new candidate row), composes the caller-populated `application_label`, and resolves the first active `application_stages` row by `stage_order`.
 
 ## FK & shape assumptions
 
@@ -13,18 +9,15 @@ resolves the first active `application_stages` row by `stage_order`.
 - `job_applications.current_stage_id -> application_stages.id` (reference, restrict)
 - `job_applications.source_id -> candidate_sources.id` (reference, clear, optional)
 - `job_applications.assigned_recruiter_id -> users.id` (reference, clear, optional)
-- `candidates.email_address` is **unique** (one candidate per email).
+- `candidates.email_address` is **unique** when present (one candidate per email).
 - `job_openings.job_code` is **unique**.
 - `application_stages.stage_order` is **unique**; the lowest active `stage_order` is the pipeline entry point.
-- No DB-level unique constraint on `(candidate_id, job_opening_id)`. The recipe checks for an existing `active` application before insert, but the platform will accept duplicates if forced.
+- No DB-level unique constraint on `(candidate_id, job_opening_id)`. The recipe checks for an existing `active` application before insert.
 - `job_applications` is audit-logged; the create event is captured automatically.
 
 ## Composition rules
 
-- `application_label` (required, caller-populated): compose as
-  `"{candidates.full_name} -> {job_openings.job_title}"`. ASCII arrow
-  ` -> ` (space-hyphen-greater-space). Both values come from the
-  read-first calls in step 1; do not invent.
+- `application_label` (required, caller-populated): compose as `"{candidates.full_name} -> {job_openings.job_title}"`. ASCII arrow ` -> ` (space-hyphen-greater-space). Both values come from the read-first calls in step 1; do not invent.
 
 ## Recipe
 
@@ -55,9 +48,9 @@ candidate=$(semantius call crud postgrestRequest --single \
 existing=$(semantius call crud postgrestRequest \
   "{\"method\":\"GET\",\"path\":\"/job_applications?candidate_id=eq.<candidate_id>&job_opening_id=eq.<job_opening_id>&status=eq.active&select=id,current_stage_id\"}")
 # If existing returns one or more rows: refuse, surface the existing application id, and ask
-# the user whether to advance the existing one (use Move-application-stage instead).
+# whether to advance the existing one via Move-application-stage.
 
-# Step 5: status sanity. job_openings.status not in (open) -> ASK THE USER before proceeding.
+# Step 5: status sanity. If job_openings.status is not 'open' -> ASK THE USER before proceeding.
 # Applying against a draft / on_hold / closed / cancelled opening is rare and usually a mistake.
 
 # Step 6: compose application_label and POST.
@@ -71,9 +64,9 @@ semantius call crud postgrestRequest --single "{
     \"job_opening_id\":\"<job_opening_id>\",
     \"current_stage_id\":\"<first_stage_id>\",
     \"status\":\"active\",
-    \"source_id\":\"<source_id or null>\",
+    \"source_id\":\"<source_id or omit>\",
     \"applied_at\":\"<current ISO timestamp>\",
-    \"assigned_recruiter_id\":\"<recruiter_id or null>\"
+    \"assigned_recruiter_id\":\"<recruiter_id or omit>\"
   }
 }"
 
@@ -87,13 +80,13 @@ semantius call crud postgrestRequest --single \
 
 - The new `job_applications` row exists with `status=active`, `applied_at` set, `current_stage_id` matching the resolved first-stage id, and `application_label` matching the composition rule.
 - The candidate's `id` is referenced (either the pre-existing candidate or the newly-created one).
-- The job opening's `status` was `open` at the time of the write (or the user explicitly approved a non-`open` exception).
+- The job opening's `status` was `open` at the time of the write, or the user explicitly approved a non-`open` exception.
 
 ## Failure modes (extended)
 
-- **Job opening status not `open`.** The recipe asks the user; do not silently apply against `draft`, `on_hold`, `closed`, or `cancelled` openings. Recovery: confirm with the user, then proceed; or back out and have the user transition the opening to `open` first via `scripts/transition-requisition.sh`.
-- **Candidate does not exist.** Ask the user before POSTing a new `candidates` row. Required: `full_name`. Email duplicates are caught by the unique constraint on `candidates.email_address`; if the POST 409s, re-read by email, the candidate was created racing against this recipe (treat as "found" and continue).
-- **Active duplicate application against the same opening.** The recipe refuses on the dedupe-check; do not POST. Surface the existing application id and the stage it sits at; ask whether to advance the existing one (route to `move-application-stage`) or to close the existing one as `withdrawn` (use-semantius PATCH) and then re-apply. Closed / rejected / withdrawn applications against the same opening are NOT a duplicate-block; the recruiter may legitimately re-engage a candidate.
+- **Job opening status not `open`.** The recipe asks the user; do not silently apply against `draft`, `on_hold`, `closed`, or `cancelled` openings. Recovery: confirm with the user, then proceed; or have the user transition the opening to `open` first via `scripts/transition-requisition.sh`.
+- **Candidate does not exist.** Ask the user before POSTing a new `candidates` row. Required: `full_name`. Email duplicates are caught by the unique constraint on `candidates.email_address`; if the POST 409s, re-read by email; the candidate was created racing against this recipe (treat as "found" and continue).
+- **Active duplicate application against the same opening.** The recipe refuses on the dedupe check; do not POST. Surface the existing application id and the stage it sits at; ask whether to advance the existing one (route to `move-application-stage`) or to mark the existing one `withdrawn` (use-semantius PATCH) and then re-apply. Closed / rejected / withdrawn applications against the same opening are NOT a duplicate-block; the recruiter may legitimately re-engage a candidate.
 - **No active stages.** If `application_stages.is_active=true` returns zero rows, the pipeline is misconfigured. Abort with a stderr message naming the issue and recommend creating at least one active stage via `use-semantius` before retrying.
 - **`source_id` not resolvable.** If the user named a source that does not exist in `candidate_sources`, ask whether to inherit the candidate's source (default), pick from the existing source list, or abort. Do not auto-create sources.
-- **Platform validation rule (audit drift).** If a write fails with `applied_before_rejected` or `applied_before_hired` codes, the live row is in a state the recipe did not anticipate (e.g. terminal status was set in the same PATCH); abort and surface verbatim.
+- **Platform validation rule firing on POST.** If the write fails with `applied_before_rejected` or `applied_before_hired` codes, the live row is in a state the recipe did not anticipate; abort and surface verbatim.

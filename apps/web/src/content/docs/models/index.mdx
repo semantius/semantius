@@ -1,11 +1,10 @@
 ---
-title: 'Models Overview'
-navTitle: 'Overview'
+title: 'Models'
 description: 'Semantic data models in Semantius: entities, fields, relationships, and RBAC.'
 order: 1
 ---
 
-A **semantic model** is the heart of every Semantius platform. It describes your domain as data: the entities you care about, the attributes that define them, the relationships between them, and the rules that govern who can access what. Models are built and evolved through [agent skills](/docs/agent-skills-overview) and consumed by AI clients through [MCP connectors](/docs/mcp-connectors-overview).
+A **semantic model** is the heart of every Semantius platform. It describes your domain as data: the entities you care about, the attributes that define them, the relationships between them, and the rules that govern who can access what. Models are built and evolved through [agent skills](/docs/agent-skills) and consumed by AI clients through [MCP connectors](/docs/mcp-connectors).
 
 ## What a Model Contains
 
@@ -27,15 +26,15 @@ Because it is just markdown, a model is:
 - **Discussed** by humans and agents in the same vocabulary, since both audiences read the same file.
 - **Portable** between environments: the same file deploys to dev, staging, and production.
 
-For a concrete example, see the [SaaS Expense Tracker model](/models/saas_expense_tracker/model). It is fairly detailed (a real model usually has dozens of fields and a non-trivial relationship graph), but in day-to-day work you rarely open the file by hand: the [Create](/docs/models-create), [Customize](/docs/models-create#customize-or-extend-an-existing-model), [Deploy](/docs/models-deploy), and [Optimize](/docs/models-optimize) skills do the reading, writing, and diffing for you.
+For a concrete example, see the [SaaS Expense Tracker model](/models/saas_expense_tracker/model). It is fairly detailed (a real model usually has dozens of fields and a non-trivial relationship graph), but in day-to-day work you rarely open the file by hand: the [Create](/docs/models/create), [Customize](/docs/models/create#customize-or-extend-an-existing-model), [Deploy](/docs/models/deploy), and [Optimize](/docs/models/optimize) skills do the reading, writing, and diffing for you.
 
 ## The Model Lifecycle
 
 Semantius treats a model as a living artifact, not a one-shot ship. Four agent skills span its full lifecycle, and each gets its own page:
 
-- [Create](/docs/models-create) a custom model from scratch by interviewing your domain.
-- [Templates](/docs/models-templates) are curated, ready-to-use models you can deploy as-is or customize first.
-- [Deploy](/docs/models-deploy) a model to a live Semantius instance, with safe diffing and conflict resolution.
-- [Optimize](/docs/models-optimize) by reverse-engineering a live module back into a markdown spec you can audit and improve.
+- [Create](/docs/models/create) a custom model from scratch by interviewing your domain.
+- [Templates](/docs/models/templates) are curated, ready-to-use models you can deploy as-is or customize first.
+- [Deploy](/docs/models/deploy) a model to a live Semantius instance, with safe diffing and conflict resolution.
+- [Optimize](/docs/models/optimize) by reverse-engineering a live module back into a markdown spec you can audit and improve.
 
 Together they form a closed loop: design, deploy, customize in the platform, pull back down, refine, redeploy.

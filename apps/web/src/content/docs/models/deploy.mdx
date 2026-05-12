@@ -7,7 +7,7 @@ order: 5
 
 import Command from '~/components/common/Command.astro';
 
-The `/semantic-model-deployer` [agent skill](/docs/agent-skills-overview) takes a `*-semantic-model.md` file (one you [created](/docs/models-create), one of the [Templates](/docs/models-templates), or one [optimized](/docs/models-optimize) from a live module) and materializes it in a live Semantius instance. It is safe to re-run: every pass inspects what is already there and applies only the delta.
+The `/semantic-model-deployer` [agent skill](/docs/agent-skills) takes a `*-semantic-model.md` file (one you [created](/docs/models/create), one of the [Templates](/docs/models/templates), or one [optimized](/docs/models/optimize) from a live module) and materializes it in a live Semantius instance. It is safe to re-run: every pass inspects what is already there and applies only the delta.
 
 ## Deploy a Model
 
@@ -34,7 +34,7 @@ Once the plan is confirmed, the deployer creates the module, baseline permission
 
 ## Re-Running on an Updated Model
 
-Edit the model (rename a field, add an entity, refine an enum) and run the deployer again. It diffs the new model against live state and applies only what changed. Field formats are immutable in Semantius, so the deployer flags format-level conflicts instead of attempting a destructive change. If the live module has drifted from the markdown (someone made changes through the UI), run [Optimize](/docs/models-optimize) first to pull the live state back into a fresh spec.
+Edit the model (rename a field, add an entity, refine an enum) and run the deployer again. It diffs the new model against live state and applies only what changed. Field formats are immutable in Semantius, so the deployer flags format-level conflicts instead of attempting a destructive change. If the live module has drifted from the markdown (someone made changes through the UI), run [Optimize](/docs/models/optimize) first to pull the live state back into a fresh spec.
 
 ## Sample Data
 
@@ -42,6 +42,6 @@ After a successful deploy, the skill offers to generate ten realistic sample rec
 
 ## Get the Skill
 
-Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+Install the Semantius CLI and the [agent skills](/docs/agent-skills) bundle to add this skill to your agent.
 
-[Install the Agent Skills →](/docs/agent-skills-installation)
+[Install the Agent Skills →](/docs/agent-skills/installation)

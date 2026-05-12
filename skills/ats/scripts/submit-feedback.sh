@@ -3,7 +3,12 @@
 # interviewer on one interview. Composes the caller-populated feedback_label
 # and pairs is_submitted=true with submitted_at when the mode is `submit`
 # (the platform rejects unpaired writes via submitted_at_required_when_submitted
-# and submitted_at_only_when_submitted).
+# and submitted_at_only_when_submitted). The row's interviewer_user_id is
+# frozen after insert (interviewer_immutable_after_first_save); never PATCH
+# that field. Writes against a row the caller does not own are gated by
+# feedback_write_restricted_to_interviewer and submit_feedback_restricted_to_interviewer,
+# both of which require ats:manage_all_feedback when the caller is not the
+# assigned interviewer; surface the platform's code verbatim on throw.
 #
 # Usage: submit-feedback.sh <candidate-email-or-name> <interview-kind> <interviewer-email> <submit|draft> [overall_rating] [recommendation]
 #
@@ -14,8 +19,14 @@
 # recommendation (required when submit): advance | hold | reject.
 #
 # Exit:  0 on success
-#        1 on usage / unresolved lookup / multiple interviews matched
-#        2 on platform error
+#        1 on usage / unresolved lookup / ambiguous interview
+#        2 on platform error (surface platform code verbatim; common codes:
+#          feedback_write_restricted_to_interviewer (caller lacks
+#          ats:manage_all_feedback and is not the interviewer),
+#          submit_feedback_restricted_to_interviewer (same scope, gates is_submitted),
+#          interviewer_immutable_after_first_save (the PATCH attempted to
+#          rewrite interviewer_user_id; this script never sends that field
+#          on PATCH))
 #
 # Idempotent: re-running create-then-submit is safe (the second create finds
 # the existing draft and PATCHes; the second submit is a no-op).
@@ -67,7 +78,7 @@ interviewer=$(semantius call crud postgrestRequest --single \
 interviewer_id=$(printf '%s' "$interviewer" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\([^"]*\)"/\1/')
 interviewer_name=$(printf '%s' "$interviewer" | grep -oE '"display_name":"[^"]+"' | sed 's/"display_name":"\([^"]*\)"/\1/')
 
-# Step 3: resolve the interview by candidate's applications -> interviews of the requested kind.
+# Step 3: resolve the interview through the candidate's applications.
 applications=$(semantius call crud postgrestRequest \
   "{\"method\":\"GET\",\"path\":\"/job_applications?candidate_id=eq.${candidate_id}&select=id\"}") \
   || { echo "step 3a: application lookup failed" >&2; exit 2; }
@@ -110,7 +121,8 @@ now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Step 5: write.
 if [ -z "$existing_id" ]; then
-  # Create new feedback row. If submit mode, write everything in one POST.
+  # Create new feedback row. On INSERT the platform applies feedback_write_restricted_to_interviewer:
+  # the caller must equal the proposed interviewer_user_id, or hold ats:manage_all_feedback.
   if [ "$mode" = "submit" ]; then
     body="{\"feedback_label\":\"${feedback_label}\",\"interview_id\":\"${interview_id}\",\"interviewer_user_id\":\"${interviewer_id}\",\"overall_rating\":\"${rating}\",\"recommendation\":\"${recommendation}\",\"is_submitted\":true,\"submitted_at\":\"${now}\"}"
   else
@@ -119,10 +131,10 @@ if [ -z "$existing_id" ]; then
   semantius call crud postgrestRequest --single \
     "{\"method\":\"POST\",\"path\":\"/interview_feedback\",\"body\":${body}}" \
     > /dev/null \
-    || { echo "step 5: POST interview_feedback failed" >&2; exit 2; }
+    || { echo "step 5: POST interview_feedback failed; if platform code is feedback_write_restricted_to_interviewer the caller is not the assigned interviewer and lacks ats:manage_all_feedback" >&2; exit 2; }
   echo "submit-feedback: created ${mode} feedback for ${candidate_name} / ${kind_label} (interviewer ${interviewer_name})"
 else
-  # PATCH existing row. If submit mode and not already submitted, pair is_submitted+submitted_at.
+  # PATCH existing row. NEVER include interviewer_user_id in the body (interviewer_immutable_after_first_save).
   if [ "$mode" = "submit" ]; then
     if printf '%s' "$existing" | grep -q '"is_submitted":true'; then
       echo "submit-feedback: feedback ${existing_id} already submitted; nothing to do" >&2
@@ -135,6 +147,6 @@ else
   semantius call crud postgrestRequest --single \
     "{\"method\":\"PATCH\",\"path\":\"/interview_feedback?id=eq.${existing_id}\",\"body\":${body}}" \
     > /dev/null \
-    || { echo "step 5: PATCH interview_feedback failed" >&2; exit 2; }
+    || { echo "step 5: PATCH interview_feedback failed; if platform code is submit_feedback_restricted_to_interviewer the caller cannot flip is_submitted on a row they do not own (route to HR / RecOps holding ats:manage_all_feedback); if interviewer_immutable_after_first_save fires, this script must be revised because it never sends interviewer_user_id on PATCH" >&2; exit 2; }
   echo "submit-feedback: updated feedback ${existing_id} (${mode}) for ${candidate_name} / ${kind_label}"
 fi

@@ -10,9 +10,9 @@ interface Props {
 // In chat mode, a leading /skill token is rendered as a link to the matching
 // docs page (or as plain styled text if the skill is not in this map).
 const SKILL_DOC_MAP: Record<string, string> = {
-  "/semantic-model-analyst": "/docs/models-create",
-  "/semantic-model-deployer": "/docs/models-deploy",
-  "/semantic-model-optimizer": "/docs/models-optimize",
+  "/semantic-model-analyst": "/docs/models/create",
+  "/semantic-model-deployer": "/docs/models/deploy",
+  "/semantic-model-optimizer": "/docs/models/optimize",
 };
 
 const { command, mode = "shell" } = Astro.props;

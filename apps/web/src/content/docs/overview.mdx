@@ -10,7 +10,7 @@ Instead of stitching together a database, an admin UI, an API layer, and a permi
 
 ## Semantic Models
 
-At the center of Semantius is the **[semantic model](/docs/models-overview)**. A semantic model captures:
+At the center of Semantius is the **[semantic model](/docs/models)**. A semantic model captures:
 
 - **Entities**: the concepts in your domain (customers, orders, projects, devices).
 - **Fields**: the attributes of each entity, with human-readable labels, descriptions, and UI hints.
@@ -21,7 +21,7 @@ The model is data, not code. That means it can be inspected, edited, versioned, 
 
 ## MCP Servers for AI Chats
 
-Semantius exposes its model through **[MCP servers](/docs/mcp-connectors-overview)**, so you can connect AI chats like **ChatGPT** and **Claude** directly to your data.
+Semantius exposes its model through **[MCP servers](/docs/mcp-connectors)**, so you can connect AI chats like **ChatGPT** and **Claude** directly to your data.
 
 From a chat window you can:
 
@@ -30,22 +30,22 @@ From a chat window you can:
 - Evolve the schema by describing the change you want: add entities, fields, and relationships.
 - Run analytical queries through a semantic layer that understands measures, dimensions, and joins.
 
-The MCP layer is the bridge between conversational AI and your operational data, with the semantic model providing the vocabulary. See [MCP Connectors](/docs/mcp-connectors-overview) for the full list of servers and clients, and [Installation](/docs/mcp-connectors-installation) for setup.
+The MCP layer is the bridge between conversational AI and your operational data, with the semantic model providing the vocabulary. See [MCP Connectors](/docs/mcp-connectors) for the full list of servers and clients, and [Installation](/docs/mcp-connectors/installation) for setup.
 
 ## Agentic Skills
 
-Semantius is **agentic** by design. It ships with **[skills](/docs/agent-skills-overview)** that agents can use to build, test, and deploy models end to end:
+Semantius is **agentic** by design. It ships with **[skills](/docs/agent-skills)** that agents can use to build, test, and deploy models end to end:
 
-- [Generate a model](/docs/models-create) from a description of your domain.
+- [Generate a model](/docs/models/create) from a description of your domain.
 - Add or refactor entities and fields without breaking existing data.
 - Configure roles, permissions, and access policies.
-- [Deploy changes](/docs/models-deploy) to a live environment, then [optimize](/docs/models-optimize) by pulling the live module back into a fresh spec.
+- [Deploy changes](/docs/models/deploy) to a live environment, then [optimize](/docs/models/optimize) by pulling the live module back into a fresh spec.
 
-Skills give agents a structured, repeatable way to do real work on your data, not just talk about it. Start with [ready-to-use templates](/docs/models-templates) or build a model from scratch with the [Business Analyst](/docs/models-create) skill.
+Skills give agents a structured, repeatable way to do real work on your data, not just talk about it. Start with [ready-to-use templates](/docs/models/templates) or build a model from scratch with the [Business Analyst](/docs/models/create) skill.
 
 ## CLI for Coding Agents
 
-For coding agents like **OpenClaw** and **Claude Code**, Semantius provides a **[CLI](/docs/agent-skills-installation)**. The CLI lets agents work with your data autonomously from the terminal: introspect schemas, query data, apply changes, run validations, and integrate the results back into your codebase.
+For coding agents like **OpenClaw** and **Claude Code**, Semantius provides a **[CLI](/docs/agent-skills/installation)**. The CLI lets agents work with your data autonomously from the terminal: introspect schemas, query data, apply changes, run validations, and integrate the results back into your codebase.
 
 This makes Semantius a natural fit for workflows where an agent needs to reason about your domain while writing code, whether that means generating typed clients, building dashboards, scaffolding features, or migrating data.
 
@@ -53,7 +53,7 @@ This makes Semantius a natural fit for workflows where an agent needs to reason 
 
 After creating a new data platform on [app.semantius.com](https://app.semantius.com), you:
 
-1. **[Set up the MCP servers](/docs/mcp-connectors-installation)** so you can chat with your platform from any MCP-compatible client (ChatGPT, Claude, and others).
-2. **[Install the CLI and skills](/docs/agent-skills-installation)** in any agent that supports Agent Skills, such as OpenClaw or Claude Code. From there, install one of the [ready-to-use models](/docs/models-templates) we provide, customize it, or use the **[Business Analyst](/docs/models-create)** skill to build a custom model from scratch.
+1. **[Set up the MCP servers](/docs/mcp-connectors/installation)** so you can chat with your platform from any MCP-compatible client (ChatGPT, Claude, and others).
+2. **[Install the CLI and skills](/docs/agent-skills/installation)** in any agent that supports Agent Skills, such as OpenClaw or Claude Code. From there, install one of the [ready-to-use models](/docs/models/templates) we provide, customize it, or use the **[Business Analyst](/docs/models/create)** skill to build a custom model from scratch.
 
 The result is a single source of truth that humans, conversational AI, and coding agents can all use, speaking the same semantic language.

@@ -11,11 +11,13 @@ export async function GET() {
 
   for (const doc of docs) {
     if (doc.data?.noindex) continue;
-    const slug = doc.id.replace(/\.[^/.]+$/, "");
+    const fullSlug = doc.id.replace(/\.[^/.]+$/, "");
+    // index.mdx in a folder routes to the bare folder URL.
+    const routeSlug = fullSlug.replace(/(^|\/)index$/, '');
     results.push({
-      title: doc.data?.title || slug,
+      title: doc.data?.title || fullSlug,
       description: doc.data?.description || '',
-      url: `/docs/${slug}`,
+      url: routeSlug ? `/docs/${routeSlug}` : '/docs',
       body: doc.body || ''
     });
   }

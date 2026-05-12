@@ -1,59 +1,53 @@
 # Extend an offer
 
-Walk an `offers` row through the lifecycle `draft` -> `pending_approval`
--> `approved` -> `sent`, with paired timestamps and an explicit
-approver. The recipe handles each transition as its own write because
-the platform-enforced timestamp pairings differ at each step, and
-because some transitions need a user confirmation (parallel offers on
-the same application; non-standard salary band).
+Create or progress an `offers` row through `draft` -> `pending_approval` -> `approved` -> `sent`. The `approved` transition hits the platform-enforced `ats:approve_offer` permission gate, which is why this is a reference and not a script: the recipe pre-flights the caller's permission and routes hand-off to an approver when the caller cannot self-approve. The recipe also asks the user before creating a second active offer when one already exists on the application.
 
 ## FK & shape assumptions
 
-- `offers.application_id -> job_applications.id` (reference, **restrict**: an offer survives a `delete` of the application; the offer of record is preserved).
-- `offers.approver_user_id -> users.id` (reference, clear, optional).
-- `offers` is audit-logged; status changes, salary fields, and approver are on the audit trail automatically.
-- No DB-level uniqueness on `(application_id, status='active'-ish)`. The recipe asks the user before extending a parallel offer when an existing offer is in `pending_approval` / `approved` / `sent` / `accepted`.
-- Platform invariants in this entity (full list in SKILL.md preamble): `base_salary_non_negative`, `bonus_target_non_negative`, `post_draft_status_requires_extended_at`, `extended_at_only_when_post_draft`, `responded_at_required_when_responded`, `responded_at_only_when_responded`, `extended_before_expires`, `extended_before_responded`. The recipe NEVER pre-validates these; it pairs the side-effect fields and surfaces the platform's error verbatim on failure.
+- `offers.application_id -> job_applications.id` (reference, restrict; offers survive any cleanup attempt of the application)
+- `offers.approver_user_id -> users.id` (reference, clear, optional until status reaches `approved`)
+- `offers` is audit-logged; the approval event is captured automatically.
+- No DB-level unique constraint on `(application_id, status='active-ish')`; the platform accepts multiple non-terminal offers on the same application.
+- The platform enforces `approve_offer_requires_approver_permission` on the status transition into `approved`: only callers holding `ats:approve_offer` may make the flip. The static `edit_permission` (`ats:manage`) lets the team draft and route.
+- The platform enforces `approver_user_id_required_when_approved`: once status is `approved`, `approver_user_id` must be non-null.
+- The platform enforces `post_draft_status_requires_extended_at` and `extended_at_only_when_post_draft`: `offer_extended_at` must be set on `sent` and may NOT be set before `sent`.
 
 ## Composition rules
 
-- `offer_label` (required on draft, caller-populated): compose as
-  `"Offer, <candidates.full_name>, <job_openings.job_title>"`. Both
-  values come from the read-first calls in step 1. Example:
-  `"Offer, Jane Doe, Senior Engineer"`.
+- `offer_label` (required, caller-populated): compose as `"Offer, {candidates.full_name}, {job_openings.job_title}"`. Comma-space separators. Both names come from the read-first calls; do not invent.
 
 ## Recipe
 
-The recipe has four entry points (`draft`, `pending_approval`,
-`approved`, `sent`). The agent picks one based on the user's intent;
-each entry point is a self-contained mini-recipe.
-
-### Entry: create a draft offer
-
 ```bash
-# Step 1: parallel-fetch.
-# expect: --single each.
-candidate=$(semantius call crud postgrestRequest --single \
-  "{\"method\":\"GET\",\"path\":\"/candidates?id=eq.<candidate_id>&select=full_name\"}")
-job_opening=$(semantius call crud postgrestRequest --single \
-  "{\"method\":\"GET\",\"path\":\"/job_openings?id=eq.<job_opening_id>&select=job_title,salary_min,salary_max,salary_currency\"}")
+# Step 1: parallel-fetch the application + joined candidate / job + any existing offers on the application.
+# expect: --single, exactly one application; exit 1 with "application not found" if missing.
 application=$(semantius call crud postgrestRequest --single \
-  "{\"method\":\"GET\",\"path\":\"/job_applications?id=eq.<application_id>&select=id,status\"}")
+  "{\"method\":\"GET\",\"path\":\"/job_applications?candidate_id=eq.<candidate_id>&job_opening_id=eq.<job_opening_id>&status=eq.active&select=id,candidates(full_name),job_openings(job_title)\"}")
 
-# Step 2: parallel-offer guard.
-# expect: array; zero rows is the go-ahead, one or more is "ask the user".
-existing=$(semantius call crud postgrestRequest \
-  "{\"method\":\"GET\",\"path\":\"/offers?application_id=eq.<application_id>&status=in.(draft,pending_approval,approved,sent,accepted)&select=id,offer_label,status\"}")
-# If existing is non-empty: ASK THE USER whether to extend a parallel offer
-# (rare; usually the existing offer should be rescinded first). Surface
-# offer_label and status from the rows.
+# expect: array; zero rows is "create new draft", one or more is "branch on existing offers".
+existing_offers=$(semantius call crud postgrestRequest \
+  "{\"method\":\"GET\",\"path\":\"/offers?application_id=eq.<application_id>&select=id,status,offer_label,base_salary,approver_user_id&order=created_at.desc\"}")
 
-# Step 3: salary-band sanity. If base_salary lies outside
-# [job_opening.salary_min, job_opening.salary_max]: ASK THE USER. The platform
-# does not enforce band-vs-offer agreement; the recipe does.
+# Step 2: branch on existing offers.
+#   No active offer (every row is in declined / rescinded / expired): proceed to create a new draft.
+#   At least one active offer (status in draft / pending_approval / approved / sent / accepted): ASK THE USER
+#     ("an active offer for <candidate> on <job> already exists at status=<X>. Create a parallel offer,
+#     advance the existing one, or abort?"). Looks good? Do not silently create a duplicate.
 
-# Step 4: POST the draft.
-# expect: --single, one row written.
+# Step 3: pre-flight the permission check when target status is `approved`.
+# expect: --single, the caller's user_role rows for ats:approve_offer.
+# Read use-semantius references/rbac.md for the exact tool shape; the literal call is roughly:
+caller_has_approve=$(semantius call crud postgrestRequest \
+  "{\"method\":\"GET\",\"path\":\"/user_role?user_id=eq.<caller_user_id>&select=role(role_permission(permission(permission_code)))\"}")
+# Parse the embedded permission_code list. If `ats:approve_offer` is not present AND the target status
+# is `approved`: ASK THE USER ("Approving an offer requires the ats:approve_offer permission, typically
+# held by hiring leaders and recruiting directors. Hand off to an approver, proceed as a different user,
+# or abort?"). Do not attempt the approve PATCH blind; the platform will throw with the rule code below.
+
+# Step 4: write the offer (POST for new draft, PATCH for existing).
+#
+# Target status = draft (create):
+# expect: --single, exactly one row written.
 semantius call crud postgrestRequest --single "{
   \"method\":\"POST\",
   \"path\":\"/offers\",
@@ -62,36 +56,23 @@ semantius call crud postgrestRequest --single "{
     \"application_id\":\"<application_id>\",
     \"status\":\"draft\",
     \"base_salary\":<base_salary>,
-    \"salary_currency\":\"<salary_currency ISO 4217>\",
-    \"bonus_target\":<bonus_target or null>,
-    \"equity_amount\":\"<equity_amount or null>\",
-    \"start_date\":\"<start_date YYYY-MM-DD or null>\",
-    \"offer_expires_at\":\"<offer_expires_at ISO timestamp or null>\",
-    \"candidate_response\":\"pending\"
+    \"bonus_target\":<bonus_target or omit>,
+    \"equity_amount\":\"<free text or omit>\",
+    \"start_date\":\"<YYYY-MM-DD or omit>\",
+    \"offer_expires_at\":\"<ISO timestamp or omit>\"
   }
 }"
-```
-
-### Entry: move draft -> pending_approval
-
-```bash
-# expect: --single, the offer row updated.
+#
+# Target status = pending_approval (PATCH existing draft):
 semantius call crud postgrestRequest --single "{
   \"method\":\"PATCH\",
   \"path\":\"/offers?id=eq.<offer_id>\",
   \"body\":{\"status\":\"pending_approval\"}
 }"
-```
-
-No paired field; this transition is a pure status flip.
-
-### Entry: move pending_approval -> approved
-
-```bash
-# expect: --single. ASK THE USER for the approver email; resolve to user id first.
-approver=$(semantius call crud postgrestRequest --single \
-  "{\"method\":\"GET\",\"path\":\"/users?email_address=eq.<approver_email>&select=id\"}")
-
+#
+# Target status = approved (PATCH; pair approver_user_id; the platform enforces the permission gate):
+# expect: --single. On platform throw of approve_offer_requires_approver_permission, surface the
+# rule's message and route to the hand-off branch from step 3.
 semantius call crud postgrestRequest --single "{
   \"method\":\"PATCH\",
   \"path\":\"/offers?id=eq.<offer_id>\",
@@ -100,12 +81,8 @@ semantius call crud postgrestRequest --single "{
     \"approver_user_id\":\"<approver_user_id>\"
   }
 }"
-```
-
-### Entry: move approved -> sent
-
-```bash
-# expect: --single. The status flip and offer_extended_at MUST go in one PATCH.
+#
+# Target status = sent (PATCH; pair offer_extended_at):
 semantius call crud postgrestRequest --single "{
   \"method\":\"PATCH\",
   \"path\":\"/offers?id=eq.<offer_id>\",
@@ -114,26 +91,27 @@ semantius call crud postgrestRequest --single "{
     \"offer_extended_at\":\"<current ISO timestamp>\"
   }
 }"
-```
 
-If the user has already specified `offer_expires_at` on the draft, the
-platform's `extended_before_expires` check enforces ordering; if not,
-the agent should ask whether to set one in the same write (e.g.
-`<scheduled_end ISO timestamp>` 7 days out is a common policy, but the
-recipe does not assume).
+# Step 5: verify the write.
+# expect: --single, the row we just wrote.
+semantius call crud postgrestRequest --single \
+  "{\"method\":\"GET\",\"path\":\"/offers?id=eq.<offer_id>&select=id,offer_label,status,base_salary,approver_user_id,offer_extended_at\"}"
+```
 
 ## Validation
 
-- For each entry, the post-write read confirms the new `status` and the paired field. For `sent`, `offer_extended_at` is non-null and equals the value in the PATCH.
-- For `approved`, `approver_user_id` is non-null and resolves to a real `users.id`.
-- The `application_id`'s parent `job_applications.status` is still `active` (or `on_hold`); offers should not be extended against terminal applications.
+- The `offers` row exists with the target status.
+- When target status is `approved`: `approver_user_id` is non-null and matches the resolved approver.
+- When target status is `sent`: `offer_extended_at` is set in the same PATCH.
+- `offer_label` matches the composition rule.
+- No parallel non-terminal offer was silently created.
 
 ## Failure modes (extended)
 
-- **Platform code `post_draft_status_requires_extended_at`.** The PATCH flipped status to `sent` (or further) without `offer_extended_at`. The recipe pairs the field; this code only fires on schema drift or a manual PATCH. Surface verbatim and re-issue with the timestamp.
-- **Platform code `extended_at_only_when_post_draft`.** The caller set `offer_extended_at` while status was still `draft`/`pending_approval`/`approved`. Recovery: clear `offer_extended_at` in a follow-up PATCH OR flip status to `sent` in the same call.
-- **Platform code `extended_before_expires`.** `offer_expires_at` precedes `offer_extended_at`. Ask the user for a corrected expiry (typically `offer_extended_at + 7 days`).
-- **Platform code `base_salary_non_negative` / `bonus_target_non_negative`.** Negative monetary value. Ask the user to correct.
-- **Parallel offer exists and the user wants to proceed anyway.** The platform allows this; the recipe just warned. Proceed with the POST. The subsequent "Record offer acceptance and hire" JTBD will pick whichever offer the candidate responds to; the parallel offer should be `rescinded` afterward. The recipe does not auto-rescind.
-- **Application is `hired`/`rejected`/`withdrawn`.** Refuse on the application-status read; do not let the user extend an offer against a terminal application. They must reopen the application via `use-semantius` first.
-- **Salary band drift.** If a `compensation_management` module is deployed and `job_openings.salary_band_id` is set, the offer should anchor to the same band. The recipe does not check this; mention it in the user prompt and recommend running the band check via `use-semantius`.
+- **Platform code `approve_offer_requires_approver_permission`.** The caller does not hold `ats:approve_offer`. The recipe's step-3 pre-flight should catch this before the PATCH; if the live permission set drifts between pre-flight and write (a race), the platform's throw lands. Surface the rule's message verbatim. Recovery: identify the offer-approver (typically a hiring leader or recruiting director), confirm with the user, and re-run the recipe with that user as the acting caller; or have the user PATCH the offer themselves under their own session.
+- **Platform code `approver_user_id_required_when_approved`.** The PATCH set `status=approved` without `approver_user_id`. The recipe pairs both in one body; if this fires, the recipe was modified or the call was hand-edited. Surface verbatim.
+- **Platform code `post_draft_status_requires_extended_at`.** The PATCH set `status=sent` (or beyond) without `offer_extended_at`. The recipe pairs both; if this fires, the recipe was modified. Surface verbatim.
+- **Platform code `extended_at_only_when_post_draft`.** The PATCH set `offer_extended_at` while status is still `draft` / `pending_approval` / `approved`. Move status to `sent` in the same call, or drop the timestamp.
+- **Platform code `extended_before_expires` or `extended_before_responded`.** Caller passed inconsistent timestamps. Surface verbatim; re-prompt for corrected dates.
+- **Parallel active offer.** The recipe asks before creating a second active offer. The user may legitimately want a parallel offer (renegotiation, alternative role), so the recipe does not refuse, but it does not silently proceed either.
+- **Application not active.** If the application is `rejected`, `withdrawn`, `on_hold`, or `hired`, refuse and surface. Extending an offer on a non-active application is almost always a re-key error.

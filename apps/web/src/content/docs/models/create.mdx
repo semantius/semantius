@@ -7,7 +7,7 @@ order: 3
 
 import Command from '~/components/common/Command.astro';
 
-The `/semantic-model-analyst` [agent skill](/docs/agent-skills-overview) builds a [semantic model](/docs/models-overview) with you, the way a senior analyst would: interview, propose, confirm, write. The output is a single self-contained markdown file describing entities, fields, and relationships, ready for the [Deploy](/docs/models-deploy) step.
+The `/semantic-model-analyst` [agent skill](/docs/agent-skills) builds a [semantic model](/docs/models) with you, the way a senior analyst would: interview, propose, confirm, write. The output is a single self-contained markdown file describing entities, fields, and relationships, ready for the [Deploy](/docs/models/deploy) step.
 
 ## When to Use It
 
@@ -31,11 +31,11 @@ Tell the skill what you want to model. Be as terse or as detailed as you like, t
 4. **Confirm the fields.** For each entity the skill proposes a field table (name, format, required, label, references). You iterate until it matches the domain.
 5. **Save the model.** The skill writes a `*-semantic-model.md` file with the right front-matter, an entity-relationship diagram in Mermaid, an enumerations section, and implementation notes.
 
-The output file is portable. Pass it to the [Deploy](/docs/models-deploy) skill to ship it to a live Semantius instance, hand it to a teammate for review, or run [Optimize](/docs/models-optimize) later to pull a freshly-edited live module back into a markdown spec.
+The output file is portable. Pass it to the [Deploy](/docs/models/deploy) skill to ship it to a live Semantius instance, hand it to a teammate for review, or run [Optimize](/docs/models/optimize) later to pull a freshly-edited live module back into a markdown spec.
 
 ## Customize or Extend an Existing Model
 
-The same skill audits a model file (flagging blockers, warnings, and suggestions against the Semantius platform constraints) and extends it (adding entities, fields, or relationships without breaking what is already there). Point it at any `*-semantic-model.md`, including one of the [Templates](/docs/models-templates) you pulled down:
+The same skill audits a model file (flagging blockers, warnings, and suggestions against the Semantius platform constraints) and extends it (adding entities, fields, or relationships without breaking what is already there). Point it at any `*-semantic-model.md`, including one of the [Templates](/docs/models/templates) you pulled down:
 
 <Command mode="chat" command="/semantic-model-analyst customize ./crm-semantic-model.md, I want to drop campaigns and add a renewals entity" />
 
@@ -47,6 +47,6 @@ The same skill audits a model file (flagging blockers, warnings, and suggestions
 
 ## Get the Skill
 
-Install the Semantius CLI and the [agent skills](/docs/agent-skills-overview) bundle to add this skill to your agent.
+Install the Semantius CLI and the [agent skills](/docs/agent-skills) bundle to add this skill to your agent.
 
-[Install the Agent Skills →](/docs/agent-skills-installation)
+[Install the Agent Skills →](/docs/agent-skills/installation)
