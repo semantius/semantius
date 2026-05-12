@@ -1,6 +1,6 @@
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(34);
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -157,6 +157,80 @@ SELECT is(
     ),
     'true'::jsonb,
     'value_changed: field in $old but missing in current should return true'
+);
+
+-- =====================================================
+-- has_permission tests (returns true/false, never throws)
+-- =====================================================
+
+-- user3 (admin) should return true for has_permission admin
+SELECT authenticate_as('user3');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"admin"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'has_permission: user3 (admin) should return true for admin'
+);
+
+-- user2 (sales) should return true for has_permission sales:read
+SELECT authenticate_as('user2');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"sales:read"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'has_permission: user2 (sales) should return true for sales:read'
+);
+
+-- user1 (basic user) should return false for has_permission admin (no exception)
+SELECT authenticate_as('user1');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"admin"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'has_permission: user1 should return false for admin (no exception)'
+);
+
+-- user1 should return false for has_permission sales:read
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"sales:read"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'has_permission: user1 should return false for sales:read'
+);
+
+-- user2 (sales) should return false for has_permission admin
+SELECT authenticate_as('user2');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"admin"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'has_permission: user2 (sales) should return false for admin'
+);
+
+-- user3 (admin) should also return true for sales:read (admin implies all)
+SELECT authenticate_as('user3');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"has_permission":"sales:read"}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'has_permission: user3 (admin) should return true for sales:read (admin implies all)'
 );
 
 -- =====================================================

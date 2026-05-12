@@ -211,3 +211,141 @@ CREATE TRIGGER manage_record_logic_trigger
     EXECUTE FUNCTION manage_record_logic_trigger();
 
 REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 3: Per-row SELECT policy generator (select_rule)
+-- =====================================================
+-- When an entity has a non-empty select_rule (a JsonLogic object), this
+-- function generates a helper function and replaces the default
+-- <table>_select_policy with one that evaluates the rule per row.
+-- The generated function converts the row to JSONB, injects reserved
+-- variables ($user_id), evaluates the JsonLogic rule, and returns
+-- true only when the result is truthy.
+
+CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_policy_name TEXT;
+    v_body TEXT;
+    v_logic_lit TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- Entity is being deleted — drop the function if it exists
+        v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'select_rule_' || p_table_name;
+    v_policy_name := p_table_name || '_select_policy';
+
+    -- Always drop old function (CASCADE removes anything depending on it)
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+
+    -- Drop the existing select policy so we can recreate it
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+
+    -- If select_rule is empty, restore the default permission-only policy
+    IF v_entity.select_rule = '{}'::jsonb THEN
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
+            v_policy_name, p_table_name, v_entity.view_permission);
+        RETURN;
+    END IF;
+
+    v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- Build the per-row evaluation function
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+    v_uid_text text;
+BEGIN
+    PERFORM rbac.ensure_context_initialized();
+    v_uid_text := current_setting('app.current_user_id', true);
+    v_data := to_jsonb(p_row) || jsonb_build_object(
+        '$user_id', CASE
+                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
+                       ELSE to_jsonb(v_uid_text::int)
+                   END
+    );
+
+    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RETURN FALSE;
+    END;
+
+    RETURN jl_truthy(v_result);
+END;
+$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit);
+
+    EXECUTE v_body;
+
+    -- Create the new select policy using the generated function
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
+        v_policy_name, p_table_name, v_fn_name, p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_select_rule_policy IS
+'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row.';
+
+REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 4: Trigger on entities to keep select_rule policy in sync
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION manage_select_rule_policy()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fn_name TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.managed AND NEW.select_rule IS NOT NULL AND NEW.select_rule != '{}'::jsonb THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
+           OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
+           OR OLD.managed IS DISTINCT FROM NEW.managed THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        v_fn_name := 'select_rule_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION manage_select_rule_policy IS
+'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
+
+CREATE TRIGGER manage_select_rule_policy_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION manage_select_rule_policy();
+
+REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
