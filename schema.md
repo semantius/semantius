@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-05-13T20:52:17.897Z
+**Generated:** 2026-05-13T21:22:09.459Z
 
 ---
 
