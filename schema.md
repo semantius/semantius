@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-05-13T19:48:54.971Z
+**Generated:** 2026-05-13T20:52:17.897Z
 
 ---
 
@@ -328,7 +328,7 @@ Defines permission inheritance (parent implies children)
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
-| validation_rules | Validation Rules |  |
+| validation_rules | Validation Rules | [object Object] |
 | select_rule | Select Rule | [object Object] |
 
 ### Fields
@@ -523,7 +523,7 @@ Groups of permissions that can be assigned to users
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
-| validation_rules | Validation Rules |  |
+| validation_rules | Validation Rules | [object Object],[object Object] |
 | select_rule | Select Rule | [object Object] |
 
 ### Fields

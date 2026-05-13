@@ -149,6 +149,9 @@ $FUNC$, v_fn_name, v_rules_block, p_table_name);
 
     EXECUTE v_body;
 
+    -- Revoke PUBLIC execute on trigger function (security best practice)
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
+
     EXECUTE format(
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
         v_trg_name, p_table_name, v_fn_name);

@@ -1,7 +1,7 @@
 -- Tests for silo buster refactor: new columns on modules, roles, permission_hierarchy
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(51);
 
 SELECT authenticate_as('user3');
 
@@ -279,6 +279,118 @@ SELECT is(
     (SELECT input_type FROM fields WHERE table_name = 'permission_hierarchy' AND field_name = 'origin'),
     'readonly',
     'permission_hierarchy.origin field metadata has input_type=readonly'
+);
+
+-- =====================================================
+-- §10.2 VALIDATION RULES: stored on entities
+-- =====================================================
+
+-- Verify validation_rules are set on roles entity
+SELECT is(
+    (SELECT jsonb_array_length(validation_rules) FROM entities WHERE table_name = 'roles'),
+    2,
+    'roles entity has 2 validation rules'
+);
+
+SELECT is(
+    (SELECT validation_rules->0->>'code' FROM entities WHERE table_name = 'roles'),
+    'origin_immutable_roles',
+    'roles validation rule 0 is origin_immutable_roles'
+);
+
+SELECT is(
+    (SELECT validation_rules->1->>'code' FROM entities WHERE table_name = 'roles'),
+    'system_role_slug_immutable',
+    'roles validation rule 1 is system_role_slug_immutable'
+);
+
+-- Verify validation_rules are set on permission_hierarchy entity
+SELECT is(
+    (SELECT jsonb_array_length(validation_rules) FROM entities WHERE table_name = 'permission_hierarchy'),
+    1,
+    'permission_hierarchy entity has 1 validation rule'
+);
+
+SELECT is(
+    (SELECT validation_rules->0->>'code' FROM entities WHERE table_name = 'permission_hierarchy'),
+    'origin_immutable_hierarchy',
+    'permission_hierarchy validation rule 0 is origin_immutable_hierarchy'
+);
+
+-- Verify source_module tag is set
+SELECT is(
+    (SELECT validation_rules->0->>'source_module' FROM entities WHERE table_name = 'roles'),
+    'platform',
+    'roles validation rules have source_module=platform'
+);
+
+SELECT is(
+    (SELECT validation_rules->0->>'source_module' FROM entities WHERE table_name = 'permission_hierarchy'),
+    'platform',
+    'permission_hierarchy validation rules have source_module=platform'
+);
+
+-- =====================================================
+-- §10.2 RULE ENFORCEMENT: roles.origin
+-- =====================================================
+
+-- INSERT with origin=user should succeed (default)
+INSERT INTO roles (role_name, origin) VALUES ('Rule Test User Role', 'user');
+SELECT is(
+    (SELECT origin FROM roles WHERE role_name = 'Rule Test User Role'),
+    'user',
+    'INSERT role with origin=user succeeds'
+);
+
+-- UPDATE origin from user to default should succeed (auto-claim path)
+UPDATE roles SET origin = 'default' WHERE role_name = 'Rule Test User Role';
+SELECT is(
+    (SELECT origin FROM roles WHERE role_name = 'Rule Test User Role'),
+    'default',
+    'UPDATE origin from user to default succeeds (auto-claim path)'
+);
+
+-- UPDATE origin from default to user should be blocked
+SELECT throws_ok(
+    $$UPDATE roles SET origin = 'user' WHERE role_name = 'Rule Test User Role'$$,
+    '23514',
+    NULL,
+    'UPDATE origin from default to user is blocked by validation rule'
+);
+
+-- =====================================================
+-- §10.2 RULE ENFORCEMENT: roles.slug immutability for system roles
+-- =====================================================
+
+-- Changing slug on a default-origin role should be blocked
+SELECT throws_ok(
+    $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Rule Test User Role'$$,
+    '23514',
+    NULL,
+    'Changing slug on default-origin role is blocked'
+);
+
+-- Changing slug on a user-origin role should succeed
+INSERT INTO roles (role_name, origin) VALUES ('Mutable Slug Role', 'user');
+UPDATE roles SET slug = 'new_slug_value' WHERE role_name = 'Mutable Slug Role';
+SELECT is(
+    (SELECT slug FROM roles WHERE role_name = 'Mutable Slug Role'),
+    'new_slug_value',
+    'Changing slug on user-origin role succeeds'
+);
+
+-- =====================================================
+-- §10.2 RULE ENFORCEMENT: permission_hierarchy.origin
+-- =====================================================
+
+-- UPDATE origin on permission_hierarchy should be blocked
+SELECT throws_ok(
+    $$UPDATE permission_hierarchy
+      SET origin = 'scaffold'
+      WHERE id = (SELECT id FROM permission_hierarchy LIMIT 1)$$,
+    '23514',
+    NULL,
+    'UPDATE origin on permission_hierarchy is blocked by validation rule'
 );
 
 SELECT * FROM finish();
