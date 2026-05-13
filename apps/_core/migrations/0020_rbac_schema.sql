@@ -11,6 +11,7 @@ CREATE TABLE modules (
     id SERIAL PRIMARY KEY,
     module_name TEXT UNIQUE NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
+    module_type TEXT NOT NULL DEFAULT 'domain',
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
     logo_url TEXT DEFAULT '',
     logo_color TEXT DEFAULT '',
@@ -20,7 +21,8 @@ CREATE TABLE modules (
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$')
+    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
+    CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master'))
 );
 
 COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
@@ -80,14 +82,53 @@ COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for l
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     role_name TEXT UNIQUE NOT NULL DEFAULT '',
+    slug TEXT NOT NULL DEFAULT '' UNIQUE,
     description TEXT DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'user',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valid_role_origin CHECK (origin IN ('default', 'user')),
+    CONSTRAINT valid_role_slug CHECK (slug = '' OR slug ~ '^[a-z0-9_]+$')
 );
 
 COMMENT ON TABLE roles IS 'Groups of permissions that can be assigned to users';
 COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical grouping';
+COMMENT ON COLUMN roles.slug IS 'Snake_case unique identifier for role. Auto-generated from role_name if not provided.';
+COMMENT ON COLUMN roles.origin IS 'Whether this role was auto-created by scaffold (default) or manually created (user).';
+
+-- =====================================================
+-- AUTO-SET ROLE SLUG TRIGGER
+-- =====================================================
+-- Automatically generates slug from role_name when not provided
+
+CREATE OR REPLACE FUNCTION auto_set_role_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.slug IS NULL OR trim(NEW.slug) = '' THEN
+        NEW.slug := lower(regexp_replace(NEW.role_name, '[^a-zA-Z0-9]+', '_', 'g'));
+        -- Collapse consecutive underscores into a single one
+        NEW.slug := regexp_replace(NEW.slug, '_+', '_', 'g');
+        -- Remove leading/trailing underscores
+        NEW.slug := trim(both '_' from NEW.slug);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_role_slug IS
+'Trigger function that auto-generates slug from role_name when not provided';
+
+CREATE TRIGGER auto_set_role_slug_trigger
+    BEFORE INSERT OR UPDATE ON roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_role_slug();
+
+COMMENT ON TRIGGER auto_set_role_slug_trigger ON roles IS
+'Auto-generates slug from role_name when not explicitly provided';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
 
 -- Users: External users from JWT
 CREATE TABLE users (
@@ -151,14 +192,34 @@ CREATE TABLE permission_hierarchy (
     id VARCHAR GENERATED ALWAYS AS (parent_permission_id || '.' || child_permission_id) STORED PRIMARY KEY,
     parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    origin TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (parent_permission_id, child_permission_id),
-    CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id)
+    CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id),
+    CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('model', 'scaffold', 'shared_promotion', 'user'))
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
 COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
 COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
+COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: model, scaffold, shared_promotion, or user.';
+
+-- =====================================================
+-- ADD FK COLUMNS TO MODULES (after roles and permissions exist)
+-- =====================================================
+
+ALTER TABLE modules ADD COLUMN manage_permission_id INTEGER REFERENCES permissions(id);
+ALTER TABLE modules ADD COLUMN admin_permission_id INTEGER REFERENCES permissions(id);
+ALTER TABLE modules ADD COLUMN default_viewer_role_id INTEGER REFERENCES roles(id);
+ALTER TABLE modules ADD COLUMN default_manager_role_id INTEGER REFERENCES roles(id);
+ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id);
+
+COMMENT ON COLUMN modules.module_type IS 'Module type: domain (normal) or master (promoted for sharing).';
+COMMENT ON COLUMN modules.manage_permission_id IS 'FK to the manage permission for this module. Populated by scaffold.';
+COMMENT ON COLUMN modules.admin_permission_id IS 'FK to the admin permission for this module. Populated when any entity carries edit_permission: admin.';
+COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to the default viewer role for this module. Populated by scaffold.';
+COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to the default manager role for this module. Populated by scaffold.';
+COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to the default admin role for this module. Populated when admin permission is present.';
 
 -- =====================================================
 -- TRIGGERS FOR updated_at AUTOMATION
@@ -234,3 +295,19 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 
 CREATE INDEX idx_permission_hierarchy_parent ON permission_hierarchy(parent_permission_id);
 CREATE INDEX idx_permission_hierarchy_child ON permission_hierarchy(child_permission_id);
+
+-- =====================================================
+-- INDEXES - Modules FK columns
+-- =====================================================
+
+CREATE INDEX idx_modules_manage_permission ON modules(manage_permission_id);
+CREATE INDEX idx_modules_admin_permission ON modules(admin_permission_id);
+CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
+CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
+CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);
+
+-- =====================================================
+-- INDEXES - Roles slug
+-- =====================================================
+
+CREATE INDEX idx_roles_slug ON roles(slug);
