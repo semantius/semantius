@@ -1,7 +1,7 @@
 -- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
 BEGIN;
 
-SELECT plan(53);
+SELECT plan(54);
 
 SELECT authenticate_as('user3');
 
@@ -155,16 +155,16 @@ SELECT has_column('public', 'roles', 'origin',
 -- Test default value
 SELECT is(
     (SELECT origin FROM roles WHERE role_name = 'User'),
-    'model',
-    'seed roles have origin=model'
+    'system',
+    'seed roles have origin=system'
 );
 
--- Test setting origin to default
-INSERT INTO roles (role_name, origin) VALUES ('Scaffold Role Test', 'default');
+-- Test setting origin to model_master
+INSERT INTO roles (role_name, origin) VALUES ('Scaffold Role Test', 'model_master');
 SELECT is(
     (SELECT origin FROM roles WHERE role_name = 'Scaffold Role Test'),
-    'default',
-    'roles.origin can be set to default'
+    'model_master',
+    'roles.origin can be set to model_master'
 );
 
 -- Test origin enum constraint
@@ -215,9 +215,9 @@ SELECT throws_ok(
     'permission_hierarchy.origin rejects invalid values'
 );
 
--- Test scaffold origin
+-- Test model_master origin
 INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id, origin)
-SELECT p1.id, p2.id, 'scaffold'
+SELECT p1.id, p2.id, 'model_master'
 FROM permissions p1, permissions p2
 WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage';
 
@@ -226,8 +226,8 @@ SELECT is(
      JOIN permissions p1 ON ph.parent_permission_id = p1.id
      JOIN permissions p2 ON ph.child_permission_id = p2.id
      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage'),
-    'scaffold',
-    'permission_hierarchy.origin can be set to scaffold'
+    'model_master',
+    'permission_hierarchy.origin can be set to model_master'
 );
 
 -- =====================================================
@@ -355,32 +355,41 @@ SELECT is(
     'INSERT role with origin=user succeeds'
 );
 
--- UPDATE origin from user to default should succeed (auto-claim path)
-UPDATE roles SET origin = 'default' WHERE role_name = 'Rule Test User Role';
+-- UPDATE origin from user to model should succeed (auto-claim path)
+UPDATE roles SET origin = 'model' WHERE role_name = 'Rule Test User Role';
 SELECT is(
     (SELECT origin FROM roles WHERE role_name = 'Rule Test User Role'),
-    'default',
-    'UPDATE origin from user to default succeeds (auto-claim path)'
+    'model',
+    'UPDATE origin from user to model succeeds (auto-claim path)'
 );
 
--- UPDATE origin from default to user should be blocked
+-- UPDATE origin from model to user should be blocked
 SELECT throws_ok(
     $$UPDATE roles SET origin = 'user' WHERE role_name = 'Rule Test User Role'$$,
     '23514',
     NULL,
-    'UPDATE origin from default to user is blocked by validation rule'
+    'UPDATE origin from model to user is blocked by validation rule'
+);
+
+-- Test user -> model_master transition
+INSERT INTO roles (role_name, origin) VALUES ('Rule Test MM Role', 'user');
+UPDATE roles SET origin = 'model_master' WHERE role_name = 'Rule Test MM Role';
+SELECT is(
+    (SELECT origin FROM roles WHERE role_name = 'Rule Test MM Role'),
+    'model_master',
+    'UPDATE origin from user to model_master succeeds (auto-claim path)'
 );
 
 -- =====================================================
 -- §10.2 RULE ENFORCEMENT: roles.slug immutability for system roles
 -- =====================================================
 
--- Changing slug on a default-origin role should be blocked
+-- Changing slug on a model-origin role should be blocked
 SELECT throws_ok(
     $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Rule Test User Role'$$,
     '23514',
     NULL,
-    'Changing slug on default-origin role is blocked'
+    'Changing slug on model-origin role is blocked'
 );
 
 -- Changing slug on a user-origin role should succeed
@@ -399,7 +408,7 @@ SELECT is(
 -- UPDATE origin on permission_hierarchy should be blocked
 SELECT throws_ok(
     $$UPDATE permission_hierarchy
-      SET origin = 'scaffold'
+      SET origin = 'model_master'
       WHERE id = (SELECT id FROM permission_hierarchy LIMIT 1)$$,
     '23514',
     NULL,

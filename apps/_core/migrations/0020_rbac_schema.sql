@@ -88,14 +88,14 @@ CREATE TABLE roles (
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_role_origin CHECK (origin IN ('model', 'default', 'user')),
+    CONSTRAINT valid_role_origin CHECK (origin IN ('system', 'model', 'model_master', 'user')),
     CONSTRAINT valid_role_slug CHECK (slug = '' OR slug ~ '^[a-z0-9_]+$')
 );
 
 COMMENT ON TABLE roles IS 'Groups of permissions that can be assigned to users';
 COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical grouping';
 COMMENT ON COLUMN roles.slug IS 'Snake_case unique identifier for role. Auto-generated from role_name if not provided.';
-COMMENT ON COLUMN roles.origin IS 'Whether this role was auto-created by scaffold (default) or manually created (user).';
+COMMENT ON COLUMN roles.origin IS 'How this role was created: system (platform built-ins), model (domain module scaffold), model_master (master module scaffold), or user (admin-created).';
 
 -- =====================================================
 -- AUTO-SET ROLE SLUG TRIGGER
@@ -196,13 +196,13 @@ CREATE TABLE permission_hierarchy (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (parent_permission_id, child_permission_id),
     CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id),
-    CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('model', 'scaffold', 'shared_promotion', 'user'))
+    CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
 COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
 COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
-COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: model, scaffold, shared_promotion, or user.';
+COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
 -- ADD FK COLUMNS TO MODULES (after roles and permissions exist)
