@@ -88,7 +88,7 @@ CREATE TABLE roles (
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_role_origin CHECK (origin IN ('default', 'user')),
+    CONSTRAINT valid_role_origin CHECK (origin IN ('model', 'default', 'user')),
     CONSTRAINT valid_role_slug CHECK (slug = '' OR slug ~ '^[a-z0-9_]+$')
 );
 
