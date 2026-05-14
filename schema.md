@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-05-13T21:22:09.459Z
+**Generated:** 2026-05-14T12:48:00.391Z
 
 ---
 
@@ -293,11 +293,11 @@ Logical modules that group related roles and permissions
 | `logo_color` | text | Logo Color | Hex color code for module logo | string | false | false | - | 36 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 | `home_page` | text | Home Page | Default home page path for module | string | false | false | - | 37 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 | `module_slug` | text | Module Slug | URL-safe unique identifier for module, auto-generated from module_name if not provided | string | false | false | - | 38 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
-| `manage_permission_id` | reference | Manage Permission | Manage permission for this module, populated by scaffold | integer | false | true | - | 39 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
-| `admin_permission_id` | reference | Admin Permission | Admin permission for this module, populated when any entity carries edit_permission: admin | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
-| `default_viewer_role_id` | reference | Default Viewer Role | Default viewer role for this module, populated by scaffold | integer | false | true | - | 41 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
-| `default_manager_role_id` | reference | Default Manager Role | Default manager role for this module, populated by scaffold | integer | false | true | - | 42 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
-| `default_admin_role_id` | reference | Default Admin Role | Default admin role for this module, populated when admin permission is present | integer | false | true | - | 43 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `manage_permission_id` | reference | Manage Permission | - | integer | false | true | - | 39 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
+| `admin_permission_id` | reference | Admin Permission | - | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
+| `default_viewer_role_id` | reference | Default Viewer Role | - | integer | false | true | - | 41 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `default_manager_role_id` | reference | Default Manager Role | - | integer | false | true | - | 42 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `default_admin_role_id` | reference | Default Admin Role | - | integer | false | true | - | 43 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
 | `settings` | json | Settings | Module-specific settings and configuration | json | false | false | - | 50 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 | `dashboard_config` | json | Dashboard Configuration | - | json | false | false | - | 60 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 
@@ -338,7 +338,7 @@ Defines permission inheritance (parent implies children)
 | `id` 🔑 (id) | text | Id | Generated identifier (parent_permission_id.child_permission_id) | string | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `parent_permission_id` | parent | Parent Permission Id | Parent permission that implies child permissions | string | false | false | - | 10 | default | default | - | true | false | - | 2 | permissions | cascade | parent of | - | - | false | auto | [object Object] |
 | `child_permission_id` | parent | Child Permission Id | Child permission implied by parent | string | false | false | - | 20 | default | default | - | true | false | - | 2 | permissions | cascade | child of | - | - | false | auto | [object Object] |
-| `origin` | enum | Origin | How this hierarchy entry was created | string | false | false | - | 25 | readonly | default | - | true | false | ["model","scaffold","shared_promotion","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `origin` | enum | Origin | How this hierarchy entry was created | string | false | false | - | 25 | readonly | default | - | true | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 
@@ -534,7 +534,7 @@ Groups of permissions that can be assigned to users
 | `role_name` (label) | text | Role Name | Unique role name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `slug` | text | Slug | Snake_case unique identifier for role, auto-generated from role_name | string | false | false | - | 15 | readonly | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `description` | multiline | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
-| `origin` | enum | Origin | Whether this role was auto-created by scaffold (default) or manually created (user) | string | false | false | - | 25 | readonly | default | - | true | false | ["default","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `origin` | enum | Origin | How this role was created: system (platform built-ins), model (domain module scaffold), model_master (master module scaffold), or user (admin-created) | string | false | false | - | 25 | readonly | default | - | true | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `module_id` | reference | Module Id | Module this role belongs to | integer | false | true | - | 30 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
 
 ---

@@ -33,8 +33,8 @@ INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VAL
 -- =====================================================
 
 INSERT INTO roles (id, role_name, description, origin, module_id) VALUES
-    (1, 'User', 'Standard user role with read-only access', 'model', 1),
-    (2, 'Administrator', 'Administrator role with full management capabilities', 'model', 1);
+    (1, 'User', 'Standard user role with read-only access', 'system', 1),
+    (2, 'Administrator', 'Administrator role with full management capabilities', 'system', 1);
 
 -- =====================================================
 -- SEED ROLE-PERMISSION MAPPINGS
