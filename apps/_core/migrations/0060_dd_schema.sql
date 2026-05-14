@@ -514,7 +514,7 @@ VALUES
     ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
     ('roles', 'slug',        'Slug',        'Snake_case unique identifier for role, auto-generated from role_name', 'text', FALSE, 15, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
-    ('roles', 'origin',      'Origin',      'How this role was created: system (platform built-ins), model (domain module scaffold), model_master (master module scaffold), or user (admin-created)', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
+    ('roles', 'origin',      'Origin',      '', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
