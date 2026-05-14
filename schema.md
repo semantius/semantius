@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-05-14T12:48:00.391Z
+**Generated:** 2026-05-14T13:47:58.905Z
 
 ---
 
@@ -375,7 +375,7 @@ System permissions that can be assigned to roles
 | field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
-| `permission_name` (label) | text | Permission Name | Unique permission name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `permission_name` (label) | text | Permission Name | Unique permission name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | true | auto | [object Object] |
 | `description` | multiline | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `module_id` | reference | Module Id | Module this permission belongs to | integer | false | true | - | 30 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
 
@@ -532,9 +532,9 @@ Groups of permissions that can be assigned to users
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `role_name` (label) | text | Role Name | Unique role name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
-| `slug` | text | Slug | Snake_case unique identifier for role, auto-generated from role_name | string | false | false | - | 15 | readonly | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `slug` | text | Slug | Snake_case unique identifier for role, auto-generated from role_name | string | false | false | - | 15 | readonly | default | - | true | false | - | 2 | - | - | - | - | - | true | auto | [object Object] |
 | `description` | multiline | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
-| `origin` | enum | Origin | How this role was created: system (platform built-ins), model (domain module scaffold), model_master (master module scaffold), or user (admin-created) | string | false | false | - | 25 | readonly | default | - | true | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `origin` | enum | Origin | - | string | false | false | - | 25 | readonly | default | - | true | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
 | `module_id` | reference | Module Id | Module this role belongs to | integer | false | true | - | 30 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
 
 ---
