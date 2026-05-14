@@ -1,7 +1,7 @@
 -- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
 BEGIN;
 
-SELECT plan(54);
+SELECT plan(55);
 
 SELECT authenticate_as('user3');
 
@@ -384,12 +384,20 @@ SELECT throws_ok(
 -- §10.2 RULE ENFORCEMENT: roles.slug immutability for system roles
 -- =====================================================
 
--- Changing slug on a model-origin role should be blocked
+-- Changing slug on a system-origin role should be blocked
 SELECT throws_ok(
-    $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Rule Test Model Role'$$,
+    $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Administrator'$$,
     '23514',
     NULL,
-    'Changing slug on model-origin role is blocked'
+    'Changing slug on system-origin role is blocked'
+);
+
+-- Changing slug on a model-origin role should succeed
+UPDATE roles SET slug = 'new_model_slug' WHERE role_name = 'Rule Test Model Role';
+SELECT is(
+    (SELECT slug FROM roles WHERE role_name = 'Rule Test Model Role'),
+    'new_model_slug',
+    'Changing slug on model-origin role succeeds'
 );
 
 -- Changing slug on a user-origin role should succeed
