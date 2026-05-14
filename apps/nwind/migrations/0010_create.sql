@@ -22,6 +22,11 @@ FROM permissions p, permissions c
 WHERE p.permission_name = 'nwind:manage'
   AND c.permission_name = 'nwind:view';
 
+-- Set module FK references for Northwind
+UPDATE modules SET
+    manage_permission_id = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage')
+WHERE module_name = 'Northwind';
+
 -- =====================================================
 -- ENTITIES
 -- =====================================================

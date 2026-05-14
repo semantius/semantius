@@ -1,7 +1,7 @@
 -- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
 BEGIN;
 
-SELECT plan(51);
+SELECT plan(53);
 
 SELECT authenticate_as('user3');
 
@@ -53,17 +53,30 @@ SELECT has_column('public', 'modules', 'default_manager_role_id',
 SELECT has_column('public', 'modules', 'default_admin_role_id',
     'modules.default_admin_role_id column exists');
 
--- FK columns default to NULL
+-- FK columns default to NULL (except admin_permission_id which is set in seed)
 SELECT is(
     (SELECT manage_permission_id FROM modules WHERE module_name = '_core'),
     NULL,
-    'modules.manage_permission_id defaults to NULL'
+    'modules.manage_permission_id defaults to NULL for _core'
 );
 
 SELECT is(
     (SELECT default_viewer_role_id FROM modules WHERE module_name = '_core'),
     NULL,
-    'modules.default_viewer_role_id defaults to NULL'
+    'modules.default_viewer_role_id defaults to NULL for _core'
+);
+
+-- _core module has admin_permission_id and default_admin_role_id set in seed
+SELECT is(
+    (SELECT admin_permission_id FROM modules WHERE module_name = '_core'),
+    (SELECT id FROM permissions WHERE permission_name = 'admin' LIMIT 1),
+    'modules.admin_permission_id is set to admin permission for _core'
+);
+
+SELECT is(
+    (SELECT default_admin_role_id FROM modules WHERE module_name = '_core'),
+    (SELECT id FROM roles WHERE role_name = 'Administrator' LIMIT 1),
+    'modules.default_admin_role_id is set to Administrator role for _core'
 );
 
 -- Test FK referential integrity: set manage_permission_id to a valid permission
@@ -142,8 +155,8 @@ SELECT has_column('public', 'roles', 'origin',
 -- Test default value
 SELECT is(
     (SELECT origin FROM roles WHERE role_name = 'User'),
-    'user',
-    'roles.origin defaults to user'
+    'model',
+    'seed roles have origin=model'
 );
 
 -- Test setting origin to default

@@ -494,11 +494,11 @@ VALUES
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module, auto-generated from module_name if not provided', 'text', FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'manage_permission_id', 'Manage Permission', 'Manage permission for this module, populated by scaffold', 'reference', FALSE, 39, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
-    ('modules', 'admin_permission_id', 'Admin Permission', 'Admin permission for this module, populated when any entity carries edit_permission: admin', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
-    ('modules', 'default_viewer_role_id', 'Default Viewer Role', 'Default viewer role for this module, populated by scaffold', 'reference', FALSE, 41, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
-    ('modules', 'default_manager_role_id', 'Default Manager Role', 'Default manager role for this module, populated by scaffold', 'reference', FALSE, 42, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
-    ('modules', 'default_admin_role_id', 'Default Admin Role', 'Default admin role for this module, populated when admin permission is present', 'reference', FALSE, 43, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
+    ('modules', 'manage_permission_id', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
+    ('modules', 'admin_permission_id', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -514,13 +514,13 @@ VALUES
     ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
     ('roles', 'slug',        'Slug',        'Snake_case unique identifier for role, auto-generated from role_name', 'text', FALSE, 15, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
-    ('roles', 'origin',      'Origin',      'Whether this role was auto-created by scaffold (default) or manually created (user)', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
+    ('roles', 'origin',      'Origin',      'How this role was created: model (code-defined), scaffold (auto-created), or user (manually created)', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
 
 -- Set enum_values for roles.origin field
-UPDATE fields SET enum_values = '["default", "user"]'::jsonb WHERE table_name = 'roles' AND field_name = 'origin';
+UPDATE fields SET enum_values = '["model", "default", "user"]'::jsonb WHERE table_name = 'roles' AND field_name = 'origin';
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode, relationship_label)
