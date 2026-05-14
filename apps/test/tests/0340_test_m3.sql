@@ -1,4 +1,4 @@
--- Tests for silo buster refactor: new columns on modules, roles, permission_hierarchy
+-- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
 BEGIN;
 
 SELECT plan(51);

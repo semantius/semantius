@@ -2,8 +2,8 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-05-03T21:16:23.460Z
- * Apps: 3  |  Migrations: 20
+ * Generated: 2026-05-12T20:58:37.858Z
+ * Apps: 3  |  Migrations: 24
  */
 
 export interface MigrationFile {
@@ -236,6 +236,664 @@ COMMENT ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) IS 'Set cached value w
 COMMENT ON FUNCTION common.cache_delete(TEXT) IS 'Delete cached value by key, returns true if deleted';
 COMMENT ON FUNCTION common.cache_cleanup() IS 'Clean up expired cache entries, returns count of deleted entries';
 COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including total, expired, and active entries';`,
+    "0015_jsonlogic": `-- Helper: JsonLogic truthy semantics
+-- false, null, 0, "" and empty arrays are falsy; everything else is truthy
+CREATE OR REPLACE FUNCTION jl_truthy(val jsonb) RETURNS boolean AS $$
+BEGIN
+    IF val IS NULL THEN RETURN false; END IF;
+    CASE jsonb_typeof(val)
+        WHEN 'boolean' THEN RETURN val::text = 'true';
+        WHEN 'null'    THEN RETURN false;
+        WHEN 'number'  THEN RETURN val::text::numeric <> 0;
+        WHEN 'string'  THEN RETURN val #>> '{}' <> '';
+        WHEN 'array'   THEN RETURN jsonb_array_length(val) > 0;
+        ELSE RETURN true; -- objects are truthy
+    END CASE;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
+CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
+DECLARE
+    txt_val text;
+BEGIN
+    IF val IS NULL THEN RETURN 0; END IF;
+
+    CASE jsonb_typeof(val)
+        WHEN 'number' THEN
+            RETURN val::text::numeric;
+
+        WHEN 'string' THEN
+            txt_val := val #>> '{}';
+
+            -- First try numeric coercion to preserve original JsonLogic behavior.
+            BEGIN
+                RETURN txt_val::numeric;
+            EXCEPTION WHEN invalid_text_representation THEN
+                NULL;
+            END;
+
+            -- Then try timestamp/date coercion for ISO-like date strings.
+            BEGIN
+                RETURN extract(epoch FROM txt_val::timestamp)::numeric;
+            EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow THEN
+                RETURN 0;
+            END;
+
+        WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1 ELSE 0 END;
+        WHEN 'null' THEN RETURN 0;
+        ELSE RETURN 0;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- Helper: coerce jsonb value to text (for cat, substr, in-string)
+CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
+BEGIN
+    IF val IS NULL THEN RETURN ''; END IF;
+    CASE jsonb_typeof(val)
+        WHEN 'string' THEN RETURN val #>> '{}';
+        WHEN 'null'   THEN RETURN '';
+        ELSE RETURN val::text;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- Helper: loose equality (==) mimicking JS type coercion
+-- Numbers are compared as numbers; if either side is a number and the other a string, coerce string to number.
+CREATE OR REPLACE FUNCTION jl_loose_eq(a jsonb, b jsonb) RETURNS boolean AS $$
+DECLARE
+    ta text; tb text;
+BEGIN
+    IF a IS NULL AND b IS NULL THEN RETURN true; END IF;
+    IF a IS NULL OR b IS NULL THEN RETURN false; END IF;
+    ta := jsonb_typeof(a);
+    tb := jsonb_typeof(b);
+    -- Same type: direct comparison
+    IF ta = tb THEN RETURN a = b; END IF;
+    -- null == null only (already handled), null != anything else
+    IF ta = 'null' OR tb = 'null' THEN RETURN false; END IF;
+    -- number vs string: coerce string to number
+    IF (ta = 'number' AND tb = 'string') OR (ta = 'string' AND tb = 'number') THEN
+        RETURN jl_to_number(a) = jl_to_number(b);
+    END IF;
+    -- boolean vs other: coerce boolean to number then compare
+    IF ta = 'boolean' OR tb = 'boolean' THEN
+        RETURN jl_to_number(a) = jl_to_number(b);
+    END IF;
+    RETURN a = b;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
+RETURNS jsonb AS $$
+DECLARE
+    op text;
+    vals jsonb;
+    arr_len int;
+    i int;
+    current_val jsonb;
+    a jsonb; b jsonb; c jsonb;
+    num_a numeric; num_b numeric; num_c numeric;
+    result jsonb;
+    scoped_data jsonb;
+    scoped_logic jsonb;
+    initial_val jsonb;
+    -- for var
+    var_key text;
+    sub_props text[];
+    nav jsonb;
+    -- for missing
+    missing_arr jsonb;
+    keys_arr jsonb;
+    key_val text;
+    looked_up jsonb;
+    -- for merge
+    merge_result jsonb;
+    elem jsonb;
+    j int;
+    -- for substr
+    src text;
+    start_pos int;
+    end_len int;
+    temp_str text;
+    -- for text ops
+    txt_a text; txt_b text;
+BEGIN
+    -- Handle NULL rule
+    IF rule IS NULL THEN RETURN 'null'::jsonb; END IF;
+
+    -- Arrays with possible logic inside: recursively evaluate each element
+    IF jsonb_typeof(rule) = 'array' THEN
+        result := '[]'::jsonb;
+        FOR i IN 0 .. jsonb_array_length(rule) - 1 LOOP
+            result := result || jsonb_build_array(evaluate_json_logic(rule -> i, data));
+        END LOOP;
+        RETURN result;
+    END IF;
+
+    -- Not an object or multi-key object => pass through (primitive)
+    IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
+    -- Must have exactly one key to be logic
+    SELECT key INTO op FROM jsonb_object_keys(rule) AS key LIMIT 1;
+    IF (SELECT count(*) FROM jsonb_object_keys(rule)) <> 1 THEN RETURN rule; END IF;
+
+    vals := rule -> op;
+    -- Normalize: if vals is not an array, wrap it
+    IF jsonb_typeof(vals) <> 'array' THEN
+        vals := jsonb_build_array(vals);
+    END IF;
+    arr_len := jsonb_array_length(vals);
+
+    -- ===================== if / ?: =====================
+    IF op = 'if' OR op = '?:' THEN
+        i := 0;
+        WHILE i < arr_len - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(vals -> i, data)) THEN
+                RETURN evaluate_json_logic(vals -> (i + 1), data);
+            END IF;
+            i := i + 2;
+        END LOOP;
+        -- Remaining single element = else clause
+        IF arr_len = i + 1 THEN
+            RETURN evaluate_json_logic(vals -> i, data);
+        END IF;
+        RETURN 'null'::jsonb;
+    END IF;
+
+    -- ===================== and =====================
+    IF op = 'and' THEN
+        current_val := 'null'::jsonb;
+        FOR i IN 0 .. arr_len - 1 LOOP
+            current_val := evaluate_json_logic(vals -> i, data);
+            IF NOT jl_truthy(current_val) THEN
+                RETURN current_val;
+            END IF;
+        END LOOP;
+        RETURN current_val;
+    END IF;
+
+    -- ===================== or =====================
+    IF op = 'or' THEN
+        current_val := 'null'::jsonb;
+        FOR i IN 0 .. arr_len - 1 LOOP
+            current_val := evaluate_json_logic(vals -> i, data);
+            IF jl_truthy(current_val) THEN
+                RETURN current_val;
+            END IF;
+        END LOOP;
+        RETURN current_val;
+    END IF;
+
+    -- ===================== filter =====================
+    IF op = 'filter' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF jsonb_typeof(scoped_data) <> 'array' THEN
+            RETURN '[]'::jsonb;
+        END IF;
+        result := '[]'::jsonb;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
+                result := result || jsonb_build_array(scoped_data -> i);
+            END IF;
+        END LOOP;
+        RETURN result;
+    END IF;
+
+    -- ===================== map =====================
+    IF op = 'map' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF jsonb_typeof(scoped_data) <> 'array' THEN
+            RETURN '[]'::jsonb;
+        END IF;
+        result := '[]'::jsonb;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            result := result || jsonb_build_array(evaluate_json_logic(scoped_logic, scoped_data -> i));
+        END LOOP;
+        RETURN result;
+    END IF;
+
+    -- ===================== reduce =====================
+    IF op = 'reduce' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF arr_len >= 3 THEN
+            initial_val := evaluate_json_logic(vals -> 2, data);
+        ELSE
+            initial_val := 'null'::jsonb;
+        END IF;
+        IF jsonb_typeof(scoped_data) <> 'array' THEN
+            RETURN initial_val;
+        END IF;
+        current_val := initial_val;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            current_val := evaluate_json_logic(
+                scoped_logic,
+                jsonb_build_object('current', scoped_data -> i, 'accumulator', current_val)
+            );
+        END LOOP;
+        RETURN current_val;
+    END IF;
+
+    -- ===================== all =====================
+    IF op = 'all' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
+            RETURN 'false'::jsonb;
+        END IF;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            IF NOT jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
+                RETURN 'false'::jsonb;
+            END IF;
+        END LOOP;
+        RETURN 'true'::jsonb;
+    END IF;
+
+    -- ===================== none =====================
+    IF op = 'none' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
+            RETURN 'true'::jsonb;
+        END IF;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
+                RETURN 'false'::jsonb;
+            END IF;
+        END LOOP;
+        RETURN 'true'::jsonb;
+    END IF;
+
+    -- ===================== some =====================
+    IF op = 'some' THEN
+        scoped_data := evaluate_json_logic(vals -> 0, data);
+        scoped_logic := vals -> 1;
+        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
+            RETURN 'false'::jsonb;
+        END IF;
+        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
+                RETURN 'true'::jsonb;
+            END IF;
+        END LOOP;
+        RETURN 'false'::jsonb;
+    END IF;
+
+    -- =====================================================
+    -- All remaining operators: depth-first evaluate arguments
+    -- =====================================================
+    -- Evaluate all arguments first
+    result := '[]'::jsonb;
+    FOR i IN 0 .. arr_len - 1 LOOP
+        result := result || jsonb_build_array(evaluate_json_logic(vals -> i, data));
+    END LOOP;
+    vals := result;
+    arr_len := jsonb_array_length(vals);
+
+    -- Get convenience references
+    a := vals -> 0;
+    IF arr_len > 1 THEN b := vals -> 1; ELSE b := NULL; END IF;
+    IF arr_len > 2 THEN c := vals -> 2; ELSE c := NULL; END IF;
+
+    -- ===================== var =====================
+    IF op = 'var' THEN
+        -- a = the key/path, b = default value
+        -- If a is undefined/null/empty string, return data itself
+        IF a IS NULL OR jsonb_typeof(a) = 'null' OR (jsonb_typeof(a) = 'string' AND a #>> '{}' = '') THEN
+            RETURN data;
+        END IF;
+        var_key := jl_to_text(a);
+        sub_props := string_to_array(var_key, '.');
+        nav := data;
+        FOR i IN 1 .. array_length(sub_props, 1) LOOP
+            IF nav IS NULL OR jsonb_typeof(nav) = 'null' THEN
+                -- not found, return default
+                IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
+            END IF;
+            -- Try object key or array index
+            IF jsonb_typeof(nav) = 'array' THEN
+                BEGIN
+                    nav := nav -> sub_props[i]::int;
+                EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+                    IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
+                END;
+            ELSE
+                nav := nav -> sub_props[i];
+            END IF;
+            IF nav IS NULL THEN
+                IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
+            END IF;
+        END LOOP;
+        RETURN nav;
+    END IF;
+
+    -- ===================== missing =====================
+    IF op = 'missing' THEN
+        -- Arguments can be individual keys or a single array of keys
+        IF arr_len = 1 AND jsonb_typeof(a) = 'array' THEN
+            keys_arr := a;
+        ELSE
+            keys_arr := vals;
+        END IF;
+        missing_arr := '[]'::jsonb;
+        FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
+            key_val := keys_arr ->> i;
+            looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
+            IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
+                missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);
+            END IF;
+        END LOOP;
+        RETURN missing_arr;
+    END IF;
+
+    -- ===================== missing_some =====================
+    IF op = 'missing_some' THEN
+        -- a = need_count, b = array of keys
+        num_a := jl_to_number(a);
+        -- Compute missing using the missing operator
+        missing_arr := evaluate_json_logic(jsonb_build_object('missing', b), data);
+        IF jsonb_array_length(b) - jsonb_array_length(missing_arr) >= num_a THEN
+            RETURN '[]'::jsonb;
+        ELSE
+            RETURN missing_arr;
+        END IF;
+    END IF;
+
+    -- ===================== == =====================
+    IF op = '==' THEN
+        RETURN to_jsonb(jl_loose_eq(a, b));
+    END IF;
+
+    -- ===================== === =====================
+    IF op = '===' THEN
+        -- Strict equality: types must match
+        IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'false'::jsonb; END IF;
+        RETURN to_jsonb(a = b);
+    END IF;
+
+    -- ===================== != =====================
+    IF op = '!=' THEN
+        RETURN to_jsonb(NOT jl_loose_eq(a, b));
+    END IF;
+
+    -- ===================== !== =====================
+    IF op = '!==' THEN
+        IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'true'::jsonb; END IF;
+        RETURN to_jsonb(a <> b);
+    END IF;
+
+    -- ===================== ! =====================
+    IF op = '!' THEN
+        RETURN to_jsonb(NOT jl_truthy(a));
+    END IF;
+
+    -- ===================== !! =====================
+    IF op = '!!' THEN
+        RETURN to_jsonb(jl_truthy(a));
+    END IF;
+
+    -- ===================== > =====================
+    IF op = '>' THEN
+        num_a := jl_to_number(a);
+        num_b := jl_to_number(b);
+        RETURN to_jsonb(num_a > num_b);
+    END IF;
+
+    -- ===================== >= =====================
+    IF op = '>=' THEN
+        num_a := jl_to_number(a);
+        num_b := jl_to_number(b);
+        RETURN to_jsonb(num_a >= num_b);
+    END IF;
+
+    -- ===================== < =====================
+    IF op = '<' THEN
+        num_a := jl_to_number(a);
+        num_b := jl_to_number(b);
+        IF c IS NULL THEN
+            RETURN to_jsonb(num_a < num_b);
+        ELSE
+            num_c := jl_to_number(c);
+            RETURN to_jsonb(num_a < num_b AND num_b < num_c);
+        END IF;
+    END IF;
+
+    -- ===================== <= =====================
+    IF op = '<=' THEN
+        num_a := jl_to_number(a);
+        num_b := jl_to_number(b);
+        IF c IS NULL THEN
+            RETURN to_jsonb(num_a <= num_b);
+        ELSE
+            num_c := jl_to_number(c);
+            RETURN to_jsonb(num_a <= num_b AND num_b <= num_c);
+        END IF;
+    END IF;
+
+    -- ===================== % =====================
+    IF op = '%' THEN
+        RETURN to_jsonb(jl_to_number(a) % jl_to_number(b));
+    END IF;
+
+    -- ===================== + =====================
+    IF op = '+' THEN
+        num_a := 0;
+        FOR i IN 0 .. arr_len - 1 LOOP
+            num_a := num_a + jl_to_number(vals -> i);
+        END LOOP;
+        -- Return integer if result is integer
+        IF num_a = trunc(num_a) THEN
+            RETURN to_jsonb(num_a::bigint);
+        ELSE
+            RETURN to_jsonb(num_a);
+        END IF;
+    END IF;
+
+    -- ===================== * =====================
+    IF op = '*' THEN
+        num_a := jl_to_number(vals -> 0);
+        FOR i IN 1 .. arr_len - 1 LOOP
+            num_a := num_a * jl_to_number(vals -> i);
+        END LOOP;
+        IF num_a = trunc(num_a) THEN
+            RETURN to_jsonb(num_a::bigint);
+        ELSE
+            RETURN to_jsonb(num_a);
+        END IF;
+    END IF;
+
+    -- ===================== - =====================
+    IF op = '-' THEN
+        IF arr_len = 1 THEN
+            num_a := -jl_to_number(a);
+        ELSE
+            num_a := jl_to_number(a) - jl_to_number(b);
+        END IF;
+        IF num_a = trunc(num_a) THEN
+            RETURN to_jsonb(num_a::bigint);
+        ELSE
+            RETURN to_jsonb(num_a);
+        END IF;
+    END IF;
+
+    -- ===================== / =====================
+    IF op = '/' THEN
+        num_a := jl_to_number(a);
+        num_b := jl_to_number(b);
+        IF num_b = 0 THEN RETURN 'null'::jsonb; END IF;
+        num_c := num_a / num_b;
+        IF num_c = trunc(num_c) THEN
+            RETURN to_jsonb(num_c::bigint);
+        ELSE
+            RETURN to_jsonb(num_c);
+        END IF;
+    END IF;
+
+    -- ===================== max =====================
+    IF op = 'max' THEN
+        num_a := jl_to_number(vals -> 0);
+        FOR i IN 1 .. arr_len - 1 LOOP
+            num_b := jl_to_number(vals -> i);
+            IF num_b > num_a THEN num_a := num_b; END IF;
+        END LOOP;
+        IF num_a = trunc(num_a) THEN
+            RETURN to_jsonb(num_a::bigint);
+        ELSE
+            RETURN to_jsonb(num_a);
+        END IF;
+    END IF;
+
+    -- ===================== min =====================
+    IF op = 'min' THEN
+        num_a := jl_to_number(vals -> 0);
+        FOR i IN 1 .. arr_len - 1 LOOP
+            num_b := jl_to_number(vals -> i);
+            IF num_b < num_a THEN num_a := num_b; END IF;
+        END LOOP;
+        IF num_a = trunc(num_a) THEN
+            RETURN to_jsonb(num_a::bigint);
+        ELSE
+            RETURN to_jsonb(num_a);
+        END IF;
+    END IF;
+
+    -- ===================== in =====================
+    IF op = 'in' THEN
+        IF b IS NULL THEN RETURN 'false'::jsonb; END IF;
+        IF jsonb_typeof(b) = 'array' THEN
+            -- Check if a is in the array
+            FOR i IN 0 .. jsonb_array_length(b) - 1 LOOP
+                IF a = b -> i THEN
+                    RETURN 'true'::jsonb;
+                END IF;
+            END LOOP;
+            RETURN 'false'::jsonb;
+        ELSIF jsonb_typeof(b) = 'string' THEN
+            -- Substring check
+            txt_a := jl_to_text(a);
+            txt_b := jl_to_text(b);
+            RETURN to_jsonb(position(txt_a in txt_b) > 0);
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
+    -- ===================== cat =====================
+    IF op = 'cat' THEN
+        txt_a := '';
+        FOR i IN 0 .. arr_len - 1 LOOP
+            txt_a := txt_a || jl_to_text(vals -> i);
+        END LOOP;
+        RETURN to_jsonb(txt_a);
+    END IF;
+
+    -- ===================== substr =====================
+    IF op = 'substr' THEN
+        src := jl_to_text(a);
+        start_pos := jl_to_number(b)::int;
+        -- Handle negative start: count from end
+        IF start_pos < 0 THEN
+            start_pos := length(src) + start_pos;
+            IF start_pos < 0 THEN start_pos := 0; END IF;
+        END IF;
+        IF arr_len >= 3 THEN
+            end_len := jl_to_number(c)::int;
+            IF end_len < 0 THEN
+                -- Negative length: from start_pos, take chars until end_len from end
+                temp_str := substring(src FROM start_pos + 1);
+                RETURN to_jsonb(substring(temp_str FROM 1 FOR length(temp_str) + end_len));
+            ELSE
+                RETURN to_jsonb(substring(src FROM start_pos + 1 FOR end_len));
+            END IF;
+        ELSE
+            RETURN to_jsonb(substring(src FROM start_pos + 1));
+        END IF;
+    END IF;
+
+    -- ===================== merge =====================
+    IF op = 'merge' THEN
+        merge_result := '[]'::jsonb;
+        FOR i IN 0 .. arr_len - 1 LOOP
+            elem := vals -> i;
+            IF jsonb_typeof(elem) = 'array' THEN
+                -- Concatenate array elements
+                FOR j IN 0 .. jsonb_array_length(elem) - 1 LOOP
+                    merge_result := merge_result || jsonb_build_array(elem -> j);
+                END LOOP;
+            ELSE
+                merge_result := merge_result || jsonb_build_array(elem);
+            END IF;
+        END LOOP;
+        RETURN merge_result;
+    END IF;
+
+    -- ===================== log =====================
+    IF op = 'log' THEN
+        RAISE NOTICE 'jsonlogic log: %', a;
+        RETURN a;
+    END IF;
+
+    -- ===================== has_permission =====================
+    -- Calls rbac.has_permission with the given permission name.
+    -- Returns true when the user has the permission; false otherwise.
+    IF op = 'has_permission' THEN
+        IF rbac.has_permission(jl_to_text(a)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
+    -- ===================== require_permission =====================
+    -- Calls rbac.require_permission with the given permission name.
+    -- Returns true when the user has the permission; throws an error otherwise.
+    IF op = 'require_permission' THEN
+        PERFORM rbac.require_permission(jl_to_text(a));
+        RETURN 'true'::jsonb;
+    END IF;
+
+    -- ===================== value_changed =====================
+    -- Checks if a field value has changed compared to $old.
+    -- When $old is missing or null in data, always returns true (new record).
+    -- When $old is present, compares $old.<field> with current <field>.
+    IF op = 'value_changed' THEN
+        var_key := jl_to_text(a);
+        nav := data -> '$old';
+        -- If $old is absent or null, treat as new record => always changed
+        IF nav IS NULL OR jsonb_typeof(nav) = 'null' THEN
+            RETURN 'true'::jsonb;
+        END IF;
+        -- Compare old value with current value
+        IF (nav -> var_key) IS DISTINCT FROM (data -> var_key) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
+    -- Unknown operator
+    RAISE EXCEPTION 'Unrecognized operation: %', op;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- Revoke public execute on all jsonlogic functions
+REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
+
+-- Grant execute to semantius_user for jsonlogic functions
+-- Required for require_permission and value_changed operators which need an authenticated user context
+GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
+`,
     "0020_rbac_schema": `-- =====================================================
 -- RBAC SYSTEM - DDL (Tables, Indexes, Constraints)
 -- =====================================================
@@ -253,14 +911,49 @@ CREATE TABLE modules (
     logo_url TEXT DEFAULT '',
     logo_color TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
-    alias TEXT DEFAULT '' NOT NULL,
+    module_slug TEXT DEFAULT '' NOT NULL UNIQUE,
     settings JSONB,
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$')
 );
 
 COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
+COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+
+-- =====================================================
+-- AUTO-SET MODULE SLUG TRIGGER
+-- =====================================================
+-- Automatically generates module_slug from module_name when not provided
+
+CREATE OR REPLACE FUNCTION auto_set_module_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
+        NEW.module_slug := lower(regexp_replace(NEW.module_name, '[^a-zA-Z0-9]+', '_', 'g'));
+        -- Collapse consecutive underscores into a single one
+        NEW.module_slug := regexp_replace(NEW.module_slug, '_+', '_', 'g');
+        -- Remove leading/trailing underscores
+        NEW.module_slug := trim(both '_' from NEW.module_slug);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_module_slug IS
+'Trigger function that auto-generates module_slug from module_name when not provided';
+
+CREATE TRIGGER auto_set_module_slug_trigger
+    BEFORE INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_module_slug();
+
+COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
+'Auto-generates module_slug from module_name when not explicitly provided';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 
 -- =====================================================
 -- PERMISSIONS AND ROLES
@@ -1405,10 +2098,10 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
 -- =====================================================
 
 INSERT INTO permissions (id, permission_name, description) VALUES
-    (1, 'user:read', 'Permission to read user information'),
-    (2, 'user:manage', 'Permission to manage users (includes read, create, update, delete)'),
-    (3, 'public:read', 'Permission to read public information'),
-    (4, 'admin', 'Permission to manage administrative functions');
+    (1, 'user:read', 'Read user information'),
+    (2, 'user:manage', 'Manage users (includes read, create, update, delete)'),
+    (3, 'public:read', 'Read public information'),
+    (4, 'admin', 'Manage administrative functions');
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
@@ -1445,9 +2138,8 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- SEED MODULES
 -- =====================================================
 
-INSERT INTO modules (id, module_name, description, view_permission, logo_url, logo_color, home_page, alias) VALUES
-    (1, '_core', 'Administration', 'admin', 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1zZXR0aW5ncy1pY29uIGx1Y2lkZS1zZXR0aW5ncyI+PHBhdGggZD0iTTkuNjcxIDQuMTM2YTIuMzQgMi4zNCAwIDAgMSA0LjY1OSAwIDIuMzQgMi4zNCAwIDAgMCAzLjMxOSAxLjkxNSAyLjM0IDIuMzQgMCAwIDEgMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAgMCAzLjgzMSAyLjM0IDIuMzQgMCAwIDEtMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAtMy4zMTkgMS45MTUgMi4zNCAyLjM0IDAgMCAxLTQuNjU5IDAgMi4zNCAyLjM0IDAgMCAwLTMuMzItMS45MTUgMi4zNCAyLjM0IDAgMCAxLTIuMzMtNC4wMzMgMi4zNCAyLjM0IDAgMCAwIDAtMy44MzFBMi4zNCAyLjM0IDAgMCAxIDYuMzUgNi4wNTFhMi4zNCAyLjM0IDAgMCAwIDMuMzE5LTEuOTE1Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIvPjwvc3ZnPg==', '#e42528', '/admin/users', 'admin'),
-    (2, '_public', 'Public', 'user:read', '', '', '/', '');
+INSERT INTO modules (id, module_name, module_slug, description, view_permission, logo_url, logo_color, home_page) VALUES
+    (1, '_core', 'admin', 'Administration', 'admin', 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1zZXR0aW5ncy1pY29uIGx1Y2lkZS1zZXR0aW5ncyI+PHBhdGggZD0iTTkuNjcxIDQuMTM2YTIuMzQgMi4zNCAwIDAgMSA0LjY1OSAwIDIuMzQgMi4zNCAwIDAgMCAzLjMxOSAxLjkxNSAyLjM0IDIuMzQgMCAwIDEgMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAgMCAzLjgzMSAyLjM0IDIuMzQgMCAwIDEtMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAtMy4zMTkgMS45MTUgMi4zNCAyLjM0IDAgMCAxLTQuNjU5IDAgMi4zNCAyLjM0IDAgMCAwLTMuMzItMS45MTUgMi4zNCAyLjM0IDAgMCAxLTIuMzMtNC4wMzMgMi4zNCAyLjM0IDAgMCAwIDAtMy44MzFBMi4zNCAyLjM0IDAgMCAxIDYuMzUgNi4wNTFhMi4zNCAyLjM0IDAgMCAwIDMuMzE5LTEuOTE1Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIvPjwvc3ZnPg==', '#e42528', '/admin/users');
 
 -- =====================================================
 -- RESET SEQUENCES (Reserve Ids < 10000 for internal use)
@@ -1908,18 +2600,27 @@ CREATE TABLE IF NOT EXISTS entities (
     edit_mode TEXT NOT NULL DEFAULT 'auto',
     cube_mode TEXT NOT NULL DEFAULT 'auto',
     audit_log BOOLEAN NOT NULL DEFAULT FALSE,
+    computed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+    validation_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+    select_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Validate table_name follows PostgreSQL naming conventions
     CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
-    
+
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
-    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),     
-    
+    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
+
     -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
-    CONSTRAINT plural_matches_table_name CHECK (plural = table_name)
+    CONSTRAINT plural_matches_table_name CHECK (plural = table_name),
+
+    -- computed_fields and validation_rules must be JSON arrays
+    CONSTRAINT computed_fields_is_array CHECK (jsonb_typeof(computed_fields) = 'array'),
+    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array'),
+    -- select_rule must be a JSON object
+    CONSTRAINT select_rule_is_object CHECK (jsonb_typeof(select_rule) = 'object')
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -1939,6 +2640,12 @@ COMMENT ON COLUMN entities.id_column IS 'Name of primary key column (created aut
 COMMENT ON COLUMN entities.label_column IS 'Name of label/display column (created automatically)';
 COMMENT ON COLUMN entities.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
 COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
+COMMENT ON COLUMN entities.computed_fields IS
+'Ordered list of {name, jsonlogic, description?} entries. Each entry derives the named field from the same record before write. Default [].';
+COMMENT ON COLUMN entities.validation_rules IS
+'Ordered list of {code, message, jsonlogic, description?} entries. Each entry must evaluate truthy for the write to succeed. Default [].';
+COMMENT ON COLUMN entities.select_rule IS
+'JsonLogic rule evaluated per row for FOR SELECT RLS policy. When non-empty, generates a policy function that returns true only when the rule evaluates truthy. Default {}.';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -1961,6 +2668,7 @@ CREATE TABLE IF NOT EXISTS fields (
     is_core BOOLEAN NOT NULL DEFAULT FALSE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     enum_values JSONB DEFAULT NULL,
+    "precision" SMALLINT NOT NULL DEFAULT 2,
     reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
     reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
     relationship_label TEXT NOT NULL DEFAULT 'has',
@@ -1968,6 +2676,7 @@ CREATE TABLE IF NOT EXISTS fields (
     plural_label_parent TEXT NOT NULL DEFAULT '',
     unique_value BOOLEAN NOT NULL DEFAULT FALSE,
     cube_type TEXT NOT NULL DEFAULT 'auto',
+    input_type_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
@@ -1981,7 +2690,7 @@ CREATE TABLE IF NOT EXISTS fields (
     CONSTRAINT valid_format CHECK (
         format IN (
             -- Custom SemSchema formats
-            'json', 'html', 'text', 'code', 'jsonata', 'reference', 'parent', 'enum',
+            'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
             -- Standard JSON Schema formats
             'date', 'time', 'date-time', 'duration',
             'uri', 'uri-reference', 'uri-template', 'url',
@@ -1995,6 +2704,9 @@ CREATE TABLE IF NOT EXISTS fields (
     
 
     
+    -- Ensure precision is within a reasonable range for NUMERIC scale
+    CONSTRAINT valid_precision CHECK ("precision" >= 0 AND "precision" <= 18),
+
     -- Ensure reference_table is set when format is 'reference' or 'parent'
     CONSTRAINT reference_requires_table CHECK (
         (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
@@ -2031,6 +2743,8 @@ COMMENT ON COLUMN fields.width IS 'Display width for UI rendering: default (auto
 COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), or label (display field)';
 COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
 COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
+COMMENT ON COLUMN fields."precision" IS 'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats. Default 2 (currency-style).';
+COMMENT ON COLUMN fields.input_type_rule IS 'JsonLogic condition for field visibility in the UI. Evaluated client-side to show/hide the field.';
 COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference entities.table_name when format is "reference". Empty string means no reference.';
 COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
 COMMENT ON COLUMN fields.relationship_label IS 'Verb describing what the referenced entity does to/with this entity (e.g. "employs", "heads"). Used for ER diagram and navigation labels.';
@@ -2188,7 +2902,7 @@ DECLARE
   -- Define all enum value arrays in one place
   format_values TEXT[] := ARRAY[
     -- Custom SemSchema formats
-    'json', 'html', 'text', 'code', 'jsonata', 'reference', 'parent', 'enum',
+    'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
     -- Standard JSON Schema formats
     'date', 'time', 'date-time', 'duration',
     'uri', 'uri-reference', 'uri-template', 'url',
@@ -2204,7 +2918,7 @@ DECLARE
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
   cube_mode_values TEXT[] := ARRAY['disabled', 'auto'];
-  cube_type_values TEXT[] := ARRAY['disabled', 'auto', 'dimension', 'measure'];
+  cube_type_values TEXT[] := ARRAY['auto', 'dimension', 'measure', 'disabled'];
 BEGIN
   -- Add enum constraints
   EXECUTE format(
@@ -2247,37 +2961,57 @@ BEGIN
   -- All field definitions for the fields table are consolidated here with NO duplication
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
   VALUES
-      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  1,   'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 10,  'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade', 'has fields'),
-      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 20,  'required', 'default', NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 30,  'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 40,  'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'string',   'enum',      FALSE, 50,  'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          '',        ''),
-      ('fields', 'is_pk',               'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 60,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'is_nullable',         'Is Nullable',          'Whether this field allows NULL values (computed from format)',            '',         'boolean',   FALSE, 70,  'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'default_value',       'Default Value',        '',                                                                       '',         'text',      FALSE, 80,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'field_order',         'Field Order',          '',                                                                       '',         'int32',     FALSE, 90,  'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'input_type',          'Input Type',           '',                                                                       'default',  'enum',      FALSE, 100, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
-      ('fields', 'width',               'Width',                '',                                                                       'default',  'enum',      FALSE, 110, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          '',        ''),
-      ('fields', 'ctype',               'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 120, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          '',        ''),
-      ('fields', 'is_core',             'Is Core',              '',                                                                       '',         'boolean',   FALSE, 130, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'searchable',          'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 135, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'enum_values',         'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 137, 'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_table',     'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 138, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                       'restrict', 'enum',      FALSE, 139, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
-      ('fields', 'relationship_label',  'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',  'has',      'text',      FALSE, 140, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 141, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'plural_label_parent', 'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 142, 'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'unique_value',        'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 143, 'default', 'default', NULL, TRUE, FALSE, NULL,                           '',          '',        ''),
-      ('fields', 'cube_type',           'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 144, 'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
-      ('fields', 'created_at',          'Created At',           '',                                                                       '',         'date-time', FALSE, 140, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'updated_at',          'Updated At',           '',                                                                       '',         'date-time', FALSE, 150, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        '');
+      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  10,     'readonly', 'default', 'id',   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', NULL,   TRUE,  TRUE,  NULL,                            'entities',  'cascade', 'has fields'),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 30,     'required', 'default', NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, 40,     'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(format_values),         '',          '',        ''),
+      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
+      ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'is_nullable',          'Is Nullable',          'Whether this field allows NULL values (computed from format)',           '',         'boolean',   FALSE, 80,     'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
+      ('fields', 'width',                'Width',                '',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(width_values),          '',          '',        ''),
+      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', NULL,   TRUE,  FALSE, to_jsonb(ctype_values),          '',          '',        ''),
+      ('fields', 'is_core',              'Is Core',              '',                                                                       '',         'boolean',   FALSE, 140,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'searchable',           'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'enum_values',          'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'precision',            'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'reference_table',      'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 180,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', NULL,   TRUE,  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
+      ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',   'has',      'text',      FALSE, 200,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 210,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 220,    'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 230, 'hidden',  'default', NULL, TRUE, FALSE, NULL,                           '',          '',        ''),
+      ('fields', 'cube_type',            'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
+      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 250,    'default',  'w',       NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        '');
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
   VALUES
       ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, 119, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(edit_mode_values), '', '', ''),
       ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, 121, 'default', 'default', NULL, TRUE, FALSE, to_jsonb(cube_mode_values), '', '', '');
+
+  -- Conditional visibility rules for format-dependent fields on the fields table.
+  -- These fields default to 'hidden' and become visible/required only when the
+  -- selected format makes them meaningful.
+  UPDATE fields SET input_type_rule = rule::jsonb
+  FROM (VALUES
+    ('enum_values',          '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'),
+    ('precision',            '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'),
+    ('reference_table',      '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('reference_delete_mode','{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('relationship_label',   '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
+    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
+    ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
+    ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
+  ) AS r(field_name, rule)
+  WHERE fields.table_name = 'fields' AND fields.field_name = r.field_name;
 END $$;
 
 -- Insert fields metadata for entities table
@@ -2298,6 +3032,9 @@ VALUES
     ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'json',      FALSE, 123, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'json',      FALSE, 124, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       NULL,   TRUE,  FALSE, '', '',        ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', NULL,  TRUE,  FALSE, '', '',        '');
 
@@ -2324,7 +3061,7 @@ VALUES
     ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
-    ('modules', 'alias', 'Alias', 'Alternative name or identifier for module', 'text', FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module, auto-generated from module_name if not provided', 'text', FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
@@ -2335,7 +3072,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    TRUE, FALSE, '',        '',      ''),
     ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
-    ('roles', 'description', 'Description', '',                              'text',      FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
+    ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
     ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
@@ -2345,7 +3082,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('permissions', 'id',              'Id',              '',                                    'int32',     TRUE,  1,  'readonly', 'default', 'id',    TRUE, FALSE, '',        '',      ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
-    ('permissions', 'description',     'Description',     '',                                    'text',      FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
+    ('permissions', 'description',     'Description',     '',                                    'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
     ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
@@ -2410,8 +3147,10 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;`,
 -- Maps JSON Schema format values to PostgreSQL data types
 -- This function converts the format column value to an actual PostgreSQL type
 
-CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT)
+CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
+DECLARE
+    v_scale SMALLINT := COALESCE(p_precision, 2);
 BEGIN
     RETURN CASE p_format
         -- Integer formats
@@ -2424,7 +3163,7 @@ BEGIN
         -- Number formats
         WHEN 'float' THEN 'REAL'
         WHEN 'double' THEN 'DOUBLE PRECISION'
-        WHEN 'number' THEN 'NUMERIC'
+        WHEN 'number' THEN 'NUMERIC(18, ' || v_scale || ')'
         
         -- Special types (not TEXT)
         WHEN 'uuid' THEN 'UUID'
@@ -2451,7 +3190,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_data_type IS 
-'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements.';
+'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
 -- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
@@ -2497,6 +3236,54 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION is_nullable IS
 'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
+
+-- =====================================================
+-- ENUM HELPER FUNCTIONS
+-- =====================================================
+-- Centralised handling of enum default behaviour:
+--   • effective_enum_values  -- expands enum_values with '' for non-required enums,
+--                               so empty defaults are accepted by the CHECK constraint.
+--   • effective_enum_default -- resolves the actual column default for an enum field
+--                               based on input_type and the explicit default_value.
+
+CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
+RETURNS JSONB AS $$
+BEGIN
+    IF p_enum_values IS NULL OR jsonb_array_length(p_enum_values) = 0 THEN
+        RETURN p_enum_values;
+    END IF;
+    -- For non-required enums, ensure '' is in the allowed list so the implicit
+    -- empty-string default does not violate the CHECK constraint.
+    IF p_input_type IS DISTINCT FROM 'required' AND NOT (p_enum_values @> '[""]'::jsonb) THEN
+        RETURN p_enum_values || '[""]'::jsonb;
+    END IF;
+    RETURN p_enum_values;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION effective_enum_values IS
+'Returns the effective list of allowed enum values: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
+
+CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
+RETURNS TEXT AS $$
+BEGIN
+    -- Explicit default takes precedence
+    IF p_default_value IS NOT NULL AND trim(p_default_value) != '' THEN
+        RETURN p_default_value;
+    END IF;
+    -- Required enum without explicit default: pick the first allowed value
+    IF p_input_type = 'required'
+       AND p_enum_values IS NOT NULL
+       AND jsonb_array_length(p_enum_values) > 0 THEN
+        RETURN p_enum_values->>0;
+    END IF;
+    -- Non-required enum without explicit default: empty string
+    RETURN '';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION effective_enum_default IS
+'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
 
 -- Add is_nullable as a computed read-only column on the fields table.
 -- It is derived from the format column via the is_nullable() function above.
@@ -2770,7 +3557,7 @@ BEGIN
     END IF;
     
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(NEW.format);
+    v_data_type := format_to_data_type(NEW.format, NEW."precision");
     
     -- Build nullable clause based on format
     IF NEW.is_nullable THEN
@@ -2780,27 +3567,37 @@ BEGIN
     END IF;
     
     -- Build default clause with sensible defaults based on data type
-    IF NEW.default_value IS NOT NULL AND trim(NEW.default_value) != '' THEN
-        v_default_clause := format('DEFAULT %s', quote_default_value(NEW.default_value, v_data_type));
-    ELSIF NOT NEW.is_nullable THEN
-        -- Provide sensible defaults for NOT NULL columns without explicit default
-        -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
-        IF v_data_type IN ('JSONB', 'JSON') THEN
-            v_default_clause := 'DEFAULT ''{}''::jsonb';
+    DECLARE
+        v_resolved_default TEXT;
+    BEGIN
+        IF NEW.format = 'enum' THEN
+            v_resolved_default := effective_enum_default(NEW.default_value, NEW.input_type, NEW.enum_values);
         ELSE
-            CASE v_data_type
-                WHEN 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
-                WHEN 'INTEGER', 'BIGINT', 'SMALLINT' THEN v_default_clause := 'DEFAULT 0';
-                WHEN 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION' THEN v_default_clause := 'DEFAULT 0.0';
-                WHEN 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
-                WHEN 'TIMESTAMP', 'TIMESTAMPTZ' THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                WHEN 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                ELSE v_default_clause := '';
-            END CASE;
+            v_resolved_default := NEW.default_value;
         END IF;
-    ELSE
-        v_default_clause := '';
-    END IF;
+
+        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
+            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
+        ELSIF NOT NEW.is_nullable THEN
+            -- Provide sensible defaults for NOT NULL columns without explicit default
+            -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
+            IF v_data_type IN ('JSONB', 'JSON') THEN
+                v_default_clause := 'DEFAULT ''{}''::jsonb';
+            ELSE
+                CASE
+                    WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
+                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN v_default_clause := 'DEFAULT 0';
+                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION') OR v_data_type LIKE 'NUMERIC%' OR v_data_type LIKE 'DECIMAL%' THEN v_default_clause := 'DEFAULT 0.0';
+                    WHEN v_data_type = 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
+                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                    WHEN v_data_type = 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                    ELSE v_default_clause := '';
+                END CASE;
+            END IF;
+        ELSE
+            v_default_clause := '';
+        END IF;
+    END;
     
     -- Build ALTER TABLE statement
     v_alter_sql := format(
@@ -2907,14 +3704,18 @@ BEGIN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum JSONB;
         BEGIN
             -- Generate CHECK constraint name
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
             
+            -- Compute effective allowed values (adds '' for non-required enums)
+            v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
+
             -- Build SQL array from JSONB array for IN clause
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                FROM jsonb_array_elements_text(v_effective_enum) AS value
             );
             
             -- Add CHECK constraint
@@ -3060,7 +3861,7 @@ BEGIN
     
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
@@ -3107,7 +3908,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -3194,11 +3995,14 @@ BEGIN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
             
-            -- Check if enum_values changed or format changed
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+            -- Check if enum_values, input_type, or format changed
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+               OR (OLD.format <> NEW.format)
+               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
                 
                 -- Drop existing CHECK constraint if it exists
                 IF OLD.format = 'enum' THEN
@@ -3212,10 +4016,12 @@ BEGIN
                 
                 -- Add new CHECK constraint if format is now 'enum'
                 IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
+
                     -- Build SQL array from JSONB array for IN clause
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                        FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
                     
                     -- Add CHECK constraint
@@ -3757,7 +4563,11 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
-REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
+GRANT EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 -- Grant is_nullable to semantius_user: GENERATED ALWAYS columns evaluate their formula in the
 -- inserting user's context, so semantius_user needs EXECUTE to insert rows into the fields table.
@@ -3839,7 +4649,7 @@ BEGIN
                 'logo_url', m.logo_url,
                 'logo_color', m.logo_color,
                 'home_page', m.home_page,
-                'alias', m.alias,
+                'module_slug', m.module_slug,
                 'created_at', m.created_at,
                 'updated_at', m.updated_at
             ) ORDER BY m.module_name
@@ -4067,6 +4877,10 @@ BEGIN
             f.cube_type,
             f.singular_label_parent,
             f.plural_label_parent,
+            f.unique_value,
+            f."precision",
+            f.relationship_label,
+            f.input_type_rule,
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
             -- doesn't exist or is missing columns. These fields are only added to JSON output when
@@ -4108,11 +4922,24 @@ BEGIN
             jsonb_build_object('searchable', searchable) ||
             -- Add cube_type field
             jsonb_build_object('cube_type', cube_type) ||
+            -- Add unique_value field
+            jsonb_build_object('unique_value', unique_value) ||
+            -- Add precision only for number formats
+            CASE
+                WHEN format_to_json_type(format)::text = '"number"'
+                THEN jsonb_build_object('precision', "precision")
+                ELSE '{}'::jsonb
+            END ||
+            -- Add input_type_rule only when a non-empty JsonLogic rule is set
+            CASE
+                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+                THEN jsonb_build_object('input_type_rule', input_type_rule)
+                ELSE '{}'::jsonb
+            END ||
             -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
             CASE 
                 WHEN format IS NOT NULL 
                      AND format != '' 
-                     AND format != 'text'
                      AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
                 THEN jsonb_build_object('format', format)
                 ELSE '{}'::jsonb
@@ -4120,15 +4947,16 @@ BEGIN
             -- Add enum field if enum_values is present
             CASE 
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
-                THEN jsonb_build_object('enum', enum_values)
+                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
                 ELSE '{}'::jsonb
             END ||
             -- Add reference_table field if format is 'reference' or 'parent'
             CASE 
                 WHEN format IN ('reference', 'parent') AND reference_table != ''
                 THEN jsonb_build_object(
-                    'reference_table', reference_table, 
+                    'reference_table', reference_table,
                     'reference_delete_mode', reference_delete_mode,
+                    'relationship_label', relationship_label,
                     'reference_table_id_column', reference_table_id_column,
                     'reference_table_label_column', reference_table_label_column,
                     'reference_table_singular_label', reference_table_singular_label,
@@ -4147,6 +4975,9 @@ BEGIN
             END ||
             -- Add default field separately to handle type conversion properly
             CASE
+                -- Enum: use effective default (first value when required without explicit default, else '')
+                WHEN format = 'enum' THEN
+                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
                         -- Special case: reference/parent to entities/fields are string-typed
@@ -4743,7 +5574,7 @@ GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
 -- Accessible via PostgREST RPC by all authenticated users.
 
 CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
-RETURNS TEXT AS $$
+RETURNS JSONB AS $$
 DECLARE
     v_target_user_id INTEGER;
     v_key_prefix TEXT;
@@ -4796,12 +5627,12 @@ BEGIN
         END;
     END LOOP;
 
-    RETURN v_full_api_key;
+    RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.generate_api_key IS
-'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns the full key only once.';
+'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
@@ -5763,7 +6594,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(p_field.format);
+    v_data_type := format_to_data_type(p_field.format, p_field."precision");
 
     -- Build nullable clause
     IF p_field.is_nullable THEN
@@ -5773,26 +6604,37 @@ BEGIN
     END IF;
 
     -- Build default clause with sensible fallbacks for NOT NULL columns
-    IF p_field.default_value IS NOT NULL AND trim(p_field.default_value) != '' THEN
-        v_default_clause := format('DEFAULT %s', quote_default_value(p_field.default_value, v_data_type));
-    ELSIF NOT p_field.is_nullable THEN
-        IF v_data_type IN ('JSONB', 'JSON') THEN
-            v_default_clause := 'DEFAULT ''{}''::jsonb';
+    DECLARE
+        v_resolved_default TEXT;
+    BEGIN
+        IF p_field.format = 'enum' THEN
+            v_resolved_default := effective_enum_default(p_field.default_value, p_field.input_type, p_field.enum_values);
         ELSE
-            CASE v_data_type
-                WHEN 'TEXT'                                    THEN v_default_clause := 'DEFAULT ''''';
-                WHEN 'INTEGER', 'BIGINT', 'SMALLINT'           THEN v_default_clause := 'DEFAULT 0';
-                WHEN 'NUMERIC', 'DECIMAL', 'REAL',
-                     'DOUBLE PRECISION'                        THEN v_default_clause := 'DEFAULT 0.0';
-                WHEN 'BOOLEAN'                                 THEN v_default_clause := 'DEFAULT FALSE';
-                WHEN 'TIMESTAMP', 'TIMESTAMPTZ'               THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                WHEN 'DATE'                                    THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                ELSE v_default_clause := '';
-            END CASE;
+            v_resolved_default := p_field.default_value;
         END IF;
-    ELSE
-        v_default_clause := '';
-    END IF;
+
+        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
+            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
+        ELSIF NOT p_field.is_nullable THEN
+            IF v_data_type IN ('JSONB', 'JSON') THEN
+                v_default_clause := 'DEFAULT ''{}''::jsonb';
+            ELSE
+                CASE
+                    WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
+                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT')    THEN v_default_clause := 'DEFAULT 0';
+                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION')
+                         OR v_data_type LIKE 'NUMERIC%'
+                         OR v_data_type LIKE 'DECIMAL%'                       THEN v_default_clause := 'DEFAULT 0.0';
+                    WHEN v_data_type = 'BOOLEAN'                              THEN v_default_clause := 'DEFAULT FALSE';
+                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ')          THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
+                    WHEN v_data_type = 'DATE'                                 THEN v_default_clause := 'DEFAULT CURRENT_DATE';
+                    ELSE v_default_clause := '';
+                END CASE;
+            END IF;
+        ELSE
+            v_default_clause := '';
+        END IF;
+    END;
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -5852,11 +6694,13 @@ BEGIN
         DECLARE
             v_check_name      TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', p_field.table_name, p_field.field_name);
+            v_effective_enum := effective_enum_values(p_field.input_type, p_field.enum_values);
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(p_field.enum_values) AS value
+                FROM jsonb_array_elements_text(v_effective_enum) AS value
             );
             BEGIN
                 EXECUTE format(
@@ -6143,8 +6987,8 @@ BEGIN
 
     -- Handle format change
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format);
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_old_data_type := format_to_data_type(OLD.format, OLD."precision");
+        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
@@ -6186,7 +7030,7 @@ BEGIN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -6260,10 +7104,13 @@ BEGIN
         DECLARE
             v_check_name      TEXT;
             v_enum_values_sql TEXT;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
 
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
+            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+               OR (OLD.format <> NEW.format)
+               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
                 IF OLD.format = 'enum' THEN
                     EXECUTE format(
                         'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
@@ -6276,9 +7123,10 @@ BEGIN
                    AND NEW.enum_values IS NOT NULL
                    AND jsonb_array_length(NEW.enum_values) > 0
                 THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
+                        FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
@@ -6746,12 +7594,9 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 'Event trigger that fires after any DDL command completes, logging the change to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: Add audit_log column to entities table (default FALSE)
+-- STEP 8: audit_log column on entities
 -- =====================================================
-
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS audit_log BOOLEAN NOT NULL DEFAULT FALSE;
-
-COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
+-- Column was added in 0060_dd_schema.sql. Nothing to do here.
 
 -- =====================================================
 -- STEP 9: Add field metadata for audit_log column
@@ -6969,6 +7814,2924 @@ REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 `,
+    "0160_pgmq": `--
+-- based on https://github.com/pgmq/pgmq v1.11.1
+-- The PostgreSQL License Copyright (c) 2023, Tembo
+------------------------------------------------------------
+-- Schema, tables, records, privileges, indexes, etc
+------------------------------------------------------------
+-- When installed as an extension, we don't need to create the \`pgmq\` schema
+-- because it is automatically created by postgres due to being declared in
+-- the extension control file
+DO
+$$
+BEGIN
+    IF (SELECT NOT EXISTS( SELECT 1 FROM pg_extension WHERE extname = 'pgmq')) THEN
+      CREATE SCHEMA IF NOT EXISTS pgmq;
+    END IF;
+END
+$$;
+
+-- Table where queues and metadata about them is stored
+CREATE TABLE IF NOT EXISTS pgmq.meta (
+    queue_name VARCHAR UNIQUE NOT NULL,
+    is_partitioned BOOLEAN NOT NULL,
+    is_unlogged BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Grant permission to pg_monitor to all tables and sequences
+-- These grants are intentionally placed here (after creating \`pgmq.meta\` but before creating other tables). This
+-- allows the \`pg_dump\` output for a fresh installation to match the output for an installation that followed the
+-- upgrade path.
+GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
+
+-- Table to track notification throttling for queues
+CREATE UNLOGGED TABLE IF NOT EXISTS pgmq.notify_insert_throttle (
+    queue_name           VARCHAR UNIQUE NOT NULL -- Queue name (without 'q_' prefix)
+       CONSTRAINT notify_insert_throttle_meta_queue_name_fk
+            REFERENCES pgmq.meta (queue_name)
+            ON DELETE CASCADE,
+    throttle_interval_ms INTEGER NOT NULL DEFAULT 0, -- Min milliseconds between notifications (0 = no throttling)
+    last_notified_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT to_timestamp(0) -- Timestamp of last sent notification
+);
+
+CREATE INDEX IF NOT EXISTS idx_notify_throttle_active
+    ON pgmq.notify_insert_throttle (queue_name, last_notified_at)
+    WHERE throttle_interval_ms > 0;
+
+CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
+(
+    pattern        text NOT NULL, -- Wildcard pattern for routing key matching (* = one segment, # = zero or more segments)
+    queue_name     text NOT NULL  -- Name of the queue that receives messages when pattern matches
+        CONSTRAINT topic_bindings_meta_queue_name_fk
+            REFERENCES pgmq.meta (queue_name)
+            ON DELETE CASCADE,
+    bound_at       TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, -- Timestamp when the binding was created
+    compiled_regex text GENERATED ALWAYS AS (
+        -- Pre-compile the pattern to regex for faster matching
+        -- This avoids runtime compilation on every send_topic call
+        '^' ||
+        replace(
+                replace(
+                        regexp_replace(pattern, '([.+?{}()|\\[\\]\\\\^$])', '\\\\\\1', 'g'),
+                        '*', '[^.]+'
+                ),
+                '#', '.*'
+        ) || '$'
+        ) STORED,                 -- Computed column: stores the compiled regex pattern
+    CONSTRAINT topic_bindings_unique_pattern_queue UNIQUE (pattern, queue_name)
+);
+
+-- Create covering index for better performance when scanning patterns
+-- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
+CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
+
+-- Allow the following \`pgmq\` tables to be dumped by \`pg_dump\` when pgmq is installed as an extension
+DO
+$$
+BEGIN
+    IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
+        PERFORM pg_catalog.pg_extension_config_dump('pgmq.meta', '');
+        PERFORM pg_catalog.pg_extension_config_dump('pgmq.notify_insert_throttle', '');
+        PERFORM pg_catalog.pg_extension_config_dump('pgmq.topic_bindings', '');
+    END IF;
+END
+$$;
+
+-- This type has the shape of a message in a queue, and is often returned by
+-- pgmq functions that return messages
+CREATE TYPE pgmq.message_record AS (
+    msg_id BIGINT,
+    read_ct INTEGER,
+    enqueued_at TIMESTAMP WITH TIME ZONE,
+    last_read_at TIMESTAMP WITH TIME ZONE,
+    vt TIMESTAMP WITH TIME ZONE,
+    message JSONB,
+    headers JSONB
+);
+
+CREATE TYPE pgmq.queue_record AS (
+    queue_name VARCHAR,
+    is_partitioned BOOLEAN,
+    is_unlogged BOOLEAN,
+    created_at TIMESTAMP WITH TIME ZONE
+);
+
+------------------------------------------------------------
+-- Functions
+------------------------------------------------------------
+
+-- prevents race conditions during queue creation by acquiring a transaction-level advisory lock
+-- uses a transaction advisory lock maintain the lock until transaction commit
+-- a race condition would still exist if lock was released before commit
+CREATE FUNCTION pgmq.acquire_queue_lock(queue_name TEXT)
+RETURNS void AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('pgmq.queue_' || queue_name));
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_round_robin
+-- reads messages while preserving FIFO within groups and interleaving across groups (layered round-robin)
+CREATE FUNCTION pgmq.read_grouped_rr(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH fifo_groups AS (
+            -- Determine the absolute head (oldest) message id per FIFO group, regardless of visibility
+            SELECT
+                COALESCE(headers->>'x-pgmq-group', '_default_fifo_group') AS fifo_key,
+                MIN(msg_id) AS head_msg_id
+            FROM pgmq.%1$I
+            GROUP BY COALESCE(headers->>'x-pgmq-group', '_default_fifo_group')
+        ),
+        eligible_groups AS (
+            -- Only groups whose head message is currently visible
+            -- Acquire a transaction-level advisory lock per group to prevent concurrent selection
+            SELECT
+                g.fifo_key,
+                g.head_msg_id,
+                ROW_NUMBER() OVER (ORDER BY g.head_msg_id) AS group_priority
+            FROM fifo_groups g
+            JOIN pgmq.%2$I h ON h.msg_id = g.head_msg_id
+            WHERE h.vt <= clock_timestamp()
+              AND pg_try_advisory_xact_lock(pg_catalog.hashtextextended(g.fifo_key, 0))
+        ),
+        available_messages AS (
+            -- All currently visible messages starting at the head for each eligible group
+            SELECT
+                m.msg_id,
+                eg.group_priority,
+                ROW_NUMBER() OVER (
+                    PARTITION BY eg.fifo_key
+                    ORDER BY m.msg_id
+                ) AS msg_rank_in_group
+            FROM pgmq.%3$I m
+            JOIN eligible_groups eg
+              ON COALESCE(m.headers->>'x-pgmq-group', '_default_fifo_group') = eg.fifo_key
+            WHERE m.vt <= clock_timestamp()
+              AND m.msg_id >= eg.head_msg_id
+        ),
+        ordered_messages AS (
+            -- Layered round-robin: take rank 1 of all groups by group_priority, then rank 2, etc.
+            -- Assign selection order before locking
+            SELECT msg_id, ROW_NUMBER() OVER (ORDER BY msg_rank_in_group, group_priority) as selection_order
+            FROM available_messages
+        ),
+        selected_messages AS (
+            -- Lock the messages in the correct order, preserving selection_order
+            SELECT om.msg_id, om.selection_order
+            FROM ordered_messages om
+            JOIN pgmq.%4$I m ON m.msg_id = om.msg_id
+            WHERE om.selection_order <= $1
+            ORDER BY om.selection_order
+            FOR UPDATE OF m SKIP LOCKED
+        ),
+        updated_messages AS (
+            UPDATE pgmq.%5$I m
+            SET
+                vt = clock_timestamp() + %6$L,
+                read_ct = read_ct + 1,
+                last_read_at = clock_timestamp()
+            FROM selected_messages sm
+            WHERE m.msg_id = sm.msg_id
+              AND m.vt <= clock_timestamp() -- final guard to avoid duplicate reads under races
+            RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers, sm.selection_order
+        )
+        SELECT msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
+        FROM updated_messages
+        ORDER BY selection_order;
+        $QUERY$,
+        qtable, qtable, qtable, qtable, qtable, make_interval(secs => vt)
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_rr_with_poll
+-- reads messages using round-robin layering across groups, with polling support
+CREATE FUNCTION pgmq.read_grouped_rr_with_poll(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    max_poll_seconds INTEGER DEFAULT 5,
+    poll_interval_ms INTEGER DEFAULT 100
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    r pgmq.message_record;
+    stop_at TIMESTAMP;
+BEGIN
+    stop_at := clock_timestamp() + make_interval(secs => max_poll_seconds);
+    LOOP
+      IF (SELECT clock_timestamp() >= stop_at) THEN
+        RETURN;
+      END IF;
+
+      FOR r IN
+        SELECT * FROM pgmq.read_grouped_rr(queue_name, vt, qty)
+      LOOP
+        RETURN NEXT r;
+      END LOOP;
+      IF FOUND THEN
+        RETURN;
+      ELSE
+        PERFORM pg_sleep(poll_interval_ms::numeric / 1000);
+      END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_head:  read the head of N different FIFO groups in a single operation.
+-- This supports horizontal scaling by processing groups in parallel while ensuring message ordering is preserved per group.
+CREATE FUNCTION pgmq.read_grouped_head(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH fifo_groups AS (
+            -- Determine the absolute head (oldest) message id per FIFO group, regardless of visibility
+            SELECT 
+                COALESCE(headers->>'x-pgmq-group', '_default_fifo_group') AS fifo_key,
+                MIN(msg_id) AS head_msg_id
+            FROM pgmq.%1$I
+            GROUP BY COALESCE(headers->>'x-pgmq-group', '_default_fifo_group')
+        ),
+        selected_messages AS (
+            -- Take at most 1 message per group
+            SELECT g.head_msg_id msg_id
+            FROM fifo_groups g
+            JOIN pgmq.%1$I q ON q.msg_id = g.head_msg_id
+	        WHERE q.vt <= clock_timestamp()
+            ORDER BY q.msg_id
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE pgmq.%1$I m
+        SET
+            vt = clock_timestamp() + %2$L,
+            read_ct = read_ct + 1,
+            last_read_at = clock_timestamp()
+        FROM selected_messages sm
+        WHERE m.msg_id = sm.msg_id
+        RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers;
+        $QUERY$,
+        qtable, make_interval(secs => vt)
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- a helper to format table names and check for invalid characters
+CREATE FUNCTION pgmq.format_table_name(queue_name text, prefix text)
+RETURNS TEXT AS $$
+BEGIN
+    IF queue_name ~ '\\$|;|--|'''
+    THEN
+        RAISE EXCEPTION 'queue name contains invalid characters: $, ;, --, or \\''';
+    END IF;
+    RETURN lower(prefix || '_' || queue_name);
+END;
+$$ LANGUAGE plpgsql;
+
+-- read
+-- reads a number of messages from a queue, setting a visibility timeout on them
+CREATE FUNCTION pgmq.read(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    conditional JSONB DEFAULT '{}'
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH cte AS
+        (
+            SELECT msg_id
+            FROM pgmq.%I
+            WHERE vt <= clock_timestamp() AND CASE
+                WHEN %L != '{}'::jsonb THEN (message @> %2$L)::integer
+                ELSE 1
+            END = 1
+            ORDER BY msg_id ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE pgmq.%I m
+        SET
+            last_read_at = clock_timestamp(),
+            vt = clock_timestamp() + %L,
+            read_ct = read_ct + 1
+        FROM cte
+        WHERE m.msg_id = cte.msg_id
+        RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers;
+        $QUERY$,
+        qtable, conditional, qtable, make_interval(secs => vt)
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped
+-- reads messages with AWS SQS FIFO-style batch retrieval behavior
+-- attempts to return as many messages as possible from the same message group
+CREATE FUNCTION pgmq.read_grouped(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH fifo_groups AS (
+            -- Find the minimum msg_id for each FIFO group that's ready to be processed
+            SELECT
+                COALESCE(headers->>'x-pgmq-group', '_default_fifo_group') as fifo_key,
+                MIN(msg_id) as min_msg_id
+            FROM pgmq.%I
+            WHERE vt <= clock_timestamp()
+            GROUP BY COALESCE(headers->>'x-pgmq-group', '_default_fifo_group')
+        ),
+        locked_groups AS (
+            -- Lock the first available message in each FIFO group
+            SELECT
+                m.msg_id,
+                fg.fifo_key
+            FROM pgmq.%I m
+            INNER JOIN fifo_groups fg ON
+                COALESCE(m.headers->>'x-pgmq-group', '_default_fifo_group') = fg.fifo_key
+                AND m.msg_id = fg.min_msg_id
+            WHERE m.vt <= clock_timestamp()
+            ORDER BY m.msg_id ASC
+            FOR UPDATE SKIP LOCKED
+        ),
+        group_priorities AS (
+            -- Assign priority to groups based on their oldest message
+            SELECT
+                fifo_key,
+                msg_id as min_msg_id,
+                ROW_NUMBER() OVER (ORDER BY msg_id) as group_priority
+            FROM locked_groups
+        ),
+        filtered_groups as (
+            SELECT * FROM group_priorities gp
+            WHERE NOT EXISTS (
+                -- Ensure no earlier message in this group is currently being processed
+                SELECT 1
+                FROM pgmq.%I m2
+                WHERE COALESCE(m2.headers->>'x-pgmq-group', '_default_fifo_group') = gp.fifo_key
+                AND m2.vt > clock_timestamp()
+                AND m2.msg_id < gp.min_msg_id
+            )
+        ),
+        available_messages as (
+            SELECT gp.fifo_key, t.msg_id,gp.group_priority,
+                ROW_NUMBER() OVER (PARTITION BY gp.fifo_key ORDER BY t.msg_id) as msg_rank_in_group
+            FROM filtered_groups gp
+            CROSS JOIN LATERAL (
+                SELECT *
+                FROM pgmq.%I t
+                WHERE COALESCE(t.headers->>'x-pgmq-group', '_default_fifo_group') = gp.fifo_key
+                AND t.vt <= clock_timestamp()
+                ORDER BY msg_id
+                LIMIT $1  -- tip to limit query impact, we know we need at most qty in each group
+            ) t
+            ORDER BY gp.group_priority
+        ),
+        batch_selection AS (
+            -- Select messages to fill batch, prioritizing earliest group
+            SELECT
+                msg_id,
+                ROW_NUMBER() OVER (ORDER BY group_priority, msg_rank_in_group) as overall_rank
+            FROM available_messages
+        ),
+        selected_messages AS (
+            -- Limit to requested quantity
+            SELECT msg_id
+            FROM batch_selection
+            WHERE overall_rank <= $1
+            ORDER BY msg_id
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE pgmq.%I m
+        SET
+            vt = clock_timestamp() + %L,
+            read_ct = read_ct + 1,
+            last_read_at = clock_timestamp()
+        FROM selected_messages sm
+        WHERE m.msg_id = sm.msg_id
+        RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers;
+        $QUERY$,
+        qtable, qtable, qtable, qtable, qtable, make_interval(secs => vt)
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_with_poll
+-- reads messages with AWS SQS FIFO-style batch retrieval behavior, with polling support
+CREATE FUNCTION pgmq.read_grouped_with_poll(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    max_poll_seconds INTEGER DEFAULT 5,
+    poll_interval_ms INTEGER DEFAULT 100
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    r pgmq.message_record;
+    stop_at TIMESTAMP;
+BEGIN
+    stop_at := clock_timestamp() + make_interval(secs => max_poll_seconds);
+    LOOP
+      IF (SELECT clock_timestamp() >= stop_at) THEN
+        RETURN;
+      END IF;
+
+      FOR r IN
+        SELECT * FROM pgmq.read_grouped(queue_name, vt, qty)
+      LOOP
+        RETURN NEXT r;
+      END LOOP;
+      IF FOUND THEN
+        RETURN;
+      ELSE
+        PERFORM pg_sleep(poll_interval_ms::numeric / 1000);
+      END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+---- read_with_poll
+---- reads a number of messages from a queue, setting a visibility timeout on them
+CREATE FUNCTION pgmq.read_with_poll(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    max_poll_seconds INTEGER DEFAULT 5,
+    poll_interval_ms INTEGER DEFAULT 100,
+    conditional JSONB DEFAULT '{}'
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    r pgmq.message_record;
+    stop_at TIMESTAMP;
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    stop_at := clock_timestamp() + make_interval(secs => max_poll_seconds);
+    LOOP
+      IF (SELECT clock_timestamp() >= stop_at) THEN
+        RETURN;
+      END IF;
+
+      sql := FORMAT(
+          $QUERY$
+          WITH cte AS
+          (
+              SELECT msg_id
+              FROM pgmq.%I
+              WHERE vt <= clock_timestamp() AND CASE
+                  WHEN %L != '{}'::jsonb THEN (message @> %2$L)::integer
+                  ELSE 1
+              END = 1
+              ORDER BY msg_id ASC
+              LIMIT $1
+              FOR UPDATE SKIP LOCKED
+          )
+          UPDATE pgmq.%I m
+          SET
+              last_read_at = clock_timestamp(),
+              vt = clock_timestamp() + %L,
+              read_ct = read_ct + 1
+          FROM cte
+          WHERE m.msg_id = cte.msg_id
+          RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers;
+          $QUERY$,
+          qtable, conditional, qtable, make_interval(secs => vt)
+      );
+
+      FOR r IN
+        EXECUTE sql USING qty
+      LOOP
+        RETURN NEXT r;
+      END LOOP;
+      IF FOUND THEN
+        RETURN;
+      ELSE
+        PERFORM pg_sleep(poll_interval_ms::numeric / 1000);
+      END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+---- archive
+---- removes a message from the queue, and sends it to the archive, where its
+---- saved permanently.
+CREATE FUNCTION pgmq.archive(
+    queue_name TEXT,
+    msg_id BIGINT
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    sql TEXT;
+    result BIGINT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    atable TEXT := pgmq.format_table_name(queue_name, 'a');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH archived AS (
+            DELETE FROM pgmq.%I
+            WHERE msg_id = $1
+            RETURNING msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers
+        )
+        INSERT INTO pgmq.%I (msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers)
+        SELECT msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers
+        FROM archived
+        RETURNING msg_id;
+        $QUERY$,
+        qtable, atable
+    );
+    EXECUTE sql USING msg_id INTO result;
+    RETURN NOT (result IS NULL);
+END;
+$$ LANGUAGE plpgsql;
+
+---- archive
+---- removes an array of message ids from the queue, and sends it to the archive,
+---- where these messages will be saved permanently.
+CREATE FUNCTION pgmq.archive(
+    queue_name TEXT,
+    msg_ids BIGINT[]
+)
+RETURNS SETOF BIGINT AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    atable TEXT := pgmq.format_table_name(queue_name, 'a');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH archived AS (
+            DELETE FROM pgmq.%I
+            WHERE msg_id = ANY($1)
+            RETURNING msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers
+        )
+        INSERT INTO pgmq.%I (msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers)
+        SELECT msg_id, vt, read_ct, enqueued_at, last_read_at, message, headers
+        FROM archived
+        RETURNING msg_id;
+        $QUERY$,
+        qtable, atable
+    );
+    RETURN QUERY EXECUTE sql USING msg_ids;
+END;
+$$ LANGUAGE plpgsql;
+
+---- delete
+---- deletes a message id from the queue permanently
+CREATE FUNCTION pgmq.delete(
+    queue_name TEXT,
+    msg_id BIGINT
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    sql TEXT;
+    result BIGINT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        DELETE FROM pgmq.%I
+        WHERE msg_id = $1
+        RETURNING msg_id
+        $QUERY$,
+        qtable
+    );
+    EXECUTE sql USING msg_id INTO result;
+    RETURN NOT (result IS NULL);
+END;
+$$ LANGUAGE plpgsql;
+
+---- delete
+---- deletes an array of message ids from the queue permanently
+CREATE FUNCTION pgmq.delete(
+    queue_name TEXT,
+    msg_ids BIGINT[]
+)
+RETURNS SETOF BIGINT AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        DELETE FROM pgmq.%I
+        WHERE msg_id = ANY($1)
+        RETURNING msg_id
+        $QUERY$,
+        qtable
+    );
+    RETURN QUERY EXECUTE sql USING msg_ids;
+END;
+$$ LANGUAGE plpgsql;
+
+-- send: actual implementation
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB,
+    headers JSONB,
+    delay TIMESTAMP WITH TIME ZONE
+) RETURNS SETOF BIGINT AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+            $QUERY$
+        INSERT INTO pgmq.%I (vt, message, headers)
+        VALUES ($2, $1, $3)
+        RETURNING msg_id;
+        $QUERY$,
+            qtable
+           );
+    RETURN QUERY EXECUTE sql USING msg, delay, headers;
+END;
+$$ LANGUAGE plpgsql;
+
+-- send: 2 args, no delay or headers
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send(queue_name, msg, NULL, clock_timestamp());
+$$ LANGUAGE sql;
+
+-- send: 3 args with headers
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB,
+    headers JSONB
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send(queue_name, msg, headers, clock_timestamp());
+$$ LANGUAGE sql;
+
+-- send: 3 args with integer delay
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB,
+    delay INTEGER
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send(queue_name, msg, NULL, clock_timestamp() + make_interval(secs => delay));
+$$ LANGUAGE sql;
+
+-- send: 3 args with timestamp
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB,
+    delay TIMESTAMP WITH TIME ZONE
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send(queue_name, msg, NULL, delay);
+$$ LANGUAGE sql;
+
+-- send: 4 args with integer delay
+CREATE FUNCTION pgmq.send(
+    queue_name TEXT,
+    msg JSONB,
+    headers JSONB,
+    delay INTEGER
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send(queue_name, msg, headers, clock_timestamp() + make_interval(secs => delay));
+$$ LANGUAGE sql;
+
+-- _validate_batch_params: Private function to validate batch parameters
+CREATE FUNCTION pgmq._validate_batch_params(
+    msgs JSONB[],
+    headers JSONB[]
+) RETURNS void AS $$
+BEGIN
+    -- Validate that msgs is not NULL or empty
+    IF msgs IS NULL OR array_length(msgs, 1) IS NULL THEN
+        RAISE EXCEPTION 'msgs cannot be NULL or empty';
+    END IF;
+
+    -- Validate that headers array length matches msgs array length if headers is provided
+    -- Note: array_length returns NULL for empty arrays, so we use COALESCE to treat empty arrays as length 0
+    IF headers IS NOT NULL AND COALESCE(array_length(headers, 1), 0) != COALESCE(array_length(msgs, 1), 0) THEN
+        RAISE EXCEPTION 'headers array length (%) must match msgs array length (%)',
+            COALESCE(array_length(headers, 1), 0), COALESCE(array_length(msgs, 1), 0);
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- _send_batch: Private function that performs the actual batch insert without validation
+CREATE FUNCTION pgmq._send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    headers JSONB[],
+    delay TIMESTAMP WITH TIME ZONE
+) RETURNS SETOF BIGINT AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+            $QUERY$
+        INSERT INTO pgmq.%I (vt, message, headers)
+        SELECT $2, unnest($1), unnest(coalesce($3, ARRAY[]::jsonb[]))
+        RETURNING msg_id;
+        $QUERY$,
+            qtable
+           );
+    RETURN QUERY EXECUTE sql USING msgs, delay, headers;
+END;
+$$ LANGUAGE plpgsql;
+
+-- send_batch: Public function with validation
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    headers JSONB[],
+    delay TIMESTAMP WITH TIME ZONE
+) RETURNS SETOF BIGINT AS $$
+BEGIN
+    PERFORM pgmq._validate_batch_params(msgs, headers);
+    RETURN QUERY SELECT * FROM pgmq._send_batch(queue_name, msgs, headers, delay);
+END;
+$$ LANGUAGE plpgsql;
+
+-- send batch: 2 args
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[]
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send_batch(queue_name, msgs, NULL, clock_timestamp());
+$$ LANGUAGE sql;
+
+-- send batch: 3 args with headers
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    headers JSONB[]
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send_batch(queue_name, msgs, headers, clock_timestamp());
+$$ LANGUAGE sql;
+
+-- send batch: 3 args with integer delay
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    delay INTEGER
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send_batch(queue_name, msgs, NULL, clock_timestamp() + make_interval(secs => delay));
+$$ LANGUAGE sql;
+
+-- send batch: 3 args with timestamp
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    delay TIMESTAMP WITH TIME ZONE
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send_batch(queue_name, msgs, NULL, delay);
+$$ LANGUAGE sql;
+
+-- send_batch: 4 args with integer delay
+CREATE FUNCTION pgmq.send_batch(
+    queue_name TEXT,
+    msgs JSONB[],
+    headers JSONB[],
+    delay INTEGER
+) RETURNS SETOF BIGINT AS $$
+    SELECT * FROM pgmq.send_batch(queue_name, msgs, headers, clock_timestamp() + make_interval(secs => delay));
+$$ LANGUAGE sql;
+
+-- returned by pgmq.metrics() and pgmq.metrics_all
+CREATE TYPE pgmq.metrics_result AS (
+    queue_name text,
+    queue_length bigint,
+    newest_msg_age_sec int,
+    oldest_msg_age_sec int,
+    total_messages bigint,
+    scrape_time timestamp with time zone,
+    queue_visible_length bigint
+);
+
+-- get metrics for a single queue
+CREATE FUNCTION pgmq.metrics(queue_name TEXT)
+RETURNS pgmq.metrics_result AS $$
+DECLARE
+    result_row pgmq.metrics_result;
+    query TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    query := FORMAT(
+        $QUERY$
+        WITH q_summary AS (
+            SELECT
+                count(*) as queue_length,
+                count(CASE WHEN vt <= NOW() THEN 1 END) as queue_visible_length,
+                EXTRACT(epoch FROM (NOW() - max(enqueued_at)))::int as newest_msg_age_sec,
+                EXTRACT(epoch FROM (NOW() - min(enqueued_at)))::int as oldest_msg_age_sec,
+                NOW() as scrape_time
+            FROM pgmq.%I
+        ),
+        all_metrics AS (
+            SELECT CASE
+                WHEN is_called THEN last_value ELSE 0
+                END as total_messages
+            FROM pgmq.%I
+        )
+        SELECT
+            %L as queue_name,
+            q_summary.queue_length,
+            q_summary.newest_msg_age_sec,
+            q_summary.oldest_msg_age_sec,
+            all_metrics.total_messages,
+            q_summary.scrape_time,
+            q_summary.queue_visible_length
+        FROM q_summary, all_metrics
+        $QUERY$,
+        qtable, qtable || '_msg_id_seq', queue_name
+    );
+    EXECUTE query INTO result_row;
+    RETURN result_row;
+END;
+$$ LANGUAGE plpgsql;
+
+-- get metrics for all queues
+CREATE FUNCTION pgmq."metrics_all"()
+RETURNS SETOF pgmq.metrics_result AS $$
+DECLARE
+    row_name RECORD;
+    result_row pgmq.metrics_result;
+BEGIN
+    FOR row_name IN SELECT queue_name FROM pgmq.meta LOOP
+        result_row := pgmq.metrics(row_name.queue_name);
+        RETURN NEXT result_row;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- list queues
+CREATE FUNCTION pgmq."list_queues"()
+RETURNS SETOF pgmq.queue_record AS $$
+BEGIN
+  RETURN QUERY SELECT * FROM pgmq.meta;
+END
+$$ LANGUAGE plpgsql;
+
+-- purge queue, deleting all entries in it.
+CREATE OR REPLACE FUNCTION pgmq."purge_queue"(queue_name TEXT)
+RETURNS BIGINT AS $$
+DECLARE
+  deleted_count INTEGER;
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+  -- Get the row count before truncating
+  EXECUTE format('SELECT count(*) FROM pgmq.%I', qtable) INTO deleted_count;
+
+  -- Use TRUNCATE for better performance on large tables
+  EXECUTE format('TRUNCATE TABLE pgmq.%I', qtable);
+
+  -- Return the number of purged rows
+  RETURN deleted_count;
+END
+$$ LANGUAGE plpgsql;
+
+-- unassign archive, so it can be kept when a queue is deleted
+CREATE FUNCTION pgmq."detach_archive"(queue_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+  atable TEXT := pgmq.format_table_name(queue_name, 'a');
+BEGIN
+  RAISE WARNING 'detach_archive(queue_name) is deprecated and is a no-op. It will be removed in PGMQ v2.0. Archive tables are no longer member objects.';
+END
+$$ LANGUAGE plpgsql;
+
+-- pop: implementation
+CREATE FUNCTION pgmq.pop(queue_name TEXT, qty INTEGER DEFAULT 1)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    result pgmq.message_record;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH cte AS
+            (
+                SELECT msg_id
+                FROM pgmq.%I
+                WHERE vt <= clock_timestamp()
+                ORDER BY msg_id ASC
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            )
+        DELETE from pgmq.%I
+        WHERE msg_id IN (select msg_id from cte)
+        RETURNING msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers;
+        $QUERY$,
+        qtable, qtable
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Sets timestamp vt of a message, returns it
+CREATE FUNCTION pgmq.set_vt(queue_name TEXT, msg_id BIGINT, vt TIMESTAMP WITH TIME ZONE)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    result pgmq.message_record;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        UPDATE pgmq.%I
+        SET vt = $1
+        WHERE msg_id = $2
+        RETURNING msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers;
+        $QUERY$, 
+        qtable
+    );
+    RETURN QUERY EXECUTE sql USING vt, msg_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Sets integer vt of a message, returns it
+CREATE FUNCTION pgmq.set_vt(queue_name TEXT, msg_id BIGINT, vt INTEGER)
+RETURNS SETOF pgmq.message_record AS $$
+    SELECT * FROM pgmq.set_vt(queue_name, msg_id, clock_timestamp() + make_interval(secs => vt));
+$$ LANGUAGE sql;
+
+-- Sets timestamp vt of multiple messages, returns them
+CREATE FUNCTION pgmq.set_vt(
+    queue_name TEXT,
+    msg_ids BIGINT[],
+    vt TIMESTAMP WITH TIME ZONE
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        UPDATE pgmq.%I
+        SET vt = $1
+        WHERE msg_id = ANY($2)
+        RETURNING msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers;
+        $QUERY$,
+        qtable
+    );
+    RETURN QUERY EXECUTE sql USING vt, msg_ids;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Sets integer vt of multiple messages, returns them
+CREATE FUNCTION pgmq.set_vt(
+    queue_name TEXT,
+    msg_ids BIGINT[],
+    vt INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+    SELECT * FROM pgmq.set_vt(queue_name, msg_ids, clock_timestamp() + make_interval(secs => vt));
+$$ LANGUAGE sql;
+
+CREATE FUNCTION pgmq._get_pg_partman_schema()
+RETURNS TEXT AS $$
+  SELECT
+    extnamespace::regnamespace::text
+  FROM
+    pg_extension
+  WHERE
+    extname = 'pg_partman';
+$$ LANGUAGE SQL;
+
+CREATE FUNCTION pgmq.drop_queue(queue_name TEXT, partitioned BOOLEAN)
+RETURNS BOOLEAN AS $$
+DECLARE
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    fq_qtable TEXT := 'pgmq.' || qtable;
+    atable TEXT := pgmq.format_table_name(queue_name, 'a');
+    fq_atable TEXT := 'pgmq.' || atable;
+BEGIN
+    RAISE WARNING 'drop_queue(queue_name, partitioned) is deprecated and will be removed in PGMQ v2.0. Use drop_queue(queue_name) instead';
+
+    PERFORM pgmq.drop_queue(queue_name);
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq.drop_queue(queue_name TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    qtable_seq TEXT := qtable || '_msg_id_seq';
+    fq_qtable TEXT := 'pgmq.' || qtable;
+    atable TEXT := pgmq.format_table_name(queue_name, 'a');
+    fq_atable TEXT := 'pgmq.' || atable;
+    partitioned BOOLEAN;
+BEGIN
+    PERFORM pgmq.acquire_queue_lock(queue_name);
+    EXECUTE FORMAT(
+        $QUERY$
+        SELECT is_partitioned FROM pgmq.meta WHERE queue_name = %L
+        $QUERY$,
+        queue_name
+    ) INTO partitioned;
+
+    -- check if the queue exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = qtable and table_schema = 'pgmq'
+    ) THEN
+        RAISE NOTICE 'pgmq queue \`%\` does not exist', queue_name;
+        RETURN FALSE;
+    END IF;
+
+    EXECUTE FORMAT(
+        $QUERY$
+        DROP TABLE IF EXISTS pgmq.%I
+        $QUERY$,
+        qtable
+    );
+
+    EXECUTE FORMAT(
+        $QUERY$
+        DROP TABLE IF EXISTS pgmq.%I
+        $QUERY$,
+        atable
+    );
+
+     IF EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_name = 'meta' and table_schema = 'pgmq'
+     ) THEN
+        EXECUTE FORMAT(
+            $QUERY$
+            DELETE FROM pgmq.meta WHERE queue_name = %L
+            $QUERY$,
+            queue_name
+        );
+     END IF;
+
+     IF partitioned THEN
+        EXECUTE FORMAT(
+          $QUERY$
+          DELETE FROM %I.part_config where parent_table in (%L, %L)
+          $QUERY$,
+          pgmq._get_pg_partman_schema(), fq_qtable, fq_atable
+        );
+     END IF;
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq.validate_queue_name(queue_name TEXT)
+RETURNS void AS $$
+BEGIN
+  IF length(queue_name) > 47 THEN
+    -- complete table identifier must be <= 63
+    -- https://www.postgresql.org/docs/17/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS
+    -- e.g. template_pgmq_q_my_queue is an identifier for my_queue when partitioned
+    -- template_pgmq_q_ (16) + <a max length queue name> (47) = 63 
+    RAISE EXCEPTION 'queue name is too long, maximum length is 47 characters';
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq._belongs_to_pgmq(table_name TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    sql TEXT;
+    result BOOLEAN;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_depend
+    WHERE refobjid = (SELECT oid FROM pg_extension WHERE extname = 'pgmq')
+    AND objid = (
+        SELECT oid
+        FROM pg_class
+        WHERE relname = table_name
+    )
+  ) INTO result;
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq.create_non_partitioned(queue_name TEXT)
+RETURNS void AS $$
+DECLARE
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+  qtable_seq TEXT := qtable || '_msg_id_seq';
+  atable TEXT := pgmq.format_table_name(queue_name, 'a');
+BEGIN
+  PERFORM pgmq.validate_queue_name(queue_name);
+  PERFORM pgmq.acquire_queue_lock(queue_name);
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE TABLE IF NOT EXISTS pgmq.%I (
+        msg_id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        read_ct INT DEFAULT 0 NOT NULL,
+        enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        last_read_at TIMESTAMP WITH TIME ZONE,
+        vt TIMESTAMP WITH TIME ZONE NOT NULL,
+        message JSONB,
+        headers JSONB
+    )
+    $QUERY$,
+    qtable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE TABLE IF NOT EXISTS pgmq.%I (
+      msg_id BIGINT PRIMARY KEY,
+      read_ct INT DEFAULT 0 NOT NULL,
+      enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      last_read_at TIMESTAMP WITH TIME ZONE,
+      archived_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      vt TIMESTAMP WITH TIME ZONE NOT NULL,
+      message JSONB,
+      headers JSONB
+    );
+    $QUERY$,
+    atable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (vt ASC);
+    $QUERY$,
+    qtable || '_vt_idx', qtable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (archived_at);
+    $QUERY$,
+    'archived_at_idx_' || queue_name, atable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    INSERT INTO pgmq.meta (queue_name, is_partitioned, is_unlogged)
+    VALUES (%L, false, false)
+    ON CONFLICT
+    DO NOTHING;
+    $QUERY$,
+    queue_name
+  );
+
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq.create_unlogged(queue_name TEXT)
+RETURNS void AS $$
+DECLARE
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+  qtable_seq TEXT := qtable || '_msg_id_seq';
+  atable TEXT := pgmq.format_table_name(queue_name, 'a');
+BEGIN
+  PERFORM pgmq.validate_queue_name(queue_name);
+  PERFORM pgmq.acquire_queue_lock(queue_name);
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE UNLOGGED TABLE IF NOT EXISTS pgmq.%I (
+        msg_id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        read_ct INT DEFAULT 0 NOT NULL,
+        enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        last_read_at TIMESTAMP WITH TIME ZONE,
+        vt TIMESTAMP WITH TIME ZONE NOT NULL,
+        message JSONB,
+        headers JSONB
+    )
+    $QUERY$,
+    qtable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE TABLE IF NOT EXISTS pgmq.%I (
+      msg_id BIGINT PRIMARY KEY,
+      read_ct INT DEFAULT 0 NOT NULL,
+      enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      last_read_at TIMESTAMP WITH TIME ZONE,
+      archived_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      vt TIMESTAMP WITH TIME ZONE NOT NULL,
+      message JSONB,
+      headers JSONB
+    );
+    $QUERY$,
+    atable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (vt ASC);
+    $QUERY$,
+    qtable || '_vt_idx', qtable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (archived_at);
+    $QUERY$,
+    'archived_at_idx_' || queue_name, atable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    INSERT INTO pgmq.meta (queue_name, is_partitioned, is_unlogged)
+    VALUES (%L, false, true)
+    ON CONFLICT
+    DO NOTHING;
+    $QUERY$,
+    queue_name
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq._get_partition_col(partition_interval TEXT)
+RETURNS TEXT AS $$
+DECLARE
+  num INTEGER;
+BEGIN
+    BEGIN
+        num := partition_interval::INTEGER;
+        RETURN 'msg_id';
+    EXCEPTION
+        WHEN others THEN
+            RETURN 'enqueued_at';
+    END;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq._extension_exists(extension_name TEXT)
+    RETURNS BOOLEAN
+    LANGUAGE SQL
+AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM pg_extension
+    WHERE extname = extension_name
+)
+$$;
+
+CREATE FUNCTION pgmq._ensure_pg_partman_installed()
+RETURNS void AS $$
+BEGIN
+  IF NOT pgmq._extension_exists('pg_partman') THEN
+    RAISE EXCEPTION 'pg_partman is required for partitioned queues';
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq._get_pg_partman_major_version()
+RETURNS INT
+LANGUAGE SQL
+AS $$
+  SELECT split_part(extversion, '.', 1)::INT
+  FROM pg_extension
+  WHERE extname = 'pg_partman'
+$$;
+
+CREATE FUNCTION pgmq.create_partitioned(
+  queue_name TEXT,
+  partition_interval TEXT DEFAULT '10000',
+  retention_interval TEXT DEFAULT '100000'
+)
+RETURNS void AS $$
+DECLARE
+  partition_col TEXT;
+  a_partition_col TEXT;
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+  qtable_seq TEXT := qtable || '_msg_id_seq';
+  atable TEXT := pgmq.format_table_name(queue_name, 'a');
+  fq_qtable TEXT := 'pgmq.' || qtable;
+  fq_atable TEXT := 'pgmq.' || atable;
+BEGIN
+  PERFORM pgmq.validate_queue_name(queue_name);
+  PERFORM pgmq.acquire_queue_lock(queue_name);
+  PERFORM pgmq._ensure_pg_partman_installed();
+  SELECT pgmq._get_partition_col(partition_interval) INTO partition_col;
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE TABLE IF NOT EXISTS pgmq.%I (
+        msg_id BIGINT GENERATED ALWAYS AS IDENTITY,
+        read_ct INT DEFAULT 0 NOT NULL,
+        enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        last_read_at TIMESTAMP WITH TIME ZONE,
+        vt TIMESTAMP WITH TIME ZONE NOT NULL,
+        message JSONB,
+        headers JSONB
+    ) PARTITION BY RANGE (%I)
+    $QUERY$,
+    qtable, partition_col
+  );
+
+  -- https://github.com/pgpartman/pg_partman/blob/master/doc/pg_partman.md
+  -- p_parent_table - the existing parent table. MUST be schema qualified, even if in public schema.
+  EXECUTE FORMAT(
+    $QUERY$
+    SELECT %I.create_parent(
+      p_parent_table := %L,
+      p_control := %L,
+      p_interval := %L,
+      p_type := case
+        when pgmq._get_pg_partman_major_version() = 5 then 'range'
+        else 'native'
+      end
+    )
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    fq_qtable,
+    partition_col,
+    partition_interval
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (%I);
+    $QUERY$,
+    qtable || '_part_idx', qtable, partition_col
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    UPDATE %I.part_config
+    SET
+        retention = %L,
+        retention_keep_table = false,
+        retention_keep_index = true,
+        automatic_maintenance = 'on'
+    WHERE parent_table = %L;
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    retention_interval,
+    'pgmq.' || qtable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    INSERT INTO pgmq.meta (queue_name, is_partitioned, is_unlogged)
+    VALUES (%L, true, false)
+    ON CONFLICT
+    DO NOTHING;
+    $QUERY$,
+    queue_name
+  );
+
+  IF partition_col = 'enqueued_at' THEN
+    a_partition_col := 'archived_at';
+  ELSE
+    a_partition_col := partition_col;
+  END IF;
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE TABLE IF NOT EXISTS pgmq.%I (
+      msg_id BIGINT NOT NULL,
+      read_ct INT DEFAULT 0 NOT NULL,
+      enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      last_read_at TIMESTAMP WITH TIME ZONE,
+      archived_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+      vt TIMESTAMP WITH TIME ZONE NOT NULL,
+      message JSONB,
+      headers JSONB
+    ) PARTITION BY RANGE (%I);
+    $QUERY$,
+    atable, a_partition_col
+  );
+
+  -- https://github.com/pgpartman/pg_partman/blob/master/doc/pg_partman.md
+  -- p_parent_table - the existing parent table. MUST be schema qualified, even if in public schema.
+  EXECUTE FORMAT(
+    $QUERY$
+    SELECT %I.create_parent(
+      p_parent_table := %L,
+      p_control := %L,
+      p_interval := %L,
+      p_type := case
+        when pgmq._get_pg_partman_major_version() = 5 then 'range'
+        else 'native'
+      end
+    )
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    fq_atable,
+    a_partition_col,
+    partition_interval
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    UPDATE %I.part_config
+    SET
+        retention = %L,
+        retention_keep_table = false,
+        retention_keep_index = true,
+        automatic_maintenance = 'on'
+    WHERE parent_table = %L;
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    retention_interval,
+    'pgmq.' || atable
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE INDEX IF NOT EXISTS %I ON pgmq.%I (archived_at);
+    $QUERY$,
+    'archived_at_idx_' || queue_name, atable
+  );
+
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pgmq.create(queue_name TEXT)
+RETURNS void AS $$
+BEGIN
+    PERFORM pgmq.create_non_partitioned(queue_name);
+END;
+$$ LANGUAGE plpgsql;
+
+-- _create_fifo_index_if_not_exists
+-- internal function to create GIN index on headers for better FIFO performance
+CREATE OR REPLACE FUNCTION pgmq._create_fifo_index_if_not_exists(queue_name TEXT)
+RETURNS void AS $$
+DECLARE
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    index_name TEXT := qtable || '_fifo_idx';
+BEGIN
+    -- Create GIN index on headers for efficient FIFO key lookups
+    EXECUTE FORMAT(
+        $QUERY$
+        CREATE INDEX IF NOT EXISTS %I ON pgmq.%I USING GIN (headers);
+        $QUERY$,
+        index_name, qtable
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- create_fifo_index
+-- creates a GIN index on the headers column to improve FIFO read performance
+CREATE FUNCTION pgmq.create_fifo_index(queue_name TEXT)
+RETURNS void AS $$
+BEGIN
+    PERFORM pgmq._create_fifo_index_if_not_exists(queue_name);
+END;
+$$ LANGUAGE plpgsql;
+
+-- create_fifo_indexes_all
+-- creates FIFO indexes on all existing queues
+CREATE FUNCTION pgmq.create_fifo_indexes_all()
+RETURNS void AS $$
+DECLARE
+    queue_record RECORD;
+BEGIN
+    FOR queue_record IN SELECT queue_name FROM pgmq.meta LOOP
+        PERFORM pgmq.create_fifo_index(queue_record.queue_name);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgmq.convert_archive_partitioned(
+  table_name TEXT,
+  partition_interval TEXT DEFAULT '10000',
+  retention_interval TEXT DEFAULT '100000',
+  leading_partition INT DEFAULT 10
+)
+RETURNS void AS $$
+DECLARE
+  a_table_name TEXT := pgmq.format_table_name(table_name, 'a');
+  a_table_name_old TEXT := pgmq.format_table_name(table_name, 'a') || '_old';
+  qualified_a_table_name TEXT := format('pgmq.%I', a_table_name);
+  partition_col TEXT;
+  a_partition_col TEXT;
+BEGIN
+
+  PERFORM c.relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = a_table_name
+    AND c.relkind = 'p';
+
+  IF FOUND THEN
+    RAISE NOTICE 'Table %s is already partitioned', a_table_name;
+    RETURN;
+  END IF;
+
+  PERFORM c.relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname = a_table_name
+    AND c.relkind = 'r';
+
+  IF NOT FOUND THEN
+    RAISE NOTICE 'Table %s does not exists', a_table_name;
+    RETURN;
+  END IF;
+
+  SELECT pgmq._get_partition_col(partition_interval) INTO partition_col;
+
+  -- For archive tables, use archived_at for time-based partitioning
+  IF partition_col = 'enqueued_at' THEN
+    a_partition_col := 'archived_at';
+  ELSE
+    a_partition_col := partition_col;
+  END IF;
+
+  EXECUTE 'ALTER TABLE ' || qualified_a_table_name || ' RENAME TO ' || a_table_name_old;
+
+  -- When partitioning by time (archived_at), we need to exclude constraints and indexes
+  -- because the existing PRIMARY KEY on msg_id alone is incompatible with partitioning by archived_at.
+  -- When partitioning by msg_id, we can keep all constraints including PRIMARY KEY.
+  IF a_partition_col = 'archived_at' THEN
+    EXECUTE format( 'CREATE TABLE pgmq.%I (LIKE pgmq.%I including defaults including generated including storage including comments) PARTITION BY RANGE (%I)', a_table_name, a_table_name_old, a_partition_col );
+  ELSE
+    EXECUTE format( 'CREATE TABLE pgmq.%I (LIKE pgmq.%I including all) PARTITION BY RANGE (%I)', a_table_name, a_table_name_old, a_partition_col );
+  END IF;
+
+  EXECUTE 'ALTER INDEX pgmq.archived_at_idx_' || table_name || ' RENAME TO archived_at_idx_' || table_name || '_old';
+  EXECUTE 'CREATE INDEX archived_at_idx_'|| table_name || ' ON ' || qualified_a_table_name ||'(archived_at)';
+
+  -- https://github.com/pgpartman/pg_partman/blob/master/doc/pg_partman.md
+  -- p_parent_table - the existing parent table. MUST be schema qualified, even if in public schema.
+  EXECUTE FORMAT(
+    $QUERY$
+    SELECT %I.create_parent(
+      p_parent_table := %L,
+      p_control := %L,
+      p_interval := %L,
+      p_type := case
+        when pgmq._get_pg_partman_major_version() = 5 then 'range'
+        else 'native'
+      end
+    )
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    qualified_a_table_name,
+    a_partition_col,
+    partition_interval
+  );
+
+  EXECUTE FORMAT(
+    $QUERY$
+    UPDATE %I.part_config
+    SET
+      retention = %L,
+      retention_keep_table = false,
+      retention_keep_index = false,
+      infinite_time_partitions = true
+    WHERE
+      parent_table = %L;
+    $QUERY$,
+    pgmq._get_pg_partman_schema(),
+    retention_interval,
+    qualified_a_table_name
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgmq.notify_queue_listeners()
+RETURNS TRIGGER AS $$
+DECLARE
+  queue_name_extracted TEXT; -- Queue name extracted from trigger table name
+  updated_count        INTEGER; -- Number of rows updated (0 or 1)
+BEGIN
+  queue_name_extracted := substring(TG_TABLE_NAME from 3);
+
+  UPDATE pgmq.notify_insert_throttle
+  SET last_notified_at = clock_timestamp()
+  WHERE queue_name = queue_name_extracted
+    AND (
+      throttle_interval_ms = 0 -- No throttling configured
+          OR clock_timestamp() - last_notified_at >=
+             (throttle_interval_ms * INTERVAL '1 millisecond') -- Throttle interval has elapsed
+    );
+
+  -- Check how many rows were updated (will be 0 or 1)
+  GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+  IF updated_count > 0 THEN
+    PERFORM PG_NOTIFY('pgmq.' || TG_TABLE_NAME || '.' || TG_OP, NULL);
+  END IF;
+
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgmq.enable_notify_insert(queue_name TEXT, throttle_interval_ms INTEGER DEFAULT 250)
+RETURNS void AS $$
+DECLARE
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+  v_queue_name TEXT := queue_name;
+  v_throttle_interval_ms INTEGER := throttle_interval_ms;
+BEGIN
+  -- Validate that throttle_interval_ms is non-negative
+  IF v_throttle_interval_ms < 0 THEN
+    RAISE EXCEPTION 'throttle_interval_ms must be non-negative';
+  END IF;
+
+  -- Validate that the queue table exists
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgmq' AND table_name = qtable) THEN
+    RAISE EXCEPTION 'Queue "%" does not exist. Create it first using pgmq.create()', v_queue_name;
+  END IF;
+
+  PERFORM pgmq.disable_notify_insert(v_queue_name);
+
+  INSERT INTO pgmq.notify_insert_throttle (queue_name, throttle_interval_ms)
+  VALUES (v_queue_name, v_throttle_interval_ms)
+  ON CONFLICT ON CONSTRAINT notify_insert_throttle_queue_name_key DO UPDATE
+      SET throttle_interval_ms = EXCLUDED.throttle_interval_ms,
+          last_notified_at = to_timestamp(0);
+
+  EXECUTE FORMAT(
+    $QUERY$
+    CREATE CONSTRAINT TRIGGER trigger_notify_queue_insert_listeners
+    AFTER INSERT ON pgmq.%I
+    DEFERRABLE FOR EACH ROW
+    EXECUTE PROCEDURE pgmq.notify_queue_listeners()
+    $QUERY$,
+    qtable
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgmq.disable_notify_insert(queue_name TEXT)
+RETURNS void AS $$
+DECLARE
+  qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+  v_queue_name TEXT := queue_name;
+BEGIN
+  EXECUTE FORMAT(
+    $QUERY$
+    DROP TRIGGER IF EXISTS trigger_notify_queue_insert_listeners ON pgmq.%I;
+    $QUERY$,
+    qtable
+  );
+
+  DELETE FROM pgmq.notify_insert_throttle nit WHERE nit.queue_name = v_queue_name;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION pgmq.list_notify_insert_throttles()
+    RETURNS TABLE
+            (
+                queue_name           text,
+                throttle_interval_ms integer,
+                last_notified_at     TIMESTAMP WITH TIME ZONE
+            )
+    LANGUAGE sql
+    STABLE
+AS
+$$
+    SELECT queue_name, throttle_interval_ms, last_notified_at
+    FROM pgmq.notify_insert_throttle
+    ORDER BY queue_name;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.update_notify_insert(queue_name text, throttle_interval_ms integer)
+    RETURNS void
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    IF throttle_interval_ms < 0 THEN
+        RAISE EXCEPTION 'throttle_interval_ms must be non-negative, got: %', throttle_interval_ms;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pgmq.meta WHERE meta.queue_name = update_notify_insert.queue_name) THEN
+        RAISE EXCEPTION 'Queue "%" does not exist. Create the queue first using pgmq.create()', queue_name;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pgmq.notify_insert_throttle WHERE notify_insert_throttle.queue_name = update_notify_insert.queue_name) THEN
+        RAISE EXCEPTION 'Queue "%" does not have notify_insert enabled. Enable it first using pgmq.enable_notify_insert()', queue_name;
+    END IF;
+
+    UPDATE pgmq.notify_insert_throttle
+    SET throttle_interval_ms = update_notify_insert.throttle_interval_ms,
+        last_notified_at = to_timestamp(0)
+    WHERE notify_insert_throttle.queue_name = update_notify_insert.queue_name;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.validate_routing_key(routing_key text)
+    RETURNS boolean
+    LANGUAGE plpgsql
+    IMMUTABLE
+AS
+$$
+BEGIN
+    -- Valid routing key examples:
+    --   "logs.error"
+    --   "app.user-service.auth"
+    --   "system_events.db.connection_failed"
+    --
+    -- Invalid routing key examples:
+    --   ""                     - empty
+    --   ".logs.error"          - starts with dot
+    --   "logs.error."          - ends with dot
+    --   "logs..error"          - consecutive dots
+    --   "logs.error!"          - invalid character
+    --   "logs error"           - space not allowed
+    --   "logs.*"               - wildcards not allowed in routing keys
+
+    IF routing_key IS NULL OR routing_key = '' THEN
+        RAISE EXCEPTION 'routing_key cannot be NULL or empty';
+    END IF;
+
+    IF length(routing_key) > 255 THEN
+        RAISE EXCEPTION 'routing_key length cannot exceed 255 characters, got % characters', length(routing_key);
+    END IF;
+
+    IF routing_key !~ '^[a-zA-Z0-9._-]+$' THEN
+        RAISE EXCEPTION 'routing_key contains invalid characters. Only alphanumeric, dots, hyphens, and underscores are allowed. Got: %', routing_key;
+    END IF;
+
+    IF routing_key ~ '^\\.' THEN
+        RAISE EXCEPTION 'routing_key cannot start with a dot. Got: %', routing_key;
+    END IF;
+
+    IF routing_key ~ '\\.$' THEN
+        RAISE EXCEPTION 'routing_key cannot end with a dot. Got: %', routing_key;
+    END IF;
+
+    IF routing_key ~ '\\.\\.' THEN
+        RAISE EXCEPTION 'routing_key cannot contain consecutive dots. Got: %', routing_key;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.validate_topic_pattern(pattern text)
+    RETURNS boolean
+    LANGUAGE plpgsql
+    IMMUTABLE
+AS
+$$
+BEGIN
+    -- Valid pattern examples:
+    --   "logs.*"           - matches one segment after logs. (e.g., logs.error, logs.info)
+    --   "logs.#"           - matches one or more segments after logs. (e.g., logs.error, logs.api.error)
+    --   "*.error"          - matches one segment before .error (e.g., app.error, db.error)
+    --   "#.error"          - matches one or more segments before .error (e.g., app.error, x.y.error)
+    --   "app.*.#"          - mixed wildcards (one segment then one or more)
+    --   "#"                - catch-all pattern, matches any routing key
+    --
+    -- Invalid pattern examples:
+    --   ".logs.*"          - starts with dot
+    --   "logs.*."          - ends with dot
+    --   "logs..error"      - consecutive dots
+    --   "logs.**"          - consecutive stars
+    --   "logs.##"          - consecutive hashes
+    --   "logs.*#"          - adjacent wildcards
+    --   "logs.error!"      - invalid character
+
+    IF pattern IS NULL OR pattern = '' THEN
+        RAISE EXCEPTION 'pattern cannot be NULL or empty';
+    END IF;
+
+    IF length(pattern) > 255 THEN
+        RAISE EXCEPTION 'pattern length cannot exceed 255 characters, got % characters', length(pattern);
+    END IF;
+
+    IF pattern !~ '^[a-zA-Z0-9._\\-*#]+$' THEN
+        RAISE EXCEPTION 'pattern contains invalid characters. Only alphanumeric, dots, hyphens, underscores, *, and # are allowed. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '^\\.' THEN
+        RAISE EXCEPTION 'pattern cannot start with a dot. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '\\.$' THEN
+        RAISE EXCEPTION 'pattern cannot end with a dot. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '\\.\\.' THEN
+        RAISE EXCEPTION 'pattern cannot contain consecutive dots. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '\\*\\*' THEN
+        RAISE EXCEPTION 'pattern cannot contain consecutive stars (**). Use # for multi-segment matching. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '##' THEN
+        RAISE EXCEPTION 'pattern cannot contain consecutive hashes (##). A single # already matches zero or more segments. Got: %', pattern;
+    END IF;
+
+    IF pattern ~ '\\*#' OR pattern ~ '#\\*' THEN
+        RAISE EXCEPTION 'pattern cannot contain adjacent wildcards (*# or #*). Separate wildcards with dots. Got: %', pattern;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.bind_topic(pattern text, queue_name text)
+    RETURNS void
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    PERFORM pgmq.validate_topic_pattern(pattern);
+    IF queue_name IS NULL OR queue_name = '' THEN
+        RAISE EXCEPTION 'queue_name cannot be NULL or empty';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pgmq.meta WHERE meta.queue_name = bind_topic.queue_name) THEN
+        RAISE EXCEPTION 'Queue "%" does not exist. Create the queue first using pgmq.create()', queue_name;
+    END IF;
+
+    INSERT INTO pgmq.topic_bindings (pattern, queue_name)
+    VALUES (pattern, queue_name)
+    ON CONFLICT ON CONSTRAINT topic_bindings_unique_pattern_queue DO NOTHING;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.unbind_topic(pattern text, queue_name text)
+    RETURNS boolean
+    LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    rows_deleted integer;
+BEGIN
+    IF pattern IS NULL OR pattern = '' THEN
+        RAISE EXCEPTION 'pattern cannot be NULL or empty';
+    END IF;
+
+    IF queue_name IS NULL OR queue_name = '' THEN
+        RAISE EXCEPTION 'queue_name cannot be NULL or empty';
+    END IF;
+
+    DELETE
+    FROM pgmq.topic_bindings
+    WHERE topic_bindings.pattern = unbind_topic.pattern
+      AND topic_bindings.queue_name = unbind_topic.queue_name;
+
+    GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+
+    IF rows_deleted > 0 THEN
+        RETURN true;
+    ELSE
+        RETURN false;
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.test_routing(routing_key text)
+    RETURNS TABLE
+            (
+                pattern        text,
+                queue_name     text,
+                compiled_regex text
+            )
+    LANGUAGE plpgsql
+    STABLE
+AS
+$$
+BEGIN
+    PERFORM pgmq.validate_routing_key(routing_key);
+    RETURN QUERY
+        SELECT b.pattern,
+               b.queue_name,
+               b.compiled_regex
+        FROM pgmq.topic_bindings b
+        WHERE routing_key ~ b.compiled_regex
+        ORDER BY b.pattern;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.send_topic(routing_key text, msg jsonb, headers jsonb, delay integer)
+    RETURNS integer
+    LANGUAGE plpgsql
+    VOLATILE
+AS
+$$
+DECLARE
+    b             RECORD;
+    matched_count integer := 0;
+BEGIN
+    PERFORM pgmq.validate_routing_key(routing_key);
+
+    IF msg IS NULL THEN
+        RAISE EXCEPTION 'msg cannot be NULL';
+    END IF;
+
+    IF delay < 0 THEN
+        RAISE EXCEPTION 'delay cannot be negative, got: %', delay;
+    END IF;
+
+    -- Filter matching patterns in SQL for better performance (uses index)
+    -- Any failure will rollback the entire transaction
+    FOR b IN
+        SELECT DISTINCT tb.queue_name
+        FROM pgmq.topic_bindings tb
+        WHERE routing_key ~ tb.compiled_regex
+        ORDER BY tb.queue_name -- Deterministic ordering, deduplicated by queue_name
+        LOOP
+            PERFORM pgmq.send(b.queue_name, msg, headers, delay);
+            matched_count := matched_count + 1;
+        END LOOP;
+
+    RETURN matched_count;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.send_topic(routing_key text, msg jsonb)
+    RETURNS integer
+    LANGUAGE plpgsql
+    VOLATILE
+AS
+$$
+BEGIN
+    RETURN pgmq.send_topic(routing_key, msg, NULL, 0);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.send_topic(routing_key text, msg jsonb, delay integer)
+    RETURNS integer
+    LANGUAGE plpgsql
+    VOLATILE
+AS
+$$
+BEGIN
+    RETURN pgmq.send_topic(routing_key, msg, NULL, delay);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.list_topic_bindings()
+    RETURNS TABLE
+            (
+                pattern        text,
+                queue_name     text,
+                bound_at       TIMESTAMP WITH TIME ZONE,
+                compiled_regex text
+            )
+    LANGUAGE sql
+    STABLE
+AS
+$$
+    SELECT pattern, queue_name, bound_at, compiled_regex
+    FROM pgmq.topic_bindings
+    ORDER BY bound_at DESC, pattern, queue_name;
+$$;
+
+CREATE OR REPLACE FUNCTION pgmq.list_topic_bindings(queue_name text)
+    RETURNS TABLE
+            (
+                pattern        text,
+                queue_name     text,
+                bound_at       TIMESTAMP WITH TIME ZONE,
+                compiled_regex text
+            )
+    LANGUAGE sql
+    STABLE
+AS
+$$
+    SELECT pattern, tb.queue_name, bound_at, compiled_regex
+    FROM pgmq.topic_bindings tb
+    WHERE tb.queue_name = list_topic_bindings.queue_name
+    ORDER BY bound_at DESC, pattern;
+$$;
+
+-- send_batch_topic: Base implementation with TIMESTAMP WITH TIME ZONE delay
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[],
+    headers jsonb[],
+    delay TIMESTAMP WITH TIME ZONE
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE plpgsql
+    VOLATILE
+AS
+$$
+DECLARE
+    b RECORD;
+BEGIN
+    PERFORM pgmq.validate_routing_key(routing_key);
+
+    -- Validate batch parameters once (not per queue)
+    PERFORM pgmq._validate_batch_params(msgs, headers);
+
+    -- Filter matching patterns in SQL for better performance (uses index)
+    -- Any failure will rollback the entire transaction
+    FOR b IN
+        SELECT DISTINCT tb.queue_name
+        FROM pgmq.topic_bindings tb
+        WHERE routing_key ~ tb.compiled_regex
+        ORDER BY tb.queue_name -- Deterministic ordering, deduplicated by queue_name
+        LOOP
+            -- Use private _send_batch to avoid redundant validation
+            RETURN QUERY
+            SELECT b.queue_name, batch_result.msg_id
+            FROM pgmq._send_batch(b.queue_name, msgs, headers, delay) AS batch_result(msg_id);
+        END LOOP;
+
+    RETURN;
+END;
+$$;
+
+-- send_batch_topic: 2 args (routing_key, msgs)
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[]
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE sql
+    VOLATILE
+AS
+$$
+    SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, NULL, clock_timestamp());
+$$;
+
+-- send_batch_topic: 3 args with headers
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[],
+    headers jsonb[]
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE sql
+    VOLATILE
+AS
+$$
+    SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, headers, clock_timestamp());
+$$;
+
+-- send_batch_topic: 3 args with integer delay
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[],
+    delay integer
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE sql
+    VOLATILE
+AS
+$$
+    SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, NULL, clock_timestamp() + make_interval(secs => delay));
+$$;
+
+-- send_batch_topic: 3 args with timestamp delay
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[],
+    delay TIMESTAMP WITH TIME ZONE
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE sql
+    VOLATILE
+AS
+$$
+    SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, NULL, delay);
+$$;
+
+-- send_batch_topic: 4 args with integer delay
+CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
+    routing_key text,
+    msgs jsonb[],
+    headers jsonb[],
+    delay integer
+)
+    RETURNS TABLE(queue_name text, msg_id bigint)
+    LANGUAGE sql
+    VOLATILE
+AS
+$$
+    SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, headers, clock_timestamp() + make_interval(secs => delay));
+$$;`,
+    "0170_queue": `-- =====================================================
+-- QUEUE SYSTEM
+-- =====================================================
+-- Provides managed message queues backed by pgmq.
+--
+-- Features:
+--   1. queues entity: each row represents a pgmq queue
+--   2. queue_table_events child entity: maps table DML events
+--      to queues so that inserts/updates/deletes on managed tables
+--      are automatically enqueued as messages
+--   3. RPC functions: queue_read, queue_pop, queue_archive,
+--      queue_delete for PostgREST consumers
+
+-- =====================================================
+-- STEP 1: Create the queues entity
+-- =====================================================
+
+INSERT INTO entities (
+    table_name,
+    singular,
+    singular_label,
+    plural_label,
+    description,
+    module_id,
+    view_permission,
+    edit_permission,
+    id_column,
+    label_column
+)
+VALUES (
+    'queues',
+    'queue',
+    'Queue',
+    'Queues',
+    'Message queues backed by pgmq',
+    1, -- _core module
+    'admin',
+    'admin',
+    'id',
+    'queue_name'
+);
+
+-- The label_column 'queue_name' is auto-created by the DD trigger.
+-- Mark it as unique and required.
+UPDATE fields SET unique_value = TRUE, input_type = 'required'
+WHERE table_name = 'queues' AND field_name = 'queue_name';
+
+-- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
+GRANT USAGE ON SCHEMA pgmq TO semantius_user;
+
+-- =====================================================
+-- STEP 2: Triggers on queues table
+-- =====================================================
+-- INSERT  -> pgmq.create(queue_name)
+-- UPDATE  -> reject queue_name change
+-- DELETE  -> pgmq.drop_queue(queue_name)
+
+CREATE OR REPLACE FUNCTION queue_after_insert()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pgmq.create(NEW.queue_name);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER queue_after_insert_trigger
+    AFTER INSERT ON queues
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_after_insert();
+
+CREATE OR REPLACE FUNCTION queue_before_update()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.queue_name IS DISTINCT FROM NEW.queue_name THEN
+        RAISE EXCEPTION 'Cannot change queue_name after creation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER queue_before_update_trigger
+    BEFORE UPDATE ON queues
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_before_update();
+
+CREATE OR REPLACE FUNCTION queue_before_delete()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pgmq.drop_queue(OLD.queue_name);
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER queue_before_delete_trigger
+    BEFORE DELETE ON queues
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_before_delete();
+
+-- =====================================================
+-- STEP 3: Create queue_table_events child entity
+-- =====================================================
+
+INSERT INTO entities (
+    table_name,
+    singular,
+    singular_label,
+    plural_label,
+    description,
+    module_id,
+    view_permission,
+    edit_permission,
+    id_column,
+    label_column
+)
+VALUES (
+    'queue_table_events',
+    'queue_table_event',
+    'Queue Table Event',
+    'Queue Table Events',
+    'Maps table DML events to queues',
+    1, -- _core module
+    'admin',
+    'admin',
+    'id',
+    'event_name'
+);
+
+-- Pre-create table_name column as TEXT (entities.table_name is TEXT, not INTEGER)
+ALTER TABLE queue_table_events ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
+
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
+VALUES
+    ('queue_table_events', 'queue_id',      'Queue',         'parent',    FALSE,  5, 'default',  'default', 'Parent queue this event belongs to',           NULL, NULL,                                                          NULL, 'queues',   'cascade', 'has events', FALSE),
+    ('queue_table_events', 'table_name',    'Table',         'reference', FALSE, 10, 'required', 'default', 'Table whose DML events are captured',          '',   NULL,                                                          NULL, 'entities', 'cascade', 'has queue events', TRUE),
+    ('queue_table_events', 'event_handler', 'Event Handler', 'enum',      FALSE, 20, 'required', 'default', 'Which DML operations trigger a queue message', '',   '["insert", "update", "upsert", "delete", "change"]'::jsonb,  NULL, '',         '',        '', FALSE);
+
+-- =====================================================
+-- STEP 4: Triggers on queue_table_events
+-- =====================================================
+-- Reject table_name change on UPDATE.
+-- On INSERT / DELETE, create or drop the per-table trigger function
+-- that enqueues the record JSON into the parent queue.
+
+CREATE OR REPLACE FUNCTION queue_event_before_update()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        RAISE EXCEPTION 'Cannot change table_name on a queue table event';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER queue_event_before_update_trigger
+    BEFORE UPDATE ON queue_table_events
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_event_before_update();
+
+-- Helper: build the queue message with id_field and id_value
+-- (record and old_record are omitted; id_field comes from entities.id_column)
+
+CREATE OR REPLACE FUNCTION queue_build_record_json()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_queue_name TEXT;
+    v_id_field TEXT;
+    v_event_type TEXT;
+    v_id_value JSONB;
+    v_row_jsonb JSONB;
+    v_msg JSONB;
+BEGIN
+    -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
+    -- Falls back to 'id' when the LEFT JOIN to entities returns no row (table not registered
+    -- in the entity system). The entities.id_column column always has a value when the row exists.
+    SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
+    INTO v_queue_name, v_id_field, v_event_type
+    FROM queue_table_events qte
+    JOIN queues q ON q.id = qte.queue_id
+    LEFT JOIN entities e ON e.table_name = TG_TABLE_NAME
+    WHERE qte.table_name = TG_TABLE_NAME
+    LIMIT 1;
+
+    IF v_queue_name IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    -- Extract the id value preserving its native JSON type (number, text, etc.)
+    IF TG_OP = 'DELETE' THEN
+        v_row_jsonb := to_jsonb(OLD);
+    ELSE
+        v_row_jsonb := to_jsonb(NEW);
+    END IF;
+    v_id_value := v_row_jsonb -> v_id_field;
+
+    v_msg := jsonb_build_object(
+        'op', TG_OP,
+        'ts', now(),
+        'table', TG_TABLE_NAME,
+        'id_field', v_id_field,
+        'id_value', v_id_value,
+        'message_type', 'entity_event',
+        'event_type', v_event_type
+    );
+
+    PERFORM pgmq.send(v_queue_name, v_msg);
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Manage event trigger creation / removal
+
+CREATE OR REPLACE FUNCTION queue_event_after_insert()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_trigger_name TEXT;
+    v_trigger_events TEXT;
+    v_queue_name TEXT;
+BEGIN
+    -- Resolve the parent queue name
+    SELECT q.queue_name INTO v_queue_name
+    FROM queues q WHERE q.id = NEW.queue_id;
+
+    IF v_queue_name IS NULL THEN
+        RAISE EXCEPTION 'Parent queue not found for queue_id %', NEW.queue_id;
+    END IF;
+
+    -- Determine which trigger events to fire
+    v_trigger_events := CASE NEW.event_handler
+        WHEN 'insert' THEN 'INSERT'
+        WHEN 'update' THEN 'UPDATE'
+        WHEN 'upsert' THEN 'INSERT OR UPDATE'
+        WHEN 'delete' THEN 'DELETE'
+        WHEN 'change' THEN 'INSERT OR UPDATE OR DELETE'
+    END;
+
+    v_trigger_name := 'queue_' || v_queue_name || '_' || NEW.event_handler || '_on_' || NEW.table_name;
+
+    -- Create the trigger on the target table
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER %I
+            AFTER %s ON %I
+            FOR EACH ROW
+            EXECUTE FUNCTION queue_build_record_json()',
+        v_trigger_name,
+        v_trigger_events,
+        NEW.table_name
+    );
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER queue_event_after_insert_trigger
+    AFTER INSERT ON queue_table_events
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_event_after_insert();
+
+CREATE OR REPLACE FUNCTION queue_event_after_delete()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_trigger_name TEXT;
+    v_queue_name TEXT;
+BEGIN
+    -- Resolve the parent queue name
+    SELECT q.queue_name INTO v_queue_name
+    FROM queues q WHERE q.id = OLD.queue_id;
+
+    IF v_queue_name IS NULL THEN
+        -- Queue already deleted (cascade); nothing to clean up
+        RETURN OLD;
+    END IF;
+
+    v_trigger_name := 'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name;
+
+    -- Drop the trigger on the target table (ignore if missing)
+    EXECUTE format(
+        'DROP TRIGGER IF EXISTS %I ON %I',
+        v_trigger_name,
+        OLD.table_name
+    );
+
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER queue_event_after_delete_trigger
+    AFTER DELETE ON queue_table_events
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_event_after_delete();
+
+-- Revoke public execute on trigger and helper functions
+REVOKE EXECUTE ON FUNCTION queue_after_insert() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_before_update() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_before_delete() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 5: RPC functions for PostgREST consumers
+-- =====================================================
+
+-- queue_read: read messages without removing them (visibility timeout)
+CREATE OR REPLACE FUNCTION public.queue_read(
+    p_queue_name TEXT,
+    p_vt INTEGER DEFAULT 30,
+    p_qty INTEGER DEFAULT 1
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT jsonb_agg(row_to_json(r))
+    INTO v_result
+    FROM pgmq.read(p_queue_name, p_vt, p_qty) r;
+
+    RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_read IS
+'Reads messages from a pgmq queue with a visibility timeout (default 30s). Messages remain in the queue but become invisible to other readers for the specified duration.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) TO semantius_user;
+
+-- queue_pop: read and immediately delete a message
+CREATE OR REPLACE FUNCTION public.queue_pop(
+    p_queue_name TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT jsonb_agg(row_to_json(r))
+    INTO v_result
+    FROM pgmq.pop(p_queue_name) r;
+
+    RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_pop IS
+'Pops (reads and deletes) a single message from a pgmq queue.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_pop(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.queue_pop(TEXT) TO semantius_user;
+
+-- queue_archive: move a message to the archive table
+CREATE OR REPLACE FUNCTION public.queue_archive(
+    p_queue_name TEXT,
+    p_msg_id BIGINT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result BOOLEAN;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT pgmq.archive(p_queue_name, p_msg_id) INTO v_result;
+
+    RETURN COALESCE(v_result, FALSE);
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_archive IS
+'Archives a message by moving it from the queue table to the archive table.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) TO semantius_user;
+
+-- queue_delete: permanently delete a message
+CREATE OR REPLACE FUNCTION public.queue_delete(
+    p_queue_name TEXT,
+    p_msg_id BIGINT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result BOOLEAN;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT pgmq.delete(p_queue_name, p_msg_id) INTO v_result;
+
+    RETURN COALESCE(v_result, FALSE);
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_delete IS
+'Permanently deletes a message from a pgmq queue.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
+`,
+    "0180_computed_validation": `-- =====================================================
+-- COMPUTED FIELDS AND VALIDATION RULES
+-- =====================================================
+-- Per-record derivation and invariant checks expressed as JsonLogic.
+--
+-- Schema for entities.computed_fields and entities.validation_rules lives in
+-- 0060_dd_schema.sql alongside the rest of the entities table; this migration
+-- contains only the runtime: a per-table BEFORE INSERT OR UPDATE trigger
+-- function that is (re)generated whenever either array is non-empty, and
+-- dropped when both are empty or the entity itself is deleted.
+--
+-- Reserved variables injected into the JsonLogic data:
+--   $today    -> server date
+--   $now      -> server timestamp
+--   $user_id  -> internal user_id from JWT context, null when no context
+--   $old      -> previous row as JSON on UPDATE, null on INSERT
+
+-- =====================================================
+-- STEP 1: Per-row trigger generator
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION build_record_logic_trigger(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
+    v_body TEXT;
+    v_rules_block TEXT := '';
+    v_idx INT;
+    v_item JSONB;
+    v_name TEXT;
+    v_path_sql TEXT;
+    v_logic_lit TEXT;
+    v_code TEXT;
+    v_message TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- Entity is being deleted — drop the function if it exists
+        v_fn_name := 'compute_validate_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables (no physical table to attach a trigger to)
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'compute_validate_' || p_table_name;
+
+    -- Drop any existing trigger + function so we can recreate cleanly
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+
+    -- Both arrays empty → nothing to install
+    IF jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) = 0
+       AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
+        RETURN;
+    END IF;
+
+    -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
+    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
+        v_item := v_entity.computed_fields -> v_idx;
+        v_name := v_item ->> 'name';
+        IF v_name IS NULL OR v_name = '' THEN
+            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "name"', v_idx, p_table_name;
+        END IF;
+        IF (v_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+        END IF;
+        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
+        SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
+          INTO v_path_sql
+          FROM unnest(string_to_array(v_name, '.')) AS part;
+
+        v_rules_block := v_rules_block || E'\\n' || format(
+$BLOCK$    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'computed_fields[%s]: %%', SQLERRM;
+    END;
+    v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
+$BLOCK$,
+            v_logic_lit,
+            replace(v_name, '%', '%%'),
+            v_path_sql);
+    END LOOP;
+
+    -- Validation rules: evaluate each against post-derivation v_data, raise on falsy
+    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) - 1 LOOP
+        v_item := v_entity.validation_rules -> v_idx;
+        v_code := v_item ->> 'code';
+        v_message := v_item ->> 'message';
+        IF v_code IS NULL OR v_code = '' THEN
+            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "code"', v_idx, p_table_name;
+        END IF;
+        IF v_message IS NULL THEN
+            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "message"', v_idx, p_table_name;
+        END IF;
+        IF (v_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+        END IF;
+        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
+
+        v_rules_block := v_rules_block || E'\\n' || format(
+$BLOCK$    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'validation_rules[%s]: %%', SQLERRM;
+    END;
+    IF NOT jl_truthy(v_result) THEN
+        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = 'rule code: %s';
+    END IF;
+$BLOCK$,
+            v_logic_lit,
+            replace(v_code, '%', '%%'),
+            quote_literal(v_message),
+            replace(v_code, '%', '%%'));
+    END LOOP;
+
+    -- Assemble full function. Strip reserved vars before populating NEW so they
+    -- never leak as columns even if the entity adds a column with the same name.
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+    v_uid_text text;
+BEGIN
+    v_uid_text := current_setting('app.current_user_id', true);
+    v_data := to_jsonb(NEW) || jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        '$user_id', CASE
+                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
+                       ELSE to_jsonb(v_uid_text::int)
+                   END,
+        '$old',     CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE 'null'::jsonb END
+    );
+%s
+    v_data := v_data - '$today' - '$now' - '$user_id' - '$old';
+    NEW := jsonb_populate_record(NULL::public.%I, v_data);
+    RETURN NEW;
+END;
+$TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, v_rules_block, p_table_name);
+
+    EXECUTE v_body;
+
+    EXECUTE format(
+        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
+        v_trg_name, p_table_name, v_fn_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_record_logic_trigger IS
+'Generates (or drops) the per-table BEFORE INSERT OR UPDATE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity.';
+
+REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 2: Trigger on entities to keep per-row trigger in sync
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION manage_record_logic_trigger()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fn_name TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.managed AND (
+              jsonb_array_length(COALESCE(NEW.computed_fields, '[]'::jsonb)) > 0
+           OR jsonb_array_length(COALESCE(NEW.validation_rules, '[]'::jsonb)) > 0
+        ) THEN
+            PERFORM build_record_logic_trigger(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields
+           OR OLD.validation_rules IS DISTINCT FROM NEW.validation_rules
+           OR OLD.managed IS DISTINCT FROM NEW.managed THEN
+            PERFORM build_record_logic_trigger(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        v_fn_name := 'compute_validate_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION manage_record_logic_trigger IS
+'Trigger function on entities that creates/updates/drops the per-table BEFORE row trigger for computed_fields and validation_rules.';
+
+-- AFTER INSERT/UPDATE so it runs after create_table_trigger (which creates the
+-- physical table). AFTER DELETE so it runs after delete_table_trigger drops the
+-- table — at that point only the standalone trigger function survives, which we
+-- explicitly drop.
+CREATE TRIGGER manage_record_logic_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION manage_record_logic_trigger();
+
+REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 3: Per-row SELECT policy generator (select_rule)
+-- =====================================================
+-- When an entity has a non-empty select_rule (a JsonLogic object), this
+-- function generates a helper function and replaces the default
+-- <table>_select_policy with one that evaluates the rule per row.
+-- The generated function converts the row to JSONB, injects reserved
+-- variables ($user_id), evaluates the JsonLogic rule, and returns
+-- true only when the result is truthy.
+
+CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_policy_name TEXT;
+    v_body TEXT;
+    v_logic_lit TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- Entity is being deleted — drop the function if it exists
+        v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'select_rule_' || p_table_name;
+    v_policy_name := p_table_name || '_select_policy';
+
+    -- Always drop old function (CASCADE removes anything depending on it)
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+
+    -- Drop the existing select policy so we can recreate it
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+
+    -- If select_rule is empty, restore the default permission-only policy
+    IF v_entity.select_rule = '{}'::jsonb THEN
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
+            v_policy_name, p_table_name, v_entity.view_permission);
+        RETURN;
+    END IF;
+
+    v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- Build the per-row evaluation function
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+    v_uid_text text;
+BEGIN
+    PERFORM rbac.ensure_context_initialized();
+    v_uid_text := current_setting('app.current_user_id', true);
+    v_data := to_jsonb(p_row) || jsonb_build_object(
+        '$user_id', CASE
+                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
+                       ELSE to_jsonb(v_uid_text::int)
+                   END
+    );
+
+    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RETURN FALSE;
+    END;
+
+    RETURN jl_truthy(v_result);
+END;
+$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit);
+
+    EXECUTE v_body;
+
+    -- Create the new select policy using the generated function
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
+        v_policy_name, p_table_name, v_fn_name, p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_select_rule_policy IS
+'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row.';
+
+REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 4: Trigger on entities to keep select_rule policy in sync
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION manage_select_rule_policy()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fn_name TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.managed AND NEW.select_rule IS NOT NULL AND NEW.select_rule != '{}'::jsonb THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
+           OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
+           OR OLD.managed IS DISTINCT FROM NEW.managed THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        v_fn_name := 'select_rule_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION manage_select_rule_policy IS
+'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
+
+CREATE TRIGGER manage_select_rule_policy_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION manage_select_rule_policy();
+
+REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
+`,
   },
   "cloud": {
     "0010_webhook_receiver": `-- =====================================================
@@ -7131,13 +10894,13 @@ VALUES
 -- =====================================================
 
 -- Module
-INSERT INTO modules (module_name, description, view_permission, home_page)
-VALUES ('nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
+INSERT INTO modules (module_name, module_slug, description, view_permission, home_page)
+VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
 
 -- Permissions
 INSERT INTO permissions (permission_name, description, module_id) VALUES
-    ('nwind:view',   'Permission to view Northwind data',   (SELECT id FROM modules WHERE module_name = 'nwind')),
-    ('nwind:manage', 'Permission to manage Northwind data', (SELECT id FROM modules WHERE module_name = 'nwind'));
+    ('nwind:view',   'View Northwind data',   (SELECT id FROM modules WHERE module_name = 'Northwind')),
+    ('nwind:manage', 'Manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
 
 -- Permission hierarchy: nwind:manage implies nwind:view
 INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id)
@@ -7158,7 +10921,7 @@ VALUES (
     'Category',
     'Categories',
     'Product categories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7173,7 +10936,7 @@ VALUES (
     'Customer',
     'Customers',
     'Customer information and contact details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7188,7 +10951,7 @@ VALUES (
     'Employee',
     'Employees',
     'Employee records and contact information',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7203,7 +10966,7 @@ VALUES (
     'Supplier',
     'Suppliers',
     'Supplier information and contact details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7218,7 +10981,7 @@ VALUES (
     'Product',
     'Products',
     'Product catalog and inventory',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7233,7 +10996,7 @@ VALUES (
     'Region',
     'Regions',
     'Sales territories and geographic regions',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7248,7 +11011,7 @@ VALUES (
     'Shipper',
     'Shippers',
     'Shipping companies and carriers',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7263,7 +11026,7 @@ VALUES (
     'Order',
     'Orders',
     'Customer orders and shipping details',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7278,7 +11041,7 @@ VALUES (
     'Territory',
     'Territories',
     'Sales territories within regions',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7293,7 +11056,7 @@ VALUES (
     'Employee Territory',
     'Employee Territories',
     'Links employees to their assigned territories',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7308,7 +11071,7 @@ VALUES (
     'Order Detail',
     'Order Details',
     'Individual line items within an order',
-    (SELECT id FROM modules WHERE module_name = 'nwind'),
+    (SELECT id FROM modules WHERE module_name = 'Northwind'),
     'nwind:view',
     'nwind:manage',
     'id',
@@ -7402,7 +11165,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
-    ('products', 'unit_price',        'Unit Price',         'float',   50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
+    ('products', 'unit_price',        'Unit Price',         'number',  50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
     ('products', 'units_in_stock',    'Units In Stock',     'int32',   60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
     ('products', 'units_on_order',    'Units On Order',     'int32',   70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
     ('products', 'reorder_level',     'Reorder Level',      'int32',   80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
@@ -7437,7 +11200,7 @@ VALUES
     ('orders', 'ship_region',     'Ship Region',      'text',  70,  'default', 'default', 'State or province for shipment',           '', FALSE, ''),
     ('orders', 'ship_postal_code','Ship Postal Code', 'text',  80,  'default', 'default', '',                                         '', FALSE, ''),
     ('orders', 'ship_country',    'Ship Country',     'text',  90,  'default', 'default', '',                                         '', TRUE,  ''),
-    ('orders', 'freight',         'Freight',          'float', 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
+    ('orders', 'freight',         'Freight',          'number', 100, 'default', 'default', 'Freight cost for the order',               '0.0', FALSE, '');
 
 -- order_date and required_date: not nullable with defaults
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
@@ -7487,9 +11250,9 @@ VALUES
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('order_details', 'unit_price', 'Unit Price', 'float', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
+    ('order_details', 'unit_price', 'Unit Price', 'number', 30, 'default', 'default', 'Actual price per unit charged on this order', '0.0', FALSE, '', 'auto'),
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
-    ('order_details', 'discount',   'Discount',   'float', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
+    ('order_details', 'discount',   'Discount',   'number', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
 
 -- =====================================================
@@ -7532,6 +11295,23 @@ BEGIN
     ) THEN
         UPDATE entities SET audit_log = TRUE
         WHERE table_name IN ('customers', 'products');
+    END IF;
+END $$;
+
+-- =====================================================
+-- EVENTS QUEUE
+-- =====================================================
+-- Pre-create a general-purpose "events" queue for tracking
+-- entity change events from the Northwind module.
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'queues'
+    ) THEN
+        INSERT INTO queues (queue_name) VALUES ('events')
+        ON CONFLICT DO NOTHING;
     END IF;
 END $$;
 `,
