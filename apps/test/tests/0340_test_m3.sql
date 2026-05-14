@@ -355,29 +355,29 @@ SELECT is(
     'INSERT role with origin=user succeeds'
 );
 
--- UPDATE origin from user to model should succeed (auto-claim path)
-UPDATE roles SET origin = 'model' WHERE role_name = 'Rule Test User Role';
-SELECT is(
-    (SELECT origin FROM roles WHERE role_name = 'Rule Test User Role'),
-    'model',
-    'UPDATE origin from user to model succeeds (auto-claim path)'
+-- UPDATE origin from user to model should be blocked (origin is strictly immutable)
+SELECT throws_ok(
+    $$UPDATE roles SET origin = 'model' WHERE role_name = 'Rule Test User Role'$$,
+    '23514',
+    NULL,
+    'UPDATE origin from user to model is blocked by validation rule'
 );
 
--- UPDATE origin from model to user should be blocked
+-- UPDATE origin from user to model_master should be blocked (origin is strictly immutable)
 SELECT throws_ok(
-    $$UPDATE roles SET origin = 'user' WHERE role_name = 'Rule Test User Role'$$,
+    $$UPDATE roles SET origin = 'model_master' WHERE role_name = 'Rule Test User Role'$$,
+    '23514',
+    NULL,
+    'UPDATE origin from user to model_master is blocked by validation rule'
+);
+
+-- UPDATE origin on a model-origin role should be blocked
+INSERT INTO roles (role_name, origin) VALUES ('Rule Test Model Role', 'model');
+SELECT throws_ok(
+    $$UPDATE roles SET origin = 'user' WHERE role_name = 'Rule Test Model Role'$$,
     '23514',
     NULL,
     'UPDATE origin from model to user is blocked by validation rule'
-);
-
--- Test user -> model_master transition
-INSERT INTO roles (role_name, origin) VALUES ('Rule Test MM Role', 'user');
-UPDATE roles SET origin = 'model_master' WHERE role_name = 'Rule Test MM Role';
-SELECT is(
-    (SELECT origin FROM roles WHERE role_name = 'Rule Test MM Role'),
-    'model_master',
-    'UPDATE origin from user to model_master succeeds (auto-claim path)'
 );
 
 -- =====================================================
@@ -386,7 +386,7 @@ SELECT is(
 
 -- Changing slug on a model-origin role should be blocked
 SELECT throws_ok(
-    $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Rule Test User Role'$$,
+    $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Rule Test Model Role'$$,
     '23514',
     NULL,
     'Changing slug on model-origin role is blocked'
