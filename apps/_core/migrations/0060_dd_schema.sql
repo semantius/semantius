@@ -307,18 +307,20 @@ CREATE TRIGGER update_fields_updated_at
 -- These are marked with is_core=true to indicate they are system tables
 
 -- Insert entities metadata for core tables
-INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES 
-    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label'),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title'),
-    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email'),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name'),
-    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name'),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name'),
-    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
-    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
-    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id'),
-    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id');
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label', '[]'::jsonb),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title', '[]'::jsonb),
+    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name', '[]'::jsonb),
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
+     '[{"code":"origin_immutable_roles","message":"roles.origin can only be set on INSERT or upgraded from ''user'' to ''default'' by the scaffold pass","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"or":[{"==":[{"var":"$old"},null]},{"and":[{"==":[{"var":"$old.origin"},"user"]},{"==":[{"var":"origin"},"default"]}]}]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs (origin=''default'') cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"default"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name', '[]'::jsonb),
+    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
+    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
+    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
+    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
+     '[{"code":"origin_immutable_hierarchy","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
 
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
@@ -486,25 +488,39 @@ VALUES
     ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, TRUE, '', ''),
     ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', NULL, TRUE, TRUE, '', ''),
+    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, 30, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, 35, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module, auto-generated from module_name if not provided', 'text', FALSE, 38, 'default', 'default', NULL, TRUE, FALSE, '', ''),
+    ('modules', 'manage_permission_id', 'Manage Permission', 'Manage permission for this module, populated by scaffold', 'reference', FALSE, 39, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
+    ('modules', 'admin_permission_id', 'Admin Permission', 'Admin permission for this module, populated when any entity carries edit_permission: admin', 'reference', FALSE, 40, 'default', 'default', NULL, TRUE, FALSE, 'permissions', 'clear'),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', 'Default viewer role for this module, populated by scaffold', 'reference', FALSE, 41, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', 'Default manager role for this module, populated by scaffold', 'reference', FALSE, 42, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', 'Default admin role for this module, populated when admin permission is present', 'reference', FALSE, 43, 'default', 'default', NULL, TRUE, FALSE, 'roles', 'clear'),
     ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', NULL, TRUE, FALSE, '', ''),
     ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', NULL, TRUE, FALSE, '', ''),
     ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', NULL, TRUE, FALSE, '', '');
+
+-- Set enum_values for module_type field
+UPDATE fields SET enum_values = '["domain", "master"]'::jsonb WHERE table_name = 'modules' AND field_name = 'module_type';
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
     ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    TRUE, FALSE, '',        '',      ''),
     ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE, TRUE,  '',        '',      ''),
+    ('roles', 'slug',        'Slug',        'Snake_case unique identifier for role, auto-generated from role_name', 'text', FALSE, 15, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       NULL,    TRUE, TRUE,  '',        '',      ''),
+    ('roles', 'origin',      'Origin',      'Whether this role was auto-created by scaffold (default) or manually created (user)', 'enum', FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '', '', ''),
     ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
+
+-- Set enum_values for roles.origin field
+UPDATE fields SET enum_values = '["default", "user"]'::jsonb WHERE table_name = 'roles' AND field_name = 'origin';
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -558,7 +574,11 @@ VALUES
     ('permission_hierarchy', 'id',                    'Id',                    'Generated identifier (parent_permission_id.child_permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id', TRUE, FALSE, '',             '',        ''),
     ('permission_hierarchy', 'parent_permission_id',  'Parent Permission Id',  'Parent permission that implies child permissions',                 'parent',    FALSE, 10, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'parent of'),
     ('permission_hierarchy', 'child_permission_id',   'Child Permission Id',   'Child permission implied by parent',                              'parent',    FALSE, 20, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'child of'),
+    ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '',             '',        ''),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '',             '',        '');
+
+-- Set enum_values for permission_hierarchy.origin field
+UPDATE fields SET enum_values = '["model", "scaffold", "shared_promotion", "user"]'::jsonb WHERE table_name = 'permission_hierarchy' AND field_name = 'origin';
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;

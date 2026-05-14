@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-05-04T16:32:20.842Z
+**Generated:** 2026-05-13T21:22:09.459Z
 
 ---
 
@@ -30,18 +30,21 @@ DDL audit trail for schema change events
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int64 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `event_time` | Event Time | When the DDL command completed | string | date-time | false | true | - | 10 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `user_id` | User Id | Internal user id from JWT context (0 when unavailable) | integer | int32 | false | false | - | 20 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `command_tag` (label) | Command Tag | DDL command type (e.g. CREATE TABLE, ALTER TABLE) | string | text | false | false | - | 30 | readonly | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `object_type` | Object Type | Type of database object affected | string | text | false | false | - | 40 | readonly | default | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `object_identity` | Object Identity | Fully qualified name of the affected object | string | text | false | false | - | 50 | readonly | w | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `query_text` | Query Text | The SQL statement that triggered the event | string | text | false | false | - | 60 | readonly | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int64 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `event_time` | date-time | Event Time | When the DDL command completed | string | false | true | - | 10 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `user_id` | int32 | User Id | Internal user id from JWT context (0 when unavailable) | integer | false | false | - | 20 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `command_tag` (label) | text | Command Tag | DDL command type (e.g. CREATE TABLE, ALTER TABLE) | string | false | false | - | 30 | readonly | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `object_type` | text | Object Type | Type of database object affected | string | false | false | - | 40 | readonly | default | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `object_identity` | text | Object Identity | Fully qualified name of the affected object | string | false | false | - | 50 | readonly | w | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `query_text` | text | Query Text | The SQL statement that triggered the event | string | false | false | - | 60 | readonly | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 
 ---
 
@@ -69,23 +72,26 @@ DML audit trail for entity table records
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int64 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `record_id` | Record Id | Deterministic UUID computed from table OID and primary key values | string | uuid | false | false | - | 10 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `old_record_id` | Old Record Id | Record id before update/delete | string | uuid | false | false | - | 20 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `record_pk` | Record PK | Primary key value of the affected record | string | text | false | false | - | 25 | readonly | default | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `op` | Operation | DML operation type: INSERT, UPDATE, DELETE, TRUNCATE | string | text | false | false | - | 30 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `ts` | Timestamp | When the operation occurred | string | date-time | false | true | - | 40 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `user_id` | User Id | Internal user id from JWT context (0 when unavailable) | integer | int32 | false | false | - | 50 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `table_oid` | Table OID | PostgreSQL internal object identifier for the table | integer | int32 | false | false | - | 60 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `table_schema` | Table Schema | Schema containing the table | string | text | false | false | - | 70 | readonly | default | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `table_name` (label) | Table Name | Name of the affected table | string | text | false | false | - | 80 | readonly | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `record` | Record | Full record after INSERT/UPDATE (JSONB) | json | json | false | false | - | 90 | readonly | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `old_record` | Old Record | Previous record before UPDATE/DELETE (JSONB) | json | json | false | false | - | 100 | readonly | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int64 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `record_id` | uuid | Record Id | Deterministic UUID computed from table OID and primary key values | string | false | false | - | 10 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `old_record_id` | uuid | Old Record Id | Record id before update/delete | string | false | false | - | 20 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `record_pk` | text | Record PK | Primary key value of the affected record | string | false | false | - | 25 | readonly | default | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `op` | text | Operation | DML operation type: INSERT, UPDATE, DELETE, TRUNCATE | string | false | false | - | 30 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `ts` | date-time | Timestamp | When the operation occurred | string | false | true | - | 40 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `user_id` | int32 | User Id | Internal user id from JWT context (0 when unavailable) | integer | false | false | - | 50 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `table_oid` | int32 | Table OID | PostgreSQL internal object identifier for the table | integer | false | false | - | 60 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `table_schema` | text | Table Schema | Schema containing the table | string | false | false | - | 70 | readonly | default | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `table_name` (label) | text | Table Name | Name of the affected table | string | false | false | - | 80 | readonly | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `record` | json | Record | Full record after INSERT/UPDATE (JSONB) | json | false | false | - | 90 | readonly | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `old_record` | json | Old Record | Previous record before UPDATE/DELETE (JSONB) | json | false | false | - | 100 | readonly | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 
 ---
 
@@ -113,17 +119,20 @@ User-configured dashboard layouts and configurations
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `label` (label) | Dashboard | - | string | text | false | false | - | 1 | required | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `config` | Configuration | Dashboard layout and widget configuration | json | json | false | false | - | 10 | default | w | - | false | false | - | - | 2 | - | has | - | - | false | auto |
-| `position` | Position | Display order position | integer | int32 | false | false | 0 | 20 | default | default | - | false | false | - | - | 2 | - | has | - | - | false | auto |
-| `module_id` | Module | Module this dashboard belongs to | integer | reference | false | true | - | 30 | default | default | - | false | false | - | modules | 2 | cascade | has | - | - | false | auto |
-| `view_permission` | View Permission | Permission required to view this dashboard | integer | reference | false | true | - | 40 | default | default | - | false | false | - | permissions | 2 | clear | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `label` (label) | text | Dashboard | - | string | false | false | - | 1 | required | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `config` | json | Configuration | Dashboard layout and widget configuration | json | false | false | - | 10 | default | w | - | false | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `position` | int32 | Position | Display order position | integer | false | false | 0 | 20 | default | default | - | false | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `module_id` | reference | Module | Module this dashboard belongs to | integer | false | true | - | 30 | default | default | - | false | false | - | 2 | modules | cascade | has | - | - | false | auto | [object Object] |
+| `view_permission` | reference | View Permission | Permission required to view this dashboard | integer | false | true | - | 40 | default | default | - | false | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
 
 ---
 
@@ -151,29 +160,35 @@ Metadata for dynamically created tables
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `table_name` 🔑 (id) | Table Name | Physical table name in database | string | text | true | false | - | 1 | required | default | id | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `singular` | Singular | Singular form of table name | string | text | false | false | - | 10 | required | default | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `plural` | Plural | Plural form of table name, auto-assigned to table_name | string | text | false | false | - | 20 | readonly | default | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `singular_label` (label) | Singular Label | Human-readable singular label for UI/reports | string | text | false | false | - | 30 | default | default | label | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `plural_label` | Plural Label | Human-readable plural label for UI/reports | string | text | false | false | - | 40 | default | default | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `icon_url` | Icon URL | Optional URL or path to icon for this table | string | url | false | false | - | 50 | default | w | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `description` | Description | - | string | text | false | false | - | 60 | default | w | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `module_id` | Module Id | - | integer | reference | false | true | - | 70 | default | default | - | true | false | - | modules | 2 | clear | contains | - | - | false | auto |
-| `view_permission` | View Permission | Permission required to SELECT from this table | string | text | false | false | public:read | 80 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `edit_permission` | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | text | false | false | admin | 90 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `id_column` | Id Column | Name of primary key column | string | text | false | false | id | 100 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `label_column` | Label Column | Name of label/display column | string | text | false | false | label | 110 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `managed` | Managed | When false, automatic DDL execution is disabled | boolean | boolean | false | false | true | 115 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `searchable` | Searchable | Whether table is included in full-text search (auto-computed) | boolean | boolean | false | false | - | 117 | disabled | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `is_child` | Is Child | Whether table has any parent relationships (auto-computed) | boolean | boolean | false | false | - | 118 | disabled | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `edit_mode` | Edit Mode | UI edit mode for records of this table: auto, sidebar, modal, or page | string | enum | false | false | auto | 119 | default | default | - | true | false | ["auto","sidebar","modal","page"] | - | 2 | - | - | - | - | false | auto |
-| `cube_mode` | Cube Mode | Cube mode for OLAP cube generation | string | enum | false | false | auto | 121 | default | default | - | true | false | ["disabled","auto"] | - | 2 | - | - | - | - | false | auto |
-| `audit_log` | Audit Log | When enabled, DML operations on this table are logged to the audit log | boolean | boolean | false | false | false | 122 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `table_name` 🔑 (id) | text | Table Name | Physical table name in database | string | true | false | - | 1 | required | default | id | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `singular` | text | Singular | Singular form of table name | string | false | false | - | 10 | required | default | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `plural` | text | Plural | Plural form of table name, auto-assigned to table_name | string | false | false | - | 20 | readonly | default | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `singular_label` (label) | text | Singular Label | Human-readable singular label for UI/reports | string | false | false | - | 30 | default | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `plural_label` | text | Plural Label | Human-readable plural label for UI/reports | string | false | false | - | 40 | default | default | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `icon_url` | url | Icon URL | Optional URL or path to icon for this table | string | false | false | - | 50 | default | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `description` | text | Description | - | string | false | false | - | 60 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `module_id` | reference | Module Id | - | integer | false | true | - | 70 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
+| `view_permission` | text | View Permission | Permission required to SELECT from this table | string | false | false | public:read | 80 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `edit_permission` | text | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | false | false | admin | 90 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `id_column` | text | Id Column | Name of primary key column | string | false | false | id | 100 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `label_column` | text | Label Column | Name of label/display column | string | false | false | label | 110 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `managed` | boolean | Managed | When false, automatic DDL execution is disabled | boolean | false | false | true | 115 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `searchable` | boolean | Searchable | Whether table is included in full-text search (auto-computed) | boolean | false | false | - | 117 | disabled | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `is_child` | boolean | Is Child | Whether table has any parent relationships (auto-computed) | boolean | false | false | - | 118 | disabled | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `edit_mode` | enum | Edit Mode | UI edit mode for records of this table: auto, sidebar, modal, or page | string | false | false | auto | 119 | default | default | - | true | false | ["auto","sidebar","modal","page"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `cube_mode` | enum | Cube Mode | Cube mode for OLAP cube generation | string | false | false | auto | 121 | default | default | - | true | false | ["disabled","auto"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `audit_log` | boolean | Audit Log | When enabled, DML operations on this table are logged to the audit log | boolean | false | false | false | 122 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `computed_fields` | json | Computed Fields | JsonLogic derivations evaluated on every write | json | false | false | - | 123 | default | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `validation_rules` | json | Validation Rules | JsonLogic invariants that must hold for the write to succeed | json | false | false | - | 124 | default | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `select_rule` | json | Select Rule | JsonLogic rule for per-row FOR SELECT RLS policy | json | false | false | - | 125 | default | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 
@@ -201,35 +216,39 @@ Metadata for fields in dynamically created tables
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (table_name.field_name) | string | text | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `table_name` | Table Name | - | string | parent | false | false | - | 10 | default | default | - | true | true | - | entities | 2 | cascade | has fields | - | - | false | auto |
-| `field_name` | Field Name | Physical column name in database | string | text | false | false | - | 20 | required | default | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `title` (label) | Title | Human-readable display name for the field | string | text | false | false | - | 30 | required | default | label | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `description` | Description | - | string | text | false | false | - | 40 | default | w | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `format` | Format | JSON Schema format or primitive type | string | enum | false | false | string | 50 | required | default | - | true | false | ["json","html","text","code","jsonata","reference","parent","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | - | 2 | - | - | - | - | false | auto |
-| `is_pk` | Is Primary Key | - | boolean | boolean | false | false | - | 60 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `is_nullable` | Is Nullable | Whether this field allows NULL values (computed from format) | boolean | boolean | false | false | - | 70 | readonly | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `default_value` | Default Value | - | string | text | false | false | - | 80 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `field_order` | Field Order | - | integer | int32 | false | false | - | 90 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `input_type` | Input Type | - | string | enum | false | false | default | 100 | default | default | - | true | false | ["default","required","readonly","disabled","hidden"] | - | 2 | - | - | - | - | false | auto |
-| `width` | Width | - | string | enum | false | false | default | 110 | default | default | - | true | false | ["default","s","m","w"] | - | 2 | - | - | - | - | false | auto |
-| `ctype` | Column Type | Special column type (id, label, etc.) | string | enum | false | false | - | 120 | default | default | - | true | false | ["","id","label"] | - | 2 | - | - | - | - | false | auto |
-| `is_core` | Is Core | - | boolean | boolean | false | false | - | 130 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `searchable` | Searchable | Whether field is included in full-text search | boolean | boolean | false | false | - | 135 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `enum_values` | Enum Values | JSON array of allowed enum values | json | json | false | false | - | 137 | default | w | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `reference_table` | Reference Table | Table name for foreign key relationships | string | text | false | false | - | 138 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `precision` | Precision | Decimal scale used when generating NUMERIC columns for number formats | integer | int32 | false | false | 2 | 138 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `reference_delete_mode` | Reference Delete Mode | ON DELETE behavior: restrict, clear, or cascade | string | enum | false | false | restrict | 139 | default | default | - | true | false | ["","restrict","clear","cascade"] | - | 2 | - | - | - | - | false | auto |
-| `relationship_label` | Relationship Label | Verb describing what the referenced entity does to/with this entity | string | text | false | false | has | 140 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `singular_label_parent` | Singular Label Parent | Custom singular label for the parent entity (overrides default when set) | string | text | false | false | - | 141 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `plural_label_parent` | Plural Label Parent | Custom plural label for the parent entity (overrides default when set) | string | text | false | false | - | 142 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `unique_value` | Unique Value | When TRUE, enforces a partial unique index (NULL and empty strings are not enforced) | boolean | boolean | false | false | - | 143 | default | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `cube_type` | Cube Type | - | string | enum | false | false | auto | 144 | default | default | - | true | false | ["disabled","auto","dimension","measure"] | - | 2 | - | - | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (table_name.field_name) | string | true | false | - | 10 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `table_name` | parent | Table Name | - | string | false | false | - | 20 | default | default | - | true | true | - | 2 | entities | cascade | has fields | - | - | false | auto | [object Object] |
+| `field_name` | text | Field Name | Physical column name in database | string | false | false | - | 30 | required | default | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `format` | enum | Format | JSON Schema format or primitive type | string | false | false | text | 40 | required | default | - | true | false | ["json","html","text","multiline","code","jsonata","reference","parent","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `title` (label) | text | Title | Human-readable display name for the field | string | false | false | - | 50 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `description` | text | Description | - | string | false | false | - | 60 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `is_pk` | boolean | Is Primary Key | - | boolean | false | false | - | 70 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `is_nullable` | boolean | Is Nullable | Whether this field allows NULL values (computed from format) | boolean | false | false | - | 80 | readonly | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `default_value` | text | Default Value | - | string | false | false | - | 90 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `field_order` | int32 | Field Order | - | integer | false | false | - | 100 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `input_type` | enum | Input Type | - | string | false | false | default | 110 | required | default | - | true | false | ["default","required","readonly","disabled","hidden"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `width` | enum | Width | - | string | false | false | default | 120 | required | default | - | true | false | ["default","s","m","w"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `ctype` | enum | Column Type | Special column type (id, label, etc.) | string | false | false | - | 130 | default | default | - | true | false | ["","id","label"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `is_core` | boolean | Is Core | - | boolean | false | false | - | 140 | default | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `searchable` | boolean | Searchable | Whether field is included in full-text search | boolean | false | false | - | 150 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `enum_values` | json | Enum Values | JSON array of allowed enum values | json | false | false | - | 160 | hidden | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `precision` | int32 | Precision | Decimal scale used when generating NUMERIC columns for number formats | integer | false | false | 2 | 170 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `reference_table` | text | Reference Table | Table name for foreign key relationships | string | false | false | - | 180 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `reference_delete_mode` | enum | Reference Delete Mode | ON DELETE behavior: restrict, clear, or cascade | string | false | false | restrict | 190 | hidden | default | - | true | false | ["","restrict","clear","cascade"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `relationship_label` | text | Relationship Label | Verb describing what the referenced entity does to/with this entity | string | false | false | has | 200 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `singular_label_parent` | text | Singular Label Parent | Custom singular label for the parent entity (overrides default when set) | string | false | false | - | 210 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `plural_label_parent` | text | Plural Label Parent | Custom plural label for the parent entity (overrides default when set) | string | false | false | - | 220 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `unique_value` | boolean | Unique Value | When TRUE, enforces a partial unique index (NULL and empty strings are not enforced) | boolean | false | false | - | 230 | hidden | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `cube_type` | enum | Cube Type | - | string | false | false | auto | 240 | required | default | - | true | false | ["auto","dimension","measure","disabled"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `input_type_rule` | json | Input Type Rule | JsonLogic condition for field visibility | json | false | false | - | 250 | default | w | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 
@@ -257,21 +276,30 @@ Logical modules that group related roles and permissions
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `module_name` (label) | Module Name | Unique module name | string | text | false | false | - | 10 | required | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `description` | Description | - | string | text | false | false | - | 20 | default | w | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `view_permission` | View Permission | Permission required to view this module | string | text | false | false | - | 30 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `logo_url` | Logo URL | URL or base64 data URI for module logo | string | url | false | false | - | 35 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `logo_color` | Logo Color | Hex color code for module logo | string | text | false | false | - | 36 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `home_page` | Home Page | Default home page path for module | string | text | false | false | - | 37 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `module_slug` | Module Slug | URL-safe unique identifier for module, auto-generated from module_name if not provided | string | text | false | false | - | 38 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `settings` | Settings | Module-specific settings and configuration | json | json | false | false | - | 50 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `dashboard_config` | Dashboard Configuration | - | json | json | false | false | - | 60 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `module_name` (label) | text | Module Name | Unique module name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `description` | text | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `module_type` | enum | Module Type | Module type: domain (normal) or master (promoted for sharing) | string | false | false | - | 25 | readonly | default | - | true | false | ["domain","master"] | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `view_permission` | text | View Permission | Permission required to view this module | string | false | false | - | 30 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `logo_url` | url | Logo URL | URL or base64 data URI for module logo | string | false | false | - | 35 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `logo_color` | text | Logo Color | Hex color code for module logo | string | false | false | - | 36 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `home_page` | text | Home Page | Default home page path for module | string | false | false | - | 37 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `module_slug` | text | Module Slug | URL-safe unique identifier for module, auto-generated from module_name if not provided | string | false | false | - | 38 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `manage_permission_id` | reference | Manage Permission | Manage permission for this module, populated by scaffold | integer | false | true | - | 39 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
+| `admin_permission_id` | reference | Admin Permission | Admin permission for this module, populated when any entity carries edit_permission: admin | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] |
+| `default_viewer_role_id` | reference | Default Viewer Role | Default viewer role for this module, populated by scaffold | integer | false | true | - | 41 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `default_manager_role_id` | reference | Default Manager Role | Default manager role for this module, populated by scaffold | integer | false | true | - | 42 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `default_admin_role_id` | reference | Default Admin Role | Default admin role for this module, populated when admin permission is present | integer | false | true | - | 43 | default | default | - | true | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] |
+| `settings` | json | Settings | Module-specific settings and configuration | json | false | false | - | 50 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `dashboard_config` | json | Dashboard Configuration | - | json | false | false | - | 60 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 
 ---
 
@@ -299,14 +327,18 @@ Defines permission inheritance (parent implies children)
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules | [object Object] |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (parent_permission_id.child_permission_id) | string | text | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `parent_permission_id` | Parent Permission Id | Parent permission that implies child permissions | string | parent | false | false | - | 10 | default | default | - | true | false | - | permissions | 2 | cascade | parent of | - | - | false | auto |
-| `child_permission_id` | Child Permission Id | Child permission implied by parent | string | parent | false | false | - | 20 | default | default | - | true | false | - | permissions | 2 | cascade | child of | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (parent_permission_id.child_permission_id) | string | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `parent_permission_id` | parent | Parent Permission Id | Parent permission that implies child permissions | string | false | false | - | 10 | default | default | - | true | false | - | 2 | permissions | cascade | parent of | - | - | false | auto | [object Object] |
+| `child_permission_id` | parent | Child Permission Id | Child permission implied by parent | string | false | false | - | 20 | default | default | - | true | false | - | 2 | permissions | cascade | child of | - | - | false | auto | [object Object] |
+| `origin` | enum | Origin | How this hierarchy entry was created | string | false | false | - | 25 | readonly | default | - | true | false | ["model","scaffold","shared_promotion","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 
@@ -334,15 +366,95 @@ System permissions that can be assigned to roles
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `permission_name` (label) | Permission Name | Unique permission name | string | text | false | false | - | 10 | required | default | label | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `description` | Description | - | string | text | false | false | - | 20 | default | w | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `module_id` | Module Id | Module this permission belongs to | integer | reference | false | true | - | 30 | default | default | - | true | false | - | modules | 2 | clear | contains | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `permission_name` (label) | text | Permission Name | Unique permission name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `description` | multiline | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `module_id` | reference | Module Id | Module this permission belongs to | integer | false | true | - | 30 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
+
+---
+
+## Entity: queue_table_events
+
+Maps table DML events to queues
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queue_table_events` |
+| singular | Singular | queue_table_event |
+| plural | Plural | queue_table_events |
+| singular_label | Singular Label | Queue Table Event |
+| plural_label | Plural Label | Queue Table Events |
+| icon_url | Icon URL | - |
+| description | Description | Maps table DML events to queues |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `event_name` |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `event_name` (label) | text | Queue Table Event | - | string | false | false | - | 1 | required | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `queue_id` | parent | Queue | Parent queue this event belongs to | string | false | false | - | 5 | default | default | - | false | false | - | 2 | queues | cascade | has events | - | - | false | auto | [object Object] |
+| `table_name` | reference | Table | Table whose DML events are captured | integer | false | true | - | 10 | required | default | - | false | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | [object Object] |
+| `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | false | - | 20 | required | default | - | false | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+
+---
+
+## Entity: queues
+
+Message queues backed by pgmq
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queues` |
+| singular | Singular | queue |
+| plural | Plural | queues |
+| singular_label | Singular Label | Queue |
+| plural_label | Plural Label | Queues |
+| icon_url | Icon URL | - |
+| description | Description | Message queues backed by pgmq |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `queue_name` |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `queue_name` (label) | text | Queue | - | string | false | false | - | 1 | required | default | label | true | true | - | 2 | - | - | has | - | - | true | auto | [object Object] |
 
 ---
 
@@ -370,16 +482,19 @@ Many-to-many mapping between roles and permissions
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (role_id.permission_id) | string | text | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `role_id` | Role Id | Role this permission is granted to | string | parent | false | false | - | 10 | default | default | - | true | false | - | roles | 2 | cascade | has permissions | Permission | Permissions | false | auto |
-| `permission_id` | Permission Id | Permission granted to the role | string | parent | false | false | - | 20 | default | default | - | true | false | - | permissions | 2 | cascade | granted to | Permission | Permissions | false | auto |
-| `granted_at` | Granted At | Timestamp when permission was granted | string | date-time | false | true | - | 30 | disabled | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `granted_by` | Granted By | User who granted this permission | integer | reference | false | true | - | 40 | default | default | - | true | false | - | users | 2 | clear | has granted | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (role_id.permission_id) | string | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `role_id` | parent | Role Id | Role this permission is granted to | string | false | false | - | 10 | default | default | - | true | false | - | 2 | roles | cascade | has permissions | Permission | Permissions | false | auto | [object Object] |
+| `permission_id` | parent | Permission Id | Permission granted to the role | string | false | false | - | 20 | default | default | - | true | false | - | 2 | permissions | cascade | granted to | Permission | Permissions | false | auto | [object Object] |
+| `granted_at` | date-time | Granted At | Timestamp when permission was granted | string | false | true | - | 30 | disabled | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `granted_by` | reference | Granted By | User who granted this permission | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | users | clear | has granted | - | - | false | auto | [object Object] |
 
 ---
 
@@ -407,15 +522,20 @@ Groups of permissions that can be assigned to users
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules | [object Object],[object Object] |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `role_name` (label) | Role Name | Unique role name | string | text | false | false | - | 10 | required | default | label | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `description` | Description | - | string | text | false | false | - | 20 | default | w | - | true | true | - | - | 2 | - | - | - | - | false | auto |
-| `module_id` | Module Id | Module this role belongs to | integer | reference | false | true | - | 30 | default | default | - | true | false | - | modules | 2 | clear | contains | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `role_name` (label) | text | Role Name | Unique role name | string | false | false | - | 10 | required | default | label | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `slug` | text | Slug | Snake_case unique identifier for role, auto-generated from role_name | string | false | false | - | 15 | readonly | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `description` | multiline | Description | - | string | false | false | - | 20 | default | w | - | true | true | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `origin` | enum | Origin | Whether this role was auto-created by scaffold (default) or manually created (user) | string | false | false | - | 25 | readonly | default | - | true | false | ["default","user"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `module_id` | reference | Module Id | Module this role belongs to | integer | false | true | - | 30 | default | default | - | true | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] |
 
 ---
 
@@ -443,16 +563,19 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (user_id.permission_id) | string | text | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `user_id` | User Id | User this permission is granted to | string | parent | false | false | - | 10 | required | default | - | true | false | - | users | 2 | cascade | has permissions | Permission | Permissions | false | auto |
-| `permission_id` | Permission Id | Permission granted to the user | string | parent | false | false | - | 20 | required | default | - | true | false | - | permissions | 2 | cascade | granted to | User | Users | false | auto |
-| `granted_at` | Granted At | Timestamp when permission was granted | string | date-time | false | true | - | 30 | disabled | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `granted_by` | Granted By | User who granted this permission | integer | reference | false | true | - | 40 | default | default | - | true | false | - | users | 2 | clear | has granted | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (user_id.permission_id) | string | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `user_id` | parent | User Id | User this permission is granted to | string | false | false | - | 10 | required | default | - | true | false | - | 2 | users | cascade | has permissions | Permission | Permissions | false | auto | [object Object] |
+| `permission_id` | parent | Permission Id | Permission granted to the user | string | false | false | - | 20 | required | default | - | true | false | - | 2 | permissions | cascade | granted to | User | Users | false | auto | [object Object] |
+| `granted_at` | date-time | Granted At | Timestamp when permission was granted | string | false | true | - | 30 | disabled | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `granted_by` | reference | Granted By | User who granted this permission | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | users | clear | has granted | - | - | false | auto | [object Object] |
 
 ---
 
@@ -480,16 +603,19 @@ Many-to-many mapping between users and roles
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | Generated identifier (user_id.role_id) | string | text | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `user_id` | User Id | User this role is assigned to | string | parent | false | false | - | 10 | required | default | - | true | false | - | users | 2 | cascade | has roles | Role | Roles | false | auto |
-| `role_id` | Role Id | Role assigned to the user | string | parent | false | false | - | 20 | required | default | - | true | false | - | roles | 2 | cascade | assigned to | User | Users | false | auto |
-| `assigned_at` | Assigned At | Timestamp when role was assigned | string | date-time | false | true | - | 30 | disabled | default | - | true | false | - | - | 2 | - | - | - | - | false | auto |
-| `assigned_by` | Assigned By | User who assigned this role | integer | reference | false | true | - | 40 | default | default | - | true | false | - | users | 2 | clear | has assigned | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (user_id.role_id) | string | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `user_id` | parent | User Id | User this role is assigned to | string | false | false | - | 10 | required | default | - | true | false | - | 2 | users | cascade | has roles | Role | Roles | false | auto | [object Object] |
+| `role_id` | parent | Role Id | Role assigned to the user | string | false | false | - | 20 | required | default | - | true | false | - | 2 | roles | cascade | assigned to | User | Users | false | auto | [object Object] |
+| `assigned_at` | date-time | Assigned At | Timestamp when role was assigned | string | false | true | - | 30 | disabled | default | - | true | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `assigned_by` | reference | Assigned By | User who assigned this role | integer | false | true | - | 40 | default | default | - | true | false | - | 2 | users | clear | has assigned | - | - | false | auto | [object Object] |
 
 ---
 
@@ -517,18 +643,21 @@ Users and agents
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `external_id` | External Id | External identifier from authentication provider | string | text | false | false | - | 10 | readonly | default | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `email` (label) | Email | - | string | email | false | false | - | 20 | default | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `display_name` | Display Name | - | string | text | false | false | - | 25 | default | default | - | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `is_disabled` | Is Disabled | - | boolean | boolean | false | false | - | 30 | default | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `settings` | Settings | User-specific settings and preferences | json | json | false | false | - | 35 | default | w | - | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `last_seen` | Last Seen | Timestamp when user was last active | string | date-time | false | true | - | 60 | readonly | default | - | true | false | - | - | 2 | - | has | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `external_id` | text | External Id | External identifier from authentication provider | string | false | false | - | 10 | readonly | default | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `email` (label) | email | Email | - | string | false | false | - | 20 | default | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `display_name` | text | Display Name | - | string | false | false | - | 25 | default | default | - | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `is_disabled` | boolean | Is Disabled | - | boolean | false | false | - | 30 | default | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `settings` | json | Settings | User-specific settings and preferences | json | false | false | - | 35 | default | w | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `last_seen` | date-time | Last Seen | Timestamp when user was last active | string | false | true | - | 60 | readonly | default | - | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
 
 ---
 
@@ -556,20 +685,23 @@ Log of webhook receiver events
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `label` (label) | Webhook Receiver Log | - | string | text | false | false | - | 1 | required | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `webhook_id` | Webhook Receiver | Parent webhook receiver this log belongs to | string | parent | false | false | - | 5 | default | default | - | false | false | - | webhook_receivers | 2 | cascade | has logs | - | - | false | auto |
-| `webhook_receiver_id` | Webhook Receiver | Reference to webhook receiver configuration | integer | reference | false | true | - | 10 | default | default | - | false | false | - | webhook_receivers | 2 | clear | has logs | - | - | false | auto |
-| `webhook_timestamp` | Webhook Timestamp | Timestamp from webhook source | string | date-time | false | true | - | 30 | default | default | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `received_timestamp` | Received Timestamp | Timestamp when webhook was received | string | date-time | false | true | CURRENT_TIMESTAMP | 40 | disabled | default | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `payload` | Payload | Webhook payload data | json | json | false | false | - | 50 | default | w | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `result` | Result | Processing result: 10=received, 20=processed, 90=failed | string | enum | false | false | 10 | 60 | default | default | - | false | false | ["10","20","90"] | - | 2 | - | - | - | - | false | auto |
-| `error_message` | Error Message | Error message if processing failed | string | text | false | false | - | 70 | default | w | - | false | false | - | - | 2 | - | - | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `label` (label) | text | Webhook Receiver Log | - | string | false | false | - | 1 | required | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `webhook_id` | parent | Webhook Receiver | Parent webhook receiver this log belongs to | string | false | false | - | 5 | default | default | - | false | false | - | 2 | webhook_receivers | cascade | has logs | - | - | false | auto | [object Object] |
+| `webhook_receiver_id` | reference | Webhook Receiver | Reference to webhook receiver configuration | integer | false | true | - | 10 | default | default | - | false | false | - | 2 | webhook_receivers | clear | has logs | - | - | false | auto | [object Object] |
+| `webhook_timestamp` | date-time | Webhook Timestamp | Timestamp from webhook source | string | false | true | - | 30 | default | default | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `received_timestamp` | date-time | Received Timestamp | Timestamp when webhook was received | string | false | true | CURRENT_TIMESTAMP | 40 | disabled | default | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `payload` | json | Payload | Webhook payload data | json | false | false | - | 50 | default | w | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `result` | enum | Result | Processing result: 10=received, 20=processed, 90=failed | string | false | false | 10 | 60 | default | default | - | false | false | ["10","20","90"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `error_message` | text | Error Message | Error message if processing failed | string | false | false | - | 70 | default | w | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 
@@ -597,20 +729,23 @@ Configuration for webhook endpoints
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
 
 ### Fields
 
-| field_name | title | description | type | format | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | reference_table | precision | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `label` (label) | Webhook Receiver | - | string | text | false | false | - | 1 | required | default | label | true | true | - | - | 2 | - | has | - | - | false | auto |
-| `id` 🔑 (id) | Id | - | integer | int32 | true | false | - | 1 | readonly | default | id | true | false | - | - | 2 | - | has | - | - | false | auto |
-| `table_name` | Table | Target table for webhook data | integer | reference | false | true | - | 10 | default | default | - | false | false | - | entities | 2 | cascade | has receivers | - | - | false | auto |
-| `description` | Description | Description of webhook receiver purpose | string | text | false | false | - | 20 | default | w | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `auth_type` | Authentication Type | Type of authentication (none, hmac, or custom header) | string | enum | false | false | none | 30 | default | default | - | false | false | ["none","hmac","header"] | - | 2 | - | - | - | - | false | auto |
-| `secret` | Secret | Secret for webhook authentication | string | text | false | false | - | 40 | default | default | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `header_name` | Header Name | Custom header name for authentication | string | text | false | false | - | 45 | default | default | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `header_value` | Header Value | Expected value for custom header authentication | string | text | false | false | - | 46 | default | default | - | false | false | - | - | 2 | - | - | - | - | false | auto |
-| `jsonata` | JSONata Expression | Optional JSONata expression to transform incoming data | string | jsonata | false | false | - | 50 | default | w | - | false | false | - | - | 2 | - | - | - | - | false | auto |
+| field_name | format | title | description | type | is_pk | is_nullable | default_value | field_order | input_type | width | ctype | is_core | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `label` (label) | text | Webhook Receiver | - | string | false | false | - | 1 | required | default | label | true | true | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | false | - | 1 | readonly | default | id | true | false | - | 2 | - | - | has | - | - | false | auto | [object Object] |
+| `table_name` | reference | Table | Target table for webhook data | integer | false | true | - | 10 | default | default | - | false | false | - | 2 | entities | cascade | has receivers | - | - | false | auto | [object Object] |
+| `description` | text | Description | Description of webhook receiver purpose | string | false | false | - | 20 | default | w | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `auth_type` | enum | Authentication Type | Type of authentication (none, hmac, or custom header) | string | false | false | none | 30 | default | default | - | false | false | ["none","hmac","header"] | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `secret` | text | Secret | Secret for webhook authentication | string | false | false | - | 40 | default | default | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `header_name` | text | Header Name | Custom header name for authentication | string | false | false | - | 45 | default | default | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `header_value` | text | Header Value | Expected value for custom header authentication | string | false | false | - | 46 | default | default | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
+| `jsonata` | jsonata | JSONata Expression | Optional JSONata expression to transform incoming data | string | false | false | - | 50 | default | w | - | false | false | - | 2 | - | - | - | - | - | false | auto | [object Object] |
 
 ---
 

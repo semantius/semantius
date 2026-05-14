@@ -149,6 +149,9 @@ $FUNC$, v_fn_name, v_rules_block, p_table_name);
 
     EXECUTE v_body;
 
+    -- Revoke PUBLIC execute on trigger function (security best practice)
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
+
     EXECUTE format(
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
         v_trg_name, p_table_name, v_fn_name);
@@ -349,3 +352,24 @@ CREATE TRIGGER manage_select_rule_policy_trigger
     EXECUTE FUNCTION manage_select_rule_policy();
 
 REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 5: Bootstrap triggers for entities inserted before this migration
+-- =====================================================
+-- Core entities (roles, permission_hierarchy, etc.) may have been inserted in
+-- 0060_dd_schema.sql with non-empty validation_rules/computed_fields before the
+-- manage_record_logic_trigger existed. Build their triggers now.
+
+DO $$
+DECLARE
+    v_table_name TEXT;
+BEGIN
+    FOR v_table_name IN
+        SELECT e.table_name FROM entities e
+        WHERE jsonb_array_length(COALESCE(e.computed_fields, '[]'::jsonb)) > 0
+           OR jsonb_array_length(COALESCE(e.validation_rules, '[]'::jsonb)) > 0
+    LOOP
+        PERFORM build_record_logic_trigger(v_table_name);
+    END LOOP;
+END;
+$$;
