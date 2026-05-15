@@ -1,6 +1,6 @@
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(50);
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -395,6 +395,185 @@ SELECT is(
     ),
     'true'::jsonb,
     'complex: status changed but not to approved, non-admin => true (condition false)'
+);
+
+-- =====================================================
+-- get_record_by_id tests
+-- =====================================================
+
+-- get_record_by_id: existing entity and existing record
+SELECT authenticate_as('user3');
+
+SELECT isnt(
+    get_record_by_id('modules', 1001),
+    NULL,
+    'get_record_by_id: should return a record for existing module 1001'
+);
+
+SELECT is(
+    (get_record_by_id('modules', 1001)) ->> 'module_name',
+    'CRM',
+    'get_record_by_id: returned module 1001 should have module_name CRM'
+);
+
+-- get_record_by_id: existing entity but non-existing record
+SELECT is(
+    get_record_by_id('modules', 999999),
+    NULL,
+    'get_record_by_id: should return NULL for non-existing record id'
+);
+
+-- get_record_by_id: non-existing entity
+SELECT is(
+    get_record_by_id('nonexistent_table', 1),
+    NULL,
+    'get_record_by_id: should return NULL for non-existing entity'
+);
+
+-- =====================================================
+-- let operation tests
+-- =====================================================
+
+-- let: bind a value and use it in logic
+SELECT is(
+    evaluate_json_logic(
+        '{"let":["x", 42, {"var":"x"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '42'::jsonb,
+    'let: bind x=42 and read via var should return 42'
+);
+
+-- let: bind a computed value and use in arithmetic
+SELECT is(
+    evaluate_json_logic(
+        '{"let":["total", {"+":[10, 20]}, {"*":[{"var":"total"}, 2]}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '60'::jsonb,
+    'let: bind total=30 and multiply by 2 should return 60'
+);
+
+-- let: bound value should merge with existing data
+SELECT is(
+    evaluate_json_logic(
+        '{"let":["y", 100, {"+":[{"var":"x"}, {"var":"y"}]}]}'::jsonb,
+        '{"x": 5}'::jsonb
+    ),
+    '105'::jsonb,
+    'let: bound y=100 merged with data x=5 should sum to 105'
+);
+
+-- =====================================================
+-- set_record operation tests
+-- =====================================================
+
+-- set_record: load a module record and access its fields
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"var":"mod.module_name"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"CRM"'::jsonb,
+    'set_record: load module 1001 and read module_name should return CRM'
+);
+
+-- set_record: load non-existing record, variable should be null
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 999999, {"var":"mod"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'null'::jsonb,
+    'set_record: non-existing record should set variable to null'
+);
+
+-- set_record: load record and use id from data
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", {"var":"module_id"}, {"var":"mod.module_name"}]}'::jsonb,
+        '{"module_id": 1001}'::jsonb
+    ),
+    '"CRM"'::jsonb,
+    'set_record: load module by id from data should return CRM'
+);
+
+-- set_record: non-existing entity should set variable to null
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["rec", "nonexistent_table", 1, {"var":"rec"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'null'::jsonb,
+    'set_record: non-existing entity should set variable to null'
+);
+
+-- =====================================================
+-- throw_error operation tests
+-- =====================================================
+
+-- throw_error: should raise an exception
+SELECT throws_ok(
+    $$
+    SELECT evaluate_json_logic(
+        '{"throw_error":"Order is already shipped"}'::jsonb,
+        '{}'::jsonb
+    )
+    $$,
+    '23514',
+    'Order is already shipped',
+    'throw_error: should raise exception with given message'
+);
+
+-- throw_error: used in if condition (should not throw when condition is false)
+SELECT is(
+    evaluate_json_logic(
+        '{"if":[false, {"throw_error":"should not happen"}, true]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'throw_error: should not throw when if condition is false'
+);
+
+-- throw_error: should throw when if condition is true
+SELECT throws_ok(
+    $$
+    SELECT evaluate_json_logic(
+        '{"if":[true, {"throw_error":"condition met"}, true]}'::jsonb,
+        '{}'::jsonb
+    )
+    $$,
+    '23514',
+    'condition met',
+    'throw_error: should throw when if condition is true'
+);
+
+-- =====================================================
+-- Complex scenario: set_record + throw_error for validation
+-- Load a module, check a condition, throw error if met
+-- =====================================================
+
+-- Scenario: load module by id, if description contains "Customer", throw error
+SELECT throws_ok(
+    $$
+    SELECT evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"if":[{"in":["Customer", {"var":"mod.description"}]}, {"throw_error":"Cannot modify customer module"}, true]}]}'::jsonb,
+        '{}'::jsonb
+    )
+    $$,
+    '23514',
+    'Cannot modify customer module',
+    'complex: set_record + throw_error should throw when condition matches'
+);
+
+-- Scenario: load module by id, if description contains "NonExistent", should pass
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"if":[{"in":["NonExistent", {"var":"mod.description"}]}, {"throw_error":"Should not happen"}, true]}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'complex: set_record + throw_error should not throw when condition does not match'
 );
 
 SELECT * FROM finish();

@@ -284,6 +284,27 @@ BEGIN
         RETURN 'false'::jsonb;
     END IF;
 
+    -- ===================== let =====================
+    -- Binds a named variable into data and evaluates a logic expression.
+    -- Usage: {"let":["name", value, logic]}
+    IF op = 'let' THEN
+        var_key := vals ->> 0;
+        result := evaluate_json_logic(vals -> 1, data);
+        RETURN evaluate_json_logic(vals -> 2, data || jsonb_build_object(var_key, result));
+    END IF;
+
+    -- ===================== set_record =====================
+    -- Loads an entity record by id and stores it in data under the given name.
+    -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
+    -- Calls get_record_by_id(entityName, id) and stores the result like let.
+    IF op = 'set_record' THEN
+        var_key := vals ->> 0;
+        txt_a := vals ->> 1;
+        result := evaluate_json_logic(vals -> 2, data);
+        nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
+        RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
+    END IF;
+
     -- =====================================================
     -- All remaining operators: depth-first evaluate arguments
     -- =====================================================
@@ -634,6 +655,13 @@ BEGIN
         ELSE
             RETURN 'false'::jsonb;
         END IF;
+    END IF;
+
+    -- ===================== throw_error =====================
+    -- Raises an exception with the given message.
+    -- Usage: {"throw_error":"message"}
+    IF op = 'throw_error' THEN
+        RAISE EXCEPTION '%', jl_to_text(a) USING ERRCODE = '23514';
     END IF;
 
     -- Unknown operator

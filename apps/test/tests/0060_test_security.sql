@@ -94,7 +94,8 @@ SELECT is(
             'validate_api_key',
             'apply_field_ddl',
             'build_record_logic_trigger',
-            'build_select_rule_policy'
+            'build_select_rule_policy',
+            'get_record_by_id'
         )
         -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
         AND p.proname NOT LIKE 'select\_rule\_%'
