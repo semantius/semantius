@@ -1426,7 +1426,45 @@ CREATE TRIGGER enforce_table_is_child_consistency_trigger
 COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
 
+-- =====================================================
+-- GET RECORD BY ID
+-- =====================================================
+-- Looks up an entity by table_name, reads its id_column, then queries the
+-- physical table for the row matching the supplied id value. Returns the
+-- full row as JSONB, or NULL when the entity or record does not exist.
+
+CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id INTEGER)
+RETURNS JSONB AS $$
+DECLARE
+    v_id_column TEXT;
+    v_result JSONB;
+BEGIN
+    -- Look up the entity to find its id_column
+    SELECT id_column INTO v_id_column
+    FROM entities
+    WHERE table_name = p_entity_name;
+
+    -- Entity not found
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Query the physical table for the record
+    EXECUTE format(
+        'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
+        p_entity_name, v_id_column
+    ) INTO v_result USING p_id;
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION get_record_by_id IS
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table. Returns NULL when the entity or record does not exist.';
+
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
+REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
