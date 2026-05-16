@@ -582,6 +582,9 @@ VALUES
     ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '',             '',        ''),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '',             '',        '');
 
+UPDATE fields SET singular_label_parent = 'Includes',    plural_label_parent = 'Includes'    WHERE table_name = 'permission_hierarchy' AND field_name = 'including_permission_id';
+UPDATE fields SET singular_label_parent = 'Included in', plural_label_parent = 'Included in' WHERE table_name = 'permission_hierarchy' AND field_name = 'included_permission_id';
+
 -- Set enum_values for permission_hierarchy.origin field
 UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'permission_hierarchy' AND field_name = 'origin';
 
