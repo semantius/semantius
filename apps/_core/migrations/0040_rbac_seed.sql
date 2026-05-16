@@ -25,7 +25,7 @@ INSERT INTO permissions (id, permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage (Id=2) implies user:read (Id=1)
 
-INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VALUES
+INSERT INTO permission_hierarchy (including_permission_id, included_permission_id) VALUES
     (2, 1);
 
 -- =====================================================

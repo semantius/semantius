@@ -40,40 +40,40 @@ DECLARE
     cycle_exists BOOLEAN;
     max_depth INTEGER;
 BEGIN
-    -- Validate that both parent and child permissions exist (redundant with FK but explicit)
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.parent_permission_id) THEN
-        RAISE EXCEPTION 'Parent permission with Id % does not exist', NEW.parent_permission_id;
+    -- Validate that both including and included permissions exist (redundant with FK but explicit)
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.including_permission_id) THEN
+        RAISE EXCEPTION 'Including permission with Id % does not exist', NEW.including_permission_id;
     END IF;
     
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.child_permission_id) THEN
-        RAISE EXCEPTION 'Child permission with Id % does not exist', NEW.child_permission_id;
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.included_permission_id) THEN
+        RAISE EXCEPTION 'Included permission with Id % does not exist', NEW.included_permission_id;
     END IF;
     
     -- Check if adding this edge would create a cycle or exceed depth limit
-    -- A cycle exists if the child can reach the parent through existing paths
+    -- A cycle exists if the included can reach the including through existing paths
     WITH RECURSIVE hierarchy_path AS (
-        -- Start from the proposed child
-        SELECT child_permission_id AS permission_id, 1 AS depth
+        -- Start from the proposed included
+        SELECT included_permission_id AS permission_id, 1 AS depth
         FROM permission_hierarchy
-        WHERE parent_permission_id = NEW.child_permission_id
+        WHERE including_permission_id = NEW.included_permission_id
         
         UNION ALL
         
         -- Recursively follow the hierarchy
-        SELECT ph.child_permission_id, hp.depth + 1
+        SELECT ph.included_permission_id, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
+        INNER JOIN hierarchy_path hp ON ph.including_permission_id = hp.permission_id
         WHERE hp.depth < 11  -- Stop at depth 11
     )
     SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.including_permission_id),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
     
     IF cycle_exists THEN
         RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission Id % cannot be both ancestor and descendant of permission Id %', 
-            NEW.parent_permission_id, NEW.child_permission_id;
+            NEW.including_permission_id, NEW.included_permission_id;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -459,10 +459,10 @@ BEGIN
         
         UNION
         
-        -- Add implied permissions (children in hierarchy)
-        SELECT DISTINCT ph.child_permission_id
+        -- Add implied permissions (included in hierarchy)
+        SELECT DISTINCT ph.included_permission_id
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
     )
     SELECT EXISTS (
         SELECT 1 FROM permission_tree
@@ -494,9 +494,9 @@ BEGIN
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT ph.child_permission_id
+            SELECT DISTINCT ph.included_permission_id
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
+            JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
         )
         SELECT 1 FROM permission_tree
         WHERE permission_id = v_permission_id
@@ -708,8 +708,8 @@ BEGIN
         -- Implied permissions
         SELECT DISTINCT p.id AS permission_id, p.permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-        JOIN permissions p ON ph.child_permission_id = p.id
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+        JOIN permissions p ON ph.included_permission_id = p.id
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt

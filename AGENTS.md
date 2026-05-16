@@ -177,7 +177,7 @@ deno task test
 - **EXCEPTION 3**: Junction tables use COMPOSITE PRIMARY KEYS (no `id` column)
   - `user_roles`: `PRIMARY KEY (user_id, role_id)`
   - `role_permissions`: `PRIMARY KEY (role_id, permission_id)`
-  - `permission_hierarchy`: `PRIMARY KEY (parent_permission_id, child_permission_id)`
+  - `permission_hierarchy`: `PRIMARY KEY (including_permission_id, included_permission_id)`
   - These tables do NOT have an `id` column - the composite key IS the primary key
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**

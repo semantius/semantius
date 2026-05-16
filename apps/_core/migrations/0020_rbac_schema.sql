@@ -189,19 +189,19 @@ COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    id VARCHAR GENERATED ALWAYS AS (parent_permission_id || '.' || child_permission_id) STORED PRIMARY KEY,
-    parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    id VARCHAR GENERATED ALWAYS AS (including_permission_id || '.' || included_permission_id) STORED PRIMARY KEY,
+    including_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    included_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     origin TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (parent_permission_id, child_permission_id),
-    CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id),
+    UNIQUE (including_permission_id, included_permission_id),
+    CONSTRAINT no_self_reference CHECK (including_permission_id != included_permission_id),
     CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
 
-COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
-COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
-COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
+COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
+COMMENT ON COLUMN permission_hierarchy.including_permission_id IS 'The broader permission that includes other permissions';
+COMMENT ON COLUMN permission_hierarchy.included_permission_id IS 'The narrower permission that is included by the broader one';
 COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
@@ -293,8 +293,8 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_parent ON permission_hierarchy(parent_permission_id);
-CREATE INDEX idx_permission_hierarchy_child ON permission_hierarchy(child_permission_id);
+CREATE INDEX idx_permission_hierarchy_including ON permission_hierarchy(including_permission_id);
+CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
 
 -- =====================================================
 -- INDEXES - Modules FK columns
