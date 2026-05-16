@@ -399,7 +399,6 @@ BEGIN
       ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
       ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
       ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'is_nullable',          'Is Nullable',          'Whether this field allows NULL values (computed from format)',           '',         'boolean',   FALSE, 80,     'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
@@ -436,8 +435,8 @@ BEGIN
     ('reference_table',      '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
     ('reference_delete_mode','{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
     ('relationship_label',   '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
-    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
-    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
+    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
     ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
     ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
     ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
