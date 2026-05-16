@@ -190,15 +190,15 @@ SELECT is(
 );
 
 -- Test inserting with specific origin values
-INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id, origin)
+INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
 SELECT p1.id, p2.id, 'model'
 FROM permissions p1, permissions p2
 WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:read';
 
 SELECT is(
     (SELECT origin FROM permission_hierarchy ph
-     JOIN permissions p1 ON ph.parent_permission_id = p1.id
-     JOIN permissions p2 ON ph.child_permission_id = p2.id
+     JOIN permissions p1 ON ph.including_permission_id = p1.id
+     JOIN permissions p2 ON ph.included_permission_id = p2.id
      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:read'),
     'model',
     'permission_hierarchy.origin can be set to model'
@@ -206,7 +206,7 @@ SELECT is(
 
 -- Test origin enum constraint
 SELECT throws_ok(
-    $$INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id, origin)
+    $$INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
       SELECT p1.id, p2.id, 'invalid'
       FROM permissions p1, permissions p2
       WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage'$$,
@@ -216,15 +216,15 @@ SELECT throws_ok(
 );
 
 -- Test model_master origin
-INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id, origin)
+INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
 SELECT p1.id, p2.id, 'model_master'
 FROM permissions p1, permissions p2
 WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage';
 
 SELECT is(
     (SELECT origin FROM permission_hierarchy ph
-     JOIN permissions p1 ON ph.parent_permission_id = p1.id
-     JOIN permissions p2 ON ph.child_permission_id = p2.id
+     JOIN permissions p1 ON ph.including_permission_id = p1.id
+     JOIN permissions p2 ON ph.included_permission_id = p2.id
      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage'),
     'model_master',
     'permission_hierarchy.origin can be set to model_master'

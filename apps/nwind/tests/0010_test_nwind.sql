@@ -58,8 +58,8 @@ SELECT is(
 SELECT is(
     (SELECT COUNT(*)::integer
      FROM permission_hierarchy ph
-     JOIN permissions p ON p.id = ph.parent_permission_id
-     JOIN permissions c ON c.id = ph.child_permission_id
+     JOIN permissions p ON p.id = ph.including_permission_id
+     JOIN permissions c ON c.id = ph.included_permission_id
      WHERE p.permission_name = 'nwind:manage'
        AND c.permission_name = 'nwind:view'),
     1,
