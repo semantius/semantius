@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-05-14T13:20:28.593Z
+ * Generated: 2026-05-19T18:59:18.290Z
  * Apps: 3  |  Migrations: 24
  */
 
@@ -522,6 +522,27 @@ BEGIN
         RETURN 'false'::jsonb;
     END IF;
 
+    -- ===================== let =====================
+    -- Binds a named variable into data and evaluates a logic expression.
+    -- Usage: {"let":["name", value, logic]}
+    IF op = 'let' THEN
+        var_key := vals ->> 0;
+        result := evaluate_json_logic(vals -> 1, data);
+        RETURN evaluate_json_logic(vals -> 2, data || jsonb_build_object(var_key, result));
+    END IF;
+
+    -- ===================== set_record =====================
+    -- Loads an entity record by id and stores it in data under the given name.
+    -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
+    -- Calls get_record_by_id(entityName, id) and stores the result like let.
+    IF op = 'set_record' THEN
+        var_key := vals ->> 0;
+        txt_a := vals ->> 1;
+        result := evaluate_json_logic(vals -> 2, data);
+        nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
+        RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
+    END IF;
+
     -- =====================================================
     -- All remaining operators: depth-first evaluate arguments
     -- =====================================================
@@ -874,6 +895,13 @@ BEGIN
         END IF;
     END IF;
 
+    -- ===================== throw_error =====================
+    -- Raises an exception with the given message.
+    -- Usage: {"throw_error":"message"}
+    IF op = 'throw_error' THEN
+        RAISE EXCEPTION '%', jl_to_text(a) USING ERRCODE = '23514';
+    END IF;
+
     -- Unknown operator
     RAISE EXCEPTION 'Unrecognized operation: %', op;
 END;
@@ -1085,19 +1113,19 @@ COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and per
 -- Permission hierarchy: Defines which permissions imply others
 -- Example: customer.manage implies customer.read and customer.write
 CREATE TABLE permission_hierarchy (
-    id VARCHAR GENERATED ALWAYS AS (parent_permission_id || '.' || child_permission_id) STORED PRIMARY KEY,
-    parent_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    child_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    id VARCHAR GENERATED ALWAYS AS (including_permission_id || '.' || included_permission_id) STORED PRIMARY KEY,
+    including_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    included_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
     origin TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (parent_permission_id, child_permission_id),
-    CONSTRAINT no_self_reference CHECK (parent_permission_id != child_permission_id),
+    UNIQUE (including_permission_id, included_permission_id),
+    CONSTRAINT no_self_reference CHECK (including_permission_id != included_permission_id),
     CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
 
-COMMENT ON TABLE permission_hierarchy IS 'Defines permission inheritance (parent implies children)';
-COMMENT ON COLUMN permission_hierarchy.parent_permission_id IS 'Parent permission that implies child permissions';
-COMMENT ON COLUMN permission_hierarchy.child_permission_id IS 'Child permission implied by parent';
+COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
+COMMENT ON COLUMN permission_hierarchy.including_permission_id IS 'The broader permission that includes other permissions';
+COMMENT ON COLUMN permission_hierarchy.included_permission_id IS 'The narrower permission that is included by the broader one';
 COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
@@ -1189,8 +1217,8 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_parent ON permission_hierarchy(parent_permission_id);
-CREATE INDEX idx_permission_hierarchy_child ON permission_hierarchy(child_permission_id);
+CREATE INDEX idx_permission_hierarchy_including ON permission_hierarchy(including_permission_id);
+CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
 
 -- =====================================================
 -- INDEXES - Modules FK columns
@@ -1249,40 +1277,40 @@ DECLARE
     cycle_exists BOOLEAN;
     max_depth INTEGER;
 BEGIN
-    -- Validate that both parent and child permissions exist (redundant with FK but explicit)
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.parent_permission_id) THEN
-        RAISE EXCEPTION 'Parent permission with Id % does not exist', NEW.parent_permission_id;
+    -- Validate that both including and included permissions exist (redundant with FK but explicit)
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.including_permission_id) THEN
+        RAISE EXCEPTION 'Including permission with Id % does not exist', NEW.including_permission_id;
     END IF;
     
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.child_permission_id) THEN
-        RAISE EXCEPTION 'Child permission with Id % does not exist', NEW.child_permission_id;
+    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.included_permission_id) THEN
+        RAISE EXCEPTION 'Included permission with Id % does not exist', NEW.included_permission_id;
     END IF;
     
     -- Check if adding this edge would create a cycle or exceed depth limit
-    -- A cycle exists if the child can reach the parent through existing paths
+    -- A cycle exists if the included can reach the including through existing paths
     WITH RECURSIVE hierarchy_path AS (
-        -- Start from the proposed child
-        SELECT child_permission_id AS permission_id, 1 AS depth
+        -- Start from the proposed included
+        SELECT included_permission_id AS permission_id, 1 AS depth
         FROM permission_hierarchy
-        WHERE parent_permission_id = NEW.child_permission_id
+        WHERE including_permission_id = NEW.included_permission_id
         
         UNION ALL
         
         -- Recursively follow the hierarchy
-        SELECT ph.child_permission_id, hp.depth + 1
+        SELECT ph.included_permission_id, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.parent_permission_id = hp.permission_id
+        INNER JOIN hierarchy_path hp ON ph.including_permission_id = hp.permission_id
         WHERE hp.depth < 11  -- Stop at depth 11
     )
     SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.parent_permission_id),
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.including_permission_id),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
     
     IF cycle_exists THEN
         RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission Id % cannot be both ancestor and descendant of permission Id %', 
-            NEW.parent_permission_id, NEW.child_permission_id;
+            NEW.including_permission_id, NEW.included_permission_id;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -1668,10 +1696,10 @@ BEGIN
         
         UNION
         
-        -- Add implied permissions (children in hierarchy)
-        SELECT DISTINCT ph.child_permission_id
+        -- Add implied permissions (included in hierarchy)
+        SELECT DISTINCT ph.included_permission_id
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
     )
     SELECT EXISTS (
         SELECT 1 FROM permission_tree
@@ -1703,9 +1731,9 @@ BEGIN
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT ph.child_permission_id
+            SELECT DISTINCT ph.included_permission_id
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
+            JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
         )
         SELECT 1 FROM permission_tree
         WHERE permission_id = v_permission_id
@@ -1917,8 +1945,8 @@ BEGIN
         -- Implied permissions
         SELECT DISTINCT p.id AS permission_id, p.permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.parent_permission_id
-        JOIN permissions p ON ph.child_permission_id = p.id
+        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+        JOIN permissions p ON ph.included_permission_id = p.id
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
@@ -2192,7 +2220,7 @@ INSERT INTO permissions (id, permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage (Id=2) implies user:read (Id=1)
 
-INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id) VALUES
+INSERT INTO permission_hierarchy (including_permission_id, included_permission_id) VALUES
     (2, 1);
 
 -- =====================================================
@@ -2971,12 +2999,12 @@ VALUES
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name', '[]'::jsonb),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
-     '[{"code":"origin_immutable_roles","message":"roles.origin transitions are restricted: only user -> model and user -> model_master are allowed; system is strictly immutable","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"or":[{"==":[{"var":"$old"},null]},{"and":[{"==":[{"var":"$old.origin"},"user"]},{"in":[{"var":"origin"},["model","model_master"]]}]}]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
+     '[{"code":"origin_immutable_roles","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
     ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name', '[]'::jsonb),
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
-    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inheritance (parent implies children)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
+    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
      '[{"code":"origin_immutable_hierarchy","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
 
 -- =====================================================
@@ -3056,7 +3084,6 @@ BEGIN
       ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label',TRUE,  TRUE,  NULL,                            '',          '',        ''),
       ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       NULL,   TRUE,  TRUE,  NULL,                            '',          '',        ''),
       ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'is_nullable',          'Is Nullable',          'Whether this field allows NULL values (computed from format)',           '',         'boolean',   FALSE, 80,     'readonly', 'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', NULL,   TRUE,  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', NULL,   TRUE,  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
@@ -3093,8 +3120,8 @@ BEGIN
     ('reference_table',      '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
     ('reference_delete_mode','{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
     ('relationship_label',   '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
-    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
-    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"required","hidden"]}'),
+    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
+    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
     ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
     ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
     ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
@@ -3176,6 +3203,9 @@ VALUES
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
 
+-- Mark roles.slug as unique (matches UNIQUE constraint on actual table)
+UPDATE fields SET unique_value = TRUE WHERE table_name = 'roles' AND field_name = 'slug';
+
 -- Set enum_values for roles.origin field
 UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'roles' AND field_name = 'origin';
 
@@ -3188,6 +3218,9 @@ VALUES
     ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'default',  'default', NULL,    TRUE, FALSE, 'modules', 'clear', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', NULL,    TRUE, FALSE, '',        '',      '');
+
+-- Mark permission_name as unique (matches UNIQUE constraint on actual table)
+UPDATE fields SET unique_value = TRUE WHERE table_name = 'permissions' AND field_name = 'permission_name';
 
 -- Insert fields metadata for user_roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -3228,11 +3261,14 @@ UPDATE fields SET singular_label_parent = 'User',       plural_label_parent = 'U
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('permission_hierarchy', 'id',                    'Id',                    'Generated identifier (parent_permission_id.child_permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id', TRUE, FALSE, '',             '',        ''),
-    ('permission_hierarchy', 'parent_permission_id',  'Parent Permission Id',  'Parent permission that implies child permissions',                 'parent',    FALSE, 10, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'parent of'),
-    ('permission_hierarchy', 'child_permission_id',   'Child Permission Id',   'Child permission implied by parent',                              'parent',    FALSE, 20, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'child of'),
+    ('permission_hierarchy', 'id',                      'Id',                      'Generated identifier (including_permission_id.included_permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id', TRUE, FALSE, '',             '',        ''),
+    ('permission_hierarchy', 'including_permission_id',  'Including Permission Id',  'The broader permission that includes other permissions',                 'parent',    FALSE, 10, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'includes'),
+    ('permission_hierarchy', 'included_permission_id',   'Included Permission Id',   'The narrower permission that is included by the broader one',            'parent',    FALSE, 20, 'default',  'default', NULL, TRUE, FALSE, 'permissions',  'cascade', 'included in'),
     ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', NULL, TRUE, FALSE, '',             '',        ''),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', NULL, TRUE, FALSE, '',             '',        '');
+
+UPDATE fields SET singular_label_parent = 'Includes',    plural_label_parent = 'Includes'    WHERE table_name = 'permission_hierarchy' AND field_name = 'including_permission_id';
+UPDATE fields SET singular_label_parent = 'Included in', plural_label_parent = 'Included in' WHERE table_name = 'permission_hierarchy' AND field_name = 'included_permission_id';
 
 -- Set enum_values for permission_hierarchy.origin field
 UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'permission_hierarchy' AND field_name = 'origin';
@@ -4668,7 +4704,45 @@ CREATE TRIGGER enforce_table_is_child_consistency_trigger
 COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
 
+-- =====================================================
+-- GET RECORD BY ID
+-- =====================================================
+-- Looks up an entity by table_name, reads its id_column, then queries the
+-- physical table for the row matching the supplied id value. Returns the
+-- full row as JSONB, or NULL when the entity or record does not exist.
+
+CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id INTEGER)
+RETURNS JSONB AS $$
+DECLARE
+    v_id_column TEXT;
+    v_result JSONB;
+BEGIN
+    -- Look up the entity to find its id_column
+    SELECT id_column INTO v_id_column
+    FROM entities
+    WHERE table_name = p_entity_name;
+
+    -- Entity not found
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Query the physical table for the record
+    EXECUTE format(
+        'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
+        p_entity_name, v_id_column
+    ) INTO v_result USING p_id;
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION get_record_by_id IS
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table. Returns NULL when the entity or record does not exist.';
+
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
+REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
@@ -5368,6 +5442,9 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 -- Entities are sorted alphabetically and deduplicated. Tables the current user
 -- lacks view permission for are silently skipped.
 -- Returns a JSON array of schemas in the same format as get_schema().
+-- The p_module_name parameter is matched against modules.module_slug (URL-safe
+-- identifier), not modules.module_name. The parameter name is preserved for
+-- PostgREST RPC wire compatibility.
 CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
 RETURNS SETOF JSON AS $$
 DECLARE
@@ -5384,7 +5461,7 @@ BEGIN
             SELECT e.table_name AS name
             FROM entities e
             JOIN modules m ON m.id = e.module_id
-            WHERE m.module_name = p_module_name
+            WHERE m.module_slug = p_module_name
 
             UNION
 
@@ -5393,7 +5470,7 @@ BEGIN
             FROM fields f
             JOIN entities e ON e.table_name = f.table_name
             JOIN modules m ON m.id = e.module_id
-            WHERE m.module_name = p_module_name
+            WHERE m.module_slug = p_module_name
               AND f.reference_table != ''
         ) AS names
         ORDER BY name
@@ -5414,7 +5491,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. Tables the current user lacks view permission for are silently skipped.';
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
@@ -11033,7 +11110,7 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('nwind:manage', 'Manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
 
 -- Permission hierarchy: nwind:manage implies nwind:view
-INSERT INTO permission_hierarchy (parent_permission_id, child_permission_id)
+INSERT INTO permission_hierarchy (including_permission_id, included_permission_id)
 SELECT p.id, c.id
 FROM permissions p, permissions c
 WHERE p.permission_name = 'nwind:manage'

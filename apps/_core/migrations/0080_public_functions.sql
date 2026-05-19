@@ -639,6 +639,9 @@ GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 -- Entities are sorted alphabetically and deduplicated. Tables the current user
 -- lacks view permission for are silently skipped.
 -- Returns a JSON array of schemas in the same format as get_schema().
+-- The p_module_name parameter is matched against modules.module_slug (URL-safe
+-- identifier), not modules.module_name. The parameter name is preserved for
+-- PostgREST RPC wire compatibility.
 CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
 RETURNS SETOF JSON AS $$
 DECLARE
@@ -655,7 +658,7 @@ BEGIN
             SELECT e.table_name AS name
             FROM entities e
             JOIN modules m ON m.id = e.module_id
-            WHERE m.module_name = p_module_name
+            WHERE m.module_slug = p_module_name
 
             UNION
 
@@ -664,7 +667,7 @@ BEGIN
             FROM fields f
             JOIN entities e ON e.table_name = f.table_name
             JOIN modules m ON m.id = e.module_id
-            WHERE m.module_name = p_module_name
+            WHERE m.module_slug = p_module_name
               AND f.reference_table != ''
         ) AS names
         ORDER BY name
@@ -685,7 +688,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. Tables the current user lacks view permission for are silently skipped.';
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
