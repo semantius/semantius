@@ -14,7 +14,7 @@
 --   entity: eptest1 → eptest2 → eptest3 → eptest4
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(32);
 
 SELECT authenticate_as('user3');
 
@@ -284,6 +284,176 @@ SELECT ok(
           AND policyname = 'eptest4_select_policy'
     ),
     'SELECT policy should still exist on eptest4 after view_permission change with select_rule'
+);
+
+-- =====================================================
+-- TEST 11: Change select_rule to a different value
+-- =====================================================
+
+UPDATE entities
+SET select_rule = '{">":[{"var":"id"},0]}'::jsonb
+WHERE table_name = 'eptest4';
+
+-- The select_rule function should still exist (rebuilt with new rule)
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'select_rule_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'select_rule function should still exist after changing select_rule to a different value'
+);
+
+-- The select policy should still exist
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'eptest4' AND schemaname = 'public'
+          AND policyname = 'eptest4_select_policy'
+    ),
+    'SELECT policy should still exist after changing select_rule to a different value'
+);
+
+-- =====================================================
+-- TEST 12: Remove select_rule (set to empty object)
+-- Should drop the select_rule function and restore default permission-only policy
+-- =====================================================
+
+UPDATE entities
+SET select_rule = '{}'::jsonb
+WHERE table_name = 'eptest4';
+
+-- The select_rule function should be dropped
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'select_rule_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'select_rule function should be dropped after removing select_rule'
+);
+
+-- The select policy should still exist (restored to default permission-only)
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'eptest4' AND schemaname = 'public'
+          AND policyname = 'eptest4_select_policy'
+    ),
+    'SELECT policy should still exist after removing select_rule (restored to default)'
+);
+
+-- The restored policy should use the current view_permission (sales:read)
+SELECT ok(
+    (SELECT qual FROM pg_policies
+     WHERE tablename = 'eptest4' AND schemaname = 'public'
+       AND policyname = 'eptest4_select_policy')
+    LIKE '%sales:read%',
+    'Restored SELECT policy should reference current view_permission (sales:read) after select_rule removal'
+);
+
+-- =====================================================
+-- TEST 13: Change validation_rules to a different value
+-- =====================================================
+
+UPDATE entities
+SET validation_rules = '[{"code":"LABEL_REQUIRED","message":"Label must not be empty","jsonlogic":{"!=":[{"var":"item_name"},""]}}]'::jsonb
+WHERE table_name = 'eptest4';
+
+-- The compute_validate function should still exist (rebuilt with new rules)
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'compute_validate_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'compute_validate function should still exist after changing validation_rules'
+);
+
+-- The trigger should still exist
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relname = 'eptest4'
+          AND c.relnamespace = 'public'::regnamespace
+          AND t.tgname = 'compute_validate_trigger'
+    ),
+    'compute_validate_trigger should still exist after changing validation_rules'
+);
+
+-- =====================================================
+-- TEST 14: Remove validation_rules (set to empty array)
+-- Should drop the compute_validate function and trigger
+-- =====================================================
+
+UPDATE entities
+SET validation_rules = '[]'::jsonb
+WHERE table_name = 'eptest4';
+
+-- The compute_validate function should be dropped
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'compute_validate_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'compute_validate function should be dropped after removing validation_rules'
+);
+
+-- The trigger should be dropped
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relname = 'eptest4'
+          AND c.relnamespace = 'public'::regnamespace
+          AND t.tgname = 'compute_validate_trigger'
+    ),
+    'compute_validate_trigger should be dropped after removing validation_rules'
+);
+
+-- =====================================================
+-- TEST 15: Re-add select_rule, then remove + add validation_rules simultaneously
+-- =====================================================
+
+UPDATE entities
+SET select_rule = '{"==":[1,1]}'::jsonb
+WHERE table_name = 'eptest4';
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'select_rule_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'select_rule function should be re-created for eptest4'
+);
+
+-- Simultaneously remove select_rule and add validation_rules
+UPDATE entities
+SET select_rule = '{}'::jsonb,
+    validation_rules = '[{"code":"CHK","message":"check","jsonlogic":{"==":[1,1]}}]'::jsonb
+WHERE table_name = 'eptest4';
+
+-- select_rule function should be gone
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'select_rule_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'select_rule function should be dropped after simultaneous removal + validation_rules add'
+);
+
+-- validation trigger should exist
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'compute_validate_eptest4'
+          AND pronamespace = 'public'::regnamespace
+    ),
+    'compute_validate function should be created after simultaneous select_rule removal + validation_rules add'
 );
 
 SELECT * FROM finish();
