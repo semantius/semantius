@@ -19,29 +19,26 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Handle edit_permission change: rebuild INSERT, UPDATE, DELETE policies
-    IF OLD.edit_permission IS DISTINCT FROM NEW.edit_permission THEN
-        -- Drop existing policies
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-            NEW.table_name || '_insert_policy', NEW.table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-            NEW.table_name || '_update_policy', NEW.table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-            NEW.table_name || '_delete_policy', NEW.table_name);
+    -- Rebuild INSERT, UPDATE, DELETE policies with new edit_permission
+    -- (trigger WHEN clause guarantees edit_permission has changed)
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
+        NEW.table_name || '_insert_policy', NEW.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
+        NEW.table_name || '_update_policy', NEW.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
+        NEW.table_name || '_delete_policy', NEW.table_name);
 
-        -- Recreate with new permission
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
-            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
+        NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
-            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
+        NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission);
 
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
-            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission);
-    END IF;
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
+        NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission);
 
     RETURN NEW;
 END;
