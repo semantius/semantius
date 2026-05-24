@@ -1,6 +1,6 @@
 BEGIN;
 
-SELECT plan(50);
+SELECT plan(76);
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -574,6 +574,270 @@ SELECT is(
     ),
     'true'::jsonb,
     'complex: set_record + throw_error should not throw when condition does not match'
+);
+
+-- =====================================================
+-- concat operation tests
+-- =====================================================
+
+-- concat: two strings
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Hello", " World"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Hello World"'::jsonb,
+    'concat: two strings should concatenate'
+);
+
+-- concat: single string
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Hello"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Hello"'::jsonb,
+    'concat: single string should return as-is'
+);
+
+-- concat: no arguments
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":[]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '""'::jsonb,
+    'concat: no arguments should return empty string'
+);
+
+-- concat: empty strings
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["", ""]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '""'::jsonb,
+    'concat: empty strings should return empty string'
+);
+
+-- concat: integer values
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["ID-", 42]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"ID-42"'::jsonb,
+    'concat: string and integer should concatenate'
+);
+
+-- concat: float values
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Price: $", 19.99]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Price: $19.99"'::jsonb,
+    'concat: string and float should concatenate'
+);
+
+-- concat: boolean true
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Active: ", true]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Active: true"'::jsonb,
+    'concat: string and boolean true should concatenate'
+);
+
+-- concat: boolean false
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Enabled: ", false]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Enabled: false"'::jsonb,
+    'concat: string and boolean false should concatenate'
+);
+
+-- concat: null treated as empty string
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Hello", null, " World"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Hello World"'::jsonb,
+    'concat: null between strings should be treated as empty string'
+);
+
+-- concat: all nulls
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":[null, null, null]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '""'::jsonb,
+    'concat: all nulls should return empty string'
+);
+
+-- concat: date string value
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Due: ", "2026-01-15"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Due: 2026-01-15"'::jsonb,
+    'concat: date string should concatenate as text'
+);
+
+-- concat: date-time string value
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Created: ", "2026-01-15T10:30:00Z"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Created: 2026-01-15T10:30:00Z"'::jsonb,
+    'concat: date-time string should concatenate as text'
+);
+
+-- concat: using var to get string field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Name: ", {"var":"name"}]}'::jsonb,
+        '{"name": "Alice"}'::jsonb
+    ),
+    '"Name: Alice"'::jsonb,
+    'concat: var string field should concatenate'
+);
+
+-- concat: using var to get integer field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Order #", {"var":"order_id"}]}'::jsonb,
+        '{"order_id": 1234}'::jsonb
+    ),
+    '"Order #1234"'::jsonb,
+    'concat: var integer field should concatenate'
+);
+
+-- concat: using var to get null field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Value: ", {"var":"missing_field"}]}'::jsonb,
+        '{"other": 1}'::jsonb
+    ),
+    '"Value: "'::jsonb,
+    'concat: var returning null should be treated as empty string'
+);
+
+-- concat: using var to get boolean field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Status: ", {"var":"active"}]}'::jsonb,
+        '{"active": true}'::jsonb
+    ),
+    '"Status: true"'::jsonb,
+    'concat: var boolean field should concatenate'
+);
+
+-- concat: using var to get date field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Start: ", {"var":"start_date"}]}'::jsonb,
+        '{"start_date": "2026-03-01"}'::jsonb
+    ),
+    '"Start: 2026-03-01"'::jsonb,
+    'concat: var date field should concatenate'
+);
+
+-- concat: using var to get date-time field
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["At: ", {"var":"created_at"}]}'::jsonb,
+        '{"created_at": "2026-03-01T14:30:00Z"}'::jsonb
+    ),
+    '"At: 2026-03-01T14:30:00Z"'::jsonb,
+    'concat: var date-time field should concatenate'
+);
+
+-- concat: multiple types mixed
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["User ", {"var":"name"}, " (ID:", {"var":"id"}, ") active=", {"var":"active"}]}'::jsonb,
+        '{"name": "Bob", "id": 7, "active": false}'::jsonb
+    ),
+    '"User Bob (ID:7) active=false"'::jsonb,
+    'concat: mixed types from var should concatenate correctly'
+);
+
+-- concat: null var fields mixed with values
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":[{"var":"first"}, " ", {"var":"middle"}, " ", {"var":"last"}]}'::jsonb,
+        '{"first": "John", "middle": null, "last": "Doe"}'::jsonb
+    ),
+    '"John  Doe"'::jsonb,
+    'concat: null var field in middle should be empty string'
+);
+
+-- concat: with set_record - load module and concat fields
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"concat":["Module: ", {"var":"mod.module_name"}]}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Module: CRM"'::jsonb,
+    'concat: with set_record should concat module fields'
+);
+
+-- concat: nested in if condition
+SELECT is(
+    evaluate_json_logic(
+        '{"if":[true, {"concat":["Yes: ", 42]}, "no"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Yes: 42"'::jsonb,
+    'concat: nested in if should work'
+);
+
+-- concat: with computed argument
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Sum is ", {"+":[1, 2, 3]}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Sum is 6"'::jsonb,
+    'concat: with computed argument should work'
+);
+
+-- concat: with negative number
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Balance: ", -100]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Balance: -100"'::jsonb,
+    'concat: negative number should concatenate'
+);
+
+-- concat: with zero
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Count: ", 0]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Count: 0"'::jsonb,
+    'concat: zero should concatenate (not be treated as empty)'
+);
+
+-- concat: with false (should not be treated as empty)
+SELECT is(
+    evaluate_json_logic(
+        '{"concat":["Flag: ", false, " done"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    '"Flag: false done"'::jsonb,
+    'concat: false should concatenate (not be treated as empty)'
 );
 
 SELECT * FROM finish();
