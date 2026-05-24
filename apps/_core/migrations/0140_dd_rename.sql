@@ -355,9 +355,19 @@ BEGIN
     -- A) Handle field_name rename
     -- --------------------------------------------------
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
-        -- Core fields cannot be renamed
+        -- Core fields cannot be renamed, except the label column
         IF OLD.is_core THEN
-            RAISE EXCEPTION 'Cannot rename core system field "%"', OLD.field_name;
+            IF OLD.ctype = 'label' THEN
+                -- Label column rename is allowed; update entities.label_column to match
+                UPDATE entities
+                   SET label_column = NEW.field_name
+                 WHERE table_name = OLD.table_name
+                   AND label_column = OLD.field_name;
+                RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
+                    OLD.field_name, NEW.field_name, OLD.table_name;
+            ELSE
+                RAISE EXCEPTION 'Cannot rename core system field "%"', OLD.field_name;
+            END IF;
         END IF;
 
         IF v_is_managed THEN
