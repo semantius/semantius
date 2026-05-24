@@ -657,6 +657,28 @@ BEGIN
         END IF;
     END IF;
 
+    -- ===================== concat =====================
+    -- Concatenates all arguments into a single string.
+    -- Like SQL CONCAT: NULL/null → empty string, accepts all types.
+    -- Non-string types are converted via their JSON text representation.
+    -- Usage: {"concat":["Hello ", {"var":"name"}, " #", {"var":"id"}]}
+    IF op = 'concat' THEN
+        txt_a := '';
+        FOR i IN 0 .. arr_len - 1 LOOP
+            elem := vals -> i;
+            IF elem IS NULL OR jsonb_typeof(elem) = 'null' THEN
+                -- NULL/null → empty string
+                CONTINUE;
+            ELSIF jsonb_typeof(elem) = 'string' THEN
+                txt_a := txt_a || (elem #>> '{}');
+            ELSE
+                -- numbers, booleans, arrays, objects → JSON text
+                txt_a := txt_a || elem::text;
+            END IF;
+        END LOOP;
+        RETURN to_jsonb(txt_a);
+    END IF;
+
     -- ===================== throw_error =====================
     -- Raises an exception with the given message.
     -- Usage: {"throw_error":"message"}
