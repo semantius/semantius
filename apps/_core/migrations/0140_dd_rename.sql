@@ -189,6 +189,23 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, NEW.table_name);
 
+            -- Rename queue event triggers on the entity table.
+            -- Pattern: queue_<queue_name>_<handler>_on_<old_table>
+            FOR v_old_name IN
+                SELECT t.tgname
+                FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                WHERE c.relname = NEW.table_name
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND t.tgname LIKE ('%\_on\_' || OLD.table_name) ESCAPE '\'
+                  AND t.tgname LIKE 'queue\_%' ESCAPE '\'
+            LOOP
+                v_new_name := substring(v_old_name FROM 1 FOR length(v_old_name) - length(OLD.table_name))
+                              || NEW.table_name;
+                EXECUTE format('ALTER TRIGGER %I ON %I RENAME TO %I',
+                    v_old_name, NEW.table_name, v_new_name);
+            END LOOP;
+
         END IF;
     END IF;
 
@@ -200,8 +217,8 @@ COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
-unique indexes, compute_validate function, and select_rule function.  Sets a
-transaction-local session variable so the cascaded update to fields.table_name is
+unique indexes, compute_validate function, select_rule function, and queue event triggers.
+Sets a transaction-local session variable so the cascaded update to fields.table_name is
 allowed by update_dd_field without raising an exception.';
 
 -- Apply trigger BEFORE UPDATE on entities (only when table_name changes)
@@ -657,7 +674,7 @@ BEGIN
 
                 -- Add foreign key constraint
                 v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     NEW.table_name,
                     v_fk_name,
                     NEW.field_name,

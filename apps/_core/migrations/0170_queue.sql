@@ -157,6 +157,10 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        -- Allow when this is a cascade triggered by rename_dd_table()
+        IF current_setting('dd.table_rename', TRUE) = OLD.table_name || ':' || NEW.table_name THEN
+            RETURN NEW;
+        END IF;
         RAISE EXCEPTION 'Cannot change table_name on a queue table event';
     END IF;
     RETURN NEW;

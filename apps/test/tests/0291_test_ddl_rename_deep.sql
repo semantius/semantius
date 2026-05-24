@@ -17,7 +17,7 @@
 --   5. Insert a second record per table (proves triggers & policies still work)
 BEGIN;
 
-SELECT plan(43);
+SELECT plan(46);
 
 SELECT authenticate_as('user3');
 
@@ -103,6 +103,21 @@ VALUES ('rn_nephews', 'parent_ref', 'Parent Ref', 'reference', 'rn_parents', 're
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, default_value)
 VALUES ('rn_nephews', 'parent_title', 'Parent Title', 'text', 30, 'readonly', 'default', '');
+
+-- =====================================================
+-- STEP 1c: Create a queue with an event on rn_parents
+-- =====================================================
+-- This tests that queue_table_events.table_name (FK to entities)
+-- is cascaded via ON UPDATE CASCADE, and queue triggers are renamed.
+
+INSERT INTO queues (queue_name) VALUES ('rn_test_queue');
+
+INSERT INTO queue_table_events (queue_id, table_name, event_handler)
+VALUES (
+    (SELECT id FROM queues WHERE queue_name = 'rn_test_queue'),
+    'rn_parents',
+    'change'
+);
 
 -- =====================================================
 -- STEP 2: Insert one record per table, verify existence
@@ -393,6 +408,36 @@ SELECT ok(
 SELECT ok(
     NOT ((SELECT computed_fields::text FROM entities WHERE table_name = 'rn_nephews') LIKE '%rn_parents%'),
     'nephews: computed_fields should NOT contain rn_parents'
+);
+
+-- 4l. queue_table_events.table_name cascaded via ON UPDATE CASCADE
+SELECT is(
+    (SELECT table_name FROM queue_table_events
+     WHERE queue_id = (SELECT id FROM queues WHERE queue_name = 'rn_test_queue')),
+    'rn_eltern',
+    'queue_table_events: table_name cascaded to rn_eltern'
+);
+
+-- 4m. queue trigger on entity table renamed
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relname = 'rn_eltern'
+          AND c.relnamespace = 'public'::regnamespace
+          AND t.tgname LIKE 'queue_%_on_rn_eltern'
+    ),
+    'queue trigger renamed to match rn_eltern'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        WHERE c.relnamespace = 'public'::regnamespace
+          AND t.tgname LIKE 'queue_%_on_rn_parents'
+    ),
+    'no queue trigger should reference rn_parents'
 );
 
 -- =====================================================

@@ -536,8 +536,10 @@ BEGIN
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         
         -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
+        -- ON UPDATE CASCADE enables automatic cascading when a referenced TEXT PK
+        -- (e.g. entities.table_name) is renamed. For INTEGER PKs it has no effect.
         v_alter_sql := format(
-            'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+            'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
             NEW.table_name,
             v_fk_name,
             NEW.field_name,
@@ -822,7 +824,7 @@ BEGIN
                 
                 -- Add foreign key constraint
                 v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     NEW.table_name,
                     v_fk_name,
                     NEW.field_name,
