@@ -179,6 +179,33 @@ BEGIN
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
+            -- Drop old compute_validate function (CASCADE drops its trigger too).
+            -- The AFTER trigger manage_record_logic_trigger will rebuild it under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
+                'compute_validate_' || OLD.table_name);
+
+            -- Drop old select_rule function (CASCADE drops the policy that uses it).
+            -- The AFTER trigger manage_select_rule_policy will rebuild it under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
+                'select_rule_' || OLD.table_name, NEW.table_name);
+
+            -- Rename queue event triggers on the entity table.
+            -- Pattern: queue_<queue_name>_<handler>_on_<old_table>
+            FOR v_old_name IN
+                SELECT t.tgname
+                FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                WHERE c.relname = NEW.table_name
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND t.tgname LIKE ('%\_on\_' || OLD.table_name) ESCAPE '\'
+                  AND t.tgname LIKE 'queue\_%' ESCAPE '\'
+            LOOP
+                v_new_name := substring(v_old_name FROM 1 FOR length(v_old_name) - length(OLD.table_name))
+                              || NEW.table_name;
+                EXECUTE format('ALTER TRIGGER %I ON %I RENAME TO %I',
+                    v_old_name, NEW.table_name, v_new_name);
+            END LOOP;
+
         END IF;
     END IF;
 
@@ -190,8 +217,9 @@ COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
-and unique indexes.  Sets a transaction-local session variable so the cascaded update to
-fields.table_name is allowed by update_dd_field without raising an exception.';
+unique indexes, compute_validate function, select_rule function, and queue event triggers.
+Sets a transaction-local session variable so the cascaded update to fields.table_name is
+allowed by update_dd_field without raising an exception.';
 
 -- Apply trigger BEFORE UPDATE on entities (only when table_name changes)
 CREATE TRIGGER rename_table_trigger
@@ -240,6 +268,61 @@ CREATE TRIGGER rename_reference_tables_trigger
 
 COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
 'Updates fields.reference_table and rebuilds FK constraints when entities.table_name is renamed';
+
+-- =====================================================
+-- STEP 2c: TRIGGER FUNCTION: CASCADE set_record entity refs ON entities.table_name UPDATE
+-- =====================================================
+-- Fires AFTER UPDATE on entities when table_name changes.
+-- Scans all entities for JsonLogic set_record references to the old table name
+-- in computed_fields, validation_rules, and select_rule, and replaces them with
+-- the new name via simple text replacement on the JSONB.
+
+CREATE OR REPLACE FUNCTION rename_dd_jsonlogic_refs()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_quoted TEXT;
+    v_new_quoted TEXT;
+BEGIN
+    v_old_quoted := '"' || OLD.table_name || '"';
+    v_new_quoted := '"' || NEW.table_name || '"';
+
+    -- Update set_record entity name references in computed_fields
+    UPDATE entities
+    SET computed_fields = replace(computed_fields::text, v_old_quoted, v_new_quoted)::jsonb
+    WHERE computed_fields::text LIKE '%set_record%'
+      AND computed_fields::text LIKE '%' || v_old_quoted || '%';
+
+    -- Update set_record entity name references in validation_rules
+    UPDATE entities
+    SET validation_rules = replace(validation_rules::text, v_old_quoted, v_new_quoted)::jsonb
+    WHERE validation_rules::text LIKE '%set_record%'
+      AND validation_rules::text LIKE '%' || v_old_quoted || '%';
+
+    -- Update set_record entity name references in select_rule
+    UPDATE entities
+    SET select_rule = replace(select_rule::text, v_old_quoted, v_new_quoted)::jsonb
+    WHERE select_rule::text LIKE '%set_record%'
+      AND select_rule::text LIKE '%' || v_old_quoted || '%';
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION rename_dd_jsonlogic_refs IS
+'AFTER UPDATE trigger on entities: when table_name changes, updates set_record entity
+name references in computed_fields, validation_rules, and select_rule across ALL entities
+that contain the old table name.';
+
+REVOKE EXECUTE ON FUNCTION rename_dd_jsonlogic_refs() FROM PUBLIC;
+
+CREATE TRIGGER rename_jsonlogic_refs_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_jsonlogic_refs();
+
+COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
+'Updates set_record entity name references in JsonLogic rules when entities.table_name is renamed';
 
 -- =====================================================
 -- STEP 3: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
@@ -591,7 +674,7 @@ BEGIN
 
                 -- Add foreign key constraint
                 v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     NEW.table_name,
                     v_fk_name,
                     NEW.field_name,

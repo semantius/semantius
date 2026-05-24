@@ -185,7 +185,8 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields
            OR OLD.validation_rules IS DISTINCT FROM NEW.validation_rules
-           OR OLD.managed IS DISTINCT FROM NEW.managed THEN
+           OR OLD.managed IS DISTINCT FROM NEW.managed
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_record_logic_trigger(NEW.table_name);
         END IF;
         RETURN NEW;
@@ -327,7 +328,8 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
            OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
-           OR OLD.managed IS DISTINCT FROM NEW.managed THEN
+           OR OLD.managed IS DISTINCT FROM NEW.managed
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_select_rule_policy(NEW.table_name);
         END IF;
         RETURN NEW;

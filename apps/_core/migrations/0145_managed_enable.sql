@@ -114,7 +114,7 @@ BEGIN
 
             BEGIN
                 EXECUTE format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     p_field.table_name, v_fk_name, p_field.field_name,
                     p_field.reference_table, v_ref_id_column, v_on_delete
                 );
@@ -519,7 +519,7 @@ BEGIN
                 END IF;
 
                 v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s',
+                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     NEW.table_name, v_fk_name, NEW.field_name,
                     NEW.reference_table, v_ref_id_column, v_on_delete
                 );
