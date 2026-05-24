@@ -17,7 +17,7 @@
 --   5. Insert a second record per table (proves triggers & policies still work)
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(43);
 
 SELECT authenticate_as('user3');
 
@@ -250,16 +250,31 @@ SELECT is(
     'entities row exists for rn_eltern after rename'
 );
 
--- 4d. fields metadata cascaded
+-- 4d. fields metadata cascaded: table_name column updated
 SELECT is(
     (SELECT count(*)::integer FROM fields WHERE table_name = 'rn_parents'),
     0,
     'No fields rows for rn_parents after rename'
 );
 
-SELECT ok(
-    (SELECT count(*) FROM fields WHERE table_name = 'rn_eltern') > 0,
-    'fields rows exist for rn_eltern after rename'
+-- Exact count: id, parent_name, family_ref, full_title, created_at, updated_at = 6
+SELECT is(
+    (SELECT count(*)::integer FROM fields WHERE table_name = 'rn_eltern'),
+    6,
+    'Exactly 6 fields rows should reference rn_eltern after rename'
+);
+
+-- 4d2. fields.id (generated PK = table_name.field_name) must also update
+SELECT is(
+    (SELECT count(*)::integer FROM fields WHERE id LIKE 'rn_parents.%'),
+    0,
+    'No fields.id should start with rn_parents. after rename'
+);
+
+SELECT is(
+    (SELECT count(*)::integer FROM fields WHERE id LIKE 'rn_eltern.%'),
+    6,
+    'Exactly 6 fields.id should start with rn_eltern. after rename'
 );
 
 -- 4e. Cross-table reference_table updated (children.parent_ref → rn_eltern)
@@ -327,6 +342,11 @@ SELECT is_empty(
     FROM   pg_proc p
     WHERE  p.pronamespace = 'public'::regnamespace
       AND  p.proname LIKE '%rn\_parents%' ESCAPE '\'
+    UNION ALL
+    SELECT 'pg_indexes: ' || indexname
+    FROM   pg_indexes
+    WHERE  schemaname = 'public'
+      AND  indexname LIKE '%rn\_parents%' ESCAPE '\'
     $$,
     'No trace of rn_parents should remain in the public schema catalog'
 );
