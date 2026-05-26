@@ -5,7 +5,7 @@ export const prerender = false;
 export async function GET() {
   const docs = await getCollection('docs').catch(() => []);
   const blog = await getCollection('blog').catch(() => []);
-  const models = await getCollection('models').catch(() => []);
+  const blueprints = await getCollection('blueprints').catch(() => []);
 
   const results = [];
 
@@ -33,13 +33,13 @@ export async function GET() {
     });
   }
 
-  for (const model of models) {
-    if (model.data?.noindex) continue;
+  for (const blueprint of blueprints) {
+    if (blueprint.data?.noindex) continue;
     results.push({
-      title: model.data.system_name,
-      description: model.data.description || '',
-      url: `/models/${model.data.system_slug}`,
-      body: model.body || ''
+      title: blueprint.data.system_name,
+      description: blueprint.data.description || '',
+      url: `/blueprints/${blueprint.data.system_slug}`,
+      body: blueprint.body || ''
     });
   }
 

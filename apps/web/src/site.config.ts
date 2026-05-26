@@ -83,7 +83,7 @@ export const NAV_LINKS = [
     label: 'Resources',
     children: [
       { href: '/skills', label: 'Skills', description: 'Agent skill library', icon: 'Wand2' },
-      { href: '/models', label: 'Semantic Models', description: 'Semantic model library', icon: 'Database' },
+      { href: '/blueprints', label: 'Semantic Blueprints', description: 'Semantic blueprint library', icon: 'Database' },
       { href: '/docs/overview', label: 'Docs', description: 'Start building today', icon: 'Book', localize: false },
       { href: '/blog', label: 'Blog', description: 'Latest updates & guides', icon: 'Newspaper' },
       { href: '/changelog', label: 'Changelog', description: 'New features & fixes', icon: 'FileClock' },

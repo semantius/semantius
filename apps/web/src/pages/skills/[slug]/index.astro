@@ -21,11 +21,11 @@ const { skill } = Astro.props;
 const slug = skill.id.split('/')[0];
 const { Content } = await render(skill);
 
-// Look up the related model to get its display name.
-let relatedModel: CollectionEntry<'models'> | undefined;
+// Look up the related blueprint to get its display name.
+let relatedBlueprint: CollectionEntry<'blueprints'> | undefined;
 if (skill.data.semantic_model) {
-	const allModels = await getCollection('models');
-	relatedModel = allModels.find((m) => m.data.system_slug === skill.data.semantic_model);
+	const allBlueprints = await getCollection('blueprints');
+	relatedBlueprint = allBlueprints.find((b) => b.data.system_slug === skill.data.semantic_model);
 }
 ---
 
@@ -46,13 +46,13 @@ if (skill.data.semantic_model) {
 			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
 				<Content />
 
-				{skill.data.semantic_model && relatedModel && (
+				{skill.data.semantic_model && relatedBlueprint && (
 					<div class="not-prose mt-6">
 						<a
-							href={`/models/${skill.data.semantic_model}`}
+							href={`/blueprints/${skill.data.semantic_model}`}
 							class="text-sm text-primary hover:text-primary/80 font-medium"
 						>
-							Learn more about the {relatedModel.data.system_name} semantic model &rarr;
+							Learn more about the {relatedBlueprint.data.system_name} semantic blueprint &rarr;
 						</a>
 					</div>
 				)}

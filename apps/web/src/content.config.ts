@@ -56,17 +56,17 @@ const changelogCollection = defineCollection({
     }),
 });
 
-// Wraps the standard `glob` loader to enrich each model entry with values
+// Wraps the standard `glob` loader to enrich each blueprint entry with values
 // derived from the markdown body once at collection-build time, instead of
 // re-extracting them on every page render. Pages just read `data.overview` and
 // `data.subsetHtml` like any other frontmatter field.
-// Models live at /models in the repo root (two levels above apps/web).
-const baseModelsGlob = glob({ pattern: '**/*.{md,mdx}', base: '../../models' });
-const modelsCollection = defineCollection({
+// Blueprints live at /blueprints in the repo root (two levels above apps/web).
+const baseBlueprintsGlob = glob({ pattern: '**/*.{md,mdx}', base: '../../blueprints' });
+const blueprintsCollection = defineCollection({
     loader: {
-        name: 'models',
+        name: 'blueprints',
         load: async (ctx) => {
-            await baseModelsGlob.load(ctx);
+            await baseBlueprintsGlob.load(ctx);
             for (const [id, entry] of ctx.store.entries()) {
                 const e = entry as {
                     body?: string;
@@ -101,13 +101,15 @@ const modelsCollection = defineCollection({
     },
     schema: z.object({
         artifact: z.string().optional(),
+        fact_sheet_version: z.string().optional(),
         system_name: z.string(),
         system_slug: z.string(),
-        domain: z.string().optional(),
-        naming_mode: z.string().optional(),
+        system_description: z.string().optional(),
+        domain_code: z.string().optional(),
+        domain_modules: z.array(z.string()).optional(),
+        related_modules: z.array(z.string()).optional(),
         created_at: z.coerce.date(),
         description: z.string().optional(),
-        initial_request: z.string().optional(),
         noindex: z.boolean().optional().default(false),
         nofollow: z.boolean().optional().default(false),
         // Derived by the loader from the markdown body.
@@ -191,6 +193,6 @@ export const collections = {
 	'blog': blogCollection,
     'docs': docsCollection,
     'changelog': changelogCollection,
-    'models': modelsCollection,
+    'blueprints': blueprintsCollection,
     'skills': skillsCollection,
 };

@@ -6,13 +6,13 @@ import { getCollection } from 'astro:content';
 export const prerender = true;
 
 export async function getStaticPaths() {
-  const models = await getCollection('models');
-  return models.map((model) => ({ params: { id: model.id } }));
+  const blueprints = await getCollection('blueprints');
+  return blueprints.map((blueprint) => ({ params: { id: blueprint.id } }));
 }
 
 export const GET: APIRoute = ({ params }) => {
-  // Models live at /models in the repo root (two levels above apps/web).
-  const filePath = path.resolve('../../models', `${params.id}.md`);
+  // Blueprints live at /blueprints in the repo root (two levels above apps/web).
+  const filePath = path.resolve('../../blueprints', `${params.id}.md`);
   const body = fs.readFileSync(filePath, 'utf-8');
   return new Response(body, {
     headers: { 'Content-Type': 'text/markdown; charset=utf-8' },

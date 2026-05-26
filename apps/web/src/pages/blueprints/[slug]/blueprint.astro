@@ -4,7 +4,7 @@ import { type CollectionEntry, getCollection, render } from 'astro:content';
 import Layout from '~/layouts/Layout.astro';
 
 export async function getStaticPaths() {
-	const specs = await getCollection('models');
+	const specs = await getCollection('blueprints');
 	return specs.map((spec) => ({
 		params: { slug: spec.data.system_slug },
 		props: { spec },
@@ -12,7 +12,7 @@ export async function getStaticPaths() {
 }
 
 interface Props {
-	spec: CollectionEntry<'models'>;
+	spec: CollectionEntry<'blueprints'>;
 }
 
 const { spec } = Astro.props;
@@ -22,8 +22,8 @@ const systemName = spec.data.system_name;
 ---
 
 <Layout
-	title={`${systemName} — Model`}
-	description={spec.data.description ?? `Semantic data model for ${systemName}.`}
+	title={`${systemName} — Blueprint`}
+	description={spec.data.description ?? `Semantic data blueprint for ${systemName}.`}
 	noindex={spec.data.noindex}
 	nofollow={spec.data.nofollow}
 >
@@ -31,14 +31,14 @@ const systemName = spec.data.system_name;
 		<div class="max-w-3xl mx-auto px-6">
 			<div class="mb-6 flex items-center justify-between gap-3">
 				<a
-					href={`/models/${spec.data.system_slug}`}
+					href={`/blueprints/${spec.data.system_slug}`}
 					class="text-sm text-muted-foreground hover:text-primary"
 				>
 					&larr; {systemName}
 				</a>
 				<div class="flex items-center gap-2">
 					<a
-						href={`https://github.com/semantius/semantius/blob/main/models/${spec.id}.md`}
+						href={`https://github.com/semantius/semantius/blob/main/blueprints/${spec.id}.md`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="inline-flex items-center gap-1.5 rounded-full border border-primary px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-white"
@@ -49,7 +49,7 @@ const systemName = spec.data.system_name;
 						Review
 					</a>
 					<a
-						href={`/models/${spec.id}.md`}
+						href={`/blueprints/${spec.id}.md`}
 						download
 						class="inline-flex items-center gap-1.5 rounded-full border border-primary px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-primary hover:text-white"
 					>
