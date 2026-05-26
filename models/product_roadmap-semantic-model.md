@@ -1,12 +1,12 @@
 ---
 artifact: semantic-model
-version: "2.2"
+version: "3.6"
 system_name: Product Roadmap
 system_description: Feature Pipeline & Releases
 system_slug: product_roadmap
 domain: Product Management
 naming_mode: agent-optimized
-created_at: 2026-05-12
+created_at: 2026-05-17
 entities:
   - objectives
   - features
@@ -23,6 +23,8 @@ related_domains:
   - CRM
   - Identity & Access
   - Budgeting
+  - Customer Feedback
+  - Product Analytics
 departments:
   - Product
 initial_request: |
@@ -52,26 +54,29 @@ A single-product roadmap planning system. Product managers capture incoming feat
 
 ```mermaid
 flowchart LR
-    objectives -->|rolls up| features
+    classDef builtin fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1a4d2e;
+    objectives -->|drives| features
     releases -->|contains| features
     users -->|owns| objectives
     users -->|owns| features
     users -->|requests| features
     users -->|authors| feature_comments
     features -->|collects| feature_comments
-    features -->|collects votes via| feature_votes
+    features -->|collects| feature_votes
     users -->|casts| feature_votes
-    features -->|has tags via| feature_tags
-    tags -->|links features via| feature_tags
+    features -->|is tagged through| feature_tags
+    tags -->|categorizes through| feature_tags
+    class users builtin;
 ```
 
 ### Permissions summary
 
-| Permission | Type | Description | Used by | Hierarchy parent |
+| Permission | Type | Description | Used by | Included in |
 |---|---|---|---|---|
 | `product_roadmap:read` | baseline-read | Read access to every entity in the module. Typically: every user of the module. | every entity (`view_permission`) | — |
 | `product_roadmap:manage` | baseline-manage | Edit operational records: objectives, features, releases, votes, comments, and feature-tag links. Typically: product managers, owners, contributors. | `objectives`, `features`, `users`, `releases`, `feature_votes`, `feature_comments`, `feature_tags` (`edit_permission`) | `product_roadmap:admin` |
-| `product_roadmap:admin` | baseline-admin | Edit reference/config data (the tag catalog) and inherit every operational write. Typically: roadmap administrators, leadership. | `tags` (`edit_permission`) | — |
+| `product_roadmap:admin` | baseline-admin | Edit reference/config data (the tag catalog) and inherit every operational write plus every workflow permission. Typically: roadmap administrators, leadership. | `tags` (`edit_permission`); rollup target for `product_roadmap:release_release` | — |
+| `product_roadmap:release_release` | workflow | Mark a release as released. Typically: release managers, product leads. | `releases` rule `release_requires_release_permission` (`require_permission`) | `product_roadmap:admin` |
 
 ## 3. Entities
 
@@ -89,14 +94,14 @@ flowchart LR
 | `objective_name` | `string` | yes | Name |  | label_column |
 | `objective_description` | `multiline` | no | Description |  |  |
 | `objective_period` | `string` | no | Period | Freeform period label, e.g. `Q2 2026`, `FY26` |  |
-| `objective_status` | `enum` | yes | Status |  | values: `proposed`, `active`, `achieved`, `missed`, `cancelled`; default: "proposed" |
-| `target_metric` | `string` | no | Target Metric |  | freeform |
+| `objective_status` | `enum` | yes | Status |  | values: `proposed`, `active`, `achieved`, `missed`, `cancelled`; default: "active" |
+| `target_metric` | `string` | no | Target Metric |  |  |
 | `objective_owner_id` | `reference` | no | Owner |  | → `users` (N:1), relationship_label: "owns" |
 
 **Relationships**
 
 - An `objective` may have one `objective_owner` (N:1 → `users`).
-- An `objective` rolls up many `features` (1:N, via `features.objective_id`).
+- An `objective` drives many `features` (1:N, via `features.objective_id`).
 
 **Validation rules**
 
@@ -123,7 +128,7 @@ flowchart LR
 [
   {
     "field": "objective_status",
-    "description": "Once an objective is closed (achieved / missed / cancelled), its status is read-only.",
+    "description": "Once an objective is closed (achieved, missed, or cancelled), its status is read-only.",
     "jsonlogic": {
       "if": [
         { "in": [{ "var": "objective_status" }, ["achieved", "missed", "cancelled"]] },
@@ -142,7 +147,7 @@ flowchart LR
 **Plural label:** Features
 **Label column:** `feature_title`
 **Audit log:** yes
-**Description:** The central roadmap entity. Anything that lands on the roadmap is a feature, distinguished by its Type (new feature, enhancement, change request, bug, tech debt). Carries RICE scoring, status, source, target dates, and a target release once committed. A feature is considered committed once its Status reaches `planned`, `in_progress`, or `shipped`. Both target and actual start/completion dates are tracked so the team can measure plan-vs-actual cycle time.
+**Description:** The central roadmap entity. Anything that lands on the roadmap is a feature, distinguished by its Type (new feature, enhancement, change request, bug, tech debt). Carries RICE scoring, status, source, target dates, and a target release once committed. A feature is considered committed once it has been planned, started, or shipped. Both target and actual start/completion dates are tracked so the team can measure plan-vs-actual cycle time. Once a feature is attached to a released release, the feature record is frozen as part of the immutable historical record of what shipped.
 
 **Fields**
 
@@ -154,7 +159,7 @@ flowchart LR
 | `feature_status` | `enum` | yes | Status |  | values: `new`, `under_review`, `planned`, `in_progress`, `shipped`, `declined`, `parked`; default: "new" |
 | `feature_priority` | `enum` | no | Priority |  | values: `critical`, `high`, `medium`, `low`; default: "medium" |
 | `feature_source` | `enum` | no | Source |  | values: `unspecified`, `customer`, `support`, `sales`, `internal`, `partner`; default: "unspecified" |
-| `objective_id` | `reference` | no | Objective |  | → `objectives` (N:1), relationship_label: "rolls up" |
+| `objective_id` | `reference` | no | Objective |  | → `objectives` (N:1), relationship_label: "drives" |
 | `release_id` | `reference` | no | Release |  | → `releases` (N:1), relationship_label: "contains" |
 | `requester_id` | `reference` | no | Requester |  | → `users` (N:1), relationship_label: "requests" |
 | `owner_id` | `reference` | no | Owner (PM) |  | → `users` (N:1), relationship_label: "owns" |
@@ -184,7 +189,7 @@ flowchart LR
 [
   {
     "name": "rice_score",
-    "description": "(reach × impact × confidence) / effort, null when effort is missing or 0.",
+    "description": "(reach × impact × confidence) / effort, null when effort is missing or zero.",
     "jsonlogic": {
       "if": [
         { "and": [
@@ -213,7 +218,7 @@ flowchart LR
   {
     "code": "release_only_when_committed",
     "message": "A release can only be assigned once the feature is planned, in_progress, or shipped.",
-    "description": "Commitment is derived from feature_status: planned / in_progress / shipped imply the feature is committed; release_id is only meaningful once committed.",
+    "description": "Commitment is derived from Status: planned, in_progress, or shipped imply the feature is committed; Release is only meaningful once committed.",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "release_id" }, null] },
@@ -224,7 +229,7 @@ flowchart LR
   {
     "code": "release_required_when_shipped",
     "message": "A shipped feature must reference the release it shipped in.",
-    "description": "Paired with release_only_when_committed: a shipped feature shipped in some release, so release_id can no longer be null at that terminal state.",
+    "description": "Paired with release_only_when_committed: a shipped feature shipped in some release, so Release can no longer be null at that terminal state.",
     "jsonlogic": {
       "or": [
         { "!=": [{ "var": "feature_status" }, "shipped"] },
@@ -241,6 +246,33 @@ flowchart LR
         { "==": [{ "var": "$old" }, null] },
         { "!=": [{ "var": "$old.feature_status" }, "shipped"] },
         { "==": [{ "var": "feature_status" }, "shipped"] }
+      ]
+    }
+  },
+  {
+    "code": "features_locked_when_release_is_released",
+    "message": "Cannot modify a feature attached to a released release.",
+    "description": "Family-14 cross-entity gate. A released release is the immutable historical record of what shipped, so its feature roster is frozen. Blocks attaching a new feature to a released release on insert; blocks any edit (including detachment) on a feature whose prior release was already in the released state.",
+    "jsonlogic": {
+      "if": [
+        { "and": [
+          { "!=": [{ "var": "release_id" }, null] },
+          { "set_record": ["new_release", "releases", { "var": "release_id" },
+            { "==": [{ "var": "new_release.release_status" }, "released"] }
+          ]}
+        ]},
+        { "throw_error": "Cannot attach a feature to a released release" },
+        { "if": [
+          { "and": [
+            { "!=": [{ "var": "$old" }, null] },
+            { "!=": [{ "var": "$old.release_id" }, null] },
+            { "set_record": ["old_release", "releases", { "var": "$old.release_id" },
+              { "==": [{ "var": "old_release.release_status" }, "released"] }
+            ]}
+          ]},
+          { "throw_error": "Cannot modify a feature on a released release" },
+          true
+        ]}
       ]
     }
   },
@@ -271,7 +303,7 @@ flowchart LR
   {
     "code": "actual_start_only_when_in_progress_or_later",
     "message": "Actual start date can only be set once the feature is in progress or shipped.",
-    "description": "actual_start_date records when work actually began; it has no domain meaning before the feature reaches in_progress.",
+    "description": "Actual Start records when work actually began; it has no domain meaning before the feature is in progress.",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "actual_start_date" }, null] },
@@ -293,7 +325,7 @@ flowchart LR
   {
     "code": "actual_completion_only_when_shipped",
     "message": "Actual completion date can only be set once the feature is shipped.",
-    "description": "actual_completion_date is the historical record of when the feature shipped; it has no domain meaning before that terminal state.",
+    "description": "Actual Completion is the historical record of when the feature shipped; it has no domain meaning before that terminal state.",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "actual_completion_date" }, null] },
@@ -304,7 +336,7 @@ flowchart LR
   {
     "code": "actual_completion_required_when_shipped",
     "message": "A shipped feature must record its actual completion date.",
-    "description": "Paired with actual_completion_only_when_shipped: at the terminal shipped state, actual_completion_date is the historical record of when the feature shipped.",
+    "description": "Paired with actual_completion_only_when_shipped: at the terminal shipped state, Actual Completion is the historical record of when the feature shipped.",
     "jsonlogic": {
       "or": [
         { "!=": [{ "var": "feature_status" }, "shipped"] },
@@ -351,7 +383,7 @@ flowchart LR
   {
     "code": "effort_score_non_negative",
     "message": "Effort must be zero or greater.",
-    "description": "RICE effort is in person-months; a negative count has no domain meaning. Zero effort is permitted (rice_score returns null in that case rather than dividing by zero).",
+    "description": "RICE effort is in person-months; a negative count has no domain meaning. Zero effort is permitted (RICE Score returns null in that case rather than dividing by zero).",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "effort_score" }, null] },
@@ -422,22 +454,21 @@ flowchart LR
 ### 3.3 `users`, User
 
 **Plural label:** Users
-**Label column:** `user_full_name`
+**Label column:** `display_name`
 **Audit log:** no
-**Description:** People who participate in the roadmap process: product managers, owners, requesters, voters, and stakeholders.
+**Description:** People who participate in the roadmap process: product managers, owners, requesters, voters, and stakeholders. Shared with the platform's user catalog.
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
-| `user_full_name` | `string` | yes | Full Name |  | label_column |
-| `user_email` | `email` | yes | Email |  | unique |
-| `user_role` | `enum` | no | Role |  | values: `admin`, `product_manager`, `engineering`, `stakeholder`, `viewer`; default: "viewer" |
-| `user_status` | `enum` | no | Status |  | values: `active`, `inactive`; default: "active" |
+| `display_name` | `string` | yes | Display Name |  | label_column |
+| `email` | `email` | yes | Email |  | unique |
+| `is_disabled` | `boolean` | no | Disabled |  |  |
 
 **Relationships**
 
-- A `user` may own many `objectives` and `features` (1:N for each, via the respective `*_owner_id` / `owner_id` field).
+- A `user` may own many `objectives` and `features` (1:N for each, via the respective `objective_owner_id` / `owner_id` field).
 - A `user` may request many `features` (1:N, via `features.requester_id`).
 - A `user` may author many `feature_comments` (1:N, via `feature_comments.author_id`).
 - `users` and `features` (voting) is M:N through the `feature_votes` junction.
@@ -455,7 +486,7 @@ flowchart LR
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
-| `release_name` | `string` | yes | Name | e.g. `v2.5`, `March 2026 Release` | label_column; unique |
+| `release_name` | `string` | yes | Name |  | label_column; unique |
 | `release_description` | `multiline` | no | Description |  |  |
 | `release_status` | `enum` | yes | Status |  | values: `planned`, `in_progress`, `released`, `cancelled`; default: "planned" |
 | `target_release_date` | `date` | no | Target Date |  |  |
@@ -473,7 +504,7 @@ flowchart LR
   {
     "code": "actual_date_only_when_released",
     "message": "Actual release date can only be set once the release status is released.",
-    "description": "actual_release_date is null until the release reaches its terminal released state.",
+    "description": "Actual Date is null until the release reaches its terminal released state.",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "actual_release_date" }, null] },
@@ -501,6 +532,21 @@ flowchart LR
         { "==": [{ "var": "$old" }, null] },
         { "!=": [{ "var": "$old.release_status" }, "released"] },
         { "==": [{ "var": "release_status" }, "released"] }
+      ]
+    }
+  },
+  {
+    "code": "release_requires_release_permission",
+    "message": "Only release managers may set a release's status to released.",
+    "description": "Transitioning a release to its terminal released state is a workflow gate restricted to holders of the release-release permission; runs in addition to the one-way-terminal rule that locks it after the fact.",
+    "jsonlogic": {
+      "if": [
+        { "and": [
+          { "value_changed": "release_status" },
+          { "==": [{ "var": "release_status" }, "released"] }
+        ] },
+        { "require_permission": "product_roadmap:release_release" },
+        true
       ]
     }
   }
@@ -543,14 +589,14 @@ flowchart LR
 **Plural label:** Feature Votes
 **Label column:** `feature_vote_label`
 **Audit log:** no
-**Description:** Junction table representing a user's vote on a feature. Supports weighted votes for stakeholder tiers. The caller must populate `feature_vote_label` on creation (e.g. `"{user_full_name} → {feature_title}"`).
+**Description:** Junction table representing a user's vote on a feature. Supports weighted votes for stakeholder tiers. The label is auto-composed at write time from the voter's display name and the feature's title. The vote's weight is the tunable strength signal. Votes are not accepted on features whose status is shipped or declined (the planning signal is moot once the decision is made).
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
-| `feature_vote_label` | `string` | yes | Label | Caller populates as `{user_full_name} → {feature_title}` | label_column |
-| `feature_id` | `parent` | yes | Feature |  | → `features` (N:1), cascade; relationship_label: "collects votes via" |
+| `feature_vote_label` | `string` | yes | Label |  | label_column; computed |
+| `feature_id` | `parent` | yes | Feature |  | → `features` (N:1), cascade; relationship_label: "collects" |
 | `user_id` | `parent` | yes | User |  | → `users` (N:1), cascade; relationship_label: "casts" |
 | `voted_at` | `date-time` | no | Voted At |  |  |
 | `vote_weight` | `integer` | no | Weight | Higher value = stronger signal | default: "1" |
@@ -560,6 +606,24 @@ flowchart LR
 - A `feature_vote` belongs to one `feature` (N:1) and one `user` (N:1).
 - Acts as the junction for the M:N relationship between `features` and `users`.
 
+**Computed fields**
+
+```json
+[
+  {
+    "name": "feature_vote_label",
+    "description": "Composed at write time from the voter's display name and the feature's title via nested cross-entity lookups.",
+    "jsonlogic": {
+      "set_record": ["voter", "users", { "var": "user_id" },
+        { "set_record": ["feature", "features", { "var": "feature_id" },
+          { "cat": [{ "var": "voter.display_name" }, " → ", { "var": "feature.feature_title" }] }
+        ]}
+      ]
+    }
+  }
+]
+```
+
 **Validation rules**
 
 ```json
@@ -567,11 +631,25 @@ flowchart LR
   {
     "code": "vote_weight_positive",
     "message": "Vote weight must be at least 1.",
-    "description": "vote_weight is documented on the Weight field as a strength signal where higher = stronger; 0 or negative weight has no domain meaning.",
+    "description": "Weight is documented as a strength signal where higher = stronger; zero or negative weight has no domain meaning.",
     "jsonlogic": {
       "or": [
         { "==": [{ "var": "vote_weight" }, null] },
         { ">=": [{ "var": "vote_weight" }, 1] }
+      ]
+    }
+  },
+  {
+    "code": "feature_votes_blocked_on_terminal_feature",
+    "message": "Votes are not accepted on shipped or declined features.",
+    "description": "Family-14 cross-entity gate. Once the parent feature reaches shipped or declined, votes and weight changes lose their planning signal; parked features remain votable so revival signal still works. Applies to both inserts and weight updates.",
+    "jsonlogic": {
+      "set_record": ["parent_feature", "features", { "var": "feature_id" },
+        { "if": [
+          { "in": [{ "var": "parent_feature.feature_status" }, ["shipped", "declined"]] },
+          { "throw_error": "Cannot vote on a shipped or declined feature" },
+          true
+        ]}
       ]
     }
   }
@@ -585,13 +663,13 @@ flowchart LR
 **Plural label:** Feature Comments
 **Label column:** `feature_comment_label`
 **Audit log:** no
-**Description:** A discussion message posted by a user on a feature. The caller must populate `feature_comment_label` on creation with a short snippet (e.g. first ~80 chars of body) for list display. Comments are collaborative: any user with `product_roadmap:manage` may edit or delete any comment.
+**Description:** A discussion message posted by a user on a feature. The label is auto-computed at write time as the first ~80 characters of the body for list display. Comments are collaborative: any user with module-edit access may edit or delete any comment. New comments are not accepted once the parent feature has shipped (the thread freezes); existing comments may still be edited for typo fixes. Declined and parked features remain open for ongoing discussion (retros, "why was this declined?").
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
-| `feature_comment_label` | `string` | yes | Label | Caller populates with first ~80 chars of the comment body for list display | label_column |
+| `feature_comment_label` | `string` | yes | Label |  | label_column; computed |
 | `feature_id` | `parent` | yes | Feature |  | → `features` (N:1), cascade; relationship_label: "collects" |
 | `author_id` | `reference` | no | Author |  | → `users` (N:1), clear; relationship_label: "authors" |
 | `feature_comment_body` | `multiline` | yes | Body |  |  |
@@ -602,6 +680,18 @@ flowchart LR
 - A `feature_comment` belongs to one `feature` (N:1, required).
 - A `feature_comment` is authored by one `user` (N:1, set null on user delete so the comment survives as orphaned).
 
+**Computed fields**
+
+```json
+[
+  {
+    "name": "feature_comment_label",
+    "description": "First 80 characters of the comment body, for list display.",
+    "jsonlogic": { "substr": [{ "var": "feature_comment_body" }, 0, 80] }
+  }
+]
+```
+
 **Validation rules**
 
 ```json
@@ -609,11 +699,28 @@ flowchart LR
   {
     "code": "author_required_on_insert",
     "message": "Author must be set when a comment is created.",
-    "description": "author_id is required on insert (caller must always set) but nullable in storage so deleted users' comments survive as orphaned records. The check fires only on INSERT ($old is null).",
+    "description": "Author is required on insert (caller must always set) but nullable in storage so comments survive when their author is deleted. The check fires only on insert.",
     "jsonlogic": {
       "or": [
         { "!=": [{ "var": "$old" }, null] },
         { "!=": [{ "var": "author_id" }, null] }
+      ]
+    }
+  },
+  {
+    "code": "feature_comments_no_new_on_shipped",
+    "message": "New comments are not accepted on shipped features.",
+    "description": "Family-14 gate, insert-only. Once a feature is shipped, the discussion thread freezes for new entries; existing comments can still be edited (typo fixes). Declined and parked features remain open for ongoing discussion.",
+    "jsonlogic": {
+      "or": [
+        { "!=": [{ "var": "$old" }, null] },
+        { "set_record": ["parent_feature", "features", { "var": "feature_id" },
+          { "if": [
+            { "==": [{ "var": "parent_feature.feature_status" }, "shipped"] },
+            { "throw_error": "Cannot post new comments on a shipped feature" },
+            true
+          ]}
+        ]}
       ]
     }
   }
@@ -628,7 +735,7 @@ flowchart LR
 **Label column:** `tag_name`
 **Audit log:** no
 **Edit permission:** admin
-**Description:** A reusable label for categorizing features (e.g. `mobile`, `enterprise`, `platform`). Typically seeded with a small set of organization-wide categories and extended occasionally by roadmap administrators.
+**Description:** A reusable label for categorizing features (e.g. mobile, enterprise, platform). Typically seeded with a small set of organization-wide categories and extended occasionally by roadmap administrators.
 
 **Fields**
 
@@ -649,20 +756,39 @@ flowchart LR
 **Plural label:** Feature Tags
 **Label column:** `feature_tag_label`
 **Audit log:** no
-**Description:** Junction table linking features to tags. The caller must populate `feature_tag_label` on creation (e.g. `"{feature_title} / {tag_name}"`).
+**Description:** Junction table linking features to tags. The label is auto-composed at write time from the feature's title and the tag's name.
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
-| `feature_tag_label` | `string` | yes | Label | Caller populates as `{feature_title} / {tag_name}` | label_column |
-| `feature_id` | `parent` | yes | Feature |  | → `features` (N:1), cascade; relationship_label: "has tags via" |
-| `tag_id` | `parent` | yes | Tag |  | → `tags` (N:1), cascade; relationship_label: "links features via" |
+| `feature_tag_label` | `string` | yes | Label |  | label_column; computed |
+| `feature_id` | `parent` | yes | Feature |  | → `features` (N:1), cascade; relationship_label: "is tagged through" |
+| `tag_id` | `reference` | yes | Tag |  | → `tags` (N:1), restrict; relationship_label: "categorizes through" |
 
 **Relationships**
 
-- A `feature_tag` belongs to one `feature` (N:1) and one `tag` (N:1).
+- A `feature_tag` belongs to one `feature` (N:1, cascade on parent delete).
+- A `feature_tag` references one `tag` (N:1, restrict on tag delete to prevent the tag catalog being silently torn down by junction churn).
 - Acts as the junction for the M:N relationship between `features` and `tags`.
+
+**Computed fields**
+
+```json
+[
+  {
+    "name": "feature_tag_label",
+    "description": "Composed at write time from the feature's title and the tag's name via nested cross-entity lookups.",
+    "jsonlogic": {
+      "set_record": ["feature", "features", { "var": "feature_id" },
+        { "set_record": ["tag", "tags", { "var": "tag_id" },
+          { "cat": [{ "var": "feature.feature_title" }, " / ", { "var": "tag.tag_name" }] }
+        ]}
+      ]
+    }
+  }
+]
+```
 
 ## 4. Relationship summary
 
@@ -678,7 +804,7 @@ flowchart LR
 | `feature_comments` | `feature_id` | `features` | N:1 | parent | cascade |
 | `feature_comments` | `author_id` | `users` | N:1 | reference | clear |
 | `feature_tags` | `feature_id` | `features` | N:1 | parent (junction) | cascade |
-| `feature_tags` | `tag_id` | `tags` | N:1 | parent (junction) | cascade |
+| `feature_tags` | `tag_id` | `tags` | N:1 | reference | restrict |
 
 ## 5. Enumerations
 
@@ -719,18 +845,7 @@ flowchart LR
 - `internal`
 - `partner`
 
-### 5.6 `users.user_role`
-- `admin`
-- `product_manager`
-- `engineering`
-- `stakeholder`
-- `viewer`
-
-### 5.7 `users.user_status`
-- `active`
-- `inactive`
-
-### 5.8 `releases.release_status`
+### 5.6 `releases.release_status`
 - `planned`
 - `in_progress`
 - `released`
@@ -748,6 +863,8 @@ flowchart LR
 | `features` | `accounts` | requests | N:1 | clear |
 | `features` | `cost_centers` | funds | N:1 | clear |
 | `cost_allocations` | `features` | is funded by | N:1 | clear |
+| `insights` | `features` | is supported by | N:1 | clear |
+| `feature_adoption_metrics` | `features` | is measured by | N:1 | clear |
 
 ## 7. Open questions
 
@@ -757,38 +874,42 @@ None.
 
 ### 7.2 🟡 Future considerations (deferred scope)
 
-- Workflow-permission scan: no workflow permissions in this rebuild; every transition is operational (any user with `product_roadmap:manage` may perform it). Should any of the following become formal gates if governance ever tightens: `release_status='released'` via `product_roadmap:release_release`; `feature_status='shipped'` via `product_roadmap:ship_feature`; or `feature_comments` author-only edits via `product_roadmap:manage_all_feature_comments`?
+- Should the platform enforce a unique (feature_id, user_id) pair on feature_votes to prevent duplicate votes per user? Currently relies on caller-side dedup.
+- Should the platform enforce a unique (feature_id, tag_id) pair on feature_tags to prevent duplicate tag assignments? Currently relies on caller-side dedup.
+- Should a feature reaching the shipped state become a formal workflow gate restricted to a dedicated "ship feature" permission, if PM authority over shipping needs to be held more tightly than the operational manage tier?
+- Should feature comments lock to author-only edits, with a manager-override permission granting unrestricted edit and delete, instead of the current explicitly-collaborative posture?
 - Should feature-level cost data be added inside this model later, or always integrated through a Budgeting sibling domain via the §6 cross-model rows?
-- Should `feature_status` values `declined` or `parked` become one-way terminal states (currently only `shipped` is) if governance ever requires an immutable rejection trail?
-- Should `release_status='cancelled'` become one-way terminal too if cancelling a release should be a permanent record?
-- Should a feature be splittable across multiple releases (e.g. phase 1 / phase 2) by promoting `features.release_id` to a `feature_releases` junction with phase metadata?
-- Should RICE estimates be tracked as a separate `estimates` entity to retain history (who scored what when, and how the score evolved), instead of living as fields on `features`?
-- Should features be linkable to specific customers/accounts via a richer `customer_requests` junction (M:N) so the team can answer "which customers asked for this and how many"? A simple N:1 `features.account_id` is already proposed as a §6 cross-model hint; the junction would be the richer M:N upgrade.
-- Should `objective_period` be promoted from a freeform string to a structured `time_periods` entity (with start/end dates and a fiscal-period type) if cross-objective period rollups, period-over-period comparisons, or period-scoped reporting become needed?
-- Should features support dependencies on other features (a `feature_dependencies` self-junction with `predecessor` / `successor` cardinality)?
-- Should `feature_source` be promoted from an enum to its own `feature_sources` entity if sources need their own metadata (URL, channel, contact person)?
-- Should attachments (mockups, specs, screenshots) be modeled as a first-class `attachments` entity linked to `features`?
-- Should `releases` carry capacity data (team capacity vs. allocated effort) to support release-load planning?
-- Should a strategic tier above `objectives` (e.g. `initiatives`) be introduced if the org begins planning multi-objective programs?
-- Should the system later support multiple products (reintroducing a `products` entity that owns objectives, features, and releases) if the company expands beyond a single product?
-- Should `feature_votes` enforce a (`feature_id`, `user_id`) uniqueness constraint at the database level so a user cannot vote twice on the same feature, or should multiple votes per user be supported as a strength signal?
+- Should the feature status values declined or parked become one-way terminal states (currently only shipped is) if governance ever requires an immutable rejection trail?
+- Should the release status cancelled become one-way terminal too if cancelling a release should be a permanent record?
+- Should new features be blocked from being filed under a missed or cancelled objective (a family-14 parent-state gate on the feature's Objective link), or should post-mortem features remain attachable to closed objectives for retrospective analysis?
+- Should tag changes be blocked once the parent feature is shipped (a family-14 gate on the feature-tag's Feature link), or should re-tagging for reporting remain open after shipping?
+- Should a feature be splittable across multiple releases (e.g. phase 1 / phase 2) by promoting the feature-to-release link from a single foreign key to a feature-releases junction with phase metadata?
+- Should RICE estimates be tracked as a separate estimates entity to retain history (who scored what when, and how the score evolved), instead of living as fields on features?
+- Should features be linkable to specific customers/accounts via a richer customer-requests junction (M:N) so the team can answer "which customers asked for this and how many"? A simple N:1 feature-to-account foreign key is already proposed as a §6 cross-model hint; the junction would be the richer M:N upgrade.
+- Should the objective Period field be promoted from a freeform string to a structured time-periods entity (with start/end dates and a fiscal-period type) if cross-objective period rollups, period-over-period comparisons, or period-scoped reporting become needed?
+- Should features support dependencies on other features (a feature-dependencies self-junction with predecessor / successor cardinality)?
+- Should the feature Source field be promoted from an enum to its own feature-sources entity if sources need their own metadata (URL, channel, contact person)?
+- Should attachments (mockups, specs, screenshots) be modeled as a first-class attachments entity linked to features?
+- Should releases carry capacity data (team capacity vs. allocated effort) to support release-load planning?
+- Should a strategic tier above objectives (e.g. initiatives) be introduced if the org begins planning multi-objective programs?
+- Should the system later support multiple products (reintroducing a products entity that owns objectives, features, and releases) if the company expands beyond a single product?
 
 ## 8. Implementation notes for the downstream agent
 
-1. Create one module named `product_roadmap` (the module name **must** equal the `system_slug` from the front-matter; do not invent a different module slug). Then iterate the §2 Permissions summary table in order: for each row, call `create_permission` with the `Permission` and `Description` columns; for each row whose `Hierarchy parent` cell is non-`—`, call `create_permission_hierarchy` with `<parent> includes <permission>`. The §2 table is the canonical permission catalog; do not re-enumerate permissions here.
+1. Create one module named `product_roadmap` (the module name **must** equal the `system_slug` from the front-matter; do not invent a different module slug). Then iterate the §2 Permissions summary table in order: for each row, call `create_permission` with the `Permission` and `Description` columns; for each row whose `Included in` cell is non-`—`, call `create_permission_hierarchy` with `including_permission_id = <Included in>.id, included_permission_id = <row's Permission>.id` (read: `<Included in>` *includes* `<row's Permission>`). The §2 table is the canonical permission catalog; do not re-enumerate permissions here.
 2. Create entities in dependency order. Recommended: `users`, `objectives`, `releases`, `tags`, `features`, `feature_votes`, `feature_comments`, `feature_tags`.
 3. For each entity: set `label_column` to the snake_case field marked as label_column in §3, pass `module_id`, `view_permission` = `product_roadmap:read`, and `edit_permission` = `product_roadmap:manage` for every entity except `tags`, which uses `edit_permission` = `product_roadmap:admin` per the §3 `**Edit permission:** admin` annotation. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
 4. For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), and for `reference` / `parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. Pass `relationship_label` from the §3 Notes column for every FK so navigation breadcrumbs and ER docs render correctly. Pass the §3 Description cell verbatim as the field's `description`. (The §3 `Required` column is analyst intent; the platform manages nullability internally.)
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column`, with `title` defaulting to `singular_label`. Every entity in this model has a label_column whose §3 Label differs from its `singular_label`, so every entity needs the fixup. After each `create_entity`, follow up with `update_field` (id passed as a **string** in the form `"{table_name}.{field_name}"`) to set the correct title:
    - `"objectives.objective_name"` → title `"Name"`
    - `"features.feature_title"` → title `"Title"`
-   - `"users.user_full_name"` → title `"Full Name"`
+   - `"users.display_name"` → title `"Display Name"`
    - `"releases.release_name"` → title `"Name"`
    - `"feature_votes.feature_vote_label"` → title `"Label"`
    - `"feature_comments.feature_comment_label"` → title `"Label"`
    - `"tags.tag_name"` → title `"Name"`
    - `"feature_tags.feature_tag_label"` → title `"Label"`
-6. **Apply each entity's computed_fields, validation_rules, and input_type_rules blocks byte-for-byte.** The JSON arrays in §3 are passed directly to `create_entity` (or `update_entity` if the entity already exists). Do not paraphrase the JsonLogic; the platform evaluates it on every INSERT/UPDATE (validation, computed) and on every form render (input_type_rules). Entities with no block (`users`, `feature_tags`) get neither argument; `tags` has none either.
-7. **Deduplicate against Semantius built-in tables.** This model declares `users` as a self-contained entity. Before creating it, inspect the live catalog: if a Semantius built-in `users` table exists, **skip the create** and reuse it as the `reference_table` target for every FK pointing to `users` (`objective_owner_id`, `requester_id`, `owner_id`, `author_id`, `feature_votes.user_id`). Only add missing fields to the reused table if they are required by this model and the addition is low-risk.
-8. **Apply §6 cross-model link suggestions.** For each row, inspect the live catalog for the target table. When present, additively create the FK column on the `From` side with `reference_table` set to the resolved table name, `reference_delete_mode` matching the row's `Delete` column, and `relationship_label` matching the row's `Verb`. Outbound rows whose `From` is a table in this model (`features → epics`, `features → accounts`, `features → cost_centers`, `releases → release_trains`) add the FK to this model's table. Inbound rows whose `From` is a sibling-owned table (`key_results → objectives`, `issues → features`, `deployments → releases`, `cost_allocations → features`) add the FK to the sibling's table at deploy time, when the sibling later arrives. If multiple candidate tables match (e.g. `accounts` / `customers` / `companies`), surface the choice to the user. If no candidate exists, silently skip; do not create a placeholder table.
-9. After creation, spot-check that `label_column` on each entity resolves to a real string field and that all `reference_table` targets exist. The junction tables (`feature_votes`, `feature_tags`) require their `*_label` field to be populated by the caller on every insert; flag this in any seed script or import flow.
+6. **Apply each entity's computed_fields, validation_rules, and input_type_rules blocks byte-for-byte.** The JSON arrays in §3 are passed directly to `create_entity` (or `update_entity` if the entity already exists). Do not paraphrase the JsonLogic; the platform evaluates it on every INSERT/UPDATE (validation, computed) and on every form render (input_type_rules). Entities with no block (`users`, `tags`) get neither argument.
+7. **Deduplicate against Semantius built-in tables.** This model declares `users` as a self-contained entity. Before creating it, inspect the live catalog: if a Semantius built-in `users` table exists, **skip the create** and reuse it as the `reference_table` target for every FK pointing to `users` (`objective_owner_id`, `requester_id`, `owner_id`, `author_id`, `feature_votes.user_id`). Only add missing fields to the reused table if they are required by this model and the addition is low-risk. The fields declared here (`display_name`, `email`, `is_disabled`) match the Semantius built-in's standard shape; no additional fields should be needed.
+8. **Apply §6 cross-model link suggestions.** For each row, inspect the live catalog for the target table. When present, additively create the FK column on the `From` side with `reference_table` set to the resolved table name, `reference_delete_mode` matching the row's `Delete` column, and `relationship_label` matching the row's `Verb`. Outbound rows whose `From` is a table in this model (`features → epics`, `features → accounts`, `features → cost_centers`, `releases → release_trains`) add the FK to this model's table. Inbound rows whose `From` is a sibling-owned table (`key_results → objectives`, `issues → features`, `deployments → releases`, `cost_allocations → features`, `insights → features`, `feature_adoption_metrics → features`) add the FK to the sibling's table at deploy time, when the sibling later arrives. If multiple candidate tables match (e.g. `accounts` / `customers` / `companies`), surface the choice to the user. If no candidate exists, silently skip; do not create a placeholder table.
+9. After creation, spot-check that `label_column` on each entity resolves to a real string field and that all `reference_table` targets exist. Verify the three junction `*_label` computed fields evaluate correctly on a sample insert (each composes its value from the parent records via cross-entity lookup).

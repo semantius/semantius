@@ -1,12 +1,12 @@
 ---
 artifact: semantic-model
-version: "2.0"
+version: "3.4"
 system_name: ATS
 system_description: Applicant Tracking System
 system_slug: ats
 domain: ATS
 naming_mode: agent-optimized
-created_at: 2026-05-12
+created_at: 2026-05-15
 entities:
   - users
   - departments
@@ -62,6 +62,9 @@ An applicant tracking system used by an in-house recruiting team to manage open 
 
 ```mermaid
 flowchart LR
+    classDef builtin fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1a4d2e;
+    classDef master fill:#d4f4dd,stroke:#27ae60,color:#1a4d2e;
+
     departments -->|has children| departments
     users -->|heads| departments
     departments -->|employs| users
@@ -87,23 +90,22 @@ flowchart LR
     users -->|approves| offers
     job_openings -->|includes| hiring_team_members
     users -->|joins| hiring_team_members
+
+    class users builtin;
+    class departments master;
 ```
 
 ### Permissions summary
 
 | Permission | Type | Description | Used by | Hierarchy parent |
 |---|---|---|---|---|
-| `ats:read` | baseline-read | Read access to every entity in the module. | every entity (`view_permission`) | `ats:manage` |
-| `ats:manage` | baseline-manage | Write access to operational entities; default `edit_permission` for entities not annotated `admin`. | `users`, `job_openings`, `candidates`, `job_applications`, `candidate_documents`, `application_notes`, `interviews`, `interview_feedback`, `offers`, `hiring_team_members` (`edit_permission`) | `ats:admin` |
-| `ats:admin` | baseline-admin | Write access to reference / config entities AND rollup target for workflow permissions. | `departments`, `application_stages`, `candidate_sources` (`edit_permission`); rolled up under for `ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback` | — |
-| `ats:interview` | workflow | Narrow write access to `interview_feedback` for users who participate in hiring panels but are not part of the core recruiting team (engineers, PMs, AEs assigned to a panel). Held alongside `ats:read`, never alone. Combined with the `feedback_write_restricted_to_interviewer` row-level rule, an `ats:interview` holder can only write scorecards where they are the assigned interviewer. | `interview_feedback` (`edit_permission`); `interview_feedback` rule `feedback_write_restricted_to_interviewer` | `ats:manage` |
-| `ats:approve_offer` | workflow | Gates the `offers.status` value_changed → `approved` transition (the budget-commitment authorization event). Granted to hiring leaders and recruiting directors with offer-approval authority. | `offers` rule `approve_offer_requires_approver_permission` | `ats:admin` |
-| `ats:manage_all_notes` | workflow | Elevated override for editing or deleting an `application_notes` row authored by another user. Granted to HR partners and hiring leads who occasionally redact or correct another author's note. | `application_notes` rule `edit_restricted_to_author_or_manager` | `ats:admin` |
-| `ats:manage_all_feedback` | workflow | Elevated override for writing or submitting an `interview_feedback` row owned by another interviewer (covers both per-row writes and the `is_submitted` lock-flip). Granted to HR / RecOps who must occasionally finalize a scorecard the original interviewer cannot submit themselves. | `interview_feedback` rules `feedback_write_restricted_to_interviewer` and `submit_feedback_restricted_to_interviewer` | `ats:admin` |
-
-The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback`) deliberately roll up under `ats:admin`, not `ats:manage`. If they rolled up under `ats:manage`, every recruiter holding the baseline `manage` permission would automatically inherit offer-approval authority and the two manager-overrides, defeating the family-12 / family-13 conditional gates.
-
-`ats:interview` rolls up under `ats:manage` in the opposite direction: it is a *narrower* tier, not an elevated one, and `ats:manage` holders should transitively pass any check `ats:interview` satisfies. External panel interviewers hold `ats:read` + `ats:interview` directly; core recruiters and hiring managers hold `ats:manage` and pick up `ats:interview` via the rollup. The row-level `feedback_write_restricted_to_interviewer` rule narrows the grant to "only your own scorecard" so an external interviewer cannot use the permission to write someone else's row.
+| `ats:read` | baseline-read | Read access to every entity in the module. Typically: every user of the ATS, including external panel interviewers. | every entity (`view_permission`, except `offers` which uses `ats:manage`) | `ats:manage` |
+| `ats:manage` | baseline-manage | Edit operational records (candidates, applications, interviews, notes, offers). Typically: recruiters, hiring managers, hiring coordinators. | `users`, `job_openings`, `candidates`, `job_applications`, `candidate_documents`, `application_notes`, `interviews`, `offers`, `hiring_team_members` (`edit_permission`); `offers` (`view_permission`); `application_notes` rule `application_notes_select_rule`; `interview_feedback` rule `interview_feedback_select_rule` (`has_permission`) | `ats:admin` |
+| `ats:admin` | baseline-admin | Edit reference and configuration data (departments, pipeline stages, sources) and inherit every workflow override. Typically: RecOps, recruiting leadership. | `departments`, `application_stages`, `candidate_sources` (`edit_permission`); rollup target for `ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback` | — |
+| `ats:interview` | workflow-narrow | Write your own interview scorecard. Typically: external panel interviewers (engineers, PMs, AEs) who do not hold full operational access. | `interview_feedback` (`edit_permission`); `interview_feedback` rule `feedback_write_restricted_to_interviewer` | `ats:manage` |
+| `ats:approve_offer` | workflow | Approve offers (move status to approved). Typically: hiring directors, recruiting leaders with offer-approval authority. | `offers` rule `approve_offer_requires_approver_permission` | `ats:admin` |
+| `ats:manage_all_notes` | workflow | Edit or delete any application note, including notes authored by other users. Typically: HR partners, hiring leads. | `application_notes` rule `edit_restricted_to_author_or_manager`; `application_notes` rule `application_notes_select_rule` (`has_permission`) | `ats:admin` |
+| `ats:manage_all_feedback` | workflow | Write or submit any interview scorecard, including those owned by other interviewers. Typically: HR, RecOps. | `interview_feedback` rules `feedback_write_restricted_to_interviewer` and `submit_feedback_restricted_to_interviewer` | `ats:admin` |
 
 ## 3. Entities
 
@@ -119,12 +121,12 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
 | `display_name` | `string` | yes | Display Name |  | label_column |
-| `email_address` | `email` | yes | Email |  | unique |
+| `email` | `email` | yes | Email |  | unique |
 | `first_name` | `string` | no | First Name |  |  |
 | `last_name` | `string` | no | Last Name |  |  |
 | `job_title` | `string` | no | Job Title | This user's own job title at the company |  |
 | `department_id` | `reference` | no | Department |  | → `departments` (N:1, clear), relationship_label: "employs" |
-| `is_active` | `boolean` | yes | Active |  | default: "true" |
+| `is_disabled` | `boolean` | yes | Disabled |  | default: "false" |
 
 **Relationships**
 
@@ -141,6 +143,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Label column:** `department_name`
 **Audit log:** no
 **Edit permission:** admin
+**Shared master cluster:** organization
 **Description:** An organizational unit that owns one or more job openings. Supports an optional parent-child hierarchy so business units can contain sub-teams.
 
 **Fields**
@@ -184,7 +187,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Job Openings
 **Label column:** `job_title`
 **Audit log:** yes  _(status changes and salary band updates are subject to dispute; keep a history)_
-**Description:** A specific position the company is hiring for. Created in draft, opened for applications, then transitions through `on_hold` / `filled` / `closed` / `cancelled`. Has one hiring manager and an optional lead recruiter; additional team members are tracked via `hiring_team_members`.
+**Description:** A specific position the company is hiring for. Created as a draft, opened for applications, then transitions through on-hold, filled, closed, or cancelled. Has one hiring manager and an optional lead recruiter; additional team members are tracked through the hiring team members junction.
 
 **Fields**
 
@@ -286,7 +289,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "filled_status_requires_filled_at",
     "message": "A filled requisition must have a filled date.",
-    "description": "Once a requisition reaches the `filled` status, the fill date is required for reporting and audit.",
+    "description": "Once a requisition reaches the filled status, the fill date is required for reporting and audit.",
     "jsonlogic": {
       "or": [
         {"!=": [{"var": "status"}, "filled"]},
@@ -308,6 +311,24 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {
+    "field": "filled_at",
+    "description": "Filled date is hidden until the requisition reaches filled, then required so the audit trail captures the fill event.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "status"}, "filled"]},
+        "required",
+        "hidden"
+      ]
+    }
+  }
+]
+```
+
 ---
 
 ### 3.4 `application_stages`, Application Stage
@@ -316,7 +337,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Label column:** `stage_name`
 **Audit log:** no
 **Edit permission:** admin
-**Description:** A configurable step in the application pipeline. Stages are shared across all job openings (single global pipeline assumption; see §7.2). `stage_order` controls sort; `stage_category` groups stages so reports and downstream logic can reason about pipeline phase without parsing names.
+**Description:** A configurable step in the application pipeline. Stages are shared across all job openings (single global pipeline assumption; see §7.2). Stage order controls sort; stage category groups stages so reports and downstream logic can reason about pipeline phase without parsing names.
 
 **Fields**
 
@@ -363,7 +384,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Candidates
 **Label column:** `full_name`
 **Audit log:** yes  _(personal data subject to GDPR / data-subject access requests; preserve a change history)_
-**Description:** A person in the talent pool. A candidate exists independently of any specific job and may have multiple `job_applications` over time. Identity is loosely keyed on `email_address` (unique when present); duplicates are detected at the recruiter's discretion.
+**Description:** A person in the talent pool. A candidate exists independently of any specific job and may have multiple job applications over time. Identity is loosely keyed on email address (unique when present); duplicates are detected at the recruiter's discretion.
 
 **Fields**
 
@@ -398,7 +419,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Job Applications
 **Label column:** `application_label`
 **Audit log:** yes  _(stage transitions and status changes are central to the audit trail of a hiring decision)_
-**Description:** The central pipeline record: a specific candidate applying to a specific job opening, currently sitting at one application stage. Created when a candidate applies (or when a recruiter pulls them into a role) and progresses through stages until terminal status (`hired`, `rejected`, `withdrawn`). Applications survive job closure (the `job_opening_id` reference uses `restrict`). The `application_label` label column is caller-composed on insert, e.g. `"{candidate.full_name} → {job_opening.job_title}"`.
+**Description:** The central pipeline record: a specific candidate applying to a specific job opening, currently sitting at one application stage. Created when a candidate applies (or when a recruiter pulls them into a role) and progresses through stages until terminal status (hired, rejected, withdrawn). Applications survive job closure (the job-opening reference uses restrict). The application label is auto-composed by the platform from the candidate's full name and the job opening's title.
 
 **Fields**
 
@@ -425,6 +446,24 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 - A `job_application` may be assigned to one `user` recruiter (N:1, optional, clear).
 - A `job_application` has many `application_notes`, `interviews`, and `offers` linked back via FK (1:N for each; see §4 for the per-FK delete mode).
 
+**Computed fields**
+
+```json
+[
+  {
+    "name": "application_label",
+    "description": "Auto-composes the label from the candidate's full name and the job opening's title on every write.",
+    "jsonlogic": {
+      "set_record": ["c", "candidates", {"var": "candidate_id"}, {
+        "set_record": ["j", "job_openings", {"var": "job_opening_id"}, {
+          "cat": [{"var": "c.full_name"}, " → ", {"var": "j.job_title"}]
+        }]
+      }]
+    }
+  }
+]
+```
+
 **Validation rules**
 
 ```json
@@ -432,7 +471,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "rejected_status_requires_rejected_at",
     "message": "A rejected application must have a rejected date.",
-    "description": "Once an application's status is `rejected`, the rejected timestamp is required for the audit trail.",
+    "description": "Once an application's status is rejected, the rejected timestamp is required for the audit trail.",
     "jsonlogic": {
       "or": [
         {"!=": [{"var": "status"}, "rejected"]},
@@ -443,7 +482,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "hired_status_requires_hired_at",
     "message": "A hired application must have a hired date.",
-    "description": "Once an application's status is `hired`, the hired timestamp is required for downstream onboarding and HRIS handoff.",
+    "description": "Once an application's status is hired, the hired timestamp is required for downstream onboarding and HRIS handoff.",
     "jsonlogic": {
       "or": [
         {"!=": [{"var": "status"}, "hired"]},
@@ -465,7 +504,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "rejection_reason_required_when_rejected",
     "message": "A rejected application must record a rejection reason.",
-    "description": "When status is `rejected`, a rejection_reason is required for the audit trail; paired with `rejection_reason_only_when_rejected`.",
+    "description": "When status is rejected, a rejection reason is required for the audit trail; paired with the only-when-rejected gate.",
     "jsonlogic": {
       "or": [
         {"!=": [{"var": "status"}, "rejected"]},
@@ -520,6 +559,46 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {
+    "field": "rejection_reason",
+    "description": "Rejection reason is hidden unless the application is rejected, then required so the audit trail captures the reason.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "status"}, "rejected"]},
+        "required",
+        "hidden"
+      ]
+    }
+  },
+  {
+    "field": "rejected_at",
+    "description": "Rejected timestamp is hidden unless the application is rejected, then required.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "status"}, "rejected"]},
+        "required",
+        "hidden"
+      ]
+    }
+  },
+  {
+    "field": "hired_at",
+    "description": "Hired timestamp is hidden unless the application is hired, then required.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "status"}, "hired"]},
+        "required",
+        "hidden"
+      ]
+    }
+  }
+]
+```
+
 ---
 
 ### 3.8 `candidate_documents`, Candidate Document
@@ -527,7 +606,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Candidate Documents
 **Label column:** `document_label`
 **Audit log:** no
-**Description:** A document attached to a candidate: resume, cover letter, portfolio, work sample, certification, or reference letter. Stored as a URL pointing to file storage; the model does not own the binary itself. The `document_label` label column is caller-composed on insert (e.g. `"Resume, Jane Doe"`).
+**Description:** A document attached to a candidate: resume, cover letter, portfolio, work sample, certification, or reference letter. Stored as a URL pointing to file storage; the model does not own the binary itself. The document label is auto-composed by the platform from the document type and the candidate's name.
 
 **Fields**
 
@@ -546,6 +625,22 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 - A `candidate_document` belongs to one `candidate` as its parent (N:1, required, cascade; documents are wiped if the candidate is erased).
 - A `candidate_document` may be uploaded by one `user` (N:1, optional, clear).
 
+**Computed fields**
+
+```json
+[
+  {
+    "name": "document_label",
+    "description": "Auto-composes the label from the document type and the candidate's full name on every write.",
+    "jsonlogic": {
+      "set_record": ["c", "candidates", {"var": "candidate_id"}, {
+        "cat": [{"var": "document_type"}, " · ", {"var": "c.full_name"}]
+      }]
+    }
+  }
+]
+```
+
 ---
 
 ### 3.9 `application_notes`, Application Note
@@ -553,14 +648,14 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Application Notes
 **Label column:** `note_subject`
 **Audit log:** no
-**Description:** A note left on an application: a personal recruiter or hiring-manager observation, decision rationale, or coordination message. Visibility controls who can read the note (whole hiring team vs. recruiters only vs. publicly visible to the candidate). Notes are author-owned: only the original author may edit or delete their own note, with a manager override available for HR / hiring leads who hold the `ats:manage_all_notes` permission. The FK to `job_applications` is `reference + cascade`: the cascade-delete behavior is preserved (when an application is removed, its notes go with it), and the `reference` shape declaration acknowledges that note ownership is per-author, not shared with the parent application's permission scope.
+**Description:** A note left on an application: a personal recruiter or hiring-manager observation, decision rationale, or coordination message. Visibility controls audience: public notes are visible to anyone with read access; hiring-team and recruiter-only notes are visible only to operational-tier holders (recruiters, hiring managers, coordinators). Notes are author-owned: only the original author may edit or delete their own note, with a manager override available for HR and hiring leads who hold the manage-all-notes elevated permission.
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
 | `note_subject` | `string` | yes | Subject |  | label_column |
-| `application_id` | `reference` | yes | Application |  | → `job_applications` (N:1, cascade), relationship_label: "records" |
+| `application_id` | `parent` | yes | Application |  | ↳ `job_applications` (N:1, cascade), relationship_label: "records" |
 | `author_user_id` | `reference` | yes | Author |  | → `users` (N:1, restrict), relationship_label: "authors" |
 | `note_body` | `multiline` | yes | Note |  |  |
 | `visibility` | `enum` | yes | Visibility |  | values: `hiring_team`, `recruiter_only`, `public`; default: "hiring_team" |
@@ -568,7 +663,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 
 **Relationships**
 
-- An `application_note` references one `job_application` (N:1, required, cascade; cascade behavior preserved, see §3 description).
+- An `application_note` belongs to one `job_application` as its parent (N:1, required, cascade).
 - An `application_note` is authored by one `user` (N:1, required, restrict; author cannot be deleted while their notes exist).
 
 **Validation rules**
@@ -578,7 +673,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "edit_restricted_to_author_or_manager",
     "message": "Only the note's original author or a user with the manage-all-notes permission can edit or delete this note.",
-    "description": "Notes are personal commentary. The author owns their own edits; anyone else needs the elevated `ats:manage_all_notes` permission, which is granted to hiring leads and HR partners. INSERT is unrestricted (anyone with edit_permission may create new notes); the gate only applies on UPDATE / DELETE. The `or` short-circuits on the cheap owner check, so `require_permission` is only invoked when the caller is not the original author.",
+    "description": "Notes are personal commentary. The author owns their own edits; anyone else needs the elevated manage-all-notes permission, which is granted to hiring leads and HR partners. INSERT is unrestricted (anyone with edit access may create new notes); the gate only applies on UPDATE and DELETE. The or short-circuits on the cheap owner check, so the elevated permission is only invoked when the caller is not the original author.",
     "jsonlogic": {
       "if": [
         {"==": [{"var": "$old"}, null]},
@@ -606,6 +701,44 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {
+    "field": "author_user_id",
+    "description": "Author is set on insert and frozen thereafter; the server-side immutability rule enforces this, and the form renders the field readonly after the first save to reflect that.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "id"}, null]},
+        "default",
+        "readonly"
+      ]
+    }
+  }
+]
+```
+
+**Select rule**
+
+The author always sees their own notes regardless of visibility. Public notes are visible to anyone with read access. Hiring-team and recruiter-only notes are visible only to operational-tier holders (recruiters, hiring managers, coordinators) and above. The elevated manage-all-notes audience sees every row regardless of visibility.
+
+```json
+{
+  "or": [
+    {"==": [{"var": "author_user_id"}, {"var": "$user_id"}]},
+    {"==": [{"var": "visibility"}, "public"]},
+    {
+      "and": [
+        {"in": [{"var": "visibility"}, ["hiring_team", "recruiter_only"]]},
+        {"has_permission": "ats:manage"}
+      ]
+    },
+    {"has_permission": "ats:manage_all_notes"}
+  ]
+}
+```
+
 ---
 
 ### 3.10 `interviews`, Interview
@@ -613,7 +746,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Interviews
 **Label column:** `interview_label`
 **Audit log:** no
-**Description:** A scheduled interview event for a specific application. May involve one or more interviewers (each captured as their own `interview_feedback` row). Status transitions from `scheduled` through `completed` / `cancelled` / `no_show` / `rescheduled`. The `interview_label` label column is caller-composed on insert (e.g. `"Tech Phone Screen, Jane Doe"`).
+**Description:** A scheduled interview event for a specific application. May involve one or more interviewers (each captured as their own interview-feedback row). Status transitions from scheduled through completed, cancelled, no-show, or rescheduled. The interview label is auto-composed by the platform from the interview kind and the candidate's name.
 
 **Fields**
 
@@ -634,6 +767,24 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 - An `interview` belongs to one `job_application` as its parent (N:1, required, cascade).
 - An `interview` may be coordinated by one `user` (N:1, optional, clear).
 - An `interview` has many `interview_feedback` rows, one per interviewer (1:N, via `interview_feedback.interview_id`, cascade).
+
+**Computed fields**
+
+```json
+[
+  {
+    "name": "interview_label",
+    "description": "Auto-composes the label from the interview kind and the candidate's full name (two-hop FK chain through the parent application) on every write.",
+    "jsonlogic": {
+      "set_record": ["a", "job_applications", {"var": "application_id"}, {
+        "set_record": ["c", "candidates", {"var": "a.candidate_id"}, {
+          "cat": [{"var": "interview_kind"}, " · ", {"var": "c.full_name"}]
+        }]
+      }]
+    }
+  }
+]
+```
 
 **Validation rules**
 
@@ -656,14 +807,14 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Label column:** `feedback_label`
 **Audit log:** yes  _(scorecards are decision evidence; preserve change history)_
 **Edit permission:** interview
-**Description:** One interviewer's scorecard for one interview. An interview can have multiple feedback rows when multiple people attended (e.g. a panel). `is_submitted` distinguishes a draft scorecard from a finalized one; only the assigned interviewer (or a user holding `ats:manage_all_feedback`) may flip it. The `feedback_label` label column is caller-composed on insert (e.g. `"Alex Kim, Tech Phone Screen for Jane Doe"`). The FK to `interviews` is `reference + cascade`: the cascade-delete behavior is preserved (when an interview is removed, its scorecards go with it), and the `reference` shape declaration acknowledges that scorecard ownership is per-interviewer, not shared with the parent interview's permission scope. The `edit_permission` is the narrow `ats:interview` tier (not `ats:manage`); core recruiters with `ats:manage` pick it up via the hierarchy rollup, and external panel interviewers hold `ats:interview` directly without the rest of the recruiter grant. The row-level `feedback_write_restricted_to_interviewer` rule then restricts every write to the row's assigned interviewer (or an `ats:manage_all_feedback` holder), so an `ats:interview` holder can only write their own scorecards.
+**Description:** One interviewer's scorecard for one interview. An interview can have multiple feedback rows when multiple people attended (e.g. a panel). The submitted flag distinguishes a draft scorecard from a finalized one; only the assigned interviewer (or a user holding the manage-all-feedback elevated permission) may flip it. The edit permission is the narrow interview tier so external panel interviewers can submit scorecards without holding the full operational recruiter grant; the row-level rule restricts every write to the row's assigned interviewer (or a manage-all-feedback holder). Read access is also scoped: external interview-narrow-tier holders see only their own scorecards, while recruiters and hiring managers see every scorecard for calibration. The feedback label is auto-composed by the platform from the interviewer, the interview kind, and the candidate's name.
 
 **Fields**
 
 | Field name | Format | Required | Label | Description | Reference / Notes |
 |---|---|---|---|---|---|
 | `feedback_label` | `string` | yes | Feedback |  | label_column |
-| `interview_id` | `reference` | yes | Interview |  | → `interviews` (N:1, cascade), relationship_label: "collects" |
+| `interview_id` | `parent` | yes | Interview |  | ↳ `interviews` (N:1, cascade), relationship_label: "collects" |
 | `interviewer_user_id` | `reference` | yes | Interviewer |  | → `users` (N:1, restrict), relationship_label: "gives" |
 | `overall_rating` | `enum` | no | Overall Rating |  | values: `strong_yes`, `yes`, `lean_yes`, `lean_no`, `no`, `strong_no` |
 | `recommendation` | `enum` | no | Recommendation |  | values: `advance`, `hold`, `reject` |
@@ -675,8 +826,30 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 
 **Relationships**
 
-- An `interview_feedback` references one `interview` (N:1, required, cascade; cascade behavior preserved, see §3 description).
+- An `interview_feedback` belongs to one `interview` as its parent (N:1, required, cascade).
 - An `interview_feedback` is authored by one `user` interviewer (N:1, required, restrict; the interviewer cannot be deleted while feedback exists).
+
+**Computed fields**
+
+```json
+[
+  {
+    "name": "feedback_label",
+    "description": "Auto-composes the label from the interviewer's display name, the parent interview's kind, and the candidate's full name (three-hop FK chain: feedback → interview → application → candidate) on every write.",
+    "jsonlogic": {
+      "set_record": ["u", "users", {"var": "interviewer_user_id"}, {
+        "set_record": ["i", "interviews", {"var": "interview_id"}, {
+          "set_record": ["a", "job_applications", {"var": "i.application_id"}, {
+            "set_record": ["c", "candidates", {"var": "a.candidate_id"}, {
+              "cat": [{"var": "u.display_name"}, " · ", {"var": "i.interview_kind"}, " · ", {"var": "c.full_name"}]
+            }]
+          }]
+        }]
+      }]
+    }
+  }
+]
+```
 
 **Validation rules**
 
@@ -685,7 +858,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "submitted_at_required_when_submitted",
     "message": "A submitted scorecard must have a submitted_at timestamp.",
-    "description": "Once `is_submitted` is true, the submission timestamp is required for the audit trail.",
+    "description": "Once the submitted flag is true, the submission timestamp is required for the audit trail.",
     "jsonlogic": {
       "or": [
         {"!=": [{"var": "is_submitted"}, true]},
@@ -707,7 +880,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "feedback_write_restricted_to_interviewer",
     "message": "Only the assigned interviewer or a user with manage-all-feedback can write this scorecard.",
-    "description": "The entity's `edit_permission` is the narrow `ats:interview` tier so external panel interviewers (engineers, PMs, AEs) can submit scorecards without holding the full `ats:manage` recruiter grant. This row-level rule then restricts writes to the row's owner: an `ats:interview` holder can only INSERT a scorecard where they are the interviewer, and can only UPDATE a scorecard whose existing `interviewer_user_id` equals their own. HR / RecOps holding the elevated `ats:manage_all_feedback` permission may write any scorecard (the original interviewer's identity is preserved by the companion `interviewer_immutable_after_first_save` rule). The two branches of the `if` differentiate INSERT (`$old == null`, check the proposed `interviewer_user_id`) from UPDATE (check `$old.interviewer_user_id` so a caller cannot reassign authorship to themselves before passing the check).",
+    "description": "The entity's edit permission is the narrow interview tier so external panel interviewers (engineers, PMs, AEs) can submit scorecards without holding the full operational recruiter grant. This row-level rule then restricts writes to the row's owner: an interview-tier holder can only INSERT a scorecard where they are the interviewer, and can only UPDATE a scorecard whose existing interviewer equals their own. HR and RecOps holding the elevated manage-all-feedback permission may write any scorecard.",
     "jsonlogic": {
       "if": [
         {"==": [{"var": "$old"}, null]},
@@ -729,7 +902,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "submit_feedback_restricted_to_interviewer",
     "message": "Only the assigned interviewer or a user with manage-all-feedback can change the submission status of this scorecard.",
-    "description": "Scorecards are per-interviewer decision evidence. The static `edit_permission` (`ats:manage`) lets the team see and draft scorecards, but the transition into `is_submitted = true` (and any later unsubmit) is the audit-trail lock event and must be performed by the original interviewer, or by HR / RecOps holding the elevated `ats:manage_all_feedback` permission. `value_changed` scopes the gate to the moment `is_submitted` flips so unrelated edits on a draft scorecard remain operational; the `if` falls back to `true` when the flag is not changing. `$old` is the prior row state so we authenticate against the originally-assigned interviewer, not a freshly-rewritten one (the companion `interviewer_immutable_after_first_save` rule prevents that rewrite from happening in the first place).",
+    "description": "Scorecards are per-interviewer decision evidence. The transition into submitted (and any later unsubmit) is the audit-trail lock event and must be performed by the original interviewer, or by HR / RecOps holding the elevated manage-all-feedback permission. The value-changed check scopes the gate to the moment the submitted flag flips so unrelated edits on a draft scorecard remain operational.",
     "jsonlogic": {
       "if": [
         {"value_changed": "is_submitted"},
@@ -757,6 +930,103 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 ]
 ```
 
+**Input type rules**
+
+```json
+[
+  {
+    "field": "interviewer_user_id",
+    "description": "Interviewer is set on insert and frozen thereafter; the form renders readonly after first save to mirror the server-side immutability rule.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "id"}, null]},
+        "default",
+        "readonly"
+      ]
+    }
+  },
+  {
+    "field": "overall_rating",
+    "description": "Scorecard content locks once the interviewer submits; further edits require the manage-all-feedback override on the server side.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "readonly",
+        "default"
+      ]
+    }
+  },
+  {
+    "field": "recommendation",
+    "description": "Scorecard content locks once the interviewer submits.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "readonly",
+        "default"
+      ]
+    }
+  },
+  {
+    "field": "strengths",
+    "description": "Scorecard content locks once the interviewer submits.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "readonly",
+        "default"
+      ]
+    }
+  },
+  {
+    "field": "concerns",
+    "description": "Scorecard content locks once the interviewer submits.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "readonly",
+        "default"
+      ]
+    }
+  },
+  {
+    "field": "detailed_notes",
+    "description": "Scorecard content locks once the interviewer submits.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "readonly",
+        "default"
+      ]
+    }
+  },
+  {
+    "field": "submitted_at",
+    "description": "Submitted timestamp is hidden while the scorecard is a draft, then required (and locked) once the interviewer submits.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "is_submitted"}, true]},
+        "required",
+        "hidden"
+      ]
+    }
+  }
+]
+```
+
+**Select rule**
+
+The assigned interviewer always sees their own scorecards. Operational-tier holders (recruiters, hiring managers, coordinators, and through hierarchy rollup the elevated manage-all-feedback audience) see every scorecard for calibration across the panel. External interview-narrow-tier-only holders see only their own rows.
+
+```json
+{
+  "or": [
+    {"==": [{"var": "interviewer_user_id"}, {"var": "$user_id"}]},
+    {"has_permission": "ats:manage"}
+  ]
+}
+```
+
 ---
 
 ### 3.12 `offers`, Offer
@@ -764,7 +1034,8 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Offers
 **Label column:** `offer_label`
 **Audit log:** yes  _(offers are commitments; preserve full change history of terms, status, and approvals)_
-**Description:** A formal offer extended to a candidate for a specific application. Goes through `draft` → `pending_approval` → `approved` → `sent`, then `accepted` / `declined` / `rescinded` / `expired`. An application typically has at most one active offer; the model uses `restrict` so an offer is never silently lost when an application is cleaned up. The `offer_label` label column is caller-composed on insert (e.g. `"Offer, Jane Doe, Senior Engineer"`).
+**View permission:** manage
+**Description:** A formal offer extended to a candidate for a specific application. Goes through draft, pending-approval, approved, sent, then accepted, declined, rescinded, or expired. An application typically has at most one active offer; the model uses restrict so an offer is never silently lost when an application is cleaned up. The view permission is the operational tier (not the baseline read tier) so external panel interviewers who hold only baseline read plus the narrow interview tier cannot see salary, equity, or other offer terms. The offer label is auto-composed by the platform from the candidate's full name and the job opening's title.
 
 **Fields**
 
@@ -775,7 +1046,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 | `status` | `enum` | yes | Status |  | values: `draft`, `pending_approval`, `approved`, `sent`, `accepted`, `declined`, `rescinded`, `expired`; default: "draft" |
 | `base_salary` | `number` | yes | Base Salary |  | precision: 2 |
 | `bonus_target` | `number` | no | Bonus Target | Annual on-target bonus | precision: 2 |
-| `equity_amount` | `string` | no | Equity | Free-text, shares, RSU value, percentages vary |  |
+| `equity_amount` | `string` | no | Equity | Free-text; shares, RSU value, percentages vary |  |
 | `start_date` | `date` | no | Start Date | Proposed start date of employment |  |
 | `offer_extended_at` | `date-time` | no | Extended At | Timestamp the offer was sent to the candidate |  |
 | `offer_expires_at` | `date-time` | no | Expires At |  |  |
@@ -787,6 +1058,26 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 
 - An `offer` references one `job_application` (N:1, required, restrict; preserves the offer record even if cleanup of the application is attempted).
 - An `offer` may have one approving `user` (N:1, optional, clear).
+
+**Computed fields**
+
+```json
+[
+  {
+    "name": "offer_label",
+    "description": "Auto-composes the label from the candidate's full name and the job opening's title (two-hop FK chain through the parent application) on every write.",
+    "jsonlogic": {
+      "set_record": ["a", "job_applications", {"var": "application_id"}, {
+        "set_record": ["c", "candidates", {"var": "a.candidate_id"}, {
+          "set_record": ["j", "job_openings", {"var": "a.job_opening_id"}, {
+            "cat": [{"var": "c.full_name"}, " · ", {"var": "j.job_title"}]
+          }]
+        }]
+      }]
+    }
+  }
+]
+```
 
 **Validation rules**
 
@@ -812,7 +1103,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "post_draft_status_requires_extended_at",
     "message": "Sent or completed offers must have an offer_extended_at timestamp.",
-    "description": "Once an offer reaches `sent` or beyond, the extended timestamp is required for the audit trail.",
+    "description": "Once an offer reaches sent or beyond, the extended timestamp is required for the audit trail.",
     "jsonlogic": {
       "or": [
         {"in": [{"var": "status"}, ["draft", "pending_approval", "approved"]]},
@@ -880,7 +1171,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "approve_offer_requires_approver_permission",
     "message": "Only users with the offer-approver permission can mark an offer approved.",
-    "description": "Moving an offer into `approved` is the budget-commitment step (a signed-off salary, equity, and start-date package). The static `edit_permission` (`ats:manage`) lets the whole recruiting team draft and route offers through `pending_approval`; this family-12 rule layers an authorization gate on the specific status flip into `approved`. `value_changed` scopes the gate to the moment of transition (otherwise every update of an already-approved offer would re-trigger the check), and `require_permission` throws when the caller lacks `ats:approve_offer`, surfacing this rule's message to the user. The `true` fallback is mandatory: when the trigger condition is false (status didn't move into approved), the rule must still pass.",
+    "description": "Moving an offer into approved is the budget-commitment step (a signed-off salary, equity, and start-date package). The static edit permission (operational tier) lets the whole recruiting team draft and route offers through pending-approval; this family-12 rule layers an authorization gate on the specific status flip into approved. The value-changed check scopes the gate to the moment of transition, and require_permission throws when the caller lacks the offer-approver permission.",
     "jsonlogic": {
       "if": [
         {
@@ -897,11 +1188,51 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
   {
     "code": "approver_user_id_required_when_approved",
     "message": "An approved offer must record which user approved it.",
-    "description": "The approver_user_id field captures who approved the offer for the audit trail. Once status reaches `approved` (or any further state), the field must be populated. Paired with the family-12 gate above: the platform enforces the permission check on the transition, this rule enforces that the resulting record carries the approver identity.",
+    "description": "The approver field captures who approved the offer for the audit trail. Once status reaches approved (or any further state), the field must be populated. Paired with the family-12 gate above: the platform enforces the permission check on the transition, this rule enforces that the resulting record carries the approver identity.",
     "jsonlogic": {
       "or": [
         {"in": [{"var": "status"}, ["draft", "pending_approval"]]},
         {"!=": [{"var": "approver_user_id"}, null]}
+      ]
+    }
+  }
+]
+```
+
+**Input type rules**
+
+```json
+[
+  {
+    "field": "offer_extended_at",
+    "description": "Extended timestamp is hidden while the offer is in draft, pending-approval, or approved; required once the offer is sent or further along.",
+    "jsonlogic": {
+      "if": [
+        {"in": [{"var": "status"}, ["sent", "accepted", "declined", "rescinded", "expired"]]},
+        "required",
+        "hidden"
+      ]
+    }
+  },
+  {
+    "field": "responded_at",
+    "description": "Response timestamp is hidden while the candidate response is still pending; required once the candidate has responded.",
+    "jsonlogic": {
+      "if": [
+        {"==": [{"var": "candidate_response"}, "pending"]},
+        "hidden",
+        "required"
+      ]
+    }
+  },
+  {
+    "field": "approver_user_id",
+    "description": "Approver is hidden on draft and pending-approval offers; required once status reaches approved so the audit trail records who signed off.",
+    "jsonlogic": {
+      "if": [
+        {"in": [{"var": "status"}, ["draft", "pending_approval"]]},
+        "hidden",
+        "required"
       ]
     }
   }
@@ -915,7 +1246,7 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 **Plural label:** Hiring Team Members
 **Label column:** `team_member_label`
 **Audit log:** no
-**Description:** Junction associating a `user` with a `job_opening` in a specific role (recruiter, hiring manager, interviewer, coordinator, executive sponsor). A user can sit on many openings; an opening can have many team members in the same or different roles. The hiring manager and lead recruiter on `job_openings` are summary FKs for the most-common case; this junction holds the full team and additional roles. The `team_member_label` label column is caller-composed on insert (e.g. `"Alex Kim, Hiring Manager, Senior Engineer"`).
+**Description:** Junction associating a user with a job opening in a specific role (recruiter, hiring manager, interviewer, coordinator, executive sponsor). A user can sit on many openings; an opening can have many team members in the same or different roles. The hiring manager and lead recruiter on a job opening are summary FKs for the most-common case; this junction holds the full team and additional roles. The team-member label is auto-composed by the platform from the user, the team role, and the job opening's title.
 
 **Fields**
 
@@ -932,6 +1263,24 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 
 - A `hiring_team_member` belongs to one `job_opening` and one `user`, both as parents (cascade on either side).
 - `users` ↔ `job_openings` is many-to-many through this junction.
+
+**Computed fields**
+
+```json
+[
+  {
+    "name": "team_member_label",
+    "description": "Auto-composes the label from the user's display name, the team role on this assignment, and the job opening's title on every write.",
+    "jsonlogic": {
+      "set_record": ["u", "users", {"var": "user_id"}, {
+        "set_record": ["j", "job_openings", {"var": "job_opening_id"}, {
+          "cat": [{"var": "u.display_name"}, " · ", {"var": "team_role"}, " · ", {"var": "j.job_title"}]
+        }]
+      }]
+    }
+  }
+]
+```
 
 ---
 
@@ -954,11 +1303,11 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 | `job_applications` | `assigned_recruiter_id` | `users` | N:1 | reference | clear |
 | `candidate_documents` | `candidate_id` | `candidates` | N:1 | parent | cascade |
 | `candidate_documents` | `uploaded_by_user_id` | `users` | N:1 | reference | clear |
-| `application_notes` | `application_id` | `job_applications` | N:1 | reference | cascade |
+| `application_notes` | `application_id` | `job_applications` | N:1 | parent | cascade |
 | `application_notes` | `author_user_id` | `users` | N:1 | reference | restrict |
 | `interviews` | `application_id` | `job_applications` | N:1 | parent | cascade |
 | `interviews` | `coordinator_user_id` | `users` | N:1 | reference | clear |
-| `interview_feedback` | `interview_id` | `interviews` | N:1 | reference | cascade |
+| `interview_feedback` | `interview_id` | `interviews` | N:1 | parent | cascade |
 | `interview_feedback` | `interviewer_user_id` | `users` | N:1 | reference | restrict |
 | `offers` | `application_id` | `job_applications` | N:1 | reference | restrict |
 | `offers` | `approver_user_id` | `users` | N:1 | reference | clear |
@@ -1111,19 +1460,19 @@ The three elevated workflow permissions (`ats:approve_offer`, `ats:manage_all_no
 | `checks` | `job_applications` | is screened by | N:1 | clear |
 | `checks` | `candidates` | is screened by | N:1 | clear |
 
-Outbound rows (FK lives on this model's side):
-- `job_openings → positions` adds `job_openings.position_id` when `workforce_planning` is deployed, linking a requisition to the approved headcount slot it consumes.
-- `job_openings → salary_bands` adds `job_openings.salary_band_id` when `compensation_management` is deployed, anchoring the requisition to a canonical pay band. The inline `salary_min` / `salary_max` fields stay populated as a denormalized reference for the standalone case.
-- `offers → salary_bands` adds `offers.salary_band_id` when `compensation_management` is deployed, anchoring the offer's terms to a canonical pay band.
+Outbound rows (the FK lives on this model's side):
+- Linking a job opening to a position ties a requisition to the approved headcount slot it consumes from Workforce Planning.
+- Linking a job opening to a salary band anchors the requisition to a canonical pay band from Compensation Management. The inline salary minimum and maximum fields stay populated as a denormalized reference for the standalone case.
+- Linking an offer to a salary band anchors the offer's terms to a canonical pay band from Compensation Management.
 
-Inbound rows (FK lives on the sibling's side, points back at this model):
-- `employees → candidates` adds `employees.source_candidate_id` on `hris.employees` when HRIS is deployed, preserving the candidate-to-employee chain across rehires.
-- `employees → job_applications` adds `employees.source_application_id` on `hris.employees` when HRIS is deployed, preserving the application-of-record audit trail.
-- `employees → offers` adds `employees.source_offer_id` on `hris.employees`, preserving the offer-of-record on the employee.
-- `onboarding_cases → job_applications` and `onboarding_cases → offers` add `source_application_id` and `source_offer_id` on `onboarding.onboarding_cases` so onboarding can pre-populate from the application of record.
-- `checks → job_applications` and `checks → candidates` add `application_id` and `candidate_id` on `background_check.checks`. The application FK is the primary anchor; the candidate FK exists because some checks (continuous monitoring) outlive a single application.
+Inbound rows (the FK lives on the sibling's side and points back at this model):
+- Linking an employee to the candidate that produced them preserves the candidate-to-employee chain across rehires when HRIS is deployed.
+- Linking an employee to the job application of record preserves the application audit trail through hire and into the employee record.
+- Linking an employee to the offer of record preserves the accepted offer on the employee.
+- Linking onboarding cases to the source application and the source offer lets onboarding pre-populate from the application of record when Onboarding is deployed.
+- Linking background checks to a job application and to a candidate anchors screening work to the right pre-hire context. The application FK is the primary anchor; the candidate FK exists because some checks (continuous monitoring) outlive a single application.
 
-`departments` and `users` overlaps with HRIS and Identity & Access are name collisions, not §6 rows. The deployer detects them at deploy time by inspecting the live catalog and offers merge / rename decisions to the user. Identity & Access carries no §6 row because the sibling shape extends `users` upward (groups, sessions, role_assignments) rather than referencing `users` from new tables that warrant ATS-side hints.
+Departments and users overlaps with HRIS and Identity & Access are name collisions, not §6 rows. The deployer detects them at deploy time by inspecting the live catalog and offers merge / rename decisions to the user. Identity & Access carries no §6 row because the sibling shape extends the user table upward (groups, sessions, role assignments) rather than referencing it from new tables that warrant ATS-side hints.
 
 ## 7. Open questions
 
@@ -1133,23 +1482,23 @@ None.
 
 ### 7.2 🟡 Future considerations (deferred scope)
 
-- Should `application_stages` be per-job-opening rather than global, so different role types (engineering vs sales vs executive) can have different pipelines? Adding a `job_pipelines` link entity and a `pipeline_id` on `job_openings` would model this cleanly.
-- Should candidates be linked to a structured `skills` taxonomy (M:N via `candidate_skills`), or is the unstructured `notes` field sufficient for v1?
-- Should rejection reasons be promoted from an enum to a configurable lookup table (`rejection_reasons`) if recruiters want to add custom reasons over time?
-- Should email and calendar integration produce an `application_activities` / `email_messages` log so all candidate communication is captured against the application?
-- Should offer approval be modeled as a multi-step approval workflow (e.g. an `offer_approvals` entity with one row per approver) rather than a single `approver_user_id` and `pending_approval` status?
-- Currency is deferred for v1 (single-currency assumption; `salary_min`, `salary_max`, `base_salary`, `bonus_target` are unitless amounts). Should currency be reintroduced as a free-text ISO 4217 code, an enum, or an FK to a `currencies` lookup once the company hires in multiple currencies? When Compensation Management is deployed, the deploy-time link to `salary_bands` (§6) carries the band's currency, which may be sufficient without an inline column.
-- Should the model track GDPR consent and retention dates explicitly on `candidates` (e.g. `consent_given_at`, `retention_expires_at`) so automated purging is possible?
-- Is `job_openings.status` reaching `filled`, `closed`, or `cancelled` truly one-way, or do orgs reopen requisitions often enough that a state-transition rule would be wrong? Currently treated as reversible (no transition rule emitted); the audit log captures any reversal.
-- Is `job_applications.status` reaching `hired`, `rejected`, or `withdrawn` truly one-way, or do recruiters reverse decisions often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
-- Is `offers.status` reaching `accepted`, `declined`, `rescinded`, or `expired` truly one-way, or are rescinded offers re-extended after renegotiation often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
-- Is `interview_feedback.is_submitted` truly set-once, or do interviewers edit submitted scorecards often enough that a transition rule would be wrong? The new `submit_feedback_restricted_to_interviewer` rule controls *who* may flip the flag (the assigned interviewer or `ats:manage_all_feedback`), but does not freeze the flag once true. Currently treated as reversible by an authorized actor; the audit log captures any change.
-- Is `candidates.candidate_status` reaching `hired`, `archived`, or `do_not_contact` truly one-way, or do recruiters reverse these often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
-- Is `interviews.status` reaching `completed`, `cancelled`, or `no_show` truly one-way, or do coordinators reverse these often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
-- Should `offers.status` and `offers.candidate_response` be required to agree (e.g. `status='accepted'` ⇔ `candidate_response='accepted'`)? Currently a workflow convention, not enforced; the audit log captures any divergence.
-- Should `(hiring_team_members.job_opening_id, user_id, team_role)` be enforced unique to prevent duplicate role assignments? Currently a recruiter-discipline matter.
-- Should `application_notes.application_id` and `interview_feedback.interview_id` keep `reference + cascade`, or flip to `reference + restrict`? Cascade is the current choice for operational simplicity (an application or interview cleanup wipes its dependent rows), and the `reference` shape declaration acknowledges divergent per-author permission scope. If the audit-trail value of orphan-preserving decision evidence ever outweighs that simplicity, switch to `restrict` so parent delete is blocked until notes / scorecards are explicitly removed.
-- Read-side scoping for external panel interviewers is **not** modeled here. The `ats:interview` permission grants narrow write access to `interview_feedback` (only the holder's own rows, per the row-level rule), but `ats:read` is table-level — every read-capable user sees every row in every table, including offer salaries, rejection reasons, and personal notes across the company. Narrowing reads to "interviewers see only the candidates they are paired with" requires per-row policies (row-security rules, cube row filters, view-level predicates) that live at the platform layer, not in the semantic model. If external interviewers are added in volume and the read exposure becomes material, address as a platform-level policy rather than as a new permission tier.
+- Should application stages be per-job-opening rather than global, so different role types (engineering vs sales vs executive) can have different pipelines? Adding a job-pipelines link entity and a pipeline FK on job openings would model this cleanly.
+- Should candidates be linked to a structured skills taxonomy (M:N via a candidate-skills junction), or is the unstructured notes field sufficient for v1?
+- Should rejection reasons be promoted from an enum to a configurable lookup table if recruiters want to add custom reasons over time?
+- Should email and calendar integration produce an application-activities or email-messages log so all candidate communication is captured against the application?
+- Should offer approval be modeled as a multi-step approval workflow (e.g. an offer-approvals entity with one row per approver) rather than a single approver FK and a pending-approval status?
+- Currency is deferred for v1 (single-currency assumption; salary minimum, salary maximum, base salary, and bonus target are unitless amounts). Should currency be reintroduced as a free-text ISO 4217 code, an enum, or an FK to a currencies lookup once the company hires in multiple currencies?
+- Should the model track GDPR consent and retention dates explicitly on candidates (e.g. consent-given-at, retention-expires-at fields) so automated purging is possible?
+- Is the job-opening status reaching filled, closed, or cancelled truly one-way, or do orgs reopen requisitions often enough that a state-transition rule would be wrong? Currently treated as reversible (no transition rule emitted); the audit log captures any reversal.
+- Is the job-application status reaching hired, rejected, or withdrawn truly one-way, or do recruiters reverse decisions often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
+- Is the offer status reaching accepted, declined, rescinded, or expired truly one-way, or are rescinded offers re-extended after renegotiation often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
+- Is the interview-feedback submitted flag truly set-once, or do interviewers edit submitted scorecards often enough that a transition rule would be wrong? Currently controlled by the submit-restricted-to-interviewer rule (only the assigned interviewer or a manage-all-feedback holder may flip), but not frozen once true; the audit log captures any change.
+- Is the candidate status reaching hired, archived, or do-not-contact truly one-way, or do recruiters reverse these often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
+- Is the interview status reaching completed, cancelled, or no-show truly one-way, or do coordinators reverse these often enough that a transition rule would be wrong? Currently treated as reversible; the audit log captures any reversal.
+- Should the offer status and the candidate-response status be required to agree (e.g. status approved-and-accepted iff candidate response is accepted)? Currently a workflow convention, not enforced; the audit log captures any divergence.
+- Should the (job-opening, user, team-role) combination on hiring team members be enforced unique to prevent duplicate role assignments? Currently a recruiter-discipline matter.
+- Should the offer base salary, equity amount, and start date be frozen once status reaches approved, so the approved package cannot be silently rewritten before being sent? Currently editable post-approval to allow last-minute amendments; surfacing here as a candidate input-type or validation refinement if amendment-after-approval is rare enough that locking is preferred.
+- The hiring-team visibility value on notes cannot be enforced as "visible only to users on this opening's hiring team" because the per-row predicate would require FK traversal through the hiring-team junction that the read-rule expression does not support. The current rule grants hiring-team and recruiter-only visibility to any operational-tier holder, collapsing the distinction at the read layer. If finer-grained per-opening-team scoping is needed, address as a platform-layer policy (cube view with FK-traversal predicates or a Postgres BYPASSRLS role) rather than as a per-row read-rule expression.
 
 ## 8. Implementation notes for the downstream agent
 
@@ -1168,8 +1517,8 @@ None.
    11. `interview_feedback`
    12. `offers`
    13. `hiring_team_members`
-3. **Per-entity create parameters.** Set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission: "ats:read"`, and `edit_permission` per the §3 annotation: `ats:admin` for entities whose §3 carries `**Edit permission:** admin` (`departments`, `application_stages`, `candidate_sources`); `ats:interview` for `interview_feedback` (`**Edit permission:** interview`); and `ats:manage` for every other entity. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Pass the `validation_rules` block from §3 byte-for-byte for entities that declare one (`departments`, `job_openings`, `job_applications`, `application_notes`, `interviews`, `interview_feedback`, `offers`). The `application_notes`, `interview_feedback`, and `offers` blocks invoke the platform-extension JsonLogic operators `value_changed` and `require_permission`; they reference the workflow permissions (`ats:approve_offer`, `ats:manage_all_notes`, `ats:manage_all_feedback`) created in step 1, so step 1 must complete before any entity carrying those rules is written. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
-4. **Per-field create parameters.** For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), the `description` cell (passed verbatim to `create_field`'s `description` parameter), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. The §3 `Required` column is analyst intent; the platform manages nullability internally and does not need a per-field flag. Pass `enum_values` for every `enum` field, taken from §5. Apply `default: "<value>"` annotations from §3 Notes verbatim, in particular `job_openings.headcount` must be created with `default: "1"` so a fresh form does not open prefilled with `0` and fail the `headcount_positive` rule. Set `unique_value: true` on `departments.department_name`, `departments.department_code`, `job_openings.job_code`, `application_stages.stage_name`, `application_stages.stage_order`, `candidate_sources.source_name`, `candidates.email_address`, and `users.email_address`.
+3. **Per-entity create parameters.** Set `label_column` to the snake_case field marked as label in §3, pass `module_id`, `view_permission` per the §3 annotation (`ats:manage` for `offers`; `ats:read` for every other entity), and `edit_permission` per the §3 annotation: `ats:admin` for entities whose §3 carries `**Edit permission:** admin` (`departments`, `application_stages`, `candidate_sources`); `ats:interview` for `interview_feedback` (`**Edit permission:** interview`); and `ats:manage` for every other entity. Set `audit_log: true` on `job_openings`, `candidates`, `job_applications`, `interview_feedback`, and `offers` (per §3). Pass the `validation_rules` block from §3 byte-for-byte for entities that declare one (`departments`, `job_openings`, `job_applications`, `application_notes`, `interviews`, `interview_feedback`, `offers`). Pass the `computed_fields` block from §3 for entities that declare one (`job_applications`, `candidate_documents`, `interviews`, `interview_feedback`, `offers`, `hiring_team_members`). Pass the `select_rule` block from §3 for entities that declare one (`application_notes`, `interview_feedback`). The `application_notes`, `interview_feedback`, and `offers` `validation_rules` blocks invoke the platform-extension operators `value_changed` and `require_permission`; the `application_notes` and `interview_feedback` `select_rule` bodies invoke `has_permission`; the six `computed_fields` blocks use `set_record` and `cat`. All operators that reference workflow permissions resolve to codes created in step 1, so step 1 must complete before any entity carrying those rules is written. Do **not** manually create `id`, `created_at`, `updated_at`, or the auto-label field.
+4. **Per-field create parameters.** For each field in §3: pass `table_name`, `field_name`, `format`, `title` (the Label column), the `description` cell (passed verbatim to `create_field`'s `description` parameter), and for `reference`/`parent` fields also `reference_table` and a `reference_delete_mode` consistent with §4. Pass `enum_values` for every `enum` field, taken from §5. Apply `default: "<value>"` annotations from §3 Notes verbatim, in particular `job_openings.headcount` must be created with `default: "1"` so a fresh form does not open prefilled with `0` and fail the `headcount_positive` rule. Pass `input_type_rule` from §3 byte-for-byte for fields that declare one (under entity `Input type rules` sub-blocks). Set `unique_value: true` on `departments.department_name`, `departments.department_code`, `job_openings.job_code`, `application_stages.stage_name`, `application_stages.stage_order`, `candidate_sources.source_name`, `candidates.email_address`, and `users.email`.
 5. **Fix up each entity's auto-created label-column field title.** `create_entity` auto-creates a field whose `field_name` equals the entity's `label_column` and whose `title` defaults to `singular_label`. For most entities in this model, the §3 Label of the label_column field differs from `singular_label` and the title must be patched with `update_field`. The `update_field` `id` is the **composite string** `"{table_name}.{field_name}"`; pass it as a **string**, not an integer. Required updates:
    - `"users.display_name"` → title `"Display Name"`
    - `"departments.department_name"` → title `"Department Name"`
@@ -1183,6 +1532,5 @@ None.
    - `"interview_feedback.feedback_label"` → title `"Feedback"`
    - `"hiring_team_members.team_member_label"` → title `"Team Member"`
    - (`interviews.interview_label` and `offers.offer_label` already match `singular_label` "Interview" / "Offer"; no fixup needed.)
-6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment. Semantius ships a built-in `users` table; read it first; if it exists, **skip the create** and reuse the built-in as the `reference_table` target everywhere this model points to `users`. Optionally add any of the §3.1 fields the built-in lacks (`display_name`, `email_address`, `first_name`, `last_name`, `job_title`, `department_id`, `is_active`); additive low-risk only. Do not attempt to recreate `users`. The `departments`, `application_stages`, `candidate_sources`, etc. listed in §3 are not Semantius built-ins and should be created normally. If a `departments` built-in exists in another deployed module (e.g. HRIS), the deployer's name-collision flow will surface the merge / rename decision.
+6. **Deduplicate against Semantius built-in tables.** This model declares `users` for self-containment using the built-in's canonical field names (`display_name`, `email`, `first_name`, `last_name`, `is_disabled`). Semantius ships a built-in `users` table; read it first; if it exists, **skip the create** and reuse the built-in as the `reference_table` target everywhere this model points to `users`. The ATS-additive fields (`job_title`, `department_id`) should be added to the built-in via `create_field` (additive low-risk). The `departments`, `application_stages`, `candidate_sources`, etc. listed in §3 are not Semantius built-ins and should be created normally. If a `departments` built-in exists in another deployed module (e.g. HRIS), the deployer's name-collision flow will surface the merge / rename decision. The `departments` entity carries `**Shared master cluster:** organization`; offer the user the option to host it in a shared master module (typical home: HRIS or a dedicated `organization` master) so Workforce Planning, HRIS, and other domain modules can FK to the same row.
 7. **Apply §6 cross-model link suggestions.** After the model's own creates and the built-in dedup pass, walk the §6 hint table. For each row, look up the `To` concept in the live catalog: when a single entity matches, propose an additive `create_field` on `From` using the auto-generated `<target_singular>_id` field name with the row's `Verb` as `relationship_label` and `Delete` as `reference_delete_mode`; when several candidates match, batch a single user confirmation; when no candidate matches, skip silently. All §6 changes are strictly additive (new optional FK columns).
-8. **Spot-check after creation.** Confirm that `label_column` on each entity resolves to a real field, that all `reference_table` targets exist, that the `parent_department_id` self-reference on `departments` was successfully added after the entity was created, and that the two junction FKs on `hiring_team_members` resolve correctly.

@@ -1,57 +1,58 @@
 ---
 title: Product Roadmap Skill
-description: Plans features through intake, RICE scoring, objective alignment, release scheduling, voting, tagging, comments, and ship.
+description: Plans features through intake, RICE scoring, release scheduling, stakeholder voting, tagging, and shipped-release commitment.
 ---
 
 # Product Roadmap Skill
 
-A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as features, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic objectives, and schedule the committed work into releases. Stakeholders contribute through votes and comments; tags provide cross-cutting categorization.
+A single-product roadmap planning system. Product managers capture incoming feature requests, change requests, bugs, and tech-debt items as features, score them with RICE (reach × impact × confidence ÷ effort), align them to strategic objectives, and schedule the committed work into releases. Stakeholders contribute through weighted votes and threaded comments; tags provide cross-cutting categorization.
 
-The Product Roadmap model plans how every idea moves from intake through scoring and release commitment to a shipped feature, with the rationale weighing each one and the release it lands in. The Product Roadmap Skill teaches an agent how to use that model to plan a feature from intake through to a shipped release reliably, without the handoffs between PM, design, and engineering quietly going missing. Without it, an idea can get scheduled with no recorded owner; a release can ship with features still marked "in progress"; a stakeholder vote can be double-counted because the second cast did not find and replace the first.
+The Product Roadmap model plans how every idea moves from intake through RICE scoring and release commitment to a shipped feature, alongside the votes, comments, and tags that steer those decisions. The Product Roadmap Skill teaches an agent how to use that model to plan a feature from intake through to a shipped release reliably and the same way every time, with the paired status, release, and date entries kept in lockstep across the workflow. Without it, a feature can be marked shipped while the release it shipped in stays empty; a vote can be cast twice for the same person because nothing checks for an existing one; a tag can be retired while features still carry it, and the delete refuses with a confusing message.
 
 ## Sample prompts
 
-- "Schedule the dark-mode feature into the v2.5 release"
-- "Plan the SSO feature for March 2026, target start next Monday"
-- "Start work on the API rate-limiting feature today"
-- "Mark the onboarding revamp in progress"
-- "Ship the export-to-CSV feature in v2.4 with completion date today"
-- "The mobile push notifications feature is done, ship it"
-- "Cast a vote for the dark-mode feature for jane@acme.com with weight 3"
-- "Sarah voted for the SSO feature, record it"
-- "Tag the rate-limiting feature with platform"
-- "Add the tag enterprise to the SSO feature"
-- "Comment on the dark-mode feature for jane@acme.com saying we should align this with the brand refresh"
-- "Post a note on the SSO feature for the security team"
-- "Show the roadmap pipeline by status"
-- "Which features have the highest RICE score right now"
-- "How many features shipped in v2.4"
-- "Top-voted features by total weight"
-- "Pipeline grouped by objective"
+- "Move the SSO feature to in progress"
+- "Start work on multi-tenant onboarding"
+- "Ship the dark-mode feature in release 3.4"
+- "Mark the auth refactor as shipped in 2026 Q2"
+- "Schedule the dashboard redesign into release 2026 Q2"
+- "Move the bug fix out of release 3.4"
+- "Cast a vote for the dark-mode feature on behalf of alice@acme.com"
+- "Vote for the SAML feature with weight 3"
+- "Tag the inventory feature as 'mobile'"
+- "Release the 3.4 release"
+- "Delete the deprecated 'legacy' tag"
+- "Show the top 10 features by RICE score in the backlog"
+- "How many features shipped this quarter"
+- "Which features have the most votes"
+- "Show the release scorecard for 2026 Q1"
+- "How are features distributed across tags"
 
 ## What it covers
 
-- Schedule a feature into a release with target dates
-- Start work on a feature and record the actual start date
-- Ship a feature with the release it shipped in and the completion date
-- Cast or update weighted votes on features without duplicating junction rows
-- Tag features, asking before creating tags that do not exist yet
-- Post comments with a deterministic short-form label for list display
-- Common reports: pipeline by status, top RICE features, release throughput, top-voted features, pipeline by objective
+- Start features and ship them into a release with paired actual dates
+- Schedule and detach features against committed releases
+- Cast and update weighted stakeholder votes with deduplication
+- Tag features with reusable categories
+- Release a release through its workflow gate
+- Delete tags with feature-link cleanup
+- Common reports: RICE-ranked backlog, release scorecard, top voted features, throughput by month, tag distribution
 
 ## Semantic model
 
 ```mermaid
 flowchart LR
-    objectives -->|rolls up| features
+    classDef builtin fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1a4d2e;
+    objectives -->|drives| features
     releases -->|contains| features
     users -->|owns| objectives
     users -->|owns| features
     users -->|requests| features
-    users -->|authors| comments
-    features -->|collects| comments
-    features -->|collects votes via| feature_votes
+    users -->|authors| feature_comments
+    features -->|collects| feature_comments
+    features -->|collects| feature_votes
     users -->|casts| feature_votes
-    features -->|has tags via| feature_tags
-    tags -->|links features via| feature_tags
+    features -->|is tagged through| feature_tags
+    tags -->|categorizes through| feature_tags
+    class users builtin;
 ```

@@ -1,63 +1,87 @@
 #!/usr/bin/env bash
-# ship-feature.sh: Move a feature from `in_progress` to `shipped`,
-# attaching the release if not already set, and record
-# `actual_completion_date`. Refuses if the feature is not in
-# `in_progress` or completion precedes start.
+# ship-feature.sh: Ship a feature into a release. PATCH status=shipped,
+# release_id, actual_start_date, actual_completion_date in one call.
 #
-# Usage: ship-feature.sh <feature-title> [<release-name>] [<actual-completion-YYYY-MM-DD>]
+# Usage: ship-feature.sh <feature-title> <release-name> [actual-completion-date YYYY-MM-DD]
 #
 # Exit:  0 on success
-#        1 on usage / validation failure (bad args, unresolved title or release,
-#          feature not in `in_progress`, no release available,
-#          completion before start, release in terminal state)
+#        1 on usage/validation failure (bad args, lookup failed,
+#          release not transitionable, feature already shipped)
 #        2 on platform error (semantius call failed)
 #
-# Idempotent: if the feature is already `shipped`, the platform rejects
-# any further write via feature_shipped_is_one_way; the recipe surfaces
-# that and exits non-zero. The operation is a one-way transition.
+# Idempotent: a re-run on a feature already shipped into the same release
+# with the same actual dates exits 0 with a no-op message; a re-run that
+# would change anything on a shipped feature exits 1 (one-way terminal).
 set -euo pipefail
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
-  echo "Usage: $(basename "$0") <feature-title> [<release-name>] [<actual-completion-YYYY-MM-DD>]" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo "Usage: $(basename "$0") <feature-title> <release-name> [actual-completion-date YYYY-MM-DD]" >&2
   exit 1
 fi
 
 feature_title="$1"
-release_name="${2:-}"
-actual_completion="${3:-$(date +%Y-%m-%d)}"
+release_name="$2"
+completion_date="${3:-$(date -u +%Y-%m-%d)}"
 
-feature=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/features?search_vector=wfts(simple).${feature_title// /%20}&select=id,feature_status,release_id\"}") \
-  || { echo "step 1: feature '$feature_title' not found or ambiguous" >&2; exit 1; }
+enc_title=$(printf '%s' "$feature_title" | jq -sRr @uri)
+enc_release=$(printf '%s' "$release_name" | jq -sRr @uri)
 
-feature_id=$(printf '%s' "$feature" | grep -oE '"id":"[^"]+"' | head -n1 | cut -d'"' -f4)
-feature_status=$(printf '%s' "$feature" | grep -oE '"feature_status":"[^"]+"' | head -n1 | cut -d'"' -f4)
-existing_release_id=$(printf '%s' "$feature" | grep -oE '"release_id":"[^"]+"' | head -n1 | cut -d'"' -f4 || true)
+# Step 1: parallel-fetch (no dependency between these reads)
+# 1a: resolve the feature by title
+feature=$(semantius call crud postgrestRequest --single \
+  "{\"method\":\"GET\",\"path\":\"/features?search_vector=wfts(simple).${enc_title}&select=id,feature_title,feature_status,release_id,actual_start_date,actual_completion_date\"}") \
+  || { echo "step 1a: feature '$feature_title' not found or ambiguous; try the exact title" >&2; exit 1; }
 
-if [ "$feature_status" != "in_progress" ]; then
-  echo "step 1: feature '$feature_title' is in '$feature_status'; can only ship from 'in_progress'. Run start-feature.sh first if needed." >&2
+# 1b: resolve the release by name
+release=$(semantius call crud postgrestRequest --single \
+  "{\"method\":\"GET\",\"path\":\"/releases?release_name=eq.${enc_release}&select=id,release_name,release_status\"}") \
+  || { echo "step 1b: release '$release_name' not found" >&2; exit 1; }
+
+feature_id=$(printf '%s' "$feature" | jq -r '.id')
+current_status=$(printf '%s' "$feature" | jq -r '.feature_status')
+current_release=$(printf '%s' "$feature" | jq -r '.release_id // empty')
+existing_start=$(printf '%s' "$feature" | jq -r '.actual_start_date // empty')
+existing_completion=$(printf '%s' "$feature" | jq -r '.actual_completion_date // empty')
+
+release_id=$(printf '%s' "$release" | jq -r '.id')
+release_status=$(printf '%s' "$release" | jq -r '.release_status')
+
+# Step 2: refuse if the feature is already shipped (one-way terminal)
+if [ "$current_status" = "shipped" ]; then
+  if [ "$current_release" = "$release_id" ] \
+     && [ "$existing_completion" = "$completion_date" ]; then
+    echo "ship-feature: '$feature_title' is already shipped in '$release_name' on $completion_date (no-op)"
+    exit 0
+  fi
+  echo "step 2: feature '$feature_title' is already shipped; feature_shipped_is_one_way blocks any further changes. To re-ship under a different release/date, create a new feature record." >&2
   exit 1
 fi
 
-# Step 2: resolve release if supplied
-release_id="$existing_release_id"
-if [ -n "$release_name" ]; then
-  release=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/releases?release_name=eq.${release_name// /%20}&select=id\"}") \
-    || { echo "step 2: release '$release_name' not found" >&2; exit 1; }
-  release_id=$(printf '%s' "$release" | grep -oE '"id":"[^"]+"' | head -n1 | cut -d'"' -f4)
+# Step 3: refuse if the target release is cancelled (no platform rule
+# blocks shipping into a cancelled release, so this is a workflow gate).
+# The released case is left to the platform: features_locked_when_release_is_released
+# rejects the attach with a clear message; surface verbatim.
+if [ "$release_status" = "cancelled" ]; then
+  echo "step 3: release '$release_name' is cancelled; shipping into a cancelled release has no domain meaning. Pick a different release." >&2
+  exit 1
 fi
 
-# Step 3: ship in one PATCH (status + release_id + actual_completion_date).
-# release_id may be null; the platform's release_required_when_shipped will
-# reject in that case and we surface the code to the user.
-body="{\"feature_status\":\"shipped\",\"actual_completion_date\":\"$actual_completion\""
-if [ -n "$release_id" ]; then body="$body,\"release_id\":\"$release_id\""; fi
-body="$body}"
+# Step 4: compose actual_start_date. Prefer any existing value (set when
+# the feature was started), fall back to the completion date so the
+# actual_dates_ordered rule passes when shipping without a prior start.
+start_date="${existing_start:-$completion_date}"
 
-semantius call crud postgrestRequest "{\"method\":\"PATCH\",\"path\":\"/features?id=eq.$feature_id\",\"body\":$body}" \
-  || { echo "step 3: PATCH /features failed; surface any platform code verbatim. Likely codes: release_required_when_shipped (no release on feature, supply <release-name>), actual_dates_ordered (completion before start), feature_shipped_is_one_way (already shipped)" >&2; exit 2; }
+# Step 5: PATCH status + release + both actual dates in one call.
+# rice_score is in computed_fields (platform-derived); never include it.
+body=$(jq -nc \
+  --arg s "shipped" \
+  --arg r "$release_id" \
+  --arg sd "$start_date" \
+  --arg cd "$completion_date" \
+  '{feature_status: $s, release_id: $r, actual_start_date: $sd, actual_completion_date: $cd}')
 
-verify=$(semantius call crud postgrestRequest --single "{\"method\":\"GET\",\"path\":\"/features?id=eq.$feature_id&select=id,feature_status,release_id,actual_completion_date\"}") \
-  || { echo "step 4: verify read failed" >&2; exit 2; }
+semantius call crud postgrestRequest \
+  "{\"method\":\"PATCH\",\"path\":\"/features?id=eq.${feature_id}\",\"body\":${body}}" >/dev/null \
+  || { echo "step 5 (ship) failed; surface any platform validation_rules code/message verbatim. Likely codes: features_locked_when_release_is_released (target release is already released, or the feature was previously attached to a released release), actual_dates_ordered (start > completion)." >&2; exit 2; }
 
-echo "ship-feature: ok"
-printf '%s\n' "$verify"
+echo "ship-feature: '$feature_title' shipped in '$release_name' (start=$start_date, completion=$completion_date)"
