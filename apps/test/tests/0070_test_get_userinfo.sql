@@ -1,7 +1,7 @@
 -- Test public.get_userinfo() function
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(35);
 
 -- =====================================================
 -- TEST: get_userinfo() returns correct data for user1
@@ -33,6 +33,13 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'user@test.com',
     'get_userinfo() should return email user@test.com for user1'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Test User',
+    'get_userinfo() should return display_name Test User for user1'
 );
 
 -- Test first_name
@@ -91,6 +98,13 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'sales@test.com',
     'get_userinfo() should return email sales@test.com for user2'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Sales Person',
+    'get_userinfo() should return display_name Sales Person for user2'
 );
 
 -- Test first_name
@@ -155,6 +169,13 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'admin@test.com',
     'get_userinfo() should return email admin@test.com for user3'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Admin Boss',
+    'get_userinfo() should return display_name Admin Boss for user3'
 );
 
 -- Test first_name

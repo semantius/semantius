@@ -15,6 +15,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
                 original_sub text;
                 original_email text;
                 user_email text;
+                user_display_name text;
                 user_first_name text;
                 user_last_name text;
         BEGIN
@@ -28,8 +29,8 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             end if;
 
             -- Look up the user details for this external_id
-            SELECT u.email, u.first_name, u.last_name
-            INTO user_email, user_first_name, user_last_name
+            SELECT u.email, u.display_name, u.first_name, u.last_name
+            INTO user_email, user_display_name, user_first_name, user_last_name
             FROM users u WHERE u.external_id = authenticate_as.external_id;
             
             if user_email is null then
@@ -46,6 +47,7 @@ CREATE OR REPLACE FUNCTION authenticate_as (
             -- Set JWT claims in the format expected by rbac functions
             perform set_config('request.jwt.claim.sub', external_id, true);
             perform set_config('request.jwt.claim.email', user_email, true);
+            perform set_config('request.jwt.claim.name', COALESCE(user_display_name, ''), true);
             perform set_config('request.jwt.claim.given_name', COALESCE(user_first_name, ''), true);
             perform set_config('request.jwt.claim.family_name', COALESCE(user_last_name, ''), true);
             perform set_config('request.jwt.claim.role', 'authenticated', true);

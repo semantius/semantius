@@ -1,8 +1,10 @@
 -- =====================================================
--- MIGRATION: Add first_name and last_name to users
+-- MIGRATION: Add first_name and last_name to users,
+-- populate display_name from JWT name claim
 -- =====================================================
 -- JWT claims given_name and family_name are now stored
 -- as first_name and last_name in the users table.
+-- JWT name claim is stored as display_name (column already exists).
 -- sub (external_id) is already UNIQUE NOT NULL.
 
 -- Add columns
@@ -20,14 +22,15 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- =====================================================
--- Update upsert_user_from_jwt to accept first_name/last_name
--- Drop the old 2-parameter version first, then create the new 4-parameter version
+-- Update upsert_user_from_jwt to accept display_name/first_name/last_name
+-- Drop the old 2-parameter version first, then create the new 5-parameter version
 -- =====================================================
 DROP FUNCTION IF EXISTS rbac.upsert_user_from_jwt(TEXT, TEXT);
 
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
     p_email TEXT DEFAULT NULL,
+    p_display_name TEXT DEFAULT NULL,
     p_first_name TEXT DEFAULT NULL,
     p_last_name TEXT DEFAULT NULL
 )
@@ -42,11 +45,12 @@ BEGIN
         RAISE EXCEPTION 'external_id cannot be null or empty';
     END IF;
 
-    INSERT INTO users (external_id, email, first_name, last_name, last_seen)
-    VALUES (p_external_id, p_email, COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
+    INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
+    VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
     ON CONFLICT (external_id) DO UPDATE
     SET last_seen = CURRENT_TIMESTAMP,
         email = COALESCE(EXCLUDED.email, users.email),
+        display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
         first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
         last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
     RETURNING id INTO v_user_id;
@@ -56,7 +60,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS 
-'Creates or updates user record from JWT claims. Stores given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
+'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
 
 -- =====================================================
 -- Update get_userinfo to pass first_name/last_name from JWT claims
@@ -67,6 +71,7 @@ RETURNS JSONB AS $$
 DECLARE
     v_external_id TEXT;
     v_email TEXT;
+    v_display_name TEXT;
     v_first_name TEXT;
     v_last_name TEXT;
     v_user_id INTEGER;
@@ -80,11 +85,12 @@ BEGIN
 
     -- Get claims from JWT
     v_email := current_setting('request.jwt.claim.email', true);
+    v_display_name := current_setting('request.jwt.claim.name', true);
     v_first_name := current_setting('request.jwt.claim.given_name', true);
     v_last_name := current_setting('request.jwt.claim.family_name', true);
 
     -- Create or update user record and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_first_name, v_last_name);
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
     
     -- Verify user was created/found successfully
     IF v_user_id IS NULL THEN
@@ -141,6 +147,7 @@ BEGIN
         'user_id', u.id,
         'external_id', u.external_id,
         'email', u.email,
+        'display_name', u.display_name,
         'first_name', u.first_name,
         'last_name', u.last_name,
         'is_disabled', u.is_disabled,
@@ -166,7 +173,7 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION public.get_userinfo IS 
-'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, given_name, family_name). Call on login.';
+'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
@@ -200,6 +207,7 @@ BEGIN
     v_user_id := rbac.upsert_user_from_jwt(
         v_external_id, 
         COALESCE(p_email, current_setting('request.jwt.claim.email', true)),
+        current_setting('request.jwt.claim.name', true),
         current_setting('request.jwt.claim.given_name', true),
         current_setting('request.jwt.claim.family_name', true)
     );

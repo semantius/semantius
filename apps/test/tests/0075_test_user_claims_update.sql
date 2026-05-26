@@ -3,14 +3,20 @@
 -- updated when a user calls get_userinfo() with new JWT claims
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(12);
 
 -- =====================================================
 -- TEST: Claims are stored on first call
 -- =====================================================
 SELECT authenticate_as('user1');
 
--- Verify initial first_name and last_name
+-- Verify initial display_name, first_name and last_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Test User',
+    'user1 should have display_name Test User initially'
+);
+
 SELECT is(
     (SELECT public.get_userinfo()->>'first_name'),
     'Test',
@@ -31,6 +37,7 @@ SELECT is(
 RESET ROLE;
 SELECT set_config('request.jwt.claim.sub', 'user1', true);
 SELECT set_config('request.jwt.claim.email', 'user@test.com', true);
+SELECT set_config('request.jwt.claim.name', 'Updated Full Name', true);
 SELECT set_config('request.jwt.claim.given_name', 'Updated', true);
 SELECT set_config('request.jwt.claim.family_name', 'Name', true);
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
@@ -47,6 +54,12 @@ SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
 
 -- Call get_userinfo which should update the user record
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Updated Full Name',
+    'user1 display_name should be updated to Updated Full Name after new JWT claims'
+);
+
 SELECT is(
     (SELECT public.get_userinfo()->>'first_name'),
     'Updated',
@@ -76,6 +89,7 @@ SELECT is(
 RESET ROLE;
 SELECT set_config('request.jwt.claim.sub', 'user1', true);
 SELECT set_config('request.jwt.claim.email', 'user@test.com', true);
+SELECT set_config('request.jwt.claim.name', '', true);
 SELECT set_config('request.jwt.claim.given_name', '', true);
 SELECT set_config('request.jwt.claim.family_name', '', true);
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
@@ -90,7 +104,13 @@ SELECT set_config('app.oauth_scopes', NULL, false);
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
 
--- first_name and last_name should keep the previously updated values
+-- display_name, first_name and last_name should keep the previously updated values
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Updated Full Name',
+    'display_name should not be overwritten by empty JWT claim'
+);
+
 SELECT is(
     (SELECT public.get_userinfo()->>'first_name'),
     'Updated',
