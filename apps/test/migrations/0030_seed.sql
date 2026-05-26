@@ -340,10 +340,10 @@ VALUES
 -- Add test users with fixed Ids for testing
 -- user1 is created with last_seen to make them the first user accessing the system
 -- This will trigger automatic assignment of Administrator role (role 2)
-INSERT INTO users (id, external_id, email, last_seen) VALUES
-    (1001, 'user1', 'user@test.com', NULL),
-    (1002, 'user2', 'sales@test.com', NULL),
-    (1003, 'user3', 'admin@test.com', '2026-01-01 12:34:00'::timestamptz);
+INSERT INTO users (id, external_id, email, first_name, last_name, last_seen) VALUES
+    (1001, 'user1', 'user@test.com', 'Test', 'User', NULL),
+    (1002, 'user2', 'sales@test.com', 'Sales', 'Person', NULL),
+    (1003, 'user3', 'admin@test.com', 'Admin', 'Boss', '2026-01-01 12:34:00'::timestamptz);
 
 -- Adjust the sequence counter to the max user_id to avoid conflicts with future auto-generated Ids
 SELECT setval('users_id_seq', (SELECT MAX(id) FROM users), true);
