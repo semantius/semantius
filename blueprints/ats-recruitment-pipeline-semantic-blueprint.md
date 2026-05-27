@@ -7,8 +7,8 @@ system_slug: ats-recruitment-pipeline
 domain_modules:
   - ats-recruitment-pipeline
 domain_code: ATS
-related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-talent-pools, hcm-core-worker, hcm-org-positions, iwms-location-master, pa-predictive-models, psa-resource-mgmt, swp-demand-forecast]
-created_at: 2026-05-26
+related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-talent-pools, hcm-core-worker, hcm-org-positions, hiring-starter, iwms-location-master, pa-predictive-models, psa-resource-mgmt, swp-demand-forecast]
+created_at: 2026-05-27
 ---
 
 # Recruitment Pipeline
@@ -34,7 +34,7 @@ Requisitions → postings → applications with pipeline-stage lifecycle. Realiz
 | Project Resource Allocations | Forward-looking resource commitment plan (skill, planned utilisation %, effective period) - distinct from executed assignments. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef consumer fill:#e8def8,stroke:#7b1fa2,color:#3a155d;
@@ -84,6 +84,11 @@ flowchart LR
   class project_resource_allocations consumer;
   class job_profiles embedded_master;
   class users platform_builtin;
+  style hcm_positions stroke-dasharray:5 5;
+  style org_units stroke-dasharray:5 5;
+  style locations stroke-dasharray:5 5;
+  style predictive_models stroke-dasharray:5 5;
+  style project_resource_allocations stroke-dasharray:5 5;
 ```
 
 ## 3. Entities catalog
@@ -112,81 +117,81 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `org_units` | contains | `hcm_positions` | one_to_many | reference | required | source | intra \| cluster A \| HCM \| positions live inside an org unit |
-| `job_profiles` | defines | `hcm_positions` | one_to_many | reference | required | source | intra \| cluster A \| HCM \| job profile is the template for positions |
-| `hcm_positions` | spawns | `job_requisitions` | one_to_many | reference | optional | source | cross \| cluster A \| HCM \| approved position becomes a requisition in ATS |
-| `job_profiles` | feeds | `job_postings` | one_to_many | reference | optional | source | cross \| cluster A \| HCM \| canonical job profile feeds ATS posting templates |
-| `job_requisitions` | is advertised through | `job_postings` | one_to_many | reference | required | source | intra \| ATS \| req opens, postings are children |
-| `job_requisitions` | receives | `job_applications` | one_to_many | reference | required | source | intra \| ATS \| apps target a specific req |
-| `job_postings` | is applied to via | `job_applications` | one_to_many | reference | required | source | intra \| ATS \| app inflow is anchored on a posting |
-| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | intra \| ATS \| candidate persists across applications |
-| `job_requisitions` | updates | `position_demand_forecasts` | many_to_many | reference | optional | target | cross \| ATS→SWP \| requisition.filled feeds the demand-forecast actualization (analytical) |
-| `org_units` | rolls_up_to | `org_units` | one_to_many | reference | optional | source | Hierarchical parent-child between org_units (Team -> Department -> Division -> BU -> Company). |
-| `locations` | rolls_up_to | `locations` | one_to_many | reference | optional | source | Hierarchical parent-child between locations (Office -> City -> Country -> Region). |
-| `position_demand_forecasts` | triggers | `job_requisitions` | one_to_many | reference | optional | source | cross \| SWP→ATS \| position_demand_forecast.updated triggers requisition pipeline alignment. |
+| `org_units` | contains | `hcm_positions` | one_to_many | reference | required | source | - |
+| `job_profiles` | defines | `hcm_positions` | one_to_many | reference | required | source | - |
+| `hcm_positions` | spawns | `job_requisitions` | one_to_many | reference | optional | source | - |
+| `job_profiles` | feeds | `job_postings` | one_to_many | reference | optional | source | - |
+| `job_requisitions` | is advertised through | `job_postings` | one_to_many | reference | required | source | - |
+| `job_requisitions` | receives | `job_applications` | one_to_many | reference | required | source | - |
+| `job_postings` | is applied to via | `job_applications` | one_to_many | reference | required | source | - |
+| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | - |
+| `job_requisitions` | updates | `position_demand_forecasts` | many_to_many | reference | optional | target | - |
+| `org_units` | rolls_up_to | `org_units` | one_to_many | reference | optional | source | - |
+| `locations` | rolls_up_to | `locations` | one_to_many | reference | optional | source | - |
+| `position_demand_forecasts` | triggers | `job_requisitions` | one_to_many | reference | optional | source | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
 | from | verb | to | cardinality | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `users` | manages | `hcm_positions` | one_to_many | optional | source | users \| cluster A \| HCM \| manager-of-position relationship \| auto-flipped from many_to_one |
-| `users` | leads | `org_units` | one_to_many | optional | source | users \| cluster A \| HCM \| org-unit head \| auto-flipped from many_to_one |
-| `users` | owns | `job_profiles` | one_to_many | optional | source | users \| cluster A \| HCM \| catalog owner (HR/COE) \| auto-flipped from many_to_one |
-| `job_requisitions` | has recruiter and hiring manager | `users` | many_to_many | required | source | users \| ATS \| recruiter + hiring_manager roles on the req |
-| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | users \| ATS \| recruiter role on the application |
-| `org_units` | has members | `users` | one_to_many | optional | target | Every user is assigned to one or more org_units (department membership). Drives assignment routing, RBAC scoping, and chargeback. |
-| `locations` | houses | `users` | one_to_many | optional | target | Every user has a primary work location. Drives walk-up support routing, on-site dispatch, and location-based access. |
-| `users` | prepares | `position_demand_forecasts` | one_to_many | optional | source | Workforce planner who prepares the demand forecast. |
-| `users` | allocates | `project_resource_allocations` | one_to_many | required | target | The resource manager / staffing coordinator who authors the allocation plan. |
+| `users` | manages | `hcm_positions` | one_to_many | optional | source | - |
+| `users` | leads | `org_units` | one_to_many | optional | source | - |
+| `users` | owns | `job_profiles` | one_to_many | optional | source | - |
+| `job_requisitions` | has recruiter and hiring manager | `users` | many_to_many | required | source | - |
+| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | - |
+| `org_units` | has members | `users` | one_to_many | optional | target | - |
+| `locations` | houses | `users` | one_to_many | optional | target | - |
+| `users` | prepares | `position_demand_forecasts` | one_to_many | optional | source | - |
+| `users` | allocates | `project_resource_allocations` | one_to_many | required | target | - |
 
 ### 5.3 Cross-scope edges
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `org_units` | groups | `employees` | one_to_many | required | intra \| cluster A \| HCM \| every employee rolls up to an org unit |
-| `hcm_positions` | is_filled_by | `employees` | one_to_one | optional | intra \| cluster A \| HCM \| a position may be vacant or filled by one incumbent |
-| `cost_centers` | funds | `org_units` | one_to_many | required | intra \| cluster A \| HCM \| org-unit labor cost rolls to a cost center \| auto-flipped from many_to_one |
-| `org_units` | engages | `contingent_workers` | one_to_many | optional | intra \| cluster A \| HCM \| contingent workforce attaches to an org unit |
-| `org_units` | is_scored_by | `engagement_drivers` | one_to_many | optional | intra \| cluster A \| HCM \| engagement drivers measured at org-unit level |
-| `org_units` | is_measured_by | `people_kpis` | one_to_many | optional | intra \| cluster A \| HCM \| people KPIs aggregated by org unit |
-| `job_profiles` | maps_to | `skill_profiles` | many_to_many | optional | intra \| cluster A \| HCM \| competencies expected by job profile |
-| `org_units` | triggers | `iga_entitlement_definitions` | one_to_many | optional | cross \| cluster A \| HCM \| new/merged/disbanded org units drive IGA group lifecycle |
-| `job_profiles` | maps_to | `courses` | many_to_many | optional | cross \| cluster A \| HCM \| job-profile competencies drive required training |
-| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | cross \| cluster A \| HCM \| approved position carries grade/band to Comp-Mgmt \| auto-flipped from many_to_one |
-| `salary_bands` | bands | `job_profiles` | one_to_many | optional | cross \| cluster A \| HCM \| job-profile-to-salary-band mapping is authoritative \| auto-flipped from many_to_one |
-| `org_units` | maps_to | `cost_centers` | one_to_one | optional | cross \| cluster A \| HCM \| new org unit usually maps to ERP-FIN cost center |
-| `hcm_positions` | requires | `compliance_assignments` | one_to_many | optional | intra \| cluster A \| LMS \| role-based compliance training |
-| `job_profiles` | requires | `learning_paths` | many_to_many | optional | intra \| cluster A \| LMS \| job-profile competency paths |
-| `job_profiles` | expects | `skill_profiles` | many_to_many | optional | intra \| cluster A \| LMS \| competency expectation by profile |
-| `org_units` | sponsors | `compliance_assignments` | one_to_many | optional | intra \| cluster A \| LMS \| org-unit assigns compliance training |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | cross \| cluster A \| LMS \| internal-candidate skill data flows to ATS |
-| `org_units` | sponsors | `benefit_plans` | many_to_many | optional | intra \| cluster A \| BEN-ADMIN \| embedded: org-level offering |
-| `survey_campaigns` | targets | `org_units` | many_to_many | optional | intra \| cluster A \| EMP-EXP \| embedded: org-unit scoping |
-| `org_units` | owns | `action_plans` | one_to_many | optional | intra \| cluster A \| EMP-EXP \| org-unit accountable for action plan \| auto-flipped from many_to_one |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | required | intra \| ATS \| referral is the introduction event; candidate is durable |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | required | intra \| ATS \| source-of-hire dimension on candidate |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | intra \| ATS \| agency is the channel; candidate persists |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | intra \| ATS \| event is the touchpoint; candidate persists |
-| `talent_pools` | groups | `candidates` | many_to_many | required | intra \| ATS \| pool is a membership shell; candidate lives outside it |
-| `job_applications` | schedules | `interviews` | one_to_many | required | intra \| ATS \| interview belongs to the application's pipeline |
-| `job_applications` | requires | `candidate_assessments` | one_to_many | required | intra \| ATS \| assessment invitation belongs to the app's pipeline |
-| `job_applications` | results in | `job_offers` | one_to_many | required | intra \| ATS \| offer is the conversion of the application |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `job_requisitions` | feeds | `people_kpis` | many_to_many | optional | cross \| ATS→PA \| requisition.filled rolls into time-to-fill / hire-velocity KPIs (analytical) |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | Candidate identity continues into the pre-employee record; promoted to employees on activation. |
-| `employees` | fills | `hcm_positions` | one_to_one | optional | intra \| cluster A \| ONBOARDING \| embedded: incumbent of the position being onboarded |
-| `headcount_plans` | rolls_up_to | `position_demand_forecasts` | many_to_many | required | Headcount plan figures roll up to position-demand forecasts by job-family / location / quarter. |
-| `position_demand_forecasts` | grounds | `skills_gap_analyses` | one_to_many | optional | Position-demand forecasts ground skills-gap analyses (future-state demand). |
-| `headcount_plans` | authorizes | `job_requisitions` | one_to_many | required | cross \| SWP→ATS \| headcount.approved authorizes requisition creation. |
-| `workforce_scenarios` | drives | `hcm_positions` | one_to_many | required | cross \| SWP→HCM \| adopted scenario drives HCM position changes. |
-| `org_designs` | proposes | `hcm_positions` | one_to_many | required | cross \| SWP→HCM \| org_design.published proposes new hcm_positions for creation. |
 | `locations` | hosts_desk_bookings | `desk_bookings` | one_to_many | required | - |
 | `locations` | hosts_room_reservations | `room_reservations` | one_to_many | required | - |
 | `locations` | site_of_service_requests | `workplace_service_requests` | one_to_many | required | - |
 | `locations` | measured_by_reports | `space_utilization_reports` | one_to_many | required | - |
 | `locations` | subject_of_feedback | `workplace_experience_feedback` | one_to_many | optional | - |
-| `service_projects` | plans_resources_via | `project_resource_allocations` | one_to_many | optional | Forward-looking resource demand is captured at the project level via allocation records before assignments are firmed up. |
-| `project_resource_allocations` | confirms_into | `project_assignments` | one_to_many | optional | Tentative allocations firm up into named assignments once the resource is committed. The transition is captured by trigger project_assignment.confirmed. |
+| `org_units` | groups | `employees` | one_to_many | required | - |
+| `hcm_positions` | is_filled_by | `employees` | one_to_one | optional | - |
+| `cost_centers` | funds | `org_units` | one_to_many | required | - |
+| `org_units` | engages | `contingent_workers` | one_to_many | optional | - |
+| `org_units` | is_scored_by | `engagement_drivers` | one_to_many | optional | - |
+| `org_units` | is_measured_by | `people_kpis` | one_to_many | optional | - |
+| `job_profiles` | maps_to | `skill_profiles` | many_to_many | optional | - |
+| `org_units` | triggers | `iga_entitlement_definitions` | one_to_many | optional | - |
+| `job_profiles` | maps_to | `courses` | many_to_many | optional | - |
+| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | - |
+| `salary_bands` | bands | `job_profiles` | one_to_many | optional | - |
+| `org_units` | maps_to | `cost_centers` | one_to_one | optional | - |
+| `hcm_positions` | requires | `compliance_assignments` | one_to_many | optional | - |
+| `job_profiles` | requires | `learning_paths` | many_to_many | optional | - |
+| `job_profiles` | expects | `skill_profiles` | many_to_many | optional | - |
+| `org_units` | sponsors | `compliance_assignments` | one_to_many | optional | - |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
+| `org_units` | sponsors | `benefit_plans` | many_to_many | optional | - |
+| `survey_campaigns` | targets | `org_units` | many_to_many | optional | - |
+| `org_units` | owns | `action_plans` | one_to_many | optional | - |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | required | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | required | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
+| `talent_pools` | groups | `candidates` | many_to_many | required | - |
+| `job_applications` | schedules | `interviews` | one_to_many | required | - |
+| `job_applications` | requires | `candidate_assessments` | one_to_many | required | - |
+| `job_applications` | results in | `job_offers` | one_to_many | required | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `job_requisitions` | feeds | `people_kpis` | many_to_many | optional | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
+| `employees` | fills | `hcm_positions` | one_to_one | optional | - |
+| `headcount_plans` | rolls_up_to | `position_demand_forecasts` | many_to_many | required | - |
+| `position_demand_forecasts` | grounds | `skills_gap_analyses` | one_to_many | optional | - |
+| `headcount_plans` | authorizes | `job_requisitions` | one_to_many | required | - |
+| `workforce_scenarios` | drives | `hcm_positions` | one_to_many | required | - |
+| `org_designs` | proposes | `hcm_positions` | one_to_many | required | - |
+| `service_projects` | plans_resources_via | `project_resource_allocations` | one_to_many | optional | - |
+| `project_resource_allocations` | confirms_into | `project_assignments` | one_to_many | optional | - |
 
 ## 6. Cross-domain context
 
@@ -196,6 +201,8 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | --- | --- | --- | --- | --- |
 | `job_applications` | ATS-INTERVIEWS (Interviews) - ATS | embedded_master | required | - |
 | `job_applications` | ATS-OFFERS (Offers) - ATS | embedded_master | required | - |
+| `job_applications` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
+| `job_postings` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
 | `job_requisitions` | HCM-ORG-POSITIONS (Organisation and Position Management) - HCM | consumer | required | - |
 | `job_requisitions` | SWP-DEMAND-FORECAST (Demand Forecast) - SWP | contributor | required | - |
 
@@ -253,7 +260,32 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | `predictive_models` | consumer | optional | PA-PREDICTIVE-MODELS (PA) | - |
 | `project_resource_allocations` | consumer | optional | PSA-RESOURCE-MGMT (PSA) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
+
+### `candidates` (Candidate)
+
+_This scope holds `candidates` as **embedded_master**; the canonical state machine is owned by `ATS-CANDIDATE-CRM`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
+| 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
+| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
+
+### `hcm_positions` (Position)
+
+_This scope holds `hcm_positions` as **embedded_master**; the canonical state machine is owned by `HCM-ORG-POSITIONS`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `proposed` | ✓ | - | - | - | Position has been designed but not yet approved against the headcount plan. |
+| 2 | `approved` | - | - | ✓ | `hcm-org-positions:approved_position` | Cleared by headcount/finance owner; eligible to spawn a requisition. |
+| 3 | `open` | - | - | ✓ | `hcm-org-positions:open_position` | Approved and actively being recruited against; not yet filled. |
+| 4 | `filled` | - | - | ✓ | `hcm-org-positions:filled_position` | An employee occupies the position. |
+| 5 | `frozen` | - | - | ✓ | `hcm-org-positions:frozen_position` | Temporarily not fillable (hiring freeze, budget hold); retains the slot. |
+| 6 | `eliminated` | - | ✓ | ✓ | `hcm-org-positions:eliminated_position` | Removed from the org structure permanently. |
 
 ### `job_applications` (Application)
 
@@ -277,6 +309,17 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | 4 | `expired` | - | ✓ | - | - | Posting reached its scheduled end date. |
 | 5 | `closed` | - | ✓ | - | - | Posting taken down because the requisition is filled or cancelled. |
 
+### `job_profiles` (Job Profile)
+
+_This scope holds `job_profiles` as **embedded_master**; the canonical state machine is owned by `HCM-ORG-POSITIONS`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `draft` | ✓ | - | - | - | Profile is being authored or revised; not yet available for position assignment. |
+| 2 | `approved` | - | - | ✓ | `hcm-org-positions:approved_job_profile` | Cleared by the catalog owner; ready to be referenced by positions and postings. |
+| 3 | `active` | - | - | ✓ | `hcm-org-positions:active_job_profile` | In production use; positions and postings can reference it. |
+| 4 | `retired` | - | ✓ | ✓ | `hcm-org-positions:retired_job_profile` | No longer assignable to new positions; historical references preserved. |
+
 ### `job_requisitions` (Job Requisition)
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
@@ -287,6 +330,28 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | 4 | `on_hold` | - | - | - | - | Recruiting temporarily paused (budget freeze, scope change). |
 | 5 | `filled` | - | ✓ | ✓ | `ats-recruitment-pipeline:close_requisition` | Requisition closed because the role was filled. |
 | 6 | `cancelled` | - | ✓ | - | - | Requisition closed without a hire. |
+
+### `org_units` (Org Unit)
+
+_This scope holds `org_units` as **embedded_master**; the canonical state machine is owned by `HCM-ORG-POSITIONS`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `draft` | ✓ | - | - | - | Org unit defined as part of a future structure; not yet operational. |
+| 2 | `active` | - | - | ✓ | `hcm-org-positions:active_org_unit` | Operational unit; carries headcount, cost-center linkage, and reporting lines. |
+| 3 | `reorganized` | - | ✓ | ✓ | `hcm-org-positions:reorganized_org_unit` | Unit folded into or replaced by a new structure; references remain for history. |
+| 4 | `closed` | - | ✓ | ✓ | `hcm-org-positions:closed_org_unit` | Unit dissolved; no employees or positions reside in it. |
+
+### `project_resource_allocations` (Project Resource Allocation)
+
+_This scope holds `project_resource_allocations` as **consumer**; the canonical state machine is owned by `PSA-RESOURCE-MGMT`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `tentative` | ✓ | - | - | - | Forecast allocation drafted by resource manager; not yet committed. |
+| 2 | `committed` | - | - | ✓ | `psa-resource-mgmt:commit_project_resource_allocation` | Allocation firmed up: HCM treats the named hours as booked capacity; CLM links the allocation to the underlying engagement contract. |
+| 3 | `fulfilled` | - | ✓ | - | - | Allocation period elapsed and corresponding assignments closed. |
+| 4 | `cancelled` | - | ✓ | ✓ | `psa-resource-mgmt:cancel_project_resource_allocation` | Allocation withdrawn before commitment (forecast change, project delayed or descoped). |
 
 ## 8. Permissions and business rules (derived)
 

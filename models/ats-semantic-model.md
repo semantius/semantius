@@ -61,7 +61,7 @@ An applicant tracking system used by an in-house recruiting team to manage open 
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     classDef builtin fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1a4d2e;
     classDef master fill:#d4f4dd,stroke:#27ae60,color:#1a4d2e;
 

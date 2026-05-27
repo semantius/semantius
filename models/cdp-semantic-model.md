@@ -66,7 +66,7 @@ A Customer Data Platform ingests behavioral and attribute data about customers f
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     accounts -->|groups| profiles
     accounts -->|parent of| accounts
     profiles -->|unifies| identities

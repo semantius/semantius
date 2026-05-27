@@ -8,7 +8,7 @@ domain_modules:
   - ats-talent-pools
 domain_code: ATS
 related_modules: [ats-candidate-crm]
-created_at: 2026-05-26
+created_at: 2026-05-27
 ---
 
 # Talent Pools
@@ -25,7 +25,7 @@ Curated candidate groupings for nurture and pipeline-building (`talent_pools`). 
 | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   talent_pools["Talent Pools"]
@@ -52,7 +52,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `talent_pools` | groups | `candidates` | many_to_many | reference | required | target | intra \| ATS \| pool is a membership shell; candidate lives outside it |
+| `talent_pools` | groups | `candidates` | many_to_many | reference | required | target | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
@@ -62,14 +62,14 @@ _(no relationships against platform built-ins recorded for this scope.)_
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | cross \| cluster A \| LMS \| internal-candidate skill data flows to ATS |
-| `candidates` | submits | `job_applications` | one_to_many | required | intra \| ATS \| candidate persists across applications |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | required | intra \| ATS \| referral is the introduction event; candidate is durable |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | required | intra \| ATS \| source-of-hire dimension on candidate |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | intra \| ATS \| agency is the channel; candidate persists |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | intra \| ATS \| event is the touchpoint; candidate persists |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | Candidate identity continues into the pre-employee record; promoted to employees on activation. |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
+| `candidates` | submits | `job_applications` | one_to_many | required | - |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | required | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | required | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
 
 ## 6. Cross-domain context
 
@@ -90,7 +90,19 @@ _(no inbound `handoffs` whose payload is in this scope.)_
 | --- | --- | --- | --- | --- |
 | `candidates` | embedded_master | required | ATS-CANDIDATE-CRM (ATS) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
+
+### `candidates` (Candidate)
+
+_This scope holds `candidates` as **embedded_master**; the canonical state machine is owned by `ATS-CANDIDATE-CRM`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
+| 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
+| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
 
 ### `talent_pools` (Talent Pool)
 

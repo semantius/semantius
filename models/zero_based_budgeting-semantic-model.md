@@ -62,7 +62,7 @@ A budgeting platform implementing Peter Pyhrr's Zero-Based Budgeting methodology
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     budget_cycles -->|scopes| decision_packages
     budget_cycles -->|scopes| package_rankings
     cost_centers -->|parent of| cost_centers

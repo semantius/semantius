@@ -58,7 +58,7 @@ An internal SaaS spend management system that records the company's SaaS subscri
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     vendors -->|sells| subscriptions
     users -->|owns| subscriptions
     users -->|signs| subscriptions

@@ -8,7 +8,7 @@ domain_modules:
   - ats-referrals
 domain_code: ATS
 related_modules: [ats-candidate-crm, payroll-earnings-deductions]
-created_at: 2026-05-26
+created_at: 2026-05-27
 ---
 
 # Employee Referrals
@@ -25,7 +25,7 @@ Employee-driven candidate sourcing with referral-bonus tracking (`candidate_refe
 | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef platform_builtin fill:#e0e0e0,stroke:#424242,color:#1a1a1a;
@@ -56,26 +56,26 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | reference | required | target | intra \| ATS \| referral is the introduction event; candidate is durable |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | reference | required | target | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
 | from | verb | to | cardinality | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `candidate_referrals` | has referring employee | `users` | many_to_many | required | source | users \| ATS \| referring_employee role on referral |
+| `candidate_referrals` | has referring employee | `users` | many_to_many | required | source | - |
 
 ### 5.3 Cross-scope edges
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | cross \| cluster A \| LMS \| internal-candidate skill data flows to ATS |
-| `candidates` | submits | `job_applications` | one_to_many | required | intra \| ATS \| candidate persists across applications |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | required | intra \| ATS \| source-of-hire dimension on candidate |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | intra \| ATS \| agency is the channel; candidate persists |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | intra \| ATS \| event is the touchpoint; candidate persists |
-| `talent_pools` | groups | `candidates` | many_to_many | required | intra \| ATS \| pool is a membership shell; candidate lives outside it |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | Candidate identity continues into the pre-employee record; promoted to employees on activation. |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
+| `candidates` | submits | `job_applications` | one_to_many | required | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | required | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
+| `talent_pools` | groups | `candidates` | many_to_many | required | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
 
 ## 6. Cross-domain context
 
@@ -102,7 +102,7 @@ _(no inbound `handoffs` whose payload is in this scope.)_
 | --- | --- | --- | --- | --- |
 | `candidates` | embedded_master | required | ATS-CANDIDATE-CRM (ATS) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
 
 ### `candidate_referrals` (Referral)
 
@@ -114,6 +114,18 @@ _(no inbound `handoffs` whose payload is in this scope.)_
 | 4 | `bonus_payable` | - | - | ✓ | `ats-referrals:pay_referral_bonus` | Hire confirmed; gated step to approve the referral bonus payout. |
 | 5 | `bonus_paid` | - | ✓ | - | - | Referral bonus has been issued to the referring employee. |
 | 6 | `rejected` | - | ✓ | - | - | Referral not pursued. |
+
+### `candidates` (Candidate)
+
+_This scope holds `candidates` as **embedded_master**; the canonical state machine is owned by `ATS-CANDIDATE-CRM`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
+| 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
+| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
 
 ## 8. Permissions and business rules (derived)
 

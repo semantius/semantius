@@ -7,8 +7,8 @@ system_slug: ats-interviews
 domain_modules:
   - ats-interviews
 domain_code: ATS
-related_modules: [ats-candidate-crm, ats-recruitment-pipeline, hcm-lifecycle-workflows, talent-performance-mgmt, talent-succession-career]
-created_at: 2026-05-26
+related_modules: [ats-candidate-crm, ats-recruitment-pipeline, hcm-lifecycle-workflows, hiring-starter, talent-performance-mgmt, talent-succession-career]
+created_at: 2026-05-27
 ---
 
 # Interviews
@@ -21,14 +21,14 @@ Interview scheduling, panel coordination, scorecards, and structured assessments
 
 | Name | Description |
 | --- | --- |
-| Assessments | Skills, cognitive, technical, or personality test result attached to an application. Often sourced from a partner system (HackerRank, Codility, Pymetrics) and referenced here. |
+| Assessments | Skills, cognitive, technical, or personality test result attached to an application. Often sourced from an external assessment provider and referenced here. |
 | Interview Scorecards | Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation. |
 | Interviews | Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome. |
 | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. |
 | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef platform_builtin fill:#e0e0e0,stroke:#424242,color:#1a1a1a;
@@ -73,35 +73,35 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | intra \| ATS \| candidate persists across applications |
-| `job_applications` | schedules | `interviews` | one_to_many | reference | required | source | intra \| ATS \| interview belongs to the application's pipeline |
-| `interviews` | is scored via | `interview_scorecards` | one_to_many | reference | required | source | intra \| ATS \| scorecards are children of the interview |
-| `job_applications` | requires | `candidate_assessments` | one_to_many | reference | required | source | intra \| ATS \| assessment invitation belongs to the app's pipeline |
+| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | - |
+| `job_applications` | schedules | `interviews` | one_to_many | reference | required | source | - |
+| `interviews` | is scored via | `interview_scorecards` | one_to_many | reference | required | source | - |
+| `job_applications` | requires | `candidate_assessments` | one_to_many | reference | required | source | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
 | from | verb | to | cardinality | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | users \| ATS \| recruiter role on the application |
-| `interviews` | has coordinator and panelists | `users` | many_to_many | required | source | users \| ATS \| coordinator + panelist roles on the interview |
-| `interview_scorecards` | has interviewer as author | `users` | many_to_many | required | source | users \| ATS \| interviewer is the scorecard author |
+| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | - |
+| `interviews` | has coordinator and panelists | `users` | many_to_many | required | source | - |
+| `interview_scorecards` | has interviewer as author | `users` | many_to_many | required | source | - |
 
 ### 5.3 Cross-scope edges
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | cross \| cluster A \| LMS \| internal-candidate skill data flows to ATS |
-| `job_requisitions` | receives | `job_applications` | one_to_many | required | intra \| ATS \| apps target a specific req |
-| `job_postings` | is applied to via | `job_applications` | one_to_many | required | intra \| ATS \| app inflow is anchored on a posting |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | required | intra \| ATS \| referral is the introduction event; candidate is durable |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | required | intra \| ATS \| source-of-hire dimension on candidate |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | intra \| ATS \| agency is the channel; candidate persists |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | intra \| ATS \| event is the touchpoint; candidate persists |
-| `talent_pools` | groups | `candidates` | many_to_many | required | intra \| ATS \| pool is a membership shell; candidate lives outside it |
-| `job_applications` | results in | `job_offers` | one_to_many | required | intra \| ATS \| offer is the conversion of the application |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `candidate_assessments` | informs | `risk_assessments` | many_to_many | optional | cross \| ATS→TALENT-MGMT \| assessment.completed contributes to talent risk assessment (analytical) |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | Candidate identity continues into the pre-employee record; promoted to employees on activation. |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
+| `job_requisitions` | receives | `job_applications` | one_to_many | required | - |
+| `job_postings` | is applied to via | `job_applications` | one_to_many | required | - |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | required | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | required | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
+| `talent_pools` | groups | `candidates` | many_to_many | required | - |
+| `job_applications` | results in | `job_offers` | one_to_many | required | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `candidate_assessments` | informs | `risk_assessments` | many_to_many | optional | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
 
 ## 6. Cross-domain context
 
@@ -111,6 +111,8 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | --- | --- | --- | --- | --- |
 | `candidate_assessments` | HCM-LIFECYCLE-WORKFLOWS (Employee Lifecycle Workflows) - HCM | consumer | required | - |
 | `candidate_assessments` | TALENT-PERFORMANCE-MGMT (Performance and Goal Management) - TALENT-MGMT | consumer | optional | - |
+| `interview_scorecards` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | optional | - |
+| `interviews` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
 
 ### 6.2 Outbound handoffs (events this scope publishes)
 
@@ -136,7 +138,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | `candidates` | embedded_master | required | ATS-CANDIDATE-CRM (ATS) | - |
 | `job_applications` | embedded_master | required | ATS-RECRUITMENT-PIPELINE (ATS) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
 
 ### `candidate_assessments` (Assessment)
 
@@ -147,6 +149,18 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | 3 | `completed` | - | ✓ | - | - | Candidate finished the assessment and a score/result is recorded. |
 | 4 | `expired` | - | ✓ | - | - | Invitation lapsed before the candidate completed the assessment. |
 | 5 | `cancelled` | - | ✓ | - | - | Assessment withdrawn before completion. |
+
+### `candidates` (Candidate)
+
+_This scope holds `candidates` as **embedded_master**; the canonical state machine is owned by `ATS-CANDIDATE-CRM`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
+| 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
+| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
 
 ### `interview_scorecards` (Interview Scorecard)
 
@@ -168,9 +182,17 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 ### `job_applications` (Application)
 
+_This scope holds `job_applications` as **embedded_master**; the canonical state machine is owned by `ATS-RECRUITMENT-PIPELINE`._
+
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `applied` | ✓ | - | - | - | Candidate submitted an application against the requisition. |
+| 2 | `screening` | - | - | - | - | Recruiter is reviewing resume and qualifications. |
 | 3 | `interviewing` | - | - | - | - | Candidate is progressing through interview loops. |
+| 4 | `offer_extended` | - | - | - | - | An offer has been generated and is in flight for this application. |
+| 5 | `hired` | - | ✓ | ✓ | `ats-pre-employee-record:hire_candidate` | Candidate accepted the offer and was hired; gated transition. |
+| 6 | `rejected` | - | ✓ | - | - | Application closed without progression by recruiter or hiring manager. |
+| 7 | `withdrawn` | - | ✓ | - | - | Candidate withdrew their application. |
 
 ## 8. Permissions and business rules (derived)
 

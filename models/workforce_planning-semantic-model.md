@@ -59,7 +59,7 @@ A scenario-based headcount planning tool. Planners stage what-if changes (add, e
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     departments -->|parent of| departments
     employees -->|heads| departments
     departments -->|primary dept for| cost_centers

@@ -84,7 +84,7 @@ A lessee-side system for the full lifecycle of equipment lease contracts: master
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     users -->|manages| locations
     users -->|manages| cost_centers
     vendors -->|leases to| lease_contracts

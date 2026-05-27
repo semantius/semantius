@@ -7,15 +7,15 @@ system_slug: lms-compliance-training
 domain_modules:
   - lms-compliance-training
 domain_code: LMS
-related_modules: [hcm-core-worker, hcm-org-positions, hrsd-case-mgmt, lms-course-delivery, lms-skills, onb-journey-mgmt]
-created_at: 2026-05-26
+related_modules: [hcm-core-worker, hcm-org-positions, hrsd-case-mgmt, iga-auto-provisioning, lms-course-delivery, lms-skills, onb-journey-mgmt]
+created_at: 2026-05-27
 ---
 
 # Compliance Training
 
 ## 1. Overview
 
-Mandatory regulatory training assignment, tracking, and certification: sexual harassment training (CA SB-1343), HIPAA, OSHA, anti-bribery, SOX, GDPR, AML. Masters `compliance_assignments` and `learner_certifications`. Realizes COMPLIANCE-TRAIN and CERT-MGMT. Distinct from general LMS course delivery: assignments are mandatory and time-bound, lifecycle includes `overdue`/`waived`/`expired` states with regulator-evidence retention, and ownership typically sits with GRC/Compliance, not L&D. Specialised vendor market: KnowBe4, NAVEX, EVERFI, MetricStream, OneTrust, plus all general LMSs.
+Mandatory regulatory training assignment, tracking, and certification: sexual harassment training (CA SB-1343), HIPAA, OSHA, anti-bribery, SOX, GDPR, AML. Masters `compliance_assignments` and `learner_certifications`. Realizes COMPLIANCE-TRAIN and CERT-MGMT. Distinct from general LMS course delivery: assignments are mandatory and time-bound, lifecycle includes `overdue`/`waived`/`expired` states with regulator-evidence retention, and ownership typically sits with GRC/Compliance, not L&D.
 
 ## 2. Entity summary
 
@@ -32,7 +32,7 @@ Mandatory regulatory training assignment, tracking, and certification: sexual ha
 | Policy Attestations | Record that a user read, understood, and acknowledged a policy; timestamp, version, medium, completion evidence. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef consumer fill:#e8def8,stroke:#7b1fa2,color:#3a155d;
@@ -59,17 +59,17 @@ flowchart LR
   employees -->|"reflected on (opt)"| compliance_assignments
   employees -->|"fills (opt)"| hcm_positions
   org_units -->|"rolls_up_to (opt)"| org_units
+  users -->|"owns (opt)"| courses
   employees -->|"is_linked_to (opt)"| users
   users -->|"manages (opt)"| hcm_positions
   users -->|"leads (opt)"| org_units
   users -->|"owns (opt)"| cost_centers
-  users -->|"holds"| learner_certifications
   users -->|"performs (opt)"| onboarding_tasks
   users -->|"created (opt)"| onboarding_tasks
   users -->|"authors (opt)"| courses
-  users -->|"owns (opt)"| courses
   users -->|"must complete"| compliance_assignments
   users -->|"owns (opt)"| compliance_assignments
+  users -->|"holds"| learner_certifications
   org_units -->|"has members (opt)"| users
   class org_units embedded_master;
   class compliance_assignments master;
@@ -81,6 +81,9 @@ flowchart LR
   class onboarding_tasks consumer;
   class policy_attestations consumer;
   class users platform_builtin;
+  style org_units stroke-dasharray:5 5;
+  style cost_centers stroke-dasharray:5 5;
+  style hcm_positions stroke-dasharray:5 5;
 ```
 
 ## 3. Entities catalog
@@ -107,105 +110,105 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `org_units` | groups | `employees` | one_to_many | reference | required | source | intra \| cluster A \| HCM \| every employee rolls up to an org unit |
-| `org_units` | contains | `hcm_positions` | one_to_many | reference | required | source | intra \| cluster A \| HCM \| positions live inside an org unit |
-| `hcm_positions` | is_filled_by | `employees` | one_to_one | reference | optional | target | intra \| cluster A \| HCM \| a position may be vacant or filled by one incumbent |
-| `cost_centers` | funds | `org_units` | one_to_many | reference | required | source | intra \| cluster A \| HCM \| org-unit labor cost rolls to a cost center \| auto-flipped from many_to_one |
-| `org_units` | maps_to | `cost_centers` | one_to_one | reference | optional | source | cross \| cluster A \| HCM \| new org unit usually maps to ERP-FIN cost center |
-| `courses` | fulfills | `compliance_assignments` | one_to_many | reference | optional | source | intra \| cluster A \| LMS \| compliance assignment satisfied by one or more courses |
-| `courses` | grants | `learner_certifications` | one_to_many | reference | optional | source | intra \| cluster A \| LMS \| certifications earned from courses |
-| `hcm_positions` | requires | `compliance_assignments` | one_to_many | reference | optional | source | intra \| cluster A \| LMS \| role-based compliance training |
-| `org_units` | sponsors | `compliance_assignments` | one_to_many | reference | optional | source | intra \| cluster A \| LMS \| org-unit assigns compliance training |
-| `employees` | reflected on | `compliance_assignments` | one_to_many | reference | optional | source | cross \| cluster A \| LMS \| lapsed mandatory training surfaces on HCM employee record \| auto-flipped from many_to_one |
-| `employees` | fills | `hcm_positions` | one_to_one | reference | optional | source | intra \| cluster A \| ONBOARDING \| embedded: incumbent of the position being onboarded |
-| `org_units` | rolls_up_to | `org_units` | one_to_many | reference | optional | source | Hierarchical parent-child between org_units (Team -> Department -> Division -> BU -> Company). |
+| `org_units` | groups | `employees` | one_to_many | reference | required | source | - |
+| `org_units` | contains | `hcm_positions` | one_to_many | reference | required | source | - |
+| `hcm_positions` | is_filled_by | `employees` | one_to_one | reference | optional | target | - |
+| `cost_centers` | funds | `org_units` | one_to_many | reference | required | source | - |
+| `org_units` | maps_to | `cost_centers` | one_to_one | reference | optional | source | - |
+| `courses` | fulfills | `compliance_assignments` | one_to_many | reference | optional | source | - |
+| `courses` | grants | `learner_certifications` | one_to_many | reference | optional | source | - |
+| `hcm_positions` | requires | `compliance_assignments` | one_to_many | reference | optional | source | - |
+| `org_units` | sponsors | `compliance_assignments` | one_to_many | reference | optional | source | - |
+| `employees` | reflected on | `compliance_assignments` | one_to_many | reference | optional | source | - |
+| `employees` | fills | `hcm_positions` | one_to_one | reference | optional | source | - |
+| `org_units` | rolls_up_to | `org_units` | one_to_many | reference | optional | source | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
 | from | verb | to | cardinality | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `employees` | is_linked_to | `users` | one_to_one | optional | target | users \| cluster A \| HCM \| every employee maps to an identity user |
-| `users` | manages | `hcm_positions` | one_to_many | optional | source | users \| cluster A \| HCM \| manager-of-position relationship \| auto-flipped from many_to_one |
-| `users` | leads | `org_units` | one_to_many | optional | source | users \| cluster A \| HCM \| org-unit head \| auto-flipped from many_to_one |
-| `users` | owns | `cost_centers` | one_to_many | optional | source | users \| cluster A \| HCM \| cost-center owner \| auto-flipped from many_to_one |
-| `users` | holds | `learner_certifications` | one_to_many | required | source | users \| cluster A \| LMS \| cert holder \| auto-flipped from many_to_one |
-| `users` | performs | `onboarding_tasks` | one_to_many | optional | source | users \| cluster A \| ONBOARDING \| task assignee (new hire, manager, IT) \| auto-flipped from many_to_one |
-| `users` | created | `onboarding_tasks` | one_to_many | optional | source | users \| cluster A \| ONBOARDING \| who added/edited the task \| auto-flipped from many_to_one |
-| `users` | authors | `courses` | one_to_many | optional | source | users \| cluster A \| LMS \| course author / instructor \| auto-flipped from many_to_one |
-| `users` | owns | `courses` | one_to_many | optional | source | users \| cluster A \| LMS \| content owner \| auto-flipped from many_to_one |
-| `users` | must complete | `compliance_assignments` | one_to_many | required | source | users \| cluster A \| LMS \| mandatory training assignee \| auto-flipped from many_to_one |
-| `users` | owns | `compliance_assignments` | one_to_many | optional | source | users \| cluster A \| LMS \| compliance owner \| auto-flipped from many_to_one |
-| `org_units` | has members | `users` | one_to_many | optional | target | Every user is assigned to one or more org_units (department membership). Drives assignment routing, RBAC scoping, and chargeback. |
+| `users` | owns | `courses` | one_to_many | optional | source | - |
+| `employees` | is_linked_to | `users` | one_to_one | optional | target | - |
+| `users` | manages | `hcm_positions` | one_to_many | optional | source | - |
+| `users` | leads | `org_units` | one_to_many | optional | source | - |
+| `users` | owns | `cost_centers` | one_to_many | optional | source | - |
+| `users` | performs | `onboarding_tasks` | one_to_many | optional | source | - |
+| `users` | created | `onboarding_tasks` | one_to_many | optional | source | - |
+| `users` | authors | `courses` | one_to_many | optional | source | - |
+| `users` | must complete | `compliance_assignments` | one_to_many | required | source | - |
+| `users` | owns | `compliance_assignments` | one_to_many | optional | source | - |
+| `users` | holds | `learner_certifications` | one_to_many | required | source | - |
+| `org_units` | has members | `users` | one_to_many | optional | target | - |
 
 ### 5.3 Cross-scope edges
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `job_profiles` | defines | `hcm_positions` | one_to_many | required | intra \| cluster A \| HCM \| job profile is the template for positions |
-| `employees` | signs | `employment_contracts` | one_to_many | required | intra \| cluster A \| HCM \| contracts belong to the employee |
-| `employees` | generates | `employment_events` | one_to_many | required | intra \| cluster A \| HCM \| hire/transfer/leave/term events for an employee |
-| `employees` | triggers | `asset_lifecycle_events` | one_to_many | optional | intra \| cluster A \| HCM \| issue/return/recall events tied to the employee |
-| `employees` | requests | `absence_requests` | one_to_many | optional | intra \| cluster A \| HCM \| self-service absence requests originate from employee |
-| `employees` | holds | `skill_profiles` | one_to_one | optional | intra \| cluster A \| HCM \| each employee may have a skill profile |
-| `org_units` | engages | `contingent_workers` | one_to_many | optional | intra \| cluster A \| HCM \| contingent workforce attaches to an org unit |
-| `org_units` | is_scored_by | `engagement_drivers` | one_to_many | optional | intra \| cluster A \| HCM \| engagement drivers measured at org-unit level |
-| `org_units` | is_measured_by | `people_kpis` | one_to_many | optional | intra \| cluster A \| HCM \| people KPIs aggregated by org unit |
-| `employees` | triggers | `service_requests` | one_to_many | optional | cross \| cluster A \| HCM \| termination fan-out of offboarding service requests in ITSM |
-| `employees` | feeds | `agency_time_entries` | one_to_many | optional | cross \| cluster A \| HCM \| agency staff termination freezes time entries in AGENCY-MGMT |
-| `employees` | triggers | `iga_provisioning_events` | one_to_many | optional | cross \| cluster A \| HCM \| create/terminate/promote drives IGA account/entitlement actions |
-| `org_units` | triggers | `iga_entitlement_definitions` | one_to_many | optional | cross \| cluster A \| HCM \| new/merged/disbanded org units drive IGA group lifecycle |
-| `employees` | triggers | `pay_runs` | one_to_many | optional | cross \| cluster A \| HCM \| new-hire/termination/promotion drives Payroll comp activation and final pay |
-| `hcm_positions` | spawns | `job_requisitions` | one_to_many | optional | cross \| cluster A \| HCM \| approved position becomes a requisition in ATS |
-| `employees` | enrolls_in | `course_enrollments` | one_to_many | optional | cross \| cluster A \| HCM \| new-hire creation provisions LMS training |
-| `job_profiles` | maps_to | `courses` | many_to_many | optional | cross \| cluster A \| HCM \| job-profile competencies drive required training |
-| `employees` | becomes | `career_aspirations` | one_to_one | optional | cross \| cluster A \| HCM \| new employee triggers talent-profile initialization in Talent-Mgmt |
-| `employees` | becomes | `work_shifts` | one_to_many | optional | cross \| cluster A \| HCM \| new employee becomes a schedulable resource in WFM |
-| `employees` | becomes | `compensation_statements` | one_to_one | optional | cross \| cluster A \| HCM \| new-hire/promotion drives Comp-Mgmt compensation basis |
-| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | cross \| cluster A \| HCM \| approved position carries grade/band to Comp-Mgmt \| auto-flipped from many_to_one |
-| `employees` | triggers | `benefit_enrollments` | one_to_many | optional | cross \| cluster A \| HCM \| create/terminate/event drives BEN-ADMIN eligibility & COBRA |
-| `employees` | triggers | `corporate_cards` | one_to_many | optional | cross \| cluster A \| HCM \| termination deactivates corporate cards in EXPENSE |
-| `employees` | spawns | `onboarding_journeys` | one_to_one | optional | cross \| cluster A \| HCM \| new-hire creation triggers onboarding plan instantiation |
-| `employees` | spawns | `hr_cases` | one_to_many | optional | cross \| cluster A \| HCM \| termination kicks off offboarding HR case in HRSD |
-| `employees` | feeds | `headcount_plans` | one_to_many | optional | cross \| cluster A \| HCM \| headcount actuals reconcile to SWP plan |
-| `onboarding_stages` | contains | `onboarding_tasks` | one_to_many | required | intra \| cluster A \| ONBOARDING \| tasks live inside one stage |
-| `employees` | onboarded by | `onboarding_journeys` | one_to_many | required | intra \| cluster A \| ONBOARDING \| journey is bound to one new-hire employee \| auto-flipped from many_to_one |
-| `onboarding_tasks` | emits | `service_requests` | one_to_many | optional | intra \| cluster A \| ONBOARDING \| IT/workplace task creates an internal service request |
-| `onboarding_tasks` | triggers | `asset_lifecycle_events` | one_to_many | optional | intra \| cluster A \| ONBOARDING \| hardware-issue events tied to task |
-| `onboarding_tasks` | emits | `service_incidents` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| IT-provisioning onboarding task creates ITSM SR (incident family) |
-| `onboarding_tasks` | emits | `workplace_service_requests` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| workplace-setup tasks fan out to IWMS |
-| `onboarding_tasks` | spawns | `hr_cases` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| blocked/overdue task opens an HRSD case |
-| `onboarding_tasks` | spawns | `iga_access_requests` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| access-provisioning task drives IGA request |
-| `employees` | finalized by | `onboarding_document_collections` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| all docs collected → HCM finalizes employee record \| auto-flipped from many_to_one |
-| `onboarding_tasks` | spawns | `course_enrollments` | one_to_many | optional | cross \| cluster A \| ONBOARDING \| compliance-training task triggers LMS enrollment |
-| `courses` | sequenced_into | `learning_paths` | many_to_many | optional | intra \| cluster A \| LMS \| a path is an ordered collection of courses |
-| `courses` | enrolled_via | `course_enrollments` | one_to_many | required | intra \| cluster A \| LMS \| enrollments reference a course |
-| `skill_profiles` | updated by | `learner_certifications` | one_to_many | optional | intra \| cluster A \| LMS \| earning a cert refreshes the worker skill profile \| auto-flipped from many_to_one |
-| `cost_centers` | funds | `course_enrollments` | one_to_many | optional | intra \| cluster A \| LMS \| training cost allocation |
-| `compliance_obligations` | tracked by | `compliance_assignments` | one_to_many | optional | cross \| cluster A \| LMS \| overdue compliance training is a control failure in GRC \| auto-flipped from many_to_one |
-| `compliance_assignments` | triggers | `iga_provisioning_events` | one_to_many | optional | cross \| cluster A \| LMS \| severe overdue suspends access via IGA |
-| `employees` | reflects | `learning_records` | one_to_many | optional | cross \| cluster A \| LMS \| learning transcript visible on HCM employee record \| auto-flipped from many_to_one |
-| `employees` | declares | `life_events` | one_to_many | optional | intra \| cluster A \| BEN-ADMIN \| embedded: employee declaring event |
-| `org_units` | sponsors | `benefit_plans` | many_to_many | optional | intra \| cluster A \| BEN-ADMIN \| embedded: org-level offering |
-| `employees` | updated by | `life_events` | one_to_many | optional | cross \| cluster A \| BEN-ADMIN \| approved life event may update dependents / emergency contacts in HCM \| auto-flipped from many_to_one |
-| `survey_campaigns` | targets | `org_units` | many_to_many | optional | intra \| cluster A \| EMP-EXP \| embedded: org-unit scoping |
-| `org_units` | owns | `action_plans` | one_to_many | optional | intra \| cluster A \| EMP-EXP \| org-unit accountable for action plan \| auto-flipped from many_to_one |
-| `employees` | submits | `survey_responses` | one_to_many | optional | intra \| cluster A \| EMP-EXP \| respondent identity at employee level \| auto-flipped from many_to_one |
-| `employees` | flagged on | `engagement_drivers` | one_to_many | optional | cross \| cluster A \| EMP-EXP \| high attrition-risk surfaces on HCM employee dashboard \| auto-flipped from many_to_one |
-| `employees` | reflected on | `engagement_drivers` | one_to_many | optional | cross \| cluster A \| EMP-EXP \| survey-cycle results visible to HRBPs in HCM \| auto-flipped from many_to_one |
-| `employees` | raises | `hr_cases` | one_to_many | required | intra \| cluster A \| HRSD \| requester identity (employee scope) \| auto-flipped from many_to_one |
-| `employees` | updated by | `hr_cases` | one_to_many | optional | cross \| cluster A \| HRSD \| HR cases involving data changes flow back to HCM \| auto-flipped from many_to_one |
-| `case_categories` | drives | `employees` | one_to_many | optional | cross \| cluster A \| HRSD \| taxonomy affects HCM employee-portal self-service routing |
-| `legal_holds` | identifies_custodians_from | `employees` | many_to_many | optional | cross \| cluster C \| LSD \| HCM employee data drives custodian id |
-| `legal_advice_records` | references | `employees` | many_to_many | optional | cross \| cluster C \| LSD \| employee-related advice from HR case |
-| `employees` | is host for | `host_assignments` | one_to_many | required | cross \| cluster C \| VIS-MGMT \| host notifications trigger employee engagement \| auto-flipped from many_to_one |
-| `contingent_workers` | reviewed_against | `employees` | one_to_one | optional | cross \| cluster D \| VMS \| tenure-threshold crossover triggers HCM reclassification/conversion |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `pre_employees` | promotes to | `employees` | one_to_one | required | cross \| ATS->HCM \| pre_employee.activated converts the pre-hire record into the canonical HCM employee record |
-| `employees` | learns_via | `course_enrollments` | one_to_many | required | intra \| cluster A \| LMS \| embedded: learner identity |
-| `employees` | enrolls_in | `benefit_enrollments` | one_to_many | required | intra \| cluster A \| BEN-ADMIN \| embedded: enrollee identity |
-| `survey_campaigns` | targets | `employees` | many_to_many | optional | intra \| cluster A \| EMP-EXP \| embedded: invited population |
-| `workforce_scenarios` | drives | `hcm_positions` | one_to_many | required | cross \| SWP→HCM \| adopted scenario drives HCM position changes. |
-| `org_designs` | proposes | `hcm_positions` | one_to_many | required | cross \| SWP→HCM \| org_design.published proposes new hcm_positions for creation. |
+| `employees` | triggers | `iga_provisioning_events` | one_to_many | optional | - |
+| `employees` | finalized by | `onboarding_document_collections` | one_to_many | optional | - |
+| `pre_employees` | promotes to | `employees` | one_to_one | required | - |
+| `legal_holds` | identifies_custodians_from | `employees` | many_to_many | optional | - |
+| `legal_advice_records` | references | `employees` | many_to_many | optional | - |
+| `employees` | is host for | `host_assignments` | one_to_many | required | - |
+| `job_profiles` | defines | `hcm_positions` | one_to_many | required | - |
+| `employees` | signs | `employment_contracts` | one_to_many | required | - |
+| `employees` | generates | `employment_events` | one_to_many | required | - |
+| `employees` | triggers | `asset_lifecycle_events` | one_to_many | optional | - |
+| `employees` | requests | `absence_requests` | one_to_many | optional | - |
+| `employees` | holds | `skill_profiles` | one_to_one | optional | - |
+| `org_units` | engages | `contingent_workers` | one_to_many | optional | - |
+| `org_units` | is_scored_by | `engagement_drivers` | one_to_many | optional | - |
+| `org_units` | is_measured_by | `people_kpis` | one_to_many | optional | - |
+| `employees` | triggers | `service_requests` | one_to_many | optional | - |
+| `org_units` | triggers | `iga_entitlement_definitions` | one_to_many | optional | - |
+| `employees` | triggers | `pay_runs` | one_to_many | optional | - |
+| `hcm_positions` | spawns | `job_requisitions` | one_to_many | optional | - |
+| `employees` | enrolls_in | `course_enrollments` | one_to_many | optional | - |
+| `job_profiles` | maps_to | `courses` | many_to_many | optional | - |
+| `employees` | becomes | `career_aspirations` | one_to_one | optional | - |
+| `employees` | becomes | `work_shifts` | one_to_many | optional | - |
+| `employees` | becomes | `compensation_statements` | one_to_one | optional | - |
+| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | - |
+| `employees` | triggers | `benefit_enrollments` | one_to_many | optional | - |
+| `employees` | triggers | `corporate_cards` | one_to_many | optional | - |
+| `employees` | spawns | `onboarding_journeys` | one_to_one | optional | - |
+| `employees` | spawns | `hr_cases` | one_to_many | optional | - |
+| `employees` | feeds | `headcount_plans` | one_to_many | optional | - |
+| `employees` | feeds | `agency_time_entries` | one_to_many | optional | - |
+| `onboarding_stages` | contains | `onboarding_tasks` | one_to_many | required | - |
+| `employees` | onboarded by | `onboarding_journeys` | one_to_many | required | - |
+| `onboarding_tasks` | emits | `service_requests` | one_to_many | optional | - |
+| `onboarding_tasks` | triggers | `asset_lifecycle_events` | one_to_many | optional | - |
+| `onboarding_tasks` | emits | `service_incidents` | one_to_many | optional | - |
+| `onboarding_tasks` | emits | `workplace_service_requests` | one_to_many | optional | - |
+| `onboarding_tasks` | spawns | `hr_cases` | one_to_many | optional | - |
+| `onboarding_tasks` | spawns | `iga_access_requests` | one_to_many | optional | - |
+| `onboarding_tasks` | spawns | `course_enrollments` | one_to_many | optional | - |
+| `courses` | sequenced_into | `learning_paths` | many_to_many | optional | - |
+| `courses` | enrolled_via | `course_enrollments` | one_to_many | required | - |
+| `skill_profiles` | updated by | `learner_certifications` | one_to_many | optional | - |
+| `cost_centers` | funds | `course_enrollments` | one_to_many | optional | - |
+| `compliance_obligations` | tracked by | `compliance_assignments` | one_to_many | optional | - |
+| `compliance_assignments` | triggers | `iga_provisioning_events` | one_to_many | optional | - |
+| `employees` | reflects | `learning_records` | one_to_many | optional | - |
+| `employees` | declares | `life_events` | one_to_many | optional | - |
+| `org_units` | sponsors | `benefit_plans` | many_to_many | optional | - |
+| `employees` | updated by | `life_events` | one_to_many | optional | - |
+| `survey_campaigns` | targets | `org_units` | many_to_many | optional | - |
+| `org_units` | owns | `action_plans` | one_to_many | optional | - |
+| `employees` | submits | `survey_responses` | one_to_many | optional | - |
+| `employees` | flagged on | `engagement_drivers` | one_to_many | optional | - |
+| `employees` | reflected on | `engagement_drivers` | one_to_many | optional | - |
+| `employees` | raises | `hr_cases` | one_to_many | required | - |
+| `employees` | updated by | `hr_cases` | one_to_many | optional | - |
+| `case_categories` | drives | `employees` | one_to_many | optional | - |
+| `contingent_workers` | reviewed_against | `employees` | one_to_one | optional | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `employees` | learns_via | `course_enrollments` | one_to_many | required | - |
+| `employees` | enrolls_in | `benefit_enrollments` | one_to_many | required | - |
+| `survey_campaigns` | targets | `employees` | many_to_many | optional | - |
+| `workforce_scenarios` | drives | `hcm_positions` | one_to_many | required | - |
+| `org_designs` | proposes | `hcm_positions` | one_to_many | required | - |
 
 ## 6. Cross-domain context
 
@@ -214,6 +217,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | data_object | other module / domain | role | necessity | notes |
 | --- | --- | --- | --- | --- |
 | `compliance_assignments` | HRSD-CASE-MGMT (HR Case Management) - HRSD | consumer | optional | Consumed by HRSD-CASE-MGMT when an inbound handoff escalates to an HR case. Routed via B10b 2026-05-26 audit fixes. |
+| `compliance_assignments` | IGA-AUTO-PROVISIONING (IGA Automated Provisioning) - IGA | consumer | optional | Overdue compliance training fires auto-revoke of gated access (e.g. PII data, regulated systems). |
 | `learner_certifications` | LMS-SKILLS (Skills and Learning Paths) - LMS | embedded_master | required | - |
 
 ### 6.2 Outbound handoffs (events this scope publishes)
@@ -223,7 +227,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | LMS-COMPLIANCE-TRAINING | GRC | _(domain-level)_ | `compliance_assignment.overdue` | `compliance_assignments` | event_stream | high | Compliance training overdue is a control failure; GRC tracks obligation status, IGA may suspend high-risk access. |
 | LMS-COMPLIANCE-TRAINING | GRC | _(domain-level)_ | `compliance_assignment.due` | `compliance_assignments` | event_stream | medium | GRC obligation tracker updates the per-employee compliance status to 'due' so the regulator-evidence dashboard reflects the impending breach risk. Drives audit-evidence reporting (e.g., Compliance Operations dashboard). |
 | LMS-COMPLIANCE-TRAINING | HRSD | HRSD-CASE-MGMT | `compliance_assignment.due` | `compliance_assignments` | api_call | medium | HR Service Delivery opens (or updates) an employee-facing case/task with the impending obligation, deadline, and link to the assigned course. Failure mode: when an HRSD platform isn't deployed, the nudge falls back to direct email and the in-tool reminder. |
-| LMS-COMPLIANCE-TRAINING | IGA | _(domain-level)_ | `compliance_assignment.overdue` | `compliance_assignments` | api_call | high | Severe overdue (PCI, HIPAA, SOX-relevant) may auto-suspend system access pending completion. Alert-without-feedback-loop common. |
+| LMS-COMPLIANCE-TRAINING | IGA | IGA-AUTO-PROVISIONING | `compliance_assignment.overdue` | `compliance_assignments` | api_call | high | Severe overdue (PCI, HIPAA, SOX-relevant) may auto-suspend system access pending completion. Alert-without-feedback-loop common. |
 | LMS-COMPLIANCE-TRAINING | HCM | _(domain-level)_ | `compliance_assignment.due` | `compliance_assignments` | event_stream | medium | Compliance assignment due-date nudges to HCM-mastered manager/employee record. HCM surfaces the impending obligation on the employee profile and routes a reminder to the line manager. |
 | LMS-COMPLIANCE-TRAINING | LMS | LMS-SKILLS | `learner_certification.earned` | `learner_certifications` | lifecycle_progression | low | - |
 
@@ -231,8 +235,8 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | target module | source domain | source module | trigger_event | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| LMS-COMPLIANCE-TRAINING | LMS | LMS-COURSE-DELIVERY | `course.published` | `courses` | lifecycle_progression | low | - |
 | LMS-COMPLIANCE-TRAINING | GRC | _(domain-level)_ | `compliance_policy.updated` | `policy_attestations` | api_call | medium | Policy version triggers LMS compliance-training requirement for scoped users. |
+| LMS-COMPLIANCE-TRAINING | LMS | LMS-COURSE-DELIVERY | `course.published` | `courses` | lifecycle_progression | low | - |
 | LMS-COMPLIANCE-TRAINING | ONBOARDING | ONB-JOURNEY-MGMT | `task.compliance_training_required` | `onboarding_tasks` | api_call | medium | Compliance training items (security awareness, anti-harassment, HIPAA, country-specific code-of-conduct, role-specific certifications) trigger LMS enrollments. LMS masters the enrollment record and completion certificate; Onboarding consumes the completion event to close out its task. Friction sits in keeping the training catalog mapped to roles/jurisdictions. |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
@@ -247,7 +251,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | `onboarding_tasks` | consumer | required | ONB-JOURNEY-MGMT (ONBOARDING) | - |
 | `policy_attestations` | consumer | required | GRC (Governance, Risk and Compliance) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
 
 ### `compliance_assignments` (Compliance Training Assignment)
 
@@ -260,6 +264,42 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | 5 | `waived` | - | ✓ | ✓ | `lms-compliance-training:waive` | Assignment formally waived by compliance owner with audit reason. |
 | 6 | `expired` | - | ✓ | ✓ | `lms-compliance-training:expire` | Assignment closed unmet at the regulatory deadline. |
 
+### `courses` (Course)
+
+_This scope holds `courses` as **embedded_master**; the canonical state machine is owned by `LMS-COURSE-DELIVERY`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `draft` | ✓ | - | - | - | Course being authored by an instructional designer or SME. |
+| 2 | `in_review` | - | - | - | - | Content under review by L&D or compliance reviewers. |
+| 3 | `published` | - | - | ✓ | `lms-course-delivery:publish` | Course released to the catalog and available for enrollment. |
+| 4 | `retired` | - | ✓ | ✓ | `lms-course-delivery:retire` | Course removed from the catalog and kept for historical transcripts. |
+
+### `employees` (Employee)
+
+_This scope holds `employees` as **embedded_master**; the canonical state machine is owned by `HCM-CORE-WORKER`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `draft` | ✓ | - | - | - | Pre-hire stub created during requisition or onboarding handoff; not yet a worker of record. |
+| 2 | `active` | - | - | ✓ | `hcm-core-worker:active_employee` | Worker is currently employed and appears in headcount, payroll eligibility, and directory feeds. |
+| 3 | `on_leave` | - | - | ✓ | `hcm-core-worker:on_leave_employee` | Employee is on approved leave (parental, medical, sabbatical); active record but suppressed from some downstream feeds. |
+| 4 | `suspended` | - | - | ✓ | `hcm-core-worker:suspended_employee` | Employment temporarily halted (investigation, disciplinary); pay and access may be paused. |
+| 5 | `terminated` | - | ✓ | ✓ | `hcm-core-worker:terminated_employee` | Employment ended (voluntary or involuntary); final pay processed, access deprovisioned. |
+
+### `hcm_positions` (Position)
+
+_This scope holds `hcm_positions` as **embedded_master**; the canonical state machine is owned by `HCM-ORG-POSITIONS`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `proposed` | ✓ | - | - | - | Position has been designed but not yet approved against the headcount plan. |
+| 2 | `approved` | - | - | ✓ | `hcm-org-positions:approved_position` | Cleared by headcount/finance owner; eligible to spawn a requisition. |
+| 3 | `open` | - | - | ✓ | `hcm-org-positions:open_position` | Approved and actively being recruited against; not yet filled. |
+| 4 | `filled` | - | - | ✓ | `hcm-org-positions:filled_position` | An employee occupies the position. |
+| 5 | `frozen` | - | - | ✓ | `hcm-org-positions:frozen_position` | Temporarily not fillable (hiring freeze, budget hold); retains the slot. |
+| 6 | `eliminated` | - | ✓ | ✓ | `hcm-org-positions:eliminated_position` | Removed from the org structure permanently. |
+
 ### `learner_certifications` (Certification)
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
@@ -270,6 +310,29 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | 4 | `renewed` | - | - | ✓ | `lms-compliance-training:renew` | Credential renewed with a fresh validity window. |
 | 5 | `expired` | - | ✓ | - | - | Credential past its expiry date and no longer valid. |
 | 6 | `revoked` | - | ✓ | ✓ | `lms-compliance-training:revoke` | Credential withdrawn by the issuing body or L&D for cause. |
+
+### `onboarding_tasks` (Onboarding Task)
+
+_This scope holds `onboarding_tasks` as **consumer**; the canonical state machine is owned by `ONB-JOURNEY-MGMT`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `pending` | ✓ | - | - | - | Task assigned; due date set; not yet started. |
+| 2 | `in_progress` | - | - | - | - | Assignee has started work or partial evidence captured. |
+| 3 | `completed` | - | ✓ | ✓ | `onb-journey-mgmt:completed_onboarding_task` | Task done; evidence (form, acknowledgement, signature, ticket id) captured. |
+| 4 | `skipped` | - | ✓ | ✓ | `onb-journey-mgmt:skipped_onboarding_task` | Task waived by manager/HR for this journey. |
+| 5 | `cancelled` | - | ✓ | ✓ | `onb-journey-mgmt:cancelled_onboarding_task` | Task voided (journey cancelled, prerequisite removed). |
+
+### `org_units` (Org Unit)
+
+_This scope holds `org_units` as **embedded_master**; the canonical state machine is owned by `HCM-ORG-POSITIONS`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `draft` | ✓ | - | - | - | Org unit defined as part of a future structure; not yet operational. |
+| 2 | `active` | - | - | ✓ | `hcm-org-positions:active_org_unit` | Operational unit; carries headcount, cost-center linkage, and reporting lines. |
+| 3 | `reorganized` | - | ✓ | ✓ | `hcm-org-positions:reorganized_org_unit` | Unit folded into or replaced by a new structure; references remain for history. |
+| 4 | `closed` | - | ✓ | ✓ | `hcm-org-positions:closed_org_unit` | Unit dissolved; no employees or positions reside in it. |
 
 ## 8. Permissions and business rules (derived)
 

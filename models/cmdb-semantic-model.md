@@ -63,7 +63,7 @@ A Configuration Management Database for an IT Operations team. The model catalog
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     ci_types -->|classifies| configuration_items
     ci_types -->|parent of| ci_types
     environments -->|hosts| configuration_items

@@ -61,7 +61,7 @@ This Application Portfolio Management model gives an organization a single inven
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     vendors -->|supplies| applications
     users -->|business owns| applications
     users -->|maintains| applications

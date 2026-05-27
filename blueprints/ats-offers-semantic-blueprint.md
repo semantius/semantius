@@ -7,15 +7,15 @@ system_slug: ats-offers
 domain_modules:
   - ats-offers
 domain_code: ATS
-related_modules: [ats-background-checks, ats-candidate-crm, ats-pre-employee-record, ats-recruitment-pipeline, comp-benchmarking, comp-statements, hcm-lifecycle-workflows]
-created_at: 2026-05-26
+related_modules: [ats-background-checks, ats-candidate-crm, ats-pre-employee-record, ats-recruitment-pipeline, comp-benchmarking, comp-statements, hcm-lifecycle-workflows, hiring-starter]
+created_at: 2026-05-27
 ---
 
 # Offers
 
 ## 1. Overview
 
-Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool - drops module Semantius coverage to ~83%.
+Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool, drops module Semantius coverage to ~83%.
 
 ## 2. Entity summary
 
@@ -25,10 +25,10 @@ Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-M
 | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. |
 | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
 | Salary Bands | Pay-range structure by grade and geographic zone with minimum, midpoint, maximum, and benchmarking source. Drives offer guidance, merit eligibility, and pay-equity gap analysis. |
-| Compensation Benchmarks | Imported market salary data for a job-level-geography combination, sourced from a survey provider (Radford, Mercer, Willis Towers Watson, Payscale). Drives salary_bands maintenance. |
+| Compensation Benchmarks | Imported market salary data for a job-level-geography combination, sourced from an external compensation-survey provider. Drives salary_bands maintenance. |
 
 ```mermaid
-flowchart LR
+flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
   classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef consumer fill:#e8def8,stroke:#7b1fa2,color:#3a155d;
@@ -49,6 +49,7 @@ flowchart LR
   class compensation_benchmarks consumer;
   class salary_bands embedded_master;
   class users platform_builtin;
+  style salary_bands stroke-dasharray:5 5;
 ```
 
 ## 3. Entities catalog
@@ -71,40 +72,40 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | from | verb | to | cardinality | kind | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | intra \| ATS \| candidate persists across applications |
-| `job_applications` | results in | `job_offers` | one_to_many | reference | required | source | intra \| ATS \| offer is the conversion of the application |
+| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | - |
+| `job_applications` | results in | `job_offers` | one_to_many | reference | required | source | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
 | from | verb | to | cardinality | necessity | owner_side | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | users \| ATS \| recruiter role on the application |
-| `job_offers` | has approver | `users` | many_to_many | required | source | users \| ATS \| approver role on offer |
+| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | - |
+| `job_offers` | has approver | `users` | many_to_many | required | source | - |
 
 ### 5.3 Cross-scope edges
 
 | from | verb | to | cardinality | necessity | notes |
 | --- | --- | --- | --- | --- | --- |
-| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | cross \| cluster A \| HCM \| approved position carries grade/band to Comp-Mgmt \| auto-flipped from many_to_one |
-| `salary_bands` | bands | `job_profiles` | one_to_many | optional | cross \| cluster A \| HCM \| job-profile-to-salary-band mapping is authoritative \| auto-flipped from many_to_one |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | cross \| cluster A \| LMS \| internal-candidate skill data flows to ATS |
-| `job_requisitions` | receives | `job_applications` | one_to_many | required | intra \| ATS \| apps target a specific req |
-| `job_postings` | is applied to via | `job_applications` | one_to_many | required | intra \| ATS \| app inflow is anchored on a posting |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | required | intra \| ATS \| referral is the introduction event; candidate is durable |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | required | intra \| ATS \| source-of-hire dimension on candidate |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | intra \| ATS \| agency is the channel; candidate persists |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | intra \| ATS \| event is the touchpoint; candidate persists |
-| `talent_pools` | groups | `candidates` | many_to_many | required | intra \| ATS \| pool is a membership shell; candidate lives outside it |
-| `job_applications` | schedules | `interviews` | one_to_many | required | intra \| ATS \| interview belongs to the application's pipeline |
-| `job_applications` | requires | `candidate_assessments` | one_to_many | required | intra \| ATS \| assessment invitation belongs to the app's pipeline |
-| `job_offers` | is contingent on | `background_checks` | one_to_many | required | intra \| ATS \| background check gates offer-to-firm conversion |
-| `job_offers` | spawns | `onboarding_journeys` | one_to_one | required | cross \| ATS→ONBOARDING \| offer.accepted creates onboarding journey (high friction) |
-| `job_offers` | triggers | `benefit_enrollments` | one_to_one | required | cross \| ATS→BEN-ADMIN \| offer.accepted opens benefit enrollment |
-| `job_offers` | seeds | `compensation_statements` | one_to_one | required | cross \| ATS→COMP-MGMT \| offer.signed seeds first compensation statement |
-| `candidates` | becomes | `employees` | one_to_one | required | cross \| ATS→HCM \| candidate.hired creates employee record; identity handoff |
-| `job_offers` | spawns pre-employee record | `pre_employees` | one_to_one | required | Triggered on job_offer.accepted; the pre-employee record is the post-offer paperwork shell. |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | Candidate identity continues into the pre-employee record; promoted to employees on activation. |
-| `labor_market_benchmarks` | calibrates | `salary_bands` | many_to_many | optional | cross \| SWP→COMP-MGMT \| labor_market_benchmark.refreshed calibrates salary_bands. |
+| `salary_bands` | anchors | `hcm_positions` | one_to_many | optional | - |
+| `salary_bands` | bands | `job_profiles` | one_to_many | optional | - |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
+| `job_requisitions` | receives | `job_applications` | one_to_many | required | - |
+| `job_postings` | is applied to via | `job_applications` | one_to_many | required | - |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | required | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | required | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
+| `talent_pools` | groups | `candidates` | many_to_many | required | - |
+| `job_applications` | schedules | `interviews` | one_to_many | required | - |
+| `job_applications` | requires | `candidate_assessments` | one_to_many | required | - |
+| `job_offers` | is contingent on | `background_checks` | one_to_many | required | - |
+| `job_offers` | spawns | `onboarding_journeys` | one_to_one | required | - |
+| `job_offers` | triggers | `benefit_enrollments` | one_to_one | required | - |
+| `job_offers` | seeds | `compensation_statements` | one_to_one | required | - |
+| `candidates` | becomes | `employees` | one_to_one | required | - |
+| `job_offers` | spawns pre-employee record | `pre_employees` | one_to_one | required | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
+| `labor_market_benchmarks` | calibrates | `salary_bands` | many_to_many | optional | - |
 
 ## 6. Cross-domain context
 
@@ -116,6 +117,7 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | `job_offers` | ATS-PRE-EMPLOYEE-RECORD (Pre-Employee Record) - ATS | embedded_master | required | - |
 | `job_offers` | COMP-STATEMENTS (Total Rewards Statements) - COMP-MGMT | consumer | required | - |
 | `job_offers` | HCM-LIFECYCLE-WORKFLOWS (Employee Lifecycle Workflows) - HCM | consumer | required | - |
+| `job_offers` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
 
 ### 6.2 Outbound handoffs (events this scope publishes)
 
@@ -142,13 +144,33 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 | `salary_bands` | embedded_master | optional | COMP-BENCHMARKING (COMP-MGMT) | - |
 | `compensation_benchmarks` | consumer | required | COMP-BENCHMARKING (COMP-MGMT) | - |
 
-## 7. Lifecycle states (per master)
+## 7. Lifecycle states (per touched entity)
 
-### `job_applications` (Application)
+### `candidates` (Candidate)
+
+_This scope holds `candidates` as **embedded_master**; the canonical state machine is owned by `ATS-CANDIDATE-CRM`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
+| 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
+| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
+
+### `job_applications` (Application)
+
+_This scope holds `job_applications` as **embedded_master**; the canonical state machine is owned by `ATS-RECRUITMENT-PIPELINE`._
+
+| order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `applied` | ✓ | - | - | - | Candidate submitted an application against the requisition. |
+| 2 | `screening` | - | - | - | - | Recruiter is reviewing resume and qualifications. |
+| 3 | `interviewing` | - | - | - | - | Candidate is progressing through interview loops. |
 | 4 | `offer_extended` | - | - | - | - | An offer has been generated and is in flight for this application. |
+| 5 | `hired` | - | ✓ | ✓ | `ats-pre-employee-record:hire_candidate` | Candidate accepted the offer and was hired; gated transition. |
+| 6 | `rejected` | - | ✓ | - | - | Application closed without progression by recruiter or hiring manager. |
+| 7 | `withdrawn` | - | ✓ | - | - | Candidate withdrew their application. |
 
 ### `job_offers` (Offer)
 

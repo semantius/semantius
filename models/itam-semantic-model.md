@@ -67,7 +67,7 @@ IT Asset Management (ITAM) tracks the hardware, software, and licenses an organi
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     locations -->|contains| locations
     cost_centers -->|contains| cost_centers
     departments -->|contains| departments

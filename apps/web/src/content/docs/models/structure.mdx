@@ -1,7 +1,7 @@
 ---
-title: 'Model Structure'
-navTitle: 'Structure'
-description: 'The anatomy of a Semantius semantic model file: front-matter, entities, fields, relationships, validation, and implementation notes.'
+title: "Model Structure"
+navTitle: "Structure"
+description: "The anatomy of a Semantius semantic model file: front-matter, entities, fields, relationships, validation, and implementation notes."
 order: 2
 ---
 
@@ -51,15 +51,15 @@ A short prose description of the system: who uses it, what it tracks, where it s
 
 A single table with one row per entity:
 
-| # | Table name | Singular label | Purpose |
-|---|---|---|---|
-| 1 | `users` | User | System users (recruiters, hiring managers, interviewers, coordinators). |
-| 2 | `departments` | Department | Organizational units that own job openings. |
+| #   | Table name    | Singular label | Purpose                                                                 |
+| --- | ------------- | -------------- | ----------------------------------------------------------------------- |
+| 1   | `users`       | User           | System users (recruiters, hiring managers, interviewers, coordinators). |
+| 2   | `departments` | Department     | Organizational units that own job openings.                             |
 
 Followed by an entity-relationship diagram in Mermaid syntax. Each edge in the diagram corresponds to a foreign-key field with a human-readable `relationship_label` verb:
 
 ```text
-flowchart LR
+flowchart TD
     candidates -->|submits| job_applications
     job_openings -->|receives| job_applications
     application_stages -->|groups| job_applications
@@ -89,13 +89,13 @@ The bulk of the document. One block per entity, in the same order as the front-m
 
 ### Fields table
 
-| Field name | Format | Required | Label | Description | Reference / Notes |
-|---|---|---|---|---|---|
-| `application_label` | `string` | yes | Application |  | label_column |
-| `candidate_id` | `parent` | yes | Candidate |  | ↳ `candidates` (N:1, cascade), relationship_label: "submits" |
-| `job_opening_id` | `reference` | yes | Job Opening |  | → `job_openings` (N:1, restrict), relationship_label: "receives" |
-| `status` | `enum` | yes | Status |  | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold`; default: "active" |
-| `applied_at` | `date-time` | yes | Applied At |  |  |
+| Field name          | Format      | Required | Label       | Description | Reference / Notes                                                                |
+| ------------------- | ----------- | -------- | ----------- | ----------- | -------------------------------------------------------------------------------- |
+| `application_label` | `string`    | yes      | Application |             | label_column                                                                     |
+| `candidate_id`      | `parent`    | yes      | Candidate   |             | ↳ `candidates` (N:1, cascade), relationship_label: "submits"                     |
+| `job_opening_id`    | `reference` | yes      | Job Opening |             | → `job_openings` (N:1, restrict), relationship_label: "receives"                 |
+| `status`            | `enum`      | yes      | Status      |             | values: `active`, `hired`, `rejected`, `withdrawn`, `on_hold`; default: "active" |
+| `applied_at`        | `date-time` | yes      | Applied At  |             |                                                                                  |
 
 Notable conventions:
 
@@ -125,11 +125,11 @@ Example, taken verbatim from the ATS model:
     "if": [
       {
         "and": [
-          {"value_changed": "status"},
-          {"==": [{"var": "status"}, "approved"]}
+          { "value_changed": "status" },
+          { "==": [{ "var": "status" }, "approved"] }
         ]
       },
-      {"require_permission": "ats:approve_offer"},
+      { "require_permission": "ats:approve_offer" },
       true
     ]
   }
@@ -142,11 +142,11 @@ Rules are passed to `create_entity` byte-for-byte. The deployer does not rewrite
 
 A single flat table listing every FK in the model:
 
-| From | Field | To | Cardinality | Kind | Delete behavior |
-|---|---|---|---|---|---|
-| `job_applications` | `candidate_id` | `candidates` | N:1 | parent | cascade |
-| `job_applications` | `job_opening_id` | `job_openings` | N:1 | reference | restrict |
-| `offers` | `application_id` | `job_applications` | N:1 | reference | restrict |
+| From               | Field            | To                 | Cardinality | Kind      | Delete behavior |
+| ------------------ | ---------------- | ------------------ | ----------- | --------- | --------------- |
+| `job_applications` | `candidate_id`   | `candidates`       | N:1         | parent    | cascade         |
+| `job_applications` | `job_opening_id` | `job_openings`     | N:1         | reference | restrict        |
+| `offers`           | `application_id` | `job_applications` | N:1         | reference | restrict        |
 
 This section is the authoritative edge list. Section 3 reuses the same information in prose for human review; section 4 is what tooling diffs.
 
@@ -163,6 +163,7 @@ One subsection per enum field, listing the allowed values. Enums are scoped to a
 
 ```markdown
 ### 5.7 `job_applications.status`
+
 - `active`
 - `hired`
 - `rejected`
@@ -176,10 +177,10 @@ The values must match the `values:` annotation in the field's Notes cell.
 
 Suggested FK columns to add to this model, or to a sibling model, when other domains are deployed in the same Semantius instance:
 
-| From | To | Verb | Cardinality | Delete |
-|---|---|---|---|---|
-| `job_openings` | `salary_bands` | anchors | N:1 | clear |
-| `employees` | `candidates` | is the source for | N:1 | clear |
+| From           | To             | Verb              | Cardinality | Delete |
+| -------------- | -------------- | ----------------- | ----------- | ------ |
+| `job_openings` | `salary_bands` | anchors           | N:1         | clear  |
+| `employees`    | `candidates`   | is the source for | N:1         | clear  |
 
 Outbound rows put the FK on this model. Inbound rows put the FK on the sibling model. The deployer walks this table at deploy time, inspects the live catalog, and applies the rows whose target tables are actually present. Missing targets are skipped silently.
 

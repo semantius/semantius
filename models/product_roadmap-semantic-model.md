@@ -53,7 +53,7 @@ A single-product roadmap planning system. Product managers capture incoming feat
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     classDef builtin fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px,color:#1a4d2e;
     objectives -->|drives| features
     releases -->|contains| features

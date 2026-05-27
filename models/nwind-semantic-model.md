@@ -32,7 +32,7 @@ The Northwind sample database models the trading operations of a fictional speci
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
     employees -->|reports to| employees
     suppliers -->|supplies| products
     categories -->|categorizes| products

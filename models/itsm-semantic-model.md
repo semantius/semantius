@@ -74,7 +74,7 @@ An IT Service Management system that captures the four core ITIL processes (inci
 ### Entity-relationship diagram
 
 ```mermaid
-flowchart LR
+flowchart TD
   users
   teams
   vendors
