@@ -20,6 +20,10 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-geist), system-ui, -apple-system, sans-serif;
   transition: background-color 0.3s, color 0.3s;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }

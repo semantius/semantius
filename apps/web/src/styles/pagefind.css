@@ -10,7 +10,7 @@
   --pagefind-ui-border-radius: 1rem;
   --pagefind-ui-image-border-radius: 0.75rem;
   --pagefind-ui-image-box-ratio: 16 / 9;
-  --pagefind-ui-font: var(--font-sans, 'Inter', sans-serif);
+  --pagefind-ui-font: var(--font-geist, system-ui, sans-serif);
 }
 
 .dark {

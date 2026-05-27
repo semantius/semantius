@@ -1,4 +1,5 @@
 ---
+import { Font } from 'astro:assets';
 import Header from '~/components/layout/Header.astro';
 import Footer from '~/components/layout/Footer.astro';
 import Analytics from '~/components/common/Analytics.astro';
@@ -36,11 +37,13 @@ const {
 <!doctype html>
 <html lang="en">
 	<head>
-        <SEO 
-            title={title} 
-            description={description} 
-            image={image} 
-            article={article} 
+        <Font cssVariable="--font-geist" preload />
+        <Font cssVariable="--font-geist-mono" preload />
+        <SEO
+            title={title}
+            description={description}
+            image={image}
+            article={article}
             noindex={noindex}
             nofollow={nofollow}
         />
@@ -106,7 +109,7 @@ const {
             {siteConfig.announcement?.enabled && (
                 <AnnouncementBanner
                     id={siteConfig.announcement.id}
-                    message="The public beta will start in late May, join our wait list to be notified"
+                    message="The public beta will start in early June, join our wait list to be notified"
                     link={siteConfig.announcement.link}
                     linkText="Join our wait list"
                 />

@@ -1,0 +1,89 @@
+---
+title: 'JsonLogic Overview'
+navTitle: 'JsonLogic'
+description: 'A short tour of the standard JsonLogic expression language used to author Semantius business rules.'
+order: 1
+---
+
+[JsonLogic](https://jsonlogic.com/) is a small, portable rule language that expresses boolean tests, arithmetic, and data lookups as plain JSON. Semantius uses it as the substrate for all four [business-logic extension points](/docs/business-logic), with a few [Semantius-specific additions](/docs/business-logic/extensions) layered on top.
+
+This page is a quick orientation. For the full operator catalog, refer to the upstream documentation:
+
+- Project home: [jsonlogic.com](https://jsonlogic.com/)
+- Operator reference: [jsonlogic.com/operations.html](https://jsonlogic.com/operations.html)
+
+## The shape of a rule
+
+A JsonLogic expression is a single JSON object whose top-level key is the operator name and whose value is the operator's argument list. Operators nest freely:
+
+```json
+{ "==": [{ "var": "status" }, "active"] }
+```
+
+This reads as: take the value of the `status` field of the current row, compare it to the string `"active"`, return `true` if they match.
+
+Anything that is not an object with one of the known operator keys is returned as-is. That includes literals (`42`, `"hello"`, `true`, `null`) and plain arrays.
+
+## Common operators
+
+| Operator | Purpose |
+|---|---|
+| `var` | Read a field from the current context. Dotted paths walk into nested objects: `{"var": "customer.email"}`. |
+| `==`, `!=`, `<`, `<=`, `>`, `>=` | Equality and ordered comparison. |
+| `and`, `or`, `!` | Boolean composition and negation. |
+| `if` | Three-argument ternary: `{"if": [<cond>, <then>, <else>]}`. Accepts more arguments for `if / elseif / else` chains. |
+| `+`, `-`, `*`, `/`, `%` | Arithmetic. |
+| `cat` | String concatenation (treats `null` as `"null"`, unlike the Semantius [`concat`](/docs/business-logic/extensions) extension). |
+| `in` | Membership test in an array or substring test in a string. |
+| `map`, `filter`, `reduce`, `all`, `none`, `some` | Array combinators. |
+| `merge` | Flatten arrays. |
+| `missing`, `missing_some` | Report missing required fields. |
+
+## Samples
+
+**Reject negative quantities.**
+
+```json
+{ ">=": [{ "var": "quantity" }, 0] }
+```
+
+**Status defaults to "draft" when blank.**
+
+```json
+{ "if": [
+  { "or": [{ "==": [{ "var": "status" }, null] }, { "==": [{ "var": "status" }, ""] }] },
+  "draft",
+  { "var": "status" }
+] }
+```
+
+**Order must have at least one line item.** Using the standard `missing` operator to report a required field:
+
+```json
+{ "==": [{ "missing": ["customer_id"] }, []] }
+```
+
+**Compute total from subtotal and tax.**
+
+```json
+{ "+": [{ "var": "subtotal" }, { "var": "tax" }] }
+```
+
+**Allowlist test.**
+
+```json
+{ "in": [{ "var": "country" }, ["US", "CA", "GB", "DE"]] }
+```
+
+**Filter the line items array down to taxable rows.**
+
+```json
+{ "filter": [
+  { "var": "line_items" },
+  { "==": [{ "var": "taxable" }, true] }
+] }
+```
+
+## What Semantius adds
+
+Semantius extends standard JsonLogic with reserved variables (`$today`, `$now`, `$user_id`, `$old`) and platform operators (`let`, `set_record`, `has_permission`, `require_permission`, `value_changed`, `concat`, `throw_error`). The extensions are scoped to the request the rule runs in and have no analog upstream. See [JsonLogic extensions](/docs/business-logic/extensions) for the full list.

@@ -1,0 +1,50 @@
+---
+title: 'Business Logic'
+description: 'How Semantius encodes computed fields, validation rules, row-level filters, and field visibility as JsonLogic expressions on entities and fields.'
+order: 2
+---
+
+Business logic in Semantius is **data, not code**. Rules live on the same entities and fields as your schema, expressed in [JsonLogic](/docs/business-logic/jsonlogic), and evaluated by the platform at the right moment in the request lifecycle. There are no hooks to deploy, no functions to host, and no out-of-band scripts to keep in sync with the model.
+
+The platform exposes four extension points. Each one is a column on either an entity or a field, and each one holds a JsonLogic expression (or an array of them):
+
+| Column | Purpose |
+|---|---|
+| `entities.computed_fields` | Derives values for the named fields on every insert/update, before the row is written. |
+| `entities.validation_rules` | Each rule must evaluate truthy or the write is rejected with the given message and code. |
+| `entities.select_rule` | Per-row read filter, only rows where the rule evaluates truthy are visible to the caller. |
+| `fields.input_type_rule` | Controls field visibility in the UI, evaluated client-side against the current form values to show or hide the field. |
+
+## Why JsonLogic
+
+JsonLogic gives Semantius a single, portable expression language that:
+
+- Serializes cleanly as JSON, so rules sit alongside the rest of the model in the same markdown spec, the same database row, and the same diff.
+- Runs identically on the server (for `computed_fields`, `validation_rules`, `select_rule`) and the browser (for `input_type_rule`), with no compiler or runtime to ship.
+- Is safe to evaluate against untrusted input, since it has no side effects, no I/O, and no host access beyond the variables the platform binds for it.
+- Is readable enough that agents can author, audit, and refactor rules without touching application code.
+
+For the language itself, see the [JsonLogic overview](/docs/business-logic/jsonlogic). For the Semantius-specific variables and operators (such as `$user_id`, `$old`, `set_record`, `has_permission`, `value_changed`, `throw_error`), see [JsonLogic extensions](/docs/business-logic/extensions).
+
+## Where the rules run
+
+The four extension points map onto distinct stages of the request lifecycle:
+
+1. **Insert or update arrives** at the API. The platform loads the entity's `computed_fields` and runs them in declared order. Each derived value is written into the incoming row before validation, so later rules can reference it.
+2. **Validation** runs the entity's `validation_rules` against the merged row. Any rule that evaluates falsy (or that calls `throw_error` / `require_permission` and fails) rejects the write with the rule's `code` and `message`.
+3. **Persist.** The row is written.
+4. **Read** requests pass through the entity's `select_rule`. The platform evaluates the rule per row, with the row bound as the root context, and returns only rows where it evaluates truthy. This is row-level security expressed as data.
+5. **UI render.** When a form is built from the model, each field's `input_type_rule` is evaluated client-side against the current form values. Falsy hides the field, truthy shows it. This is purely a presentation concern and is never the authoritative gate: server-side validation always wins.
+
+## Authoring rules
+
+Rules are stored in the model alongside the entities and fields they govern. In day-to-day work you let an agent write and edit them through the [Business Analyst](/docs/models/create) skill, and the [Deploy](/docs/models/deploy) skill ships them byte-for-byte to the live instance. When you do need to write one by hand, the workflow is:
+
+1. Decide which extension point the rule belongs to. If the rule **derives** a value, it goes in `computed_fields`. If it **rejects** a write, it goes in `validation_rules`. If it **filters reads**, it goes in `select_rule`. If it **shows or hides UI**, it goes in `input_type_rule`.
+2. Write the expression using standard JsonLogic plus the [Semantius extensions](/docs/business-logic/extensions). Reach for `var` to read fields of the current row, `$old` to compare against the previous state on update, and `set_record` to pull in a related record by id.
+3. Test it with a representative row. The [Optimize](/docs/models/optimize) skill can round-trip a model from a live instance, so you can verify that rules behave as expected in production before locking them in.
+
+## Next
+
+- [JsonLogic overview](/docs/business-logic/jsonlogic): the upstream language, with links and small samples.
+- [JsonLogic extensions](/docs/business-logic/extensions): the variables and operators Semantius adds on top.

@@ -1,4 +1,4 @@
-import { defineConfig } from 'astro/config';
+import { defineConfig, fontProviders } from 'astro/config';
 import sitemap from "@astrojs/sitemap";
 import react from "@astrojs/react";
 import mdx from "@astrojs/mdx";
@@ -325,6 +325,26 @@ export default defineConfig({
   site: process.env.SITE_URL || 'https://www.semantius.com',
   output: 'static',
   redirects: docsLegacyRedirects,
+  fonts: [
+    {
+      provider: fontProviders.google(),
+      name: 'Geist',
+      cssVariable: '--font-geist',
+      weights: [400, 500, 600, 700, 800],
+      styles: ['normal'],
+      subsets: ['latin'],
+      fallbacks: ['system-ui', 'sans-serif'],
+    },
+    {
+      provider: fontProviders.google(),
+      name: 'Geist Mono',
+      cssVariable: '--font-geist-mono',
+      weights: [400, 500, 600],
+      styles: ['normal'],
+      subsets: ['latin'],
+      fallbacks: ['ui-monospace', 'monospace'],
+    },
+  ],
   image: {
     service: { entrypoint: 'astro/assets/services/sharp' },
     domains: ['vitejs.dev', 'upload.wikimedia.org', 'astro.build', 'pagepro.co'],

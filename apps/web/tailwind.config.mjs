@@ -13,8 +13,9 @@ export default {
                 "muted-foreground": "var(--muted-foreground)",
             },
             fontFamily: {
-                sans: ['Inter', 'sans-serif'],
-                display: ['Outfit', 'sans-serif'],
+                sans: ['var(--font-geist)', 'system-ui', 'sans-serif'],
+                display: ['var(--font-geist)', 'system-ui', 'sans-serif'],
+                mono: ['var(--font-geist-mono)', 'ui-monospace', 'monospace'],
             }
         },
 	},
