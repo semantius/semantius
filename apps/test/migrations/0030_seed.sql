@@ -6,10 +6,10 @@
 -- =====================================================
 
 -- Insert sample modules if they don't exist
-INSERT INTO modules (id, module_name, description, view_permission, home_page) VALUES
-    (1001, 'CRM', 'Customer Relationship Management', 'sales:read', '/crm/customers_test'),
-    (1002, 'HR', 'Human Resources', 'user:read', DEFAULT),
-    (1003, 'Inventory', 'Inventory Management', DEFAULT, '/inventory/products_test')
+INSERT INTO modules (id, module_name, module_slug, description, view_permission, home_page) VALUES
+    (1001, 'CRM',       'crm',       'Customer Relationship Management', 'sales:read', '/crm/customers_test'),
+    (1002, 'HR',        'hr',        'Human Resources',                  'user:read',  DEFAULT),
+    (1003, 'Inventory', 'inventory', 'Inventory Management',             DEFAULT,      '/inventory/products_test')
 ON CONFLICT (id) DO NOTHING;
 
 -- Adjust the sequence counter to ensure next module starts after test modules

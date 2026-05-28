@@ -27,7 +27,7 @@ SELECT throws_ok(
 );
 
 -- Test setting module_type to master
-INSERT INTO modules (module_name, module_type) VALUES ('master_test', 'master');
+INSERT INTO modules (module_name, module_slug, module_type) VALUES ('master_test', 'master_test', 'master');
 SELECT is(
     (SELECT module_type FROM modules WHERE module_name = 'master_test'),
     'master',
