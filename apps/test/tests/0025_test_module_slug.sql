@@ -1,7 +1,7 @@
 -- Test module_slug auto-generation and uniqueness
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(11);
 
 -- =====================================================
 -- TEST: Seeded modules have correct module_slug values
@@ -58,7 +58,7 @@ SELECT throws_ok(
 );
 
 -- =====================================================
--- TEST: module_slug is valid for URLs (only lowercase alphanumeric + underscores)
+-- TEST: module_slug is valid for URLs (only lowercase alphanumeric + underscores + hyphens)
 -- =====================================================
 
 SELECT throws_ok(
@@ -66,6 +66,32 @@ SELECT throws_ok(
     '23514',
     NULL,
     'invalid module_slug with uppercase and special chars should raise a check constraint error'
+);
+
+-- Verify that a slug with hyphens is accepted (- is valid in URLs and UI)
+INSERT INTO modules (module_name, module_slug, description) VALUES ('Hyphen Module', 'my-module', 'test hyphen slug');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Hyphen Module'),
+    'my-module',
+    'module_slug with hyphens should be accepted'
+);
+
+-- Verify that a slug mixing hyphens and underscores is accepted
+INSERT INTO modules (module_name, module_slug, description) VALUES ('Mixed Slug Module', 'my-cool_module', 'test mixed slug');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Mixed Slug Module'),
+    'my-cool_module',
+    'module_slug mixing hyphens and underscores should be accepted'
+);
+
+-- Verify that a slug starting with a hyphen is rejected (must start with alphanumeric)
+SELECT throws_ok(
+    $$INSERT INTO modules (module_name, module_slug) VALUES ('Leading Hyphen Test', '-invalid')$$,
+    '23514',
+    NULL,
+    'module_slug starting with a hyphen should raise a check constraint error'
 );
 
 -- =====================================================
