@@ -528,5 +528,57 @@
         false
     ],
 
+    "# is_match",
+    [
+        {"is_match":["hello@example.com", "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]},
+        {},
+        true
+    ],
+    [
+        {"is_match":["not-an-email", "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]},
+        {},
+        false
+    ],
+    [
+        {"is_match":["valid-slug-123", "^[a-z0-9]+(?:-[a-z0-9]+)*$"]},
+        {},
+        true
+    ],
+    [
+        {"is_match":["Invalid Slug!", "^[a-z0-9]+(?:-[a-z0-9]+)*$"]},
+        {},
+        false
+    ],
+    [
+        {"is_match":[{"var":"email"}, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]},
+        {"email": "user@example.org"},
+        true
+    ],
+    [
+        {"is_match":[{"var":"email"}, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]},
+        {"email": "bad-email"},
+        false
+    ],
+    [
+        {"is_match":["hello world", "^hello"]},
+        {},
+        true
+    ],
+    [
+        {"is_match":["goodbye world", "^hello"]},
+        {},
+        false
+    ],
+    [
+        {"is_match":["abc123", "^[a-z]+[0-9]+$"]},
+        {},
+        true
+    ],
+    [
+        {"is_match":["123abc", "^[a-z]+[0-9]+$"]},
+        {},
+        false
+    ],
+
     "EOF"
 ]
