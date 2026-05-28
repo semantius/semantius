@@ -21,11 +21,45 @@ CREATE TABLE modules (
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
     CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master'))
 );
 
 COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
-COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Must be explicitly provided; format enforced by a JsonLogic validation rule on the modules entity (see 0200_module_slug_validation.sql).';
+COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+
+-- =====================================================
+-- AUTO-SET MODULE SLUG TRIGGER
+-- =====================================================
+-- Automatically generates module_slug from module_name when not provided
+
+CREATE OR REPLACE FUNCTION auto_set_module_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
+        NEW.module_slug := lower(regexp_replace(NEW.module_name, '[^a-zA-Z0-9]+', '_', 'g'));
+        -- Collapse consecutive underscores into a single one
+        NEW.module_slug := regexp_replace(NEW.module_slug, '_+', '_', 'g');
+        -- Remove leading/trailing underscores
+        NEW.module_slug := trim(both '_' from NEW.module_slug);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_module_slug IS
+'Trigger function that auto-generates module_slug from module_name when not provided';
+
+CREATE TRIGGER auto_set_module_slug_trigger
+    BEFORE INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_module_slug();
+
+COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
+'Auto-generates module_slug from module_name when not explicitly provided';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 
 -- =====================================================
 -- PERMISSIONS AND ROLES

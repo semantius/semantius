@@ -1,15 +1,23 @@
 -- =====================================================
 -- MIGRATION: module_slug validation via JsonLogic
 -- =====================================================
--- Validate modules.module_slug at write time through a JsonLogic rule on
--- the modules entity. The SQL CHECK constraint and auto-generation trigger
--- that used to live on the modules table have been removed in 0020 — the
--- slug must now be supplied explicitly by the caller and conform to the
--- pattern enforced here.
+-- Replace the SQL CHECK constraint and the auto-generation trigger that
+-- 0020 originally installed on the modules table with a single JsonLogic
+-- validation rule on the modules entity. Going forward, the slug must be
+-- supplied explicitly by the caller and conform to the pattern below.
 --
 -- Allowed: lowercase a-z, 0-9, '-', '_'. First character must be a-z or
 -- 0-9 (no leading '-' or '_'). Empty string is still accepted because the
 -- column default is '' and not every flow sets a slug.
+--
+-- The DROPs below are idempotent so this migration is safe to apply to
+-- production databases (where 0020 created these objects) and to fresh
+-- databases (where the edited 0020 no longer creates them).
+
+ALTER TABLE modules DROP CONSTRAINT IF EXISTS valid_module_slug;
+
+DROP TRIGGER IF EXISTS auto_set_module_slug_trigger ON modules;
+DROP FUNCTION IF EXISTS auto_set_module_slug();
 
 UPDATE entities
 SET validation_rules = validation_rules || '[{
