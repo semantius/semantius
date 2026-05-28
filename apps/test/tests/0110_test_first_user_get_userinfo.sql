@@ -3,7 +3,7 @@
 -- they get Administrator role, admin permission, and ALL modules
 BEGIN;
 
-SELECT plan(15);
+SELECT plan(13);
 
 -- =====================================================
 -- SETUP: Simulate a fresh system with no active users

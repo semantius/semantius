@@ -19,6 +19,11 @@ interface TestResult {
   executionTimeMs: number;
 }
 
+const COLOR_ENABLED = Deno.stdout.isTerminal?.() ?? true;
+const RED = COLOR_ENABLED ? "\x1b[31m" : "";
+const BOLD_RED = COLOR_ENABLED ? "\x1b[1;31m" : "";
+const RESET = COLOR_ENABLED ? "\x1b[0m" : "";
+
 interface TapReporter {
   start(): void;
   test(result: TestResult): boolean; // returns false if failFast should stop execution
@@ -133,8 +138,8 @@ class TapSpecReporter implements TapReporter {
 
     // SQL execution errors are reported but don't abort the test run
     if (result.errors.length > 0) {
-      console.error(`    ✗ FATAL: SQL execution failed`);
-      console.error(`    Error: ${result.errors[0]}`);
+      console.error(`    ${BOLD_RED}✗ FATAL: SQL execution failed${RESET}`);
+      console.error(`    ${RED}Error: ${result.errors[0]}${RESET}`);
       this.filesWithErrors++;
       this.totalFailed++;
       this.skippedFiles.push(basename(result.filename));
@@ -145,6 +150,7 @@ class TapSpecReporter implements TapReporter {
     let planned = 0;
     let executed = 0;
     let fileFailed = false;
+    let inFailureDiag = false;
 
     for (const line of lines) {
       if (line.startsWith('1..')) {
@@ -158,21 +164,40 @@ class TapSpecReporter implements TapReporter {
         if (line.startsWith('ok')) {
           console.log(`    ✓ ${testName}`);
           this.totalPassed++;
+          inFailureDiag = false;
         } else {
-          console.log(`    ✗ ${testName}`);
+          console.log(`    ${BOLD_RED}✗ ${testName}${RESET}`);
           this.totalFailed++;
           fileFailed = true;
+          inFailureDiag = true;
+          if (this.failFast) {
+            // Print pgTAP diagnostic lines that follow this not-ok, then stop.
+            const idx = lines.indexOf(line);
+            for (let j = idx + 1; j < lines.length; j++) {
+              const next = lines[j];
+              if (next.match(/^(not )?ok \d+/)) break;
+              if (!next.startsWith('#')) continue;
+              const lower = next.toLowerCase();
+              if (lower.includes('failed test') || lower.includes('looks like you failed')) continue;
+              const cleanLine = next.substring(1).trim();
+              if (cleanLine) console.log(`    ${RED}${cleanLine}${RESET}`);
+            }
+            break;
+          }
         }
       } else if (line.startsWith('#')) {
         // Filter out pgTAP internal messages and show clean diagnostic output
-        const isFailedTestMessage = line.toLowerCase().includes('failed test');
-        const isLooksLikeMessage = line.toLowerCase().includes('looks like you failed');
+        const lower = line.toLowerCase();
+        const isFailedTestMessage = lower.includes('failed test');
+        const isLooksLikeMessage = lower.includes('looks like you failed') || lower.includes('looks like you planned');
 
         if (!isFailedTestMessage && !isLooksLikeMessage) {
           // Remove leading # and extra spaces, then display
           const cleanLine = line.substring(1).trim();
           if (cleanLine) {
-            console.log(`    ${cleanLine}`);
+            const color = inFailureDiag ? RED : "";
+            const reset = inFailureDiag ? RESET : "";
+            console.log(`    ${color}${cleanLine}${reset}`);
           }
         }
       }
@@ -180,7 +205,7 @@ class TapSpecReporter implements TapReporter {
 
     // Check for plan vs execution mismatch per file
     if (planned > 0 && executed !== planned) {
-      console.log(`    ✗ Test plan mismatch: planned ${planned} tests but ran ${executed}`);
+      console.log(`    ${BOLD_RED}✗ Test plan mismatch: planned ${planned} tests but ran ${executed}${RESET}`);
       this.totalFailed++;
       fileFailed = true;
     }
@@ -195,7 +220,7 @@ class TapSpecReporter implements TapReporter {
     
     console.log(`\n\n  ${this.totalPassed} passing`);
     if (this.totalFailed > 0) {
-      console.log(`  ${this.totalFailed} failing`);
+      console.log(`  ${BOLD_RED}${this.totalFailed} failing${RESET}`);
     }
     
     // Check for overall plan vs execution mismatch
@@ -359,7 +384,7 @@ class PgTest {
       results.push(result);
       const shouldContinue = this.reporter.test(result);
       if (!shouldContinue) {
-        console.log("\n# Stopping after first failure (--failfast)");
+        console.log(`\n${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
         break;
       }
     }

@@ -3,7 +3,7 @@
 -- updated when a user calls get_userinfo() with new JWT claims
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(11);
 
 -- =====================================================
 -- TEST: Claims are stored on first call

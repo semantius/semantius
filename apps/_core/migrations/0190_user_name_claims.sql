@@ -59,8 +59,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS 
+COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
+
+REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 
 -- =====================================================
 -- Update get_userinfo to pass first_name/last_name from JWT claims
@@ -170,9 +172,9 @@ BEGIN
     
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION public.get_userinfo IS 
+COMMENT ON FUNCTION public.get_userinfo IS
 'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
