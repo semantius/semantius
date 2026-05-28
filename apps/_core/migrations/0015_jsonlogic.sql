@@ -679,6 +679,20 @@ BEGIN
         RETURN to_jsonb(txt_a);
     END IF;
 
+    -- ===================== is_match =====================
+    -- Tests whether a string value matches a regular expression pattern.
+    -- Returns true when the value matches, false otherwise.
+    -- Null values always return false.
+    -- Usage: {"is_match":[{"var":"email"}, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}
+    IF op = 'is_match' THEN
+        txt_a := jl_to_text(a);
+        txt_b := jl_to_text(b);
+        IF txt_a IS NULL OR txt_b IS NULL THEN
+            RETURN 'false'::jsonb;
+        END IF;
+        RETURN to_jsonb(regexp_match(txt_a, txt_b) IS NOT NULL);
+    END IF;
+
     -- ===================== throw_error =====================
     -- Raises an exception with the given message.
     -- Usage: {"throw_error":"message"}

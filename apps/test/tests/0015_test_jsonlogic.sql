@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0015_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(278);
+SELECT plan(288);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -1416,6 +1416,57 @@ SELECT is(
     evaluate_json_logic('{"some":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[]}'::jsonb),
     'false'::jsonb,
     'test 278'
+);
+-- # is_match
+SELECT is(
+    evaluate_json_logic('{"is_match":["hello@example.com","^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 279'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["not-an-email","^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 280'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["valid-slug-123","^[a-z0-9]+(?:-[a-z0-9]+)*$"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 281'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["Invalid Slug!","^[a-z0-9]+(?:-[a-z0-9]+)*$"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 282'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":[{"var":"email"},"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{"email":"user@example.org"}'::jsonb),
+    'true'::jsonb,
+    'test 283'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":[{"var":"email"},"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{"email":"bad-email"}'::jsonb),
+    'false'::jsonb,
+    'test 284'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["hello world","^hello"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 285'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["goodbye world","^hello"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 286'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["abc123","^[a-z]+[0-9]+$"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 287'
+);
+SELECT is(
+    evaluate_json_logic('{"is_match":["123abc","^[a-z]+[0-9]+$"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 288'
 );
 -- EOF
 
