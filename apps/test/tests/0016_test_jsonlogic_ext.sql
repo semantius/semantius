@@ -1,6 +1,6 @@
 BEGIN;
 
-SELECT plan(76);
+SELECT plan(82);
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -838,6 +838,70 @@ SELECT is(
     ),
     '"Flag: false done"'::jsonb,
     'concat: false should concatenate (not be treated as empty)'
+);
+
+-- =====================================================
+-- regex operator tests
+-- =====================================================
+
+-- regex: basic match
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z]+$", "hello"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'true'::jsonb,
+    'regex: lowercase letters should match ^[a-z]+$'
+);
+
+-- regex: no match
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z]+$", "Hello"]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'regex: uppercase letter should not match ^[a-z]+$'
+);
+
+-- regex: slug pattern with hyphen
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z0-9_-]+$", {"var":"slug"}]}'::jsonb,
+        '{"slug":"my-module"}'::jsonb
+    ),
+    'true'::jsonb,
+    'regex: slug with hyphen should match slug pattern'
+);
+
+-- regex: slug pattern with underscore
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z0-9_-]+$", {"var":"slug"}]}'::jsonb,
+        '{"slug":"my_module"}'::jsonb
+    ),
+    'true'::jsonb,
+    'regex: slug with underscore should match slug pattern'
+);
+
+-- regex: null value returns false
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z]+$", {"var":"missing"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'regex: null/missing value should return false'
+);
+
+-- regex: empty string does not match non-empty pattern
+SELECT is(
+    evaluate_json_logic(
+        '{"regex":["^[a-z0-9_-]+$", ""]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'false'::jsonb,
+    'regex: empty string should not match ^[a-z0-9_-]+$'
 );
 
 SELECT * FROM finish();

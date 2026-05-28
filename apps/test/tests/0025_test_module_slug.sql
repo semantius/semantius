@@ -1,7 +1,7 @@
 -- Test module_slug auto-generation and uniqueness
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(10);
 
 -- =====================================================
 -- TEST: Seeded modules have correct module_slug values
@@ -58,7 +58,29 @@ SELECT throws_ok(
 );
 
 -- =====================================================
--- TEST: module_slug is valid for URLs (only lowercase alphanumeric + underscores)
+-- TEST: module_slug allows hyphens
+-- =====================================================
+
+-- Insert a module with a hyphen in the slug
+INSERT INTO modules (module_name, module_slug, description) VALUES ('Hyphen Module', 'my-module', 'test hyphen');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Hyphen Module'),
+    'my-module',
+    'module_slug with hyphen should be stored correctly'
+);
+
+-- Insert a module with mixed underscores and hyphens
+INSERT INTO modules (module_name, module_slug, description) VALUES ('Mixed Module', 'my-mixed_slug', 'test mixed');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Mixed Module'),
+    'my-mixed_slug',
+    'module_slug with both hyphens and underscores should be stored correctly'
+);
+
+-- =====================================================
+-- TEST: module_slug is valid for URLs (only lowercase alphanumeric, underscores, and hyphens)
 -- =====================================================
 
 SELECT throws_ok(
