@@ -3,7 +3,7 @@
 -- they get Administrator role, admin permission, and ALL modules
 BEGIN;
 
-SELECT plan(10);
+SELECT plan(15);
 
 -- =====================================================
 -- SETUP: Simulate a fresh system with no active users
@@ -20,6 +20,9 @@ RESET ROLE;
 -- Set JWT claims for a brand-new user
 SELECT set_config('request.jwt.claim.sub', 'firstuser_ui', true);
 SELECT set_config('request.jwt.claim.email', 'firstadmin@test.com', true);
+SELECT set_config('request.jwt.claim.name', 'First Admin', true);
+SELECT set_config('request.jwt.claim.given_name', 'First', true);
+SELECT set_config('request.jwt.claim.family_name', 'Admin', true);
 
 -- Clear any cached context from previous authenticate_as call
 SELECT set_config('app.current_user_id', NULL, false);
@@ -51,6 +54,27 @@ SELECT is(
     (SELECT info->>'email' FROM first_user_info),
     'firstadmin@test.com',
     'First user should have correct email'
+);
+
+-- Test 2b: Should have correct display_name from JWT name
+SELECT is(
+    (SELECT info->>'display_name' FROM first_user_info),
+    'First Admin',
+    'First user should have display_name from JWT name'
+);
+
+-- Test 2c: Should have correct first_name from JWT given_name
+SELECT is(
+    (SELECT info->>'first_name' FROM first_user_info),
+    'First',
+    'First user should have first_name from JWT given_name'
+);
+
+-- Test 2d: Should have correct last_name from JWT family_name
+SELECT is(
+    (SELECT info->>'last_name' FROM first_user_info),
+    'Admin',
+    'First user should have last_name from JWT family_name'
 );
 
 -- Test 3: Should have User role

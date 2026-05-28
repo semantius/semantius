@@ -1,7 +1,7 @@
 -- Test public.get_userinfo() function
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(35);
 
 -- =====================================================
 -- TEST: get_userinfo() returns correct data for user1
@@ -33,6 +33,27 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'user@test.com',
     'get_userinfo() should return email user@test.com for user1'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Test User',
+    'get_userinfo() should return display_name Test User for user1'
+);
+
+-- Test first_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'first_name'),
+    'Test',
+    'get_userinfo() should return first_name Test for user1'
+);
+
+-- Test last_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'last_name'),
+    'User',
+    'get_userinfo() should return last_name User for user1'
 );
 
 -- Test roles array exists
@@ -77,6 +98,27 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'sales@test.com',
     'get_userinfo() should return email sales@test.com for user2'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Sales Person',
+    'get_userinfo() should return display_name Sales Person for user2'
+);
+
+-- Test first_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'first_name'),
+    'Sales',
+    'get_userinfo() should return first_name Sales for user2'
+);
+
+-- Test last_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'last_name'),
+    'Person',
+    'get_userinfo() should return last_name Person for user2'
 );
 
 -- Test is_disabled
@@ -127,6 +169,27 @@ SELECT is(
     (SELECT public.get_userinfo()->>'email'),
     'admin@test.com',
     'get_userinfo() should return email admin@test.com for user3'
+);
+
+-- Test display_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'display_name'),
+    'Admin Boss',
+    'get_userinfo() should return display_name Admin Boss for user3'
+);
+
+-- Test first_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'first_name'),
+    'Admin',
+    'get_userinfo() should return first_name Admin for user3'
+);
+
+-- Test last_name
+SELECT is(
+    (SELECT public.get_userinfo()->>'last_name'),
+    'Boss',
+    'get_userinfo() should return last_name Boss for user3'
 );
 
 -- Test that all timestamp fields are populated
