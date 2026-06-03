@@ -1494,16 +1494,33 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id INTEGER)
 RETURNS JSONB AS $$
 DECLARE
-    v_id_column TEXT;
-    v_result JSONB;
+    v_id_column       TEXT;
+    v_view_permission TEXT;
+    v_result          JSONB;
 BEGIN
-    -- Look up the entity to find its id_column
-    SELECT id_column INTO v_id_column
+    -- Authenticate the caller. This function is SECURITY DEFINER and therefore
+    -- bypasses RLS, so it MUST enforce the same access control that RLS would.
+    -- rbac.uid() validates the JWT and primes the permission cache used below.
+    PERFORM rbac.uid();
+
+    -- Look up the entity to find its id_column and the permission required to
+    -- view its rows.
+    SELECT id_column, view_permission
+      INTO v_id_column, v_view_permission
     FROM entities
     WHERE table_name = p_entity_name;
 
     -- Entity not found
     IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Enforce the entity's view permission (the same boundary as the RLS SELECT
+    -- policy and get_schema()/build_schema_for_table()). Return NULL — rather
+    -- than raising — when the caller lacks permission, so callers (including the
+    -- JsonLogic set_record operator) cannot distinguish "no permission" from
+    -- "record does not exist", preventing record-existence leakage.
+    IF NOT rbac.has_permission(v_view_permission) THEN
         RETURN NULL;
     END IF;
 
@@ -1518,7 +1535,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION get_record_by_id IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table. Returns NULL when the entity or record does not exist.';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table. SECURITY DEFINER: authenticates via rbac.uid() and enforces the entity''s view_permission (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller lacks view permission (the two cases are indistinguishable, to avoid leaking record existence).';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;

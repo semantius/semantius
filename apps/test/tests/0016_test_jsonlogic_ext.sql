@@ -1,6 +1,6 @@
 BEGIN;
 
-SELECT plan(76);
+SELECT plan(81);
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -428,6 +428,64 @@ SELECT is(
     get_record_by_id('nonexistent_table', 1),
     NULL,
     'get_record_by_id: should return NULL for non-existing entity'
+);
+
+-- =====================================================
+-- get_record_by_id / set_record: RLS bypass must be CLOSED
+-- =====================================================
+-- get_record_by_id is SECURITY DEFINER (bypasses RLS), so it must enforce the
+-- entity's view_permission itself. The 'modules' entity requires 'admin'. A
+-- non-admin user must NOT be able to read a module via get_record_by_id, nor
+-- via the JsonLogic set_record operator that wraps it.
+
+-- user1 (basic, no admin) must NOT read a module directly
+SELECT authenticate_as('user1');
+
+SELECT is(
+    get_record_by_id('modules', 1001),
+    NULL,
+    'security: user1 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
+);
+
+-- user2 (sales, no admin) must NOT read a module directly either
+SELECT authenticate_as('user2');
+
+SELECT is(
+    get_record_by_id('modules', 1001),
+    NULL,
+    'security: user2 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
+);
+
+-- user1 must NOT read a module field via the set_record operator
+SELECT authenticate_as('user1');
+
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"var":"mod.module_name"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'null'::jsonb,
+    'security: user1 must not read module_name via set_record (definer lookup is permission-checked)'
+);
+
+-- user1 must NOT obtain the whole record via set_record
+SELECT is(
+    evaluate_json_logic(
+        '{"set_record":["mod", "modules", 1001, {"var":"mod"}]}'::jsonb,
+        '{}'::jsonb
+    ),
+    'null'::jsonb,
+    'security: user1 must not read the whole module record via set_record'
+);
+
+-- positive control: admin (user3) is still allowed. This also restores the
+-- user3 auth context expected by the let / set_record tests that follow.
+SELECT authenticate_as('user3');
+
+SELECT is(
+    (get_record_by_id('modules', 1001)) ->> 'module_name',
+    'CRM',
+    'security: admin (user3) still reads module 1001 via get_record_by_id (positive control)'
 );
 
 -- =====================================================

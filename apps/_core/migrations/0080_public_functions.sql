@@ -629,6 +629,40 @@ REVOKE EXECUTE ON FUNCTION public.has_public_read() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 
 -- =====================================================
+-- HAS PERMISSION (public RPC wrapper)
+-- =====================================================
+
+-- Thin public-schema wrapper over rbac.has_permission() so the permission
+-- check is reachable as a PostgREST RPC (POST /rpc/has_permission with body
+-- {"p_permission_name": "..."}). The rbac schema itself is not exposed by
+-- PostgREST, so callers cannot invoke rbac.has_permission() directly.
+--
+-- Companion RACI operators is_raci_actor(text,text,text) and
+-- has_consultation(text,text,text) are already public-schema functions
+-- granted to semantius_user (see 0210_raci.sql), so they are already
+-- reachable as /rpc/is_raci_actor and /rpc/has_consultation. Only
+-- has_permission needed a public wrapper.
+--
+-- Returns TRUE when the current authenticated user holds the named
+-- permission; FALSE otherwise. Never throws for a missing permission
+-- (mirrors rbac.has_permission semantics); rbac.uid() still enforces that
+-- a valid JWT context is present.
+CREATE OR REPLACE FUNCTION public.has_permission(p_permission_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM rbac.uid();
+    RETURN rbac.has_permission(p_permission_name);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.has_permission IS
+'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.has_permission(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
+
+-- =====================================================
 -- GET MODULE CUBE
 -- =====================================================
 

@@ -95,7 +95,6 @@ SELECT is(
             'apply_field_ddl',
             'build_record_logic_trigger',
             'build_select_rule_policy',
-            'get_record_by_id',
             'raci_install_or_drop_emit_trigger'
         )
         -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
