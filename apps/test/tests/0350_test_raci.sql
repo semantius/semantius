@@ -6,7 +6,7 @@
 -- All operations run as admin (user3) unless noted.
 BEGIN;
 
-SELECT plan(62);
+SELECT plan(63);
 
 -- Authenticate as admin for all RACI setup
 SELECT authenticate_as('user3');
@@ -58,13 +58,6 @@ SELECT ok(
         WHERE table_schema = 'public' AND table_name = 'processes'
     )),
     'processes physical table should exist'
-);
-
--- Test 7: processes.managed = FALSE
-SELECT is(
-    (SELECT managed FROM entities WHERE table_name = 'processes'),
-    FALSE,
-    'processes entity should have managed=FALSE'
 );
 
 -- Test 8: raci_assignments entity metadata
@@ -191,8 +184,8 @@ SELECT throws_ok(
 -- Test 23: field count
 SELECT is(
     (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'raci_assignments'),
-    8,
-    'raci_assignments should have 8 registered fields'
+    9,
+    'raci_assignments should have 9 registered fields'
 );
 
 -- Insert the RACI matrix for make_offer
@@ -223,6 +216,15 @@ SELECT is(
      WHERE p.process_key = 'make_offer'),
     4,
     'Four RACI assignments (R/A/C/I) should be inserted'
+);
+
+-- Test 24b: computed `name` label mirrors the raci enum value
+SELECT is(
+    (SELECT ra.name FROM raci_assignments ra
+     JOIN processes p ON p.id = ra.process_id
+     WHERE p.process_key = 'make_offer' AND ra.raci = 'accountable'),
+    'accountable',
+    'raci_assignments.name (computed) should mirror the raci letter'
 );
 
 -- Test 25: Accountable uniqueness invariant
@@ -283,6 +285,14 @@ SELECT ok(
     'process_gate should be insertable for admin'
 );
 
+-- Test 29b: computed `name` label mirrors the gate_kind enum value
+SELECT is(
+    (SELECT name FROM process_gates
+     WHERE entity = 'departments' AND to_state = 'approved'),
+    'approval',
+    'process_gates.name (computed) should mirror gate_kind'
+);
+
 -- Test 30: emits_events defaults FALSE
 SELECT is(
     (SELECT emits_events FROM process_gates
@@ -302,8 +312,8 @@ SELECT is(
 -- Test 32: field count
 SELECT is(
     (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'process_gates'),
-    9,
-    'process_gates should have 9 registered fields'
+    10,
+    'process_gates should have 10 registered fields'
 );
 
 -- =====================================================

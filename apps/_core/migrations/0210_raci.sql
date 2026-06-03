@@ -14,11 +14,6 @@
 --              Consulted / Informed actors
 --   • Queue:   raci_notify queue wired to raci_events via the
 --              existing queue_table_events mechanism (no new code)
---
--- All RACI tables are created with full DDL here; entities are
--- registered with managed=FALSE so the DD system does not try to
--- re-create or alter them. Field metadata is inserted so the UI and
--- schema tooling can reflect the RACI schema correctly.
 
 -- =====================================================
 -- STEP 1: users.is_agent — additive agent-identity flag
@@ -32,9 +27,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FAL
 COMMENT ON COLUMN users.is_agent IS
 'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behaviour change for existing rows.';
 
--- Register is_agent in the data-dictionary so UI and schema tooling
--- see it. The users entity is managed=FALSE (pre-existing table), so
--- inserting into fields only adds metadata; no DDL is executed.
+-- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (
     table_name, field_name, title, format,
     field_order, input_type, description, default_value,
@@ -49,80 +42,45 @@ INSERT INTO fields (
 -- STEP 2: processes — the RACI process catalog
 -- =====================================================
 
-CREATE TABLE processes (
-    id          SERIAL PRIMARY KEY,
-    module_id   INTEGER REFERENCES modules(id) ON DELETE SET NULL,
-    process_key TEXT NOT NULL DEFAULT '',
-    name        TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    ordering    INTEGER NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_process_key CHECK (
-        process_key = '' OR process_key ~ '^[a-z_][a-z0-9_]*$'
-    )
-);
-
-COMMENT ON TABLE processes IS 'RACI process catalog. Each row represents a governed process with a stable process_key.';
-COMMENT ON COLUMN processes.module_id IS 'Owning module. NULL = cross-module or unowned process.';
-COMMENT ON COLUMN processes.process_key IS 'Stable snake_case identifier, unique within module.';
-COMMENT ON COLUMN processes.ordering IS 'Optional display ordering.';
-
--- Unique process_key within module (NULL module_id handled via partial indexes)
-CREATE UNIQUE INDEX idx_processes_module_key
-    ON processes(module_id, process_key)
-    WHERE module_id IS NOT NULL AND process_key != '';
-
-CREATE UNIQUE INDEX idx_processes_global_key
-    ON processes(process_key)
-    WHERE module_id IS NULL AND process_key != '';
-
-CREATE INDEX idx_processes_module ON processes(module_id);
-
-CREATE TRIGGER update_processes_updated_at
-    BEFORE UPDATE ON processes
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-ALTER TABLE processes ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY processes_select_policy ON processes
-    FOR SELECT TO semantius_user USING (rbac.has_permission('admin'));
-CREATE POLICY processes_insert_policy ON processes
-    FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY processes_update_policy ON processes
-    FOR UPDATE TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY processes_delete_policy ON processes
-    FOR DELETE TO semantius_user USING (rbac.has_permission('admin'));
-
--- Entity metadata (managed=FALSE — physical table was created above)
 INSERT INTO entities (
     table_name, singular, plural, singular_label, plural_label,
     description, module_id, view_permission, edit_permission,
-    id_column, label_column, managed
+    id_column, label_column
 ) VALUES (
     'processes', 'process', 'processes', 'Process', 'Processes',
     'RACI process catalog',
     (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'name', FALSE
+    'admin', 'admin', 'id', 'name'
 );
 
--- Field metadata for processes (managed=FALSE → no DDL executed on insert)
+UPDATE fields
+   SET title = 'Name', field_order = 10, description = 'Display name of the process'
+ WHERE table_name = 'processes' AND field_name = 'name';
+
 INSERT INTO fields (
-    table_name, field_name, title, format, is_pk,
-    field_order, input_type, description,
-    ctype, is_core,
-    reference_table, reference_delete_mode
+    table_name, field_name, title, format, field_order, input_type,
+    description, reference_table, reference_delete_mode
 ) VALUES
-    ('processes', 'id',          'Id',          'int32',     TRUE,   1,      'readonly', 'Primary key',                                              'id',    TRUE,  '', ''),
-    ('processes', 'name',        'Name',        'text',      FALSE,  10,     'required', 'Display name of the process',                              'label', TRUE,  '', ''),
-    ('processes', 'module_id',   'Module',      'reference', FALSE,  20,     'default',  'Owning module',                                            '',      FALSE, 'modules',  'clear'),
-    ('processes', 'process_key', 'Process Key', 'text',      FALSE,  30,     'required', 'Stable snake_case identifier, unique within module',       '',      FALSE, '', ''),
-    ('processes', 'description', 'Description', 'multiline', FALSE,  40,     'default',  'Detailed description of the process',                      '',      FALSE, '', ''),
-    ('processes', 'ordering',    'Ordering',    'integer',   FALSE,  50,     'default',  'Optional display ordering',                                '',      FALSE, '', ''),
-    ('processes', 'created_at',  'Created At',  'date-time', FALSE,  999998, 'disabled', 'Creation timestamp',                                       '',      TRUE,  '', ''),
-    ('processes', 'updated_at',  'Updated At',  'date-time', FALSE,  999999, 'disabled', 'Last update timestamp',                                    '',      TRUE,  '', '');
+    ('processes', 'module_id',   'Module',      'reference', 20, 'default',  'Owning module',                                      'modules', 'clear'),
+    ('processes', 'process_key', 'Process Key', 'text',      30, 'required', 'Stable snake_case identifier, unique within module', '', ''),
+    ('processes', 'description', 'Description', 'multiline', 40, 'default',  'Detailed description of the process',                '', ''),
+    ('processes', 'ordering',    'Ordering',    'integer',   50, 'default',  'Optional display ordering',                          '', '');
+
+ALTER TABLE processes ADD CONSTRAINT valid_process_key
+    CHECK (process_key = '' OR process_key ~ '^[a-z_][a-z0-9_]*$');
+
+-- process_key is unique within a module; the NULL-module case needs its own
+-- partial index since NULLs don't collide in a composite unique.
+CREATE UNIQUE INDEX idx_processes_module_key
+    ON processes(module_id, process_key)
+    WHERE module_id IS NOT NULL AND process_key != '';
+CREATE UNIQUE INDEX idx_processes_global_key
+    ON processes(process_key)
+    WHERE module_id IS NULL AND process_key != '';
+
+COMMENT ON COLUMN processes.module_id IS 'Owning module. NULL = cross-module or unowned process.';
+COMMENT ON COLUMN processes.process_key IS 'Stable snake_case identifier, unique within module.';
+COMMENT ON COLUMN processes.ordering IS 'Optional display ordering.';
 
 -- =====================================================
 -- STEP 3: raci_assignments — the RACI matrix
@@ -130,80 +88,50 @@ INSERT INTO fields (
 -- Invariant: at most one accountable per process.
 -- Enforced via a partial unique index so it holds on every write.
 
-CREATE TABLE raci_assignments (
-    id          SERIAL PRIMARY KEY,
-    process_id  INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
-    raci        TEXT    NOT NULL DEFAULT '',
-    role_id     INTEGER NOT NULL REFERENCES roles(id)     ON DELETE CASCADE,
-    consult_mode TEXT   NOT NULL DEFAULT 'read',
-    origin      TEXT    NOT NULL DEFAULT 'user',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_raci CHECK (raci IN ('responsible', 'accountable', 'consulted', 'informed')),
-    CONSTRAINT valid_consult_mode CHECK (consult_mode IN ('read', 'notify', 'block')),
-    CONSTRAINT valid_raci_origin CHECK (origin IN ('system', 'user')),
-    UNIQUE (process_id, role_id, raci)
+-- Label is a computed `name` mirroring the raci letter, so raci can stay a real
+-- enum (a label column is a core TEXT field and can't itself be an enum).
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column, computed_fields
+) VALUES (
+    'raci_assignments', 'raci_assignment', 'raci_assignments',
+    'RACI Assignment', 'RACI Assignments',
+    'RACI matrix rows assigning roles to processes',
+    (SELECT id FROM modules WHERE module_name = '_core'),
+    'admin', 'admin', 'id', 'name',
+    '[{"name": "name", "jsonlogic": {"var": "raci"}}]'::jsonb
 );
+
+UPDATE fields
+   SET title = 'Name', input_type = 'readonly', field_order = 5,
+       description = 'Display label — mirrors the RACI letter (computed)'
+ WHERE table_name = 'raci_assignments' AND field_name = 'name';
+
+INSERT INTO fields (
+    table_name, field_name, title, format, field_order, input_type,
+    description, default_value, enum_values, reference_table, reference_delete_mode
+) VALUES
+    ('raci_assignments', 'process_id',   'Process',      'parent',    10, 'required', 'The governed process',                        '',     NULL,                                                          'processes', 'cascade'),
+    ('raci_assignments', 'role_id',      'Role',         'reference', 20, 'required', 'The persona role assigned this letter',       '',     NULL,                                                          'roles', 'cascade'),
+    ('raci_assignments', 'raci',         'RACI',         'enum',      30, 'required', 'Responsibility letter',                       '',     '["responsible","accountable","consulted","informed"]'::jsonb, '', ''),
+    ('raci_assignments', 'consult_mode', 'Consult Mode', 'enum',      40, 'default',  'Consultation mode (only for raci=consulted)', 'read', '["read","notify","block"]'::jsonb,                            '', ''),
+    ('raci_assignments', 'origin',       'Origin',       'enum',      50, 'default',  'How this row was created',                    'user', '["system","user"]'::jsonb,                                    '', '');
+
+-- reference columns default to nullable in the DD model; role_id is mandatory
+ALTER TABLE raci_assignments ALTER COLUMN role_id SET NOT NULL;
 
 -- Invariant: at most one accountable per process (enforced on every write)
 CREATE UNIQUE INDEX idx_raci_one_accountable
     ON raci_assignments(process_id)
     WHERE raci = 'accountable';
 
-COMMENT ON TABLE raci_assignments IS 'RACI matrix: maps roles to processes with a responsibility letter (R/A/C/I).';
-COMMENT ON COLUMN raci_assignments.raci IS 'Responsibility letter: responsible, accountable, consulted, or informed.';
+-- One assignment per (process, role, letter)
+ALTER TABLE raci_assignments
+    ADD CONSTRAINT raci_assignments_process_role_raci_key UNIQUE (process_id, role_id, raci);
+
 COMMENT ON COLUMN raci_assignments.consult_mode IS 'Applies only when raci=consulted: read (passive), notify (push), block (gate).';
 COMMENT ON COLUMN raci_assignments.origin IS 'How this row was created: system (generated) or user (hand-edited).';
-
-CREATE INDEX idx_raci_assignments_process ON raci_assignments(process_id);
-CREATE INDEX idx_raci_assignments_role    ON raci_assignments(role_id);
-
-CREATE TRIGGER update_raci_assignments_updated_at
-    BEFORE UPDATE ON raci_assignments
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-ALTER TABLE raci_assignments ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY raci_assignments_select_policy ON raci_assignments
-    FOR SELECT TO semantius_user USING (rbac.has_permission('admin'));
-CREATE POLICY raci_assignments_insert_policy ON raci_assignments
-    FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY raci_assignments_update_policy ON raci_assignments
-    FOR UPDATE TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY raci_assignments_delete_policy ON raci_assignments
-    FOR DELETE TO semantius_user USING (rbac.has_permission('admin'));
-
--- Entity metadata
-INSERT INTO entities (
-    table_name, singular, plural, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column, managed
-) VALUES (
-    'raci_assignments', 'raci_assignment', 'raci_assignments',
-    'RACI Assignment', 'RACI Assignments',
-    'RACI matrix rows assigning roles to processes',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'raci', FALSE
-);
-
--- Field metadata
-INSERT INTO fields (
-    table_name, field_name, title, format, is_pk,
-    field_order, input_type, description,
-    ctype, is_core,
-    enum_values,
-    reference_table, reference_delete_mode
-) VALUES
-    ('raci_assignments', 'id',           'Id',           'int32',     TRUE,   1,      'readonly', 'Primary key',                                          'id',    TRUE,  NULL,                                                              '', ''),
-    ('raci_assignments', 'process_id',   'Process',      'parent',    FALSE,  10,     'required', 'The governed process',                                  '',      FALSE, NULL,                                                              'processes', 'cascade'),
-    ('raci_assignments', 'role_id',      'Role',         'reference', FALSE,  20,     'required', 'The persona role assigned this letter',                 '',      FALSE, NULL,                                                              'roles', 'cascade'),
-    ('raci_assignments', 'raci',         'RACI',         'enum',      FALSE,  30,     'required', 'Responsibility letter',                                 'label', FALSE, '["responsible","accountable","consulted","informed"]'::jsonb, '', ''),
-    ('raci_assignments', 'consult_mode', 'Consult Mode', 'enum',      FALSE,  40,     'default',  'Consultation mode (only for raci=consulted)',           '',      FALSE, '["read","notify","block"]'::jsonb,                            '', ''),
-    ('raci_assignments', 'origin',       'Origin',       'enum',      FALSE,  50,     'default',  'How this row was created',                             '',      FALSE, '["system","user"]'::jsonb,                                    '', ''),
-    ('raci_assignments', 'created_at',   'Created At',   'date-time', FALSE,  999998, 'disabled', 'Creation timestamp',                                    '',      TRUE,  NULL,                                                              '', ''),
-    ('raci_assignments', 'updated_at',   'Updated At',   'date-time', FALSE,  999999, 'disabled', 'Last update timestamp',                                 '',      TRUE,  NULL,                                                              '', '');
 
 -- =====================================================
 -- STEP 4: process_gates — governance registry + emit driver
@@ -214,80 +142,51 @@ INSERT INTO fields (
 -- state_column names which column in the governed table holds the
 -- lifecycle state (defaults to 'status').
 
-CREATE TABLE process_gates (
-    id           SERIAL PRIMARY KEY,
-    process_id   INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
-    entity       TEXT    NOT NULL DEFAULT '',
-    gate_kind    TEXT    NOT NULL DEFAULT '',
-    to_state     TEXT    NOT NULL DEFAULT '',
-    state_column TEXT    NOT NULL DEFAULT 'status',
-    emits_events BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_gate_kind CHECK (
-        gate_kind IN ('approval', 'submit_lock', 'ownership', 'create', 'transition')
-    ),
-    UNIQUE (process_id, entity, gate_kind, to_state)
-);
-
-COMMENT ON TABLE process_gates IS 'Governance registry: maps (entity, gate_kind, to_state) to a process. When emits_events=TRUE the generic emit trigger inserts raci_events on transition.';
-COMMENT ON COLUMN process_gates.entity IS 'Governed table name (mirrors entities.table_name).';
-COMMENT ON COLUMN process_gates.gate_kind IS 'Type of governance gate: approval, submit_lock, ownership, create, or transition.';
-COMMENT ON COLUMN process_gates.to_state IS 'Lifecycle target state (empty string for gates that are not state-targeted).';
-COMMENT ON COLUMN process_gates.state_column IS 'Column in the governed table that holds the lifecycle state. Default: status.';
-COMMENT ON COLUMN process_gates.emits_events IS 'When TRUE, entering to_state inserts raci_events for C/I actors (drives the emit trigger).';
-
-CREATE INDEX idx_process_gates_process ON process_gates(process_id);
-CREATE INDEX idx_process_gates_entity  ON process_gates(entity);
-CREATE INDEX idx_process_gates_emit    ON process_gates(entity) WHERE emits_events = TRUE;
-
-CREATE TRIGGER update_process_gates_updated_at
-    BEFORE UPDATE ON process_gates
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-ALTER TABLE process_gates ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY process_gates_select_policy ON process_gates
-    FOR SELECT TO semantius_user USING (rbac.has_permission('admin'));
-CREATE POLICY process_gates_insert_policy ON process_gates
-    FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY process_gates_update_policy ON process_gates
-    FOR UPDATE TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY process_gates_delete_policy ON process_gates
-    FOR DELETE TO semantius_user USING (rbac.has_permission('admin'));
-
--- Entity metadata
+-- Label is a computed `name` mirroring gate_kind, so gate_kind can stay a real
+-- enum (a label column is a core TEXT field and can't itself be an enum).
+-- `entity` is a plain TEXT natural key (the governed table name), not a FK:
+-- entities is keyed by a TEXT natural key, which the INTEGER-FK reference
+-- machinery can't model.
 INSERT INTO entities (
     table_name, singular, plural, singular_label, plural_label,
     description, module_id, view_permission, edit_permission,
-    id_column, label_column, managed
+    id_column, label_column, computed_fields
 ) VALUES (
     'process_gates', 'process_gate', 'process_gates',
     'Process Gate', 'Process Gates',
     'Governance registry: maps entity transitions to processes',
     (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'gate_kind', FALSE
+    'admin', 'admin', 'id', 'name',
+    '[{"name": "name", "jsonlogic": {"var": "gate_kind"}}]'::jsonb
 );
 
--- Field metadata
+UPDATE fields
+   SET title = 'Name', input_type = 'readonly', field_order = 5,
+       description = 'Display label — mirrors the gate kind (computed)'
+ WHERE table_name = 'process_gates' AND field_name = 'name';
+
 INSERT INTO fields (
-    table_name, field_name, title, format, is_pk,
-    field_order, input_type, description,
-    ctype, is_core,
-    enum_values,
-    reference_table, reference_delete_mode
+    table_name, field_name, title, format, field_order, input_type,
+    description, default_value, enum_values, reference_table, reference_delete_mode
 ) VALUES
-    ('process_gates', 'id',           'Id',           'int32',     TRUE,   1,      'readonly', 'Primary key',                                              'id',    TRUE,  NULL,                                                                                 '', ''),
-    ('process_gates', 'process_id',   'Process',      'parent',    FALSE,  10,     'required', 'The governed process',                                      '',      FALSE, NULL,                                                                                 'processes', 'cascade'),
-    ('process_gates', 'entity',       'Entity',       'reference', FALSE,  20,     'required', 'Governed table name',                                       '',      FALSE, NULL,                                                                                 'entities', 'cascade'),
-    ('process_gates', 'gate_kind',    'Gate Kind',    'enum',      FALSE,  30,     'required', 'Type of governance gate',                                   'label', FALSE, '["approval","submit_lock","ownership","create","transition"]'::jsonb,               '', ''),
-    ('process_gates', 'to_state',     'To State',     'text',      FALSE,  40,     'default',  'Target lifecycle state (empty for non-state-targeted gates)','',      FALSE, NULL,                                                                                 '', ''),
-    ('process_gates', 'state_column', 'State Column', 'text',      FALSE,  50,     'default',  'Column that holds the lifecycle state in the governed table','',      FALSE, NULL,                                                                                 '', ''),
-    ('process_gates', 'emits_events', 'Emits Events', 'boolean',   FALSE,  60,     'default',  'When TRUE, entering to_state inserts raci_events',          '',      FALSE, NULL,                                                                                 '', ''),
-    ('process_gates', 'created_at',   'Created At',   'date-time', FALSE,  999998, 'disabled', 'Creation timestamp',                                        '',      TRUE,  NULL,                                                                                 '', ''),
-    ('process_gates', 'updated_at',   'Updated At',   'date-time', FALSE,  999999, 'disabled', 'Last update timestamp',                                     '',      TRUE,  NULL,                                                                                 '', '');
+    ('process_gates', 'process_id',   'Process',      'parent',  10, 'required', 'The governed process',                                       '',       NULL,                                                                 'processes', 'cascade'),
+    ('process_gates', 'entity',       'Entity',       'text',    20, 'required', 'Governed table name (mirrors entities.table_name)',          '',       NULL,                                                                 '', ''),
+    ('process_gates', 'gate_kind',    'Gate Kind',    'enum',    30, 'required', 'Type of governance gate',                                    '',       '["approval","submit_lock","ownership","create","transition"]'::jsonb, '', ''),
+    ('process_gates', 'to_state',     'To State',     'text',    40, 'default',  'Target lifecycle state (empty for non-state-targeted gates)','',       NULL,                                                                 '', ''),
+    ('process_gates', 'state_column', 'State Column', 'text',    50, 'default',  'Column that holds the lifecycle state in the governed table','status', NULL,                                                                 '', ''),
+    ('process_gates', 'emits_events', 'Emits Events', 'boolean', 60, 'default',  'When TRUE, entering to_state inserts raci_events',           '',       NULL,                                                                 '', '');
+
+ALTER TABLE process_gates
+    ADD CONSTRAINT process_gates_process_entity_gate_state_key
+    UNIQUE (process_id, entity, gate_kind, to_state);
+
+CREATE INDEX idx_process_gates_entity ON process_gates(entity);
+CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_events = TRUE;
+
+COMMENT ON COLUMN process_gates.entity IS 'Governed table name (mirrors entities.table_name).';
+COMMENT ON COLUMN process_gates.to_state IS 'Lifecycle target state (empty string for gates that are not state-targeted).';
+COMMENT ON COLUMN process_gates.state_column IS 'Column in the governed table that holds the lifecycle state. Default: status.';
+COMMENT ON COLUMN process_gates.emits_events IS 'When TRUE, entering to_state inserts raci_events for C/I actors (drives the emit trigger).';
 
 -- =====================================================
 -- STEP 5: raci_events — notify/consult audit log
@@ -296,80 +195,44 @@ INSERT INTO fields (
 -- audited, and retryable. record_id is TEXT (deliberate: entity PKs
 -- need not be integer serials — mirrors entities.id_column handling).
 
-CREATE TABLE raci_events (
-    id             SERIAL PRIMARY KEY,
-    process_id     INTEGER NOT NULL REFERENCES processes(id)  ON DELETE CASCADE,
-    entity         TEXT    NOT NULL DEFAULT '',
-    record_id      TEXT    NOT NULL DEFAULT '',
-    raci           TEXT    NOT NULL DEFAULT '',
-    target_role_id INTEGER NOT NULL REFERENCES roles(id)      ON DELETE CASCADE,
-    status         TEXT    NOT NULL DEFAULT 'pending',
-    acted_at       TIMESTAMPTZ,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_raci_event_raci   CHECK (raci   IN ('consulted', 'informed')),
-    CONSTRAINT valid_raci_event_status CHECK (status IN ('pending', 'sent', 'acted'))
-);
-
-COMMENT ON TABLE raci_events IS 'Notify/consult log: one row per C/I actor per governed record transition.';
-COMMENT ON COLUMN raci_events.record_id IS 'Governed record PK as text — entity IDs need not be integer serials.';
-COMMENT ON COLUMN raci_events.raci IS 'Only consulted or informed actors generate events.';
-COMMENT ON COLUMN raci_events.status IS 'pending → sent → acted (acted = consultation input received).';
-COMMENT ON COLUMN raci_events.acted_at IS 'Timestamp when the consulted party responded (NULL until acted).';
-
-CREATE INDEX idx_raci_events_process   ON raci_events(process_id);
-CREATE INDEX idx_raci_events_entity    ON raci_events(entity, record_id);
-CREATE INDEX idx_raci_events_role      ON raci_events(target_role_id);
-CREATE INDEX idx_raci_events_status    ON raci_events(status) WHERE status != 'acted';
-
-CREATE TRIGGER update_raci_events_updated_at
-    BEFORE UPDATE ON raci_events
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-ALTER TABLE raci_events ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY raci_events_select_policy ON raci_events
-    FOR SELECT TO semantius_user USING (rbac.has_permission('admin'));
-CREATE POLICY raci_events_insert_policy ON raci_events
-    FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY raci_events_update_policy ON raci_events
-    FOR UPDATE TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
-CREATE POLICY raci_events_delete_policy ON raci_events
-    FOR DELETE TO semantius_user USING (rbac.has_permission('admin'));
-
--- Entity metadata
 INSERT INTO entities (
     table_name, singular, plural, singular_label, plural_label,
     description, module_id, view_permission, edit_permission,
-    id_column, label_column, managed
+    id_column, label_column
 ) VALUES (
     'raci_events', 'raci_event', 'raci_events',
     'RACI Event', 'RACI Events',
     'Notify/consult audit log for RACI-governed record transitions',
     (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'record_id', FALSE
+    'admin', 'admin', 'id', 'record_id'
 );
 
--- Field metadata
+UPDATE fields
+   SET title = 'Record Id', field_order = 30,
+       description = 'Governed record PK (text for non-integer PKs)'
+ WHERE table_name = 'raci_events' AND field_name = 'record_id';
+
 INSERT INTO fields (
-    table_name, field_name, title, format, is_pk,
-    field_order, input_type, description,
-    ctype, is_core,
-    enum_values,
-    reference_table, reference_delete_mode
+    table_name, field_name, title, format, field_order, input_type,
+    description, default_value, enum_values, reference_table, reference_delete_mode
 ) VALUES
-    ('raci_events', 'id',             'Id',             'int32',     TRUE,   1,      'readonly', 'Primary key',                                              'id',    TRUE,  NULL,                                         '', ''),
-    ('raci_events', 'process_id',     'Process',        'parent',    FALSE,  10,     'required', 'The governed process',                                      '',      FALSE, NULL,                                         'processes', 'cascade'),
-    ('raci_events', 'entity',         'Entity',         'text',      FALSE,  20,     'required', 'Governed table name',                                       '',      FALSE, NULL,                                         '', ''),
-    ('raci_events', 'record_id',      'Record Id',      'text',      FALSE,  30,     'required', 'Governed record PK (text for non-integer PKs)',             'label', FALSE, NULL,                                         '', ''),
-    ('raci_events', 'raci',           'RACI',           'enum',      FALSE,  40,     'required', 'consulted or informed',                                     '',      FALSE, '["consulted","informed"]'::jsonb,            '', ''),
-    ('raci_events', 'target_role_id', 'Target Role',    'reference', FALSE,  50,     'required', 'Role to be notified or consulted',                          '',      FALSE, NULL,                                         'roles', 'cascade'),
-    ('raci_events', 'status',         'Status',         'enum',      FALSE,  60,     'required', 'pending → sent → acted',                                    '',      FALSE, '["pending","sent","acted"]'::jsonb,          '', ''),
-    ('raci_events', 'acted_at',       'Acted At',       'date-time', FALSE,  70,     'disabled', 'When the consulted party responded (NULL until acted)',      '',      FALSE, NULL,                                         '', ''),
-    ('raci_events', 'created_at',     'Created At',     'date-time', FALSE,  999998, 'disabled', 'Creation timestamp',                                        '',      TRUE,  NULL,                                         '', ''),
-    ('raci_events', 'updated_at',     'Updated At',     'date-time', FALSE,  999999, 'disabled', 'Last update timestamp',                                     '',      TRUE,  NULL,                                         '', '');
+    ('raci_events', 'process_id',     'Process',     'parent',    10, 'required', 'The governed process',                                 '',        NULL,                                'processes', 'cascade'),
+    ('raci_events', 'entity',         'Entity',      'text',      20, 'required', 'Governed table name',                                  '',        NULL,                                '', ''),
+    ('raci_events', 'raci',           'RACI',        'enum',      40, 'required', 'consulted or informed',                                '',        '["consulted","informed"]'::jsonb,   '', ''),
+    ('raci_events', 'target_role_id', 'Target Role', 'reference', 50, 'required', 'Role to be notified or consulted',                     '',        NULL,                                'roles', 'cascade'),
+    ('raci_events', 'status',         'Status',      'enum',      60, 'required', 'pending → sent → acted',                               'pending', '["pending","sent","acted"]'::jsonb, '', ''),
+    ('raci_events', 'acted_at',       'Acted At',    'date-time', 70, 'disabled', 'When the consulted party responded (NULL until acted)','',        NULL,                                '', '');
+
+-- reference columns default to nullable in the DD model; target_role_id is mandatory
+ALTER TABLE raci_events ALTER COLUMN target_role_id SET NOT NULL;
+
+CREATE INDEX idx_raci_events_entity ON raci_events(entity, record_id);
+CREATE INDEX idx_raci_events_status ON raci_events(status) WHERE status != 'acted';
+
+COMMENT ON COLUMN raci_events.record_id IS 'Governed record PK as text — entity IDs need not be integer serials.';
+COMMENT ON COLUMN raci_events.raci IS 'Only consulted or informed actors generate events.';
+COMMENT ON COLUMN raci_events.status IS 'pending → sent → acted (acted = consultation input received).';
+COMMENT ON COLUMN raci_events.acted_at IS 'Timestamp when the consulted party responded (NULL until acted).';
 
 -- =====================================================
 -- STEP 6: SQL functions — RACI operators
