@@ -5,13 +5,12 @@ in PostgreSQL via Row Level Security (RLS) and custom RBAC.
 
 ## Repository structure
 
-This is a **pnpm monorepo** with three packages:
+This is a **pnpm monorepo**. The two main packages are:
 
 ```
 packages/
-├── core/        @semantius/core       — shared migration logic (Deno + Node.js)
-├── cli/         @semantius/cli        — Deno CLI for local development
-└── triggerdev/  @semantius/triggerdev — TriggerDev integration for deployments
+├── core/  @semantius/core — shared migration logic (Deno + Node.js)
+└── cli/   @semantius/cli  — Deno CLI for local development
 ```
 
 Each Deno package (`core`, `cli`) has its own `deno.json` — this is the standard
@@ -23,7 +22,7 @@ workspace has its own `package.json`.
 ## Prerequisites
 
 - [Deno](https://deno.land/) 1.37+
-- [pnpm](https://pnpm.io/) 8+ (for the TriggerDev package)
+- [pnpm](https://pnpm.io/) 8+ (for the Node.js packages)
 - PostgreSQL database
 
 **For Copilot coding agents** — the following domains must be on the custom
@@ -90,7 +89,7 @@ deno task [COMMAND] [OPTIONS]
 | `dropall` | **DESTRUCTIVE** — drop ALL objects in public schema |
 | `reset` | **DESTRUCTIVE** — dropall + migrate test + run tests |
 | `docgen` | Generate `schema.md` from entity metadata |
-| `bundle-sql` | Bundle SQL files for TriggerDev deployment |
+| `bundle-sql` | Bundle SQL files for Node.js/serverless deployment |
 
 ### Examples
 
@@ -165,51 +164,6 @@ apps/<appName>/
 ```
 
 The `_core` app is always migrated first regardless of which apps you specify.
-
----
-
-## TriggerDev integration (`packages/triggerdev`)
-
-The `@semantius/triggerdev` package is a ready-to-deploy TriggerDev project.
-The `trigger/migration.ts` task file and `trigger.config.ts` are already
-included — no extra setup needed.
-
-### Deploy
-
-```bash
-# 1. Build everything (builds core → bundles SQL → builds triggerdev)
-pnpm run triggerdev:build
-
-# 2. Deploy the migration task
-cd packages/triggerdev
-pnpm run deploy
-```
-
-### Trigger migrations from your application
-
-```typescript
-import { tasks } from "@trigger.dev/sdk/v3";
-
-// Run _core migrations only
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-  modules: ["_core"],
-});
-
-// Run _core + nwind migrations
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-  modules: ["_core", "nwind"],
-});
-
-// Run all bundled migrations
-await tasks.trigger("run-migrations", {
-  databaseUrl: process.env.DATABASE_URL!,
-});
-```
-
-See [`packages/triggerdev/README.md`](packages/triggerdev/README.md) for full
-setup instructions including required environment variables.
 
 ---
 
