@@ -63,7 +63,7 @@ Fetches an entire record from another entity by its id and binds it to a name, t
 }
 ```
 
-If the referenced record does not exist, the bound name resolves to `null`. Use dotted paths in `var` to read fields of the loaded record (e.g. `{"var": "customer.email"}`).
+The lookup runs through the same access boundary as a normal read. The bound name resolves to `null` when the referenced record does not exist **or** when the current user does not have permission to view it. These two cases are deliberately indistinguishable, so a rule cannot use `set_record` to probe whether a record the caller is not allowed to see exists. Use dotted paths in `var` to read fields of the loaded record (e.g. `{"var": "customer.email"}`).
 
 ---
 
@@ -92,6 +92,48 @@ Returns `true` when the current user holds the named permission, and raises an a
 ```json
 {"require_permission": "orders.delete"}
 ```
+
+---
+
+### Check the current user's RACI role: `is_raci_actor`
+
+Returns `true` when the current user holds a role assigned the given RACI letter for the process that governs an `(entity, to_state)` transition, and `false` otherwise (including when no user is authenticated). Does not throw.
+
+The RACI letter is one of `responsible`, `accountable`, `consulted`, or `informed`. The first two arguments name the governed table and the target lifecycle state; together they select the process gate, and the operator then checks the current user's roles against that process's RACI matrix.
+
+**Form:** `{"is_raci_actor": ["<entity>", "<to_state>", "<letter>"]}`
+
+```json
+{"if": [
+  {"is_raci_actor": ["orders", "approved", "accountable"]},
+  "approved",
+  {"throw_error": "Only the accountable approver can approve this order"}
+]}
+```
+
+Use it in `validation_rules` to gate a transition on the caller's RACI role. It is the governance analog of `has_permission` for processes that are driven by a RACI matrix rather than a flat permission name.
+
+---
+
+### Require that a RACI consultation occurred: `has_consultation`
+
+The companion to `is_raci_actor`, this operator enforces the **C** (Consulted) letter of RACI. Where `is_raci_actor` checks *who* the caller is, `has_consultation` checks *whether the Consulted parties have actually been consulted* before a record is allowed to move forward.
+
+Returns `true` when an acted *consulted* event already exists for the record under an `(entity, to_state)` gate, that is, a `raci_events` row with `raci = 'consulted'` and `status = 'acted'`. Returns `false` otherwise. Does not throw.
+
+This backs **C-block** gates: a record may not enter the target state until the RACI actors marked *consulted* (with `consult_mode = 'block'`) have responded. The third argument is the id of the record being gated, usually read from the current row with `{"var": "id"}`.
+
+**Form:** `{"has_consultation": ["<entity>", "<to_state>", <record_id>]}`
+
+```json
+{"if": [
+  {"has_consultation": ["orders", "approved", {"var": "id"}]},
+  true,
+  {"throw_error": "Required consultation has not been completed"}
+]}
+```
+
+Use it in `validation_rules` to block a transition until the consultation it depends on has been recorded.
 
 ---
 

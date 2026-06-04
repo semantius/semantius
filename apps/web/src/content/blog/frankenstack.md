@@ -1,13 +1,11 @@
 ---
 title: "The Build Trap: Why 'Vibe Coding' is High-Speed Technical Debt"
-description: " "
+description: "In my last post, I laid out the SaaS Sprawl Debt: our data is fragmented, and our AI agents are hallucinating in the gaps between silos."
 pubDate: "2026-04-28"
 heroImage: "~/assets/blog/frankenstack.png"
 tags: ["saassprawl", "opinion"]
 ---
 
-
-In my [last post](/blog/saas-sprawl-debt), I laid out the **SaaS Sprawl Debt**: our data is fragmented, and our AI agents are hallucinating in the gaps between silos.
 
 The "obvious" escape? Build a custom solution in-house.
 
