@@ -147,12 +147,14 @@ DELETE FROM employees_test WHERE full_name = 'No Dept Employee';
 -- =====================================================
 
 -- Try to delete a department that has employees_test (should fail due to RESTRICT)
-SELECT throws_ok(
+-- ON DELETE RESTRICT raises 23001 (restrict_violation) on PostgreSQL 18, but
+-- 23503 (foreign_key_violation) on PG<=17 (Neon/Supabase). Match the FK-violation
+-- message common to both codes so the test is valid on either version.
+SELECT throws_like(
     $$
     DELETE FROM departments WHERE id = 1
     $$,
-    '23503',
-    NULL,
+    '%foreign key constraint%',
     'Should not be able to delete department with existing employees_test (RESTRICT)'
 );
 
@@ -188,12 +190,12 @@ SELECT lives_ok(
 select authenticate_as('user2');
 
 -- Try to delete a region that has customers_test (should fail due to RESTRICT)
-SELECT throws_ok(
+-- (RESTRICT -> 23001 on PG18, 23503 on PG<=17; match the message common to both)
+SELECT throws_like(
     $$
     DELETE FROM regions_test WHERE id = 1
     $$,
-    '23503',
-    NULL,
+    '%foreign key constraint%',
     'Should not be able to delete region with existing customers_test (RESTRICT)'
 );
 

@@ -1,0 +1,62 @@
+# Devcontainer stack: the dev-tools container (`app`) plus an OPTIONAL local
+# PostgreSQL 18 server (`db`, built from ../pgdocker).
+#
+# `db` lives behind the `localdb` compose profile and only starts when no
+# DATABASE_URL is provided. initializeCommand (see devcontainer.json) inspects
+# the host env BEFORE the container is created — works in GitHub Codespaces too,
+# where DATABASE_URL can be a secret — and enables the profile only then. So with
+# a managed DB (Neon/Supabase) in DATABASE_URL the local Postgres is never built
+# or run; without one it comes up, so the project works with no managed account.
+#
+# Paths are relative to THIS file (.devcontainer/), hence ../pgdocker/...
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/semantius-core:cached
+    environment:
+      # Managed DB wins when DATABASE_URL is set; otherwise fall back to the
+      # local `db` service (which only runs when the localdb profile is active).
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/appdb}
+    # No depends_on: `db` is optional/profile-gated, and a depends_on would
+    # auto-activate its profile and force it to run even with a managed DB.
+
+  db:
+    # Opt-in: starts only when the `localdb` profile is enabled, which
+    # initializeCommand turns on iff no DATABASE_URL was provided.
+    profiles: ["localdb"]
+    build:
+      context: ../pgdocker
+      args:
+        OIDC_VALIDATOR_REF: ${OIDC_VALIDATOR_REF:-72a35e90e4297221142e1d6b1dd3bcf5fabbe3fc}
+    image: postgres18-oauth:local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: appdb
+    # Publish to the host too, so host-side tools / psql can reach it.
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ../pgdocker/conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ../pgdocker/conf/pg_ident.conf:/etc/postgresql/pg_ident.conf:ro
+      - ../pgdocker/init:/docker-entrypoint-initdb.d:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "oauth_validator_libraries=pg_oidc_validator"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+      - "-c"
+      - "ident_file=/etc/postgresql/pg_ident.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pgdata:

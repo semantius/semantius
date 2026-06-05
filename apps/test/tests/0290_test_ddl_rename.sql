@@ -17,7 +17,7 @@
 --   • the physical FK on quakq2 now references the qwertz2 table by OID
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(25);
 
 SELECT authenticate_as('user3');
 
@@ -285,6 +285,23 @@ SELECT hasnt_column('public', 'qwertz2', 'other_col',
 
 SELECT has_column('public', 'qwertz2', 'other_col_new',
     'other_col_new should exist after rename');
+
+-- The PG18+ named NOT NULL constraint must follow the column rename, leaving no
+-- artifact under the old field name. (other_col is a NOT NULL text field, so on
+-- PG18 it has a qwertz2_other_col_not_null pg_constraint row; on PG<=17 NOT NULL
+-- is not catalogued, so this is vacuously true — the assertion holds on both.)
+-- Checked by exact name because 'other_col' is a prefix of 'other_col_new'.
+SELECT is_empty(
+    $$
+    SELECT 'pg_constraint: ' || conname
+    FROM   pg_constraint c
+    JOIN   pg_class t ON c.conrelid = t.oid
+    WHERE  t.relname = 'qwertz2'
+      AND  t.relnamespace = 'public'::regnamespace
+      AND  c.conname = 'qwertz2_other_col_not_null'
+    $$,
+    'No stale NOT NULL constraint (qwertz2_other_col_not_null) should remain after field rename'
+);
 
 -- =====================================================
 -- TEST 7: field rename — FAILURE

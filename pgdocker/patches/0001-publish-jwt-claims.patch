@@ -1,0 +1,27 @@
+Subject: publish the verified JWT payload into request.jwt.claims
+
+PostgreSQL 18's OAuth validator interface only surfaces the authenticated
+identity (authn_id -> system_user). The full, signature-verified claims sit in
+a local `payload` (picojson::object) and are otherwise discarded.
+
+This adds a single SetConfigOption call so the whole payload is published into
+the session GUC `request.jwt.claims`, exactly as PostgREST sets it on
+Supabase/Neon. Semantius RLS (rbac.uid()) then reads the caller's claims with
+no application cooperation and no spoofing surface (Postgres set the value from
+the token it just verified).
+
+--- a/src/pg_oidc_validator.cpp
++++ b/src/pg_oidc_validator.cpp
+@@ -101,6 +101,11 @@
+       return false;
+     }
+     res->authn_id = pstrdup(payload.at(authn_field).to_str().c_str());
++    // Semantius: publish the full, signature-verified JWT payload into the
++    // session GUC request.jwt.claims so RLS can read the caller's claims,
++    // exactly as PostgREST does on Supabase/Neon.
++    SetConfigOption("request.jwt.claims",
++                    picojson::value(payload).serialize().c_str(),
++                    PGC_USERSET, PGC_S_SESSION);
+   }
+   PG_CATCH();
+   {

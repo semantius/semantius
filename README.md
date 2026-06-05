@@ -136,11 +136,21 @@ DATABASE_URL='postgresql://username:password@host:port/database?sslmode=require'
 | Flag | File loaded |
 |------|------------|
 | *(none)* | `.env.local` |
+| `--env pgdocker` | `.env.pgdocker` |
 | `--env test` | `.env.test` |
 | `--env staging` | `.env.staging` |
 
 The `--database-url` flag takes the highest priority and overrides both the
 `.env` file and the `DATABASE_URL` environment variable.
+
+### Local pgdocker database
+
+`.env.pgdocker` is a ready-made profile for the local [pgdocker](pgdocker/)
+container — it connects as the `postgres` DBA on `localhost:5432`. Edit it to
+match your `pgdocker/.env` (password, port, database), then either:
+
+- use it per-command: `deno task migrate --apps _core --env pgdocker`, or
+- make it the default: `cp .env.pgdocker .env.local`.
 
 ---
 

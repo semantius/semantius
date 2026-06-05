@@ -167,6 +167,26 @@ BEGIN
                     NEW.table_name, v_old_name, v_new_name);
             END LOOP;
 
+            -- Rename all NOT NULL constraints named <old_table>_<field>_not_null.
+            -- PostgreSQL 18+ stores NOT NULL as named pg_constraint rows; on
+            -- PG<=17 no such rows exist, so this SELECT returns nothing and the
+            -- loop is a no-op. The same migration is therefore correct on both
+            -- PG<=17 (Neon/Supabase) and PG>=18 (e.g. pgdocker) — no version
+            -- branch needed. (Matched by name rather than contype so it does not
+            -- depend on the PG18-specific contype value 'n'.)
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\_%\_not\_null') ESCAPE '\'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
             -- Rename all unique indexes named <old_table>_<field>_unique
             FOR v_old_name IN
                 SELECT indexname
@@ -217,6 +237,7 @@ COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
+NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
 unique indexes, compute_validate function, select_rule function, and queue event triggers.
 Sets a transaction-local session variable so the cascaded update to fields.table_name is
 allowed by update_dd_field without raising an exception.';
@@ -347,6 +368,8 @@ DECLARE
     v_new_check   TEXT;
     v_old_unique  TEXT;
     v_new_unique  TEXT;
+    v_old_notnull TEXT;
+    v_new_notnull TEXT;
 BEGIN
     -- Resolve parent entity's managed flag
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
@@ -388,6 +411,8 @@ BEGIN
             v_new_check  := format('%s_%s_check',  OLD.table_name, NEW.field_name);
             v_old_unique := format('%s_%s_unique', OLD.table_name, OLD.field_name);
             v_new_unique := format('%s_%s_unique', OLD.table_name, NEW.field_name);
+            v_old_notnull := format('%s_%s_not_null', OLD.table_name, OLD.field_name);
+            v_new_notnull := format('%s_%s_not_null', OLD.table_name, NEW.field_name);
 
             -- Rename FK constraint if it exists
             IF EXISTS (
@@ -431,6 +456,22 @@ BEGIN
             ) THEN
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_unique, v_new_unique);
                 RAISE NOTICE 'Renamed unique index "%" to "%"', v_old_unique, v_new_unique;
+            END IF;
+
+            -- Rename NOT NULL constraint if it exists. PG18+ stores NOT NULL as a
+            -- named pg_constraint row (<table>_<col>_not_null); on PG<=17 no such
+            -- row exists, so this EXISTS check is false and the rename is skipped.
+            -- Same migration is therefore correct on PG<=17 and PG>=18.
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = v_old_notnull
+                  AND t.relname = OLD.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+            ) THEN
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    OLD.table_name, v_old_notnull, v_new_notnull);
+                RAISE NOTICE 'Renamed NOT NULL constraint "%" to "%"', v_old_notnull, v_new_notnull;
             END IF;
         END IF;
     END IF;

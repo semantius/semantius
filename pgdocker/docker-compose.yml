@@ -1,0 +1,45 @@
+services:
+  postgres:
+    build:
+      context: .
+      args:
+        # Pin the validator commit; override in .env if needed.
+        OIDC_VALIDATOR_REF: ${OIDC_VALIDATOR_REF:-72a35e90e4297221142e1d6b1dd3bcf5fabbe3fc}
+    image: postgres18-oauth:local
+    container_name: postgres18-oauth
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      # Full-DBA login password (the `postgres`/SCRAM lines in pg_hba.conf).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG18 made PGDATA version-specific; mount the PARENT dir and the image
+      # creates /var/lib/postgresql/18/docker inside it. (Mounting the old
+      # /var/lib/postgresql/data path silently re-initdb's on every start.)
+      - pgdata:/var/lib/postgresql
+      # Custom HBA (oauth method) + ident map (token identity -> role).
+      - ./conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./conf/pg_ident.conf:/etc/postgresql/pg_ident.conf:ro
+      # Roles that incoming tokens map to are created at first init.
+      - ./init:/docker-entrypoint-initdb.d:ro
+    command:
+      - "postgres"
+      # Load the validator that checks JWTs against the issuer's JWKS.
+      - "-c"
+      - "oauth_validator_libraries=pg_oidc_validator"
+      # Point Postgres at our custom HBA + ident files.
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+      - "-c"
+      - "ident_file=/etc/postgresql/pg_ident.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

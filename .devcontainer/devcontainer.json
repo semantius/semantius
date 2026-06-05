@@ -1,14 +1,19 @@
 {
-  "name": "Deno",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
-  
+  "name": "Semantius Core (Deno + PostgreSQL 18)",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/semantius-core",
+
+  // Host-side, runs before the container is created (incl. Codespaces): enables
+  // the local Postgres only when no DATABASE_URL is provided. `|| exit 0` keeps
+  // creation working on Windows hosts without `sh` (then local Postgres is off
+  // by default; enable it with COMPOSE_PROFILES=localdb or pgdocker/pg-create.sh).
+  "initializeCommand": "sh .devcontainer/select-db.sh || exit 0",
+
   "features": {
     "ghcr.io/devcontainers-extra/features/deno:1": {
       "version": "latest"
     }
-  },
-  "containerEnv": {
-    "DATABASE_URL": "${localEnv:DATABASE_URL}"
   },
   "customizations": {
     "vscode": {
@@ -19,8 +24,8 @@
       "settings": {
         "deno.enable": true,
         "deno.lint": true,
-        "typescript.preferences.includePackageJsonAutoImports": "off",
-        "typescript.suggest.autoImports": false,
+        "js/ts.preferences.includePackageJsonAutoImports": "off",
+        "js/ts.suggest.autoImports": false,
         "editor.defaultFormatter": "denoland.vscode-deno",
         "[typescript]": {
           "editor.defaultFormatter": "denoland.vscode-deno"
