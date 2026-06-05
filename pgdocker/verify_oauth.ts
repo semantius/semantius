@@ -14,12 +14,16 @@
  *   deno run --allow-net verify_oauth.ts [--host 127.0.0.1] [--port 5432]
  *            [--db appdb] [--user-id user1] [--client-id test-client]
  */
+<<<<<<< HEAD
 // TEST ISSUER ONLY — a public, throwaway OIDC test server that mints tokens for
 // anyone with no login. It holds no secrets or passwords (nothing behind it is
 // private by design); it exists only to exercise the OAuth path. Replace with
 // your own trusted issuer for anything real (and keep it in sync with the
 // issuer= line in conf/pg_hba.conf).
 const ISSUER = "https://oidc-test.semanti.us";
+=======
+const ISSUER = "https://test-oidc-server.ma532.workers.dev";
+>>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 

@@ -4,12 +4,15 @@
   "service": "app",
   "workspaceFolder": "/workspaces/semantius-core",
 
+<<<<<<< HEAD
   // Host-side, runs before the container is created (incl. Codespaces): enables
   // the local Postgres only when no DATABASE_URL is provided. `|| exit 0` keeps
   // creation working on Windows hosts without `sh` (then local Postgres is off
   // by default; enable it with COMPOSE_PROFILES=localdb or pgdocker/pg-create.sh).
   "initializeCommand": "sh .devcontainer/select-db.sh || exit 0",
 
+=======
+>>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
   "features": {
     "ghcr.io/devcontainers-extra/features/deno:1": {
       "version": "latest"

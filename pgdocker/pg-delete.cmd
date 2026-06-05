@@ -13,4 +13,8 @@ if /i not "%ans%"=="y" (
 
 docker compose down -v --rmi local
 echo Removed container, network, data volume, and image.
+<<<<<<< HEAD
 
+=======
+pause
+>>>>>>> fe81bf7ce46305effe75b62721279acf0977134e

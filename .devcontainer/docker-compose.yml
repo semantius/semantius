@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Devcontainer stack: the dev-tools container (`app`) plus an OPTIONAL local
 # PostgreSQL 18 server (`db`, built from ../pgdocker).
 #
@@ -7,6 +8,11 @@
 # where DATABASE_URL can be a secret — and enables the profile only then. So with
 # a managed DB (Neon/Supabase) in DATABASE_URL the local Postgres is never built
 # or run; without one it comes up, so the project works with no managed account.
+=======
+# Devcontainer stack: the dev tools container (`app`) + a local PostgreSQL 18
+# server (`db`) built from ../pgdocker. This lets the whole project run with no
+# Neon/Supabase account — DATABASE_URL points at `db`.
+>>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 #
 # Paths are relative to THIS file (.devcontainer/), hence ../pgdocker/...
 services:
@@ -16,6 +22,7 @@ services:
     volumes:
       - ..:/workspaces/semantius-core:cached
     environment:
+<<<<<<< HEAD
       # Managed DB wins when DATABASE_URL is set; otherwise fall back to the
       # local `db` service (which only runs when the localdb profile is active).
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/appdb}
@@ -26,6 +33,16 @@ services:
     # Opt-in: starts only when the `localdb` profile is enabled, which
     # initializeCommand turns on iff no DATABASE_URL was provided.
     profiles: ["localdb"]
+=======
+      # Default to the local db service; override by exporting DATABASE_URL on
+      # the host before opening the devcontainer (e.g. to target Neon instead).
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/appdb}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+>>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
     build:
       context: ../pgdocker
       args:
