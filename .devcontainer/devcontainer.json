@@ -1,14 +1,13 @@
 {
-  "name": "Deno",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
-  
+  "name": "Semantius Core (Deno + PostgreSQL 18)",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/semantius-core",
+
   "features": {
     "ghcr.io/devcontainers-extra/features/deno:1": {
       "version": "latest"
     }
-  },
-  "containerEnv": {
-    "DATABASE_URL": "${localEnv:DATABASE_URL}"
   },
   "customizations": {
     "vscode": {
@@ -19,8 +18,8 @@
       "settings": {
         "deno.enable": true,
         "deno.lint": true,
-        "typescript.preferences.includePackageJsonAutoImports": "off",
-        "typescript.suggest.autoImports": false,
+        "js/ts.preferences.includePackageJsonAutoImports": "off",
+        "js/ts.suggest.autoImports": false,
         "editor.defaultFormatter": "denoland.vscode-deno",
         "[typescript]": {
           "editor.defaultFormatter": "denoland.vscode-deno"

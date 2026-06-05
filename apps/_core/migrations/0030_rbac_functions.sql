@@ -118,6 +118,7 @@ DECLARE
     v_required_aud TEXT;
     v_jwt_aud TEXT;
     v_aud_json JSONB;
+    v_system_user TEXT;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
@@ -155,6 +156,21 @@ BEGIN
             v_role := current_setting('request.jwt.claim.role', true);
             sub_value := current_setting('request.jwt.claim.sub', true);
         END IF;
+    END IF;
+
+    -- PostgreSQL 18 native OAuth hardening. With direct (non-PostgREST)
+    -- connections the client can overwrite request.jwt.claims to spoof another
+    -- subject. system_user holds the identity PostgreSQL validated from the
+    -- bearer token, formatted as 'oauth:<sub>', and the client cannot forge it,
+    -- so for OAuth sessions it is authoritative for the subject. (Supabase/Neon
+    -- PostgREST sessions have system_user 'scram-sha-256:authenticator' and are
+    -- left untouched.)
+    SELECT system_user INTO v_system_user;
+    IF v_system_user LIKE 'oauth:%' THEN
+        sub_value := substring(v_system_user FROM 7);
+        v_role := 'authenticated';
+        PERFORM set_config('request.jwt.claim.sub', sub_value, true);
+        PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
     END IF;
 
     -- Validate role
