@@ -138,7 +138,6 @@ deno task retest --confirm    # migrate test + run pgTAP
 ## Managing the container (prepare / start / stop / destroy)
 
 This folder ships ready-to-run lifecycle scripts — `.sh` for macOS/Linux/Git-Bash
-<<<<<<< HEAD
 and `.cmd` for Windows (double-click in Explorer, or run from a terminal). They're
 all prefixed `pg-` so the names don't collide with shell built-ins — notably
 `start`, which is an internal Command Prompt command (it opens a new window), so a
@@ -155,22 +154,11 @@ bare `start.cmd` would never run. From a terminal, invoke them by full name —
 | Test   | `./pg-test.sh`   | `pg-test.cmd`   | run the OAuth + impersonation checks (needs `_core` deployed) |
 | User token | `./get-user-token.sh <user>` | `get-user-token.cmd <user>` | mint + print a JWT for a user (+ how to present it, on stderr) |
 | User-info | `./get-userinfo-jwt.sh <jwt>` | `get-userinfo-jwt.cmd <jwt>` | present a JWT over OAuth and print `get_userinfo()` (or the error) |
-=======
-and `.cmd` for Windows (double-click in Explorer, or run from a terminal):
-
-| Action | bash | Windows | Effect |
-| ------ | ---- | ------- | ------ |
-| Create | `./create.sh` | `create.cmd` | build image + create `.env` (if missing) + start |
-| Start  | `./start.sh`  | `start.cmd`  | start (reuse existing image) |
-| Stop   | `./stop.sh`   | `stop.cmd`   | remove container+network, **keep data** |
-| Delete | `./delete.sh` | `delete.cmd` | remove container+network+**data volume**+image (asks to confirm) |
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 
 The scripts just wrap the `docker compose` commands below; reach for the raw
 commands when you need a one-off. Both are run from this `pgdocker/` folder; only
 env vars and the file copy differ between shells.
 
-<<<<<<< HEAD
 The two token tools chain — mint a JWT for a user, then look up its `get_userinfo()`:
 
 ```bash
@@ -178,8 +166,6 @@ TOKEN=$(./get-user-token.sh user2)
 ./get-userinfo-jwt.sh "$TOKEN"
 ```
 
-=======
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 **Windows (PowerShell)**
 
 ```powershell
@@ -228,7 +214,6 @@ docker compose ps                                        # status / health
 docker exec -it postgres18-oauth psql -U postgres -d appdb   # a shell into the DB
 ```
 
-<<<<<<< HEAD
 ### After editing files — what to re-run
 
 `pg_hba.conf`/`pg_ident.conf` are **mounted** (re-read on a fresh start), the
@@ -247,14 +232,11 @@ destructive path:
 > server keeps the old issuer in memory until it restarts, so `pg-stop` → `pg-start`
 > (which keeps your data) is all you need — not `pg-delete`/`pg-create`.
 
-=======
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 ---
 
 ## The test OIDC server
 
 This stack is preconfigured against the test issuer
-<<<<<<< HEAD
 **`https://oidc-test.semanti.us`**, which mints tokens without an
 interactive login — handy for verifying the OAuth path.
 
@@ -270,25 +252,13 @@ interactive login — handy for verifying the OAuth path.
 ```bash
 # Mint an access token for a test user (no login required)
 curl "https://oidc-test.semanti.us/getaccesstoken?user_id=user1&client_id=test-client"
-=======
-**`https://test-oidc-server.ma532.workers.dev`**, which mints tokens without an
-interactive login — handy for verifying the OAuth path.
-
-```bash
-# Mint an access token for a test user (no login required)
-curl "https://test-oidc-server.ma532.workers.dev/getaccesstoken?user_id=user1&client_id=test-client"
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 ```
 
 Its tokens already match what Semantius expects:
 
 ```json
 {
-<<<<<<< HEAD
   "iss":   "https://oidc-test.semanti.us",
-=======
-  "iss":   "https://test-oidc-server.ma532.workers.dev",
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
   "sub":   "user1",
   "aud":   ["test-client", "api://default"],
   "scope": "openid profile email",
@@ -391,16 +361,12 @@ so no host-specific changes are needed.
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
 - [verify_oauth.ts](verify_oauth.ts) — end-to-end OAuth handshake + claims check
 - [test_oauth_security.ts](test_oauth_security.ts) — hostile-client impersonation check
-<<<<<<< HEAD
 - [get_user_token.ts](get_user_token.ts) — mint + print a JWT for a user
 - [get_userinfo_jwt.ts](get_userinfo_jwt.ts) — print `get_userinfo()` for a given JWT
-=======
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
 - [.env.example](.env.example) — DBA password, DB name, host port
 
 ## Using it as the devcontainer database
 
-<<<<<<< HEAD
 The repo's [.devcontainer](../.devcontainer) can bring this image up as the `db`
 service — but only **when no managed database is configured**. Its
 [initializeCommand](../.devcontainer/select-db.sh) runs on the host before the
@@ -413,8 +379,3 @@ a secret):
   image comes up, so the project works with no managed account.
 
 See [../.devcontainer/docker-compose.yml](../.devcontainer/docker-compose.yml).
-=======
-The repo's [.devcontainer](../.devcontainer) brings this image up as the `db`
-service, so the whole project runs with no Neon/Supabase account — see
-[../.devcontainer/docker-compose.yml](../.devcontainer/docker-compose.yml).
->>>>>>> fe81bf7ce46305effe75b62721279acf0977134e
