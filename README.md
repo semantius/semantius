@@ -182,6 +182,11 @@ ready-to-run image with the extension baked in — see `pg-ext-create` in
 
 ### Build & release (maintainers)
 
+**One version for the whole repo.** Every artifact in this repo (the extension, and
+later the CLI) shares a single version, so releases are tagged with an unprefixed
+`v<version>` (e.g. `v0.1.0`) — not a per-artifact prefix. The tag is the source of
+truth: the release workflow derives the version from it.
+
 Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)
 model: **one current full install plus an accumulated chain of upgrade scripts.**
 Because the `_core` migrations are append-only ordered deltas, both are derived
@@ -204,14 +209,23 @@ Once a version is released its migrations are **frozen** — make later changes 
 *new* migration files. The generator hashes each migration in `versions.json` and
 **warns** if a released one was edited (that change can't land in an upgrade script).
 
-**Release flow:** generate → commit `extension/` (incl. `versions.json`) → tag. The
-[Release extension](.github/workflows/extension-release.yml) workflow regenerates at
-the tag's version, zips the full install **+ the whole upgrade chain** into
-`semantius-<ver>.zip`, and attaches it to a GitHub Release:
+**Release flow:** generate → test → commit `extension/` (incl. `versions.json`) →
+tag → push. The [Release extension](.github/workflows/extension-release.yml) workflow
+fires on the `v*` tag, regenerates at the tag's version, zips the full install **+ the
+whole upgrade chain** into `semantius-<ver>.zip`, and attaches it to a GitHub Release:
 
 ```bash
-deno task extension 0.2.0 && git add extension && git commit -m "extension 0.2.0"
-git tag extension-v0.2.0 && git push origin main extension-v0.2.0
+deno task extension 0.2.0                              # 1. regenerate at the new version
+deno task reset --confirm                              # 2. test (dropall + migrate + pgTAP)
+git add extension && git commit -m "release v0.2.0"    # 3. commit the generated files
+git tag v0.2.0 && git push origin main v0.2.0          # 4. tag + push → workflow publishes
+```
+
+If a version is **already generated and committed** but never tagged (as `0.1.0`
+was), just publish it — no regenerate, no commit needed, only the tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 That same `semantius-<ver>.zip` is the PGXN archive — publish it (needs a pgxn.org

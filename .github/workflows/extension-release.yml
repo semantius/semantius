@@ -1,7 +1,9 @@
 name: Release extension
 
 # Publishes the Semantius core PostgreSQL extension as a GitHub Release.
-# Trigger by pushing a tag like `extension-v0.2.0`, or run manually with a version.
+# The tag is the repo-wide version (one version for every artifact in this repo), so
+# it is an unprefixed `v<version>` — trigger by pushing a tag like `v0.2.0`, or run
+# manually with a version.
 # The same `semantius-<version>.zip` it attaches is also a valid PGXN distribution
 # archive (it contains META.json) — publish it to PGXN with `pgxn release` (see the
 # top-level README) or upload at manager.pgxn.org.
@@ -9,7 +11,7 @@ name: Release extension
 on:
   push:
     tags:
-      - "extension-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -35,7 +37,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             V="${{ github.event.inputs.version }}"
           else
-            V="${GITHUB_REF_NAME#extension-v}"
+            V="${GITHUB_REF_NAME#v}"
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Resolved extension version: $V"
@@ -65,7 +67,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.ver.outputs.version }}"
-          TAG="extension-v$V"
+          TAG="v$V"
           cat > notes.md <<EOF
           PostgreSQL extension build of **Semantius core v$V**.
 
