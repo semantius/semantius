@@ -13,6 +13,7 @@
     "lint": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts lint",
     "fmt": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts format",
     "migrate": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts migrate",
+    "extension": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts extension",
     "dropall": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts dropall",
     "reset": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts reset",
     "retest": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts retest",

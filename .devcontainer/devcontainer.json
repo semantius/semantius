@@ -7,7 +7,7 @@
   // Host-side, runs before the container is created (incl. Codespaces): enables
   // the local Postgres only when no DATABASE_URL is provided. `|| exit 0` keeps
   // creation working on Windows hosts without `sh` (then local Postgres is off
-  // by default; enable it with COMPOSE_PROFILES=localdb or pgdocker/pg-create.sh).
+  // by default; enable it with COMPOSE_PROFILES=localdb or pgdocker/pg-cli-create.sh).
   "initializeCommand": "sh .devcontainer/select-db.sh || exit 0",
 
   "features": {

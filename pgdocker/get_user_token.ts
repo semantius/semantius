@@ -36,7 +36,7 @@ async function readEnv(): Promise<Record<string, string>> {
     }
     return out;
   } catch {
-    return {}; // no .env (e.g. before pg-create.sh) — fall back to defaults
+    return {}; // no .env (e.g. before pg-cli-create.sh) — fall back to defaults
   }
 }
 

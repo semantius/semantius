@@ -30,7 +30,7 @@ services:
       context: ../pgdocker
       args:
         OIDC_VALIDATOR_REF: ${OIDC_VALIDATOR_REF:-72a35e90e4297221142e1d6b1dd3bcf5fabbe3fc}
-    image: postgres18-oauth:local
+    image: postgres18-cli:local
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres

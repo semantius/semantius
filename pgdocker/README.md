@@ -135,23 +135,108 @@ deno task retest --confirm    # migrate test + run pgTAP
 
 ---
 
+## Two ways to load Semantius core
+
+There are **two build commands**, for two ways to get the core schema into the
+database. Pick one per database — they are alternatives, not layers:
+
+| Build command | What the image contains | How core is loaded | Port |
+| ------------- | ----------------------- | ------------------ | ---- |
+| `pg-cli-create` (`.sh`/`.cmd`) | Plain PG18 + OAuth | You deploy with the CLI: `deno task migrate` / `reset` | 5432 |
+| `pg-ext-create` (`.sh`/`.cmd`) | Same image **+ the Semantius core extension baked in** | `CREATE EXTENSION semantius` runs automatically at first init | 5433 |
+
+They are independent Docker Compose projects (separate container, data volume,
+and port), so both can run at once. The extension variant must have the extension
+generated first, from the repo root:
+
+```bash
+deno task extension          # writes ../extension/{semantius.control, semantius--<ver>.sql}
+./pg-ext-create.sh           # builds the base image, then the extension image, and starts it
+```
+
+The extension variant uses a separate compose file
+([docker-compose.ext.yml](docker-compose.ext.yml)) and Dockerfile
+([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION semantius CASCADE`
+via [init-ext/20-extension.sql](init-ext/20-extension.sql). It has the **same full
+set of lifecycle scripts** as the CLI stack, under the `pg-ext-*` prefix
+(`pg-ext-start`, `pg-ext-stop`, `pg-ext-status`, `pg-ext-test`, `pg-ext-delete`) —
+see the table below. Under the hood they wrap:
+
+```bash
+docker compose -f docker-compose.ext.yml -p semantius-ext <up|ps|stop|start|down|logs>
+```
+
+See [../extension/README.md](../extension/README.md) for the extension itself.
+
+---
+
+## Equivalence test paths (CLI vs extension)
+
+The two install channels above must produce an **identical** `_core` schema. To
+prove it, each stack has a one-command, non-interactive harness that deploys the
+test apps and runs the **same** pgTAP suite (`deno task test` always reads
+`./apps/test/tests`, regardless of which stack it points at). Both green ⇒
+extension-`_core` ≡ migrate-`_core`.
+
+| Path | Harness | What it does |
+| ---- | ------- | ------------ |
+| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker` (dropall → migrate `_core,cloud,test,nwind` → test), on port 5432 |
+| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `cloud,test,nwind` → test, on port 5433 |
+
+```bash
+./pg-cli-retest.sh      # Path A — migrate-installed _core
+./pg-ext-retest.sh      # Path B — extension-installed _core
+```
+
+In **Path B**, `migrate --apps cloud,test,nwind` auto-prepends `_core`, but the
+extension already seeded the `_versions` run-once guards, so every `_core.*`
+migration is **skipped** (not re-run) and only `cloud`/`test`/`nwind` are
+deployed onto the extension's `_core` — the exact same app set Path A migrates,
+so the two paths run the identical suite over an identical schema. (`cloud` is
+required, not optional: `test.0030_seed` and several test files use the
+`webhook_receivers` table that the cloud app creates.) That seed (plus the
+`_versions` table the extension now creates) is what lets an extension-installed
+database be managed by the CLI; it is also the fix for the `CREATE EXTENSION`
+install itself (`_core/0050` attaches an RLS policy to `_versions`).
+
+> Both harnesses derive their connection rather than hard-coding it: `pg-ext-retest`
+> reads `POSTGRES_PASSWORD` from `pgdocker/.env` and passes `--database-url`
+> (which also outranks any exported `DATABASE_URL`); `pg-cli-retest` uses the
+> `.env.pgdocker` profile (whose password must match `pgdocker/.env`). They wrap
+> `retest`/`migrate`/`test` unchanged — no new CLI flags.
+
+`pg-ext-retest` is also re-runnable without the reset: re-running just its
+`migrate --apps cloud,test,nwind` + `test` steps stays green (migrate reports
+`cloud`/`test`/`nwind` already applied and the tests roll back cleanly).
+
+---
+
 ## Managing the container (prepare / start / stop / destroy)
 
-This folder ships ready-to-run lifecycle scripts — `.sh` for macOS/Linux/Git-Bash
-and `.cmd` for Windows (double-click in Explorer, or run from a terminal). They're
-all prefixed `pg-` so the names don't collide with shell built-ins — notably
-`start`, which is an internal Command Prompt command (it opens a new window), so a
-bare `start.cmd` would never run. From a terminal, invoke them by full name —
-`.\pg-start.cmd` (PowerShell) or `pg-start.cmd` (cmd):
+This folder ships ready-to-run lifecycle scripts. **Every action exists for both
+stacks**: `pg-cli-*` drives the CLI-testing container (default project, port 5432)
+and `pg-ext-*` drives the extension container (project `semantius-ext`, port 5433).
+Each name has a `.sh` form (macOS/Linux/Git-Bash) and a `.cmd` form (Windows) — run
+them from this `pgdocker/` folder, e.g. `./pg-cli-start.sh` or `pg-cli-start.cmd`.
 
-| Action | bash | Windows | Effect |
+| Action | CLI-testing | Extension | Effect |
+| ------ | ----------- | --------- | ------ |
+| Create | `pg-cli-create` | `pg-ext-create` | build image + create `.env` (if missing) + start |
+| Start  | `pg-cli-start`  | `pg-ext-start`  | start (reuse existing image) |
+| Status | `pg-cli-status` | `pg-ext-status` | show created / running (healthy) / exited |
+| Stop   | `pg-cli-stop`   | `pg-ext-stop`   | remove container+network, **keep data** |
+| Delete | `pg-cli-delete` | `pg-ext-delete` | remove container+network+**data volume**+image (asks to confirm) |
+| Test   | `pg-cli-test`   | `pg-ext-test`   | run the OAuth + impersonation checks against the stack |
+
+> `pg-ext-test` runs the same OAuth/impersonation checks as `pg-cli-test`, but
+> against port 5433 — it's the smoke test that the `CREATE EXTENSION` install
+> produced a working RBAC/OAuth database. (`pg-cli-test` needs `_core` deployed
+> first via the CLI; `pg-ext-test` gets `_core` from the extension.)
+
+The token helpers are **not** stack-specific:
+
+| Helper | bash | Windows | Effect |
 | ------ | ---- | ------- | ------ |
-| Create | `./pg-create.sh` | `pg-create.cmd` | build image + create `.env` (if missing) + start |
-| Start  | `./pg-start.sh`  | `pg-start.cmd`  | start (reuse existing image) |
-| Status | `./pg-status.sh` | `pg-status.cmd` | show created / running (healthy) / exited |
-| Stop   | `./pg-stop.sh`   | `pg-stop.cmd`   | remove container+network, **keep data** |
-| Delete | `./pg-delete.sh` | `pg-delete.cmd` | remove container+network+**data volume**+image (asks to confirm) |
-| Test   | `./pg-test.sh`   | `pg-test.cmd`   | run the OAuth + impersonation checks (needs `_core` deployed) |
 | User token | `./get-user-token.sh <user>` | `get-user-token.cmd <user>` | mint + print a JWT for a user (+ how to present it, on stderr) |
 | User-info | `./get-userinfo-jwt.sh <jwt>` | `get-userinfo-jwt.cmd <jwt>` | present a JWT over OAuth and print `get_userinfo()` (or the error) |
 
@@ -211,7 +296,7 @@ is the real "destroy". Useful extras (any shell):
 ```bash
 docker compose logs -f                                   # follow logs
 docker compose ps                                        # status / health
-docker exec -it postgres18-oauth psql -U postgres -d appdb   # a shell into the DB
+docker exec -it postgres18-cli psql -U postgres -d appdb   # a shell into the DB
 ```
 
 ### After editing files — what to re-run
@@ -223,14 +308,15 @@ destructive path:
 
 | You changed… | What to run | Why |
 | ------------ | ----------- | --- |
-| `conf/pg_hba.conf` / `conf/pg_ident.conf` (issuer, scope, maps) | **`pg-stop` → `pg-start`** (or `docker compose restart`, or `SELECT pg_reload_conf()`) | mounted file; re-read on fresh start / reload |
-| `Dockerfile` / `patches/` (validator, packages) | **`pg-create`** (rebuilds the image) | baked into the image |
-| `init/*.sql` (role bootstrap) | **`pg-delete` → `pg-create`** | init scripts run **only on a fresh data volume** |
-| nothing — just resuming | **`pg-start`** | reuses image + data |
+| `conf/pg_hba.conf` / `conf/pg_ident.conf` (issuer, scope, maps) | **`pg-cli-stop` → `pg-cli-start`** (or `docker compose restart`, or `SELECT pg_reload_conf()`) | mounted file; re-read on fresh start / reload |
+| `Dockerfile` / `patches/` (validator, packages) | **`pg-cli-create`** (rebuilds the image) | baked into the image |
+| `init/*.sql` (role bootstrap) | **`pg-cli-delete` → `pg-cli-create`** | init scripts run **only on a fresh data volume** |
+| the extension SQL (ran `deno task extension`) | **`pg-ext-delete` → `pg-ext-create`** | the extension files are baked into the image; init runs on a fresh volume |
+| nothing — just resuming | **`pg-cli-start`** (or `pg-ext-start`) | reuses image + data |
 
 > Changing the `issuer=` in `conf/pg_hba.conf` is the common case: a running
-> server keeps the old issuer in memory until it restarts, so `pg-stop` → `pg-start`
-> (which keeps your data) is all you need — not `pg-delete`/`pg-create`.
+> server keeps the old issuer in memory until it restarts, so `pg-cli-stop` → `pg-cli-start`
+> (which keeps your data) is all you need — not `pg-cli-delete`/`pg-cli-create`.
 
 ---
 
@@ -287,7 +373,7 @@ script that mints a fresh token from the test issuer and performs the
 
 ```bash
 # DBA login (the DATABASE_URL path):
-docker exec -e PGPASSWORD=<PW> postgres18-oauth \
+docker exec -e PGPASSWORD=<PW> postgres18-cli \
   psql "host=127.0.0.1 user=postgres dbname=appdb" -c "select 1"
 
 # OAuth -> authenticated path (validator + JWKS + ident map + claims):
@@ -313,7 +399,7 @@ so they drop straight into CI once the container is healthy:
 
 ```bash
 docker compose up -d --build
-until docker exec postgres18-oauth pg_isready -U postgres -d appdb; do sleep 1; done
+until docker exec postgres18-cli pg_isready -U postgres -d appdb; do sleep 1; done
 
 # deploy core so rbac.uid() exists, then run the checks
 export DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/appdb"
@@ -354,10 +440,15 @@ so no host-specific changes are needed.
 ## Files
 
 - [Dockerfile](Dockerfile) — `postgres:18` + the validator (pinned commit + local patch)
-- [docker-compose.yml](docker-compose.yml) — service, volumes, validator/HBA/ident wiring, healthcheck
+- [docker-compose.yml](docker-compose.yml) — CLI-testing stack: service, volumes, validator/HBA/ident wiring, healthcheck
+- [Dockerfile.ext](Dockerfile.ext) — extension variant: layers the generated `../extension` on the base image
+- [docker-compose.ext.yml](docker-compose.ext.yml) — extension stack (separate project `semantius-ext`, port 5433)
 - [conf/pg_hba.conf](conf/pg_hba.conf) — full-DBA SCRAM lines + the `oauth` rules
 - [conf/pg_ident.conf](conf/pg_ident.conf) — token identity → `authenticated` role map
-- [init/10-roles.sql](init/10-roles.sql) — creates the `authenticated` LOGIN role
+- [init/10-roles.sql](init/10-roles.sql) — creates the `authenticated` LOGIN role (both stacks)
+- [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION semantius CASCADE`
+- [pg-cli-retest.sh](pg-cli-retest.sh) / [pg-cli-retest.cmd](pg-cli-retest.cmd) — Path A equivalence harness (migrate-installed `_core` → pgTAP)
+- [pg-ext-retest.sh](pg-ext-retest.sh) / [pg-ext-retest.cmd](pg-ext-retest.cmd) — Path B equivalence harness (extension-installed `_core` → pgTAP)
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
 - [verify_oauth.ts](verify_oauth.ts) — end-to-end OAuth handshake + claims check
 - [test_oauth_security.ts](test_oauth_security.ts) — hostile-client impersonation check

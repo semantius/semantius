@@ -12,6 +12,7 @@ import { docgenCommand } from "./commands/docgen.ts";
 import { resetCommand } from "./commands/reset.ts";
 import { retestCommand } from "./commands/retest.ts";
 import { testgenJsonlogicCommand } from "./commands/testgen_jsonlogic.ts";
+import { extensionCommand } from "./commands/extension.ts";
 import { red, yellow } from "@std/fmt/colors";
 
 const originalError = console.error;
@@ -44,10 +45,11 @@ interface CliArgs {
 // Read version from the CLI package's deno.json
 async function getVersion(): Promise<string> {
   try {
-    // Resolve deno.json relative to this file (packages/cli/deno.json)
-    const cliDir = new URL(".", import.meta.url).pathname;
+    // Resolve deno.json relative to this file (packages/cli/deno.json).
+    // Pass the file URL straight to readTextFile so it works cross-platform
+    // (URL.pathname yields a leading-slash "/C:/..." that fails on Windows).
     const denoConfig = JSON.parse(
-      await Deno.readTextFile(`${cliDir}/deno.json`),
+      await Deno.readTextFile(new URL("./deno.json", import.meta.url)),
     );
     return denoConfig.version || "unknown";
   } catch {
@@ -133,6 +135,8 @@ COMMANDS:
     lint             Run linter
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
+    extension        Generate the PostgreSQL extension (control + SQL) into ./extension
+    extension <VER>  Generate the extension with an explicit version (e.g. 0.2.0)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
     reset            ⚠️ Drop all and migrate --apps _core,cloud (requires --confirm)
     retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
@@ -152,6 +156,9 @@ EXAMPLES:
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
     deno task migrate --apps nwind --database-url postgresql://user:pass@host:5432/db
+    deno task extension
+    deno task extension 0.2.0
+    deno task extension --output ./extension
     deno task dropall --verbose
     deno task dropall --confirm
     deno task dropall --script
@@ -256,12 +263,15 @@ async function main(): Promise<void> {
 
   // Get database URL for commands that need it.
   // --database-url flag takes priority over env file / DATABASE_URL env var.
+  // The "extension" command works purely off disk and needs no database.
   let databaseUrl: string | undefined;
-  databaseUrl = await getDatabaseUrl(
-    args.env || "local",
-    args["database-url"],
-  );
-  
+  if (command !== "extension") {
+    databaseUrl = await getDatabaseUrl(
+      args.env || "local",
+      args["database-url"],
+    );
+  }
+
   switch (command) {
     case "init":
       await initProject();
@@ -297,6 +307,17 @@ async function main(): Promise<void> {
       break;
     }
       
+    case "extension": {
+      const version = args._.length > 1 ? String(args._[1]) : VERSION;
+      await extensionCommand({
+        apps: args.apps || "_core",
+        version,
+        name: "semantius",
+        outputDir: args.output || "./extension",
+      });
+      break;
+    }
+
     case "dropall":
       await dropallCommand(databaseUrl!, args.confirm || false, args.script || false);
       break;

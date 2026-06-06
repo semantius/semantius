@@ -1,0 +1,55 @@
+name: semantius-ext
+
+# Extension variant of the pgdocker stack: the SAME PostgreSQL 18 + OAuth image,
+# but with Semantius core installed as a PostgreSQL EXTENSION
+# (CREATE EXTENSION semantius) instead of deployed via the CLI migrate path.
+#
+# This is a SEPARATE compose project (run it with `-p semantius-ext`) so it never
+# touches the CLI-testing stack's container, data volume, or image. It publishes
+# on a different host port (5433) so both can run side by side.
+#
+# Bring it up with pg-create-ext.sh / pg-create-ext.cmd (which build the base
+# OAuth image first, since Dockerfile.ext layers on top of it).
+services:
+  postgres-ext:
+    build:
+      # Repo root so the build can COPY ./extension; the repo-root .dockerignore
+      # keeps the context tiny (only ./extension is sent to the daemon).
+      context: ..
+      dockerfile: pgdocker/Dockerfile.ext
+    image: postgres18-ext:local
+    container_name: postgres18-ext
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+    ports:
+      - "${POSTGRES_EXT_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./conf/pg_ident.conf:/etc/postgresql/pg_ident.conf:ro
+      # Shared role bootstrap (10-roles.sql) + the extra extension-install step.
+      # Mounted as INDIVIDUAL files (not the whole ./init dir + a nested overlay):
+      # overlaying a single file inside a directory bind-mount fails on Docker
+      # Desktop ("read-only file system" when creating the nested mountpoint).
+      # The entrypoint runs them in alphabetical order: 10-roles then 20-extension.
+      - ./init/10-roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+      - ./init-ext/20-extension.sql:/docker-entrypoint-initdb.d/20-extension.sql:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "oauth_validator_libraries=pg_oidc_validator"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+      - "-c"
+      - "ident_file=/etc/postgresql/pg_ident.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

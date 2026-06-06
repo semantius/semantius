@@ -14,6 +14,6 @@ exit /b 0
 
 :err
 echo.
-echo Check failed. Is the container running (pg-start.cmd) and _core deployed?
+echo Check failed. Is the container running (pg-cli-start.cmd) and _core deployed?
 
 exit /b 1

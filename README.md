@@ -86,6 +86,7 @@ deno task [COMMAND] [OPTIONS]
 | `lint` | Run Deno linter |
 | `format` / `fmt` | Format code |
 | `migrate` | Execute SQL migrations for specified apps |
+| `extension` | Generate the Semantius core PostgreSQL extension into `extension/` |
 | `dropall` | **DESTRUCTIVE** — drop ALL objects in public schema |
 | `reset` | **DESTRUCTIVE** — dropall + migrate test + run tests |
 | `docgen` | Generate `schema.md` from entity metadata |
@@ -106,6 +107,10 @@ deno task migrate --apps nwind --database-url "postgresql://..."
 
 # Generate a migration SQL script without executing
 deno task migrate --apps _core --script
+
+# Generate the PostgreSQL extension (control + versioned SQL) into ./extension/
+deno task extension
+deno task extension 0.2.0    # explicit version
 
 # Drop all database objects (requires confirmation)
 deno task dropall --confirm
@@ -151,6 +156,67 @@ match your `pgdocker/.env` (password, port, database), then either:
 
 - use it per-command: `deno task migrate --apps _core --env pgdocker`, or
 - make it the default: `cp .env.pgdocker .env.local`.
+
+---
+
+## PostgreSQL extension (alternative distribution)
+
+For self-hosted PostgreSQL 18 (superuser) you can install Semantius core as a
+**PostgreSQL extension** instead of deploying it with `deno task migrate`. It's an
+**additional** channel — managed providers (Neon/Supabase) don't allow custom
+extensions, so it's self-hosted only, and it replaces nothing.
+
+### Install (end users)
+
+```bash
+pgxn install semantius                 # from PGXN
+# ...or download semantius-<ver>.zip from a GitHub Release, unzip, then:
+make install
+```
+
+Then, in the target database: `CREATE EXTENSION semantius CASCADE;` — it creates
+its own `authenticated`/`semantius_user` roles and pulls in `pgcrypto`, so there's
+nothing to set up first. The [pgdocker](pgdocker/) stack can also build a
+ready-to-run image with the extension baked in — see `pg-ext-create` in
+[pgdocker/README.md](pgdocker/README.md#two-ways-to-load-semantius-core).
+
+### Build & release (maintainers)
+
+Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)
+model: **one current full install plus an accumulated chain of upgrade scripts.**
+Because the `_core` migrations are append-only ordered deltas, both are derived
+automatically.
+
+```bash
+deno task extension              # rebuild the current version (from the CLI package)
+deno task extension 0.2.0        # cut a new version
+```
+
+`deno task extension 0.2.0` (with `0.1.0` already released):
+- writes the current full install `semantius--0.2.0.sql` and **removes the prior
+  `semantius--0.1.0.sql`** (keep one full install, like pgTAP);
+- writes the upgrade script `semantius--0.1.0--0.2.0.sql` — just the migrations
+  added since 0.1.0 — so `ALTER EXTENSION semantius UPDATE` walks the chain;
+- bumps `default_version`, records the version in `versions.json`, and refreshes
+  `META.json`/`Makefile`/README.
+
+Once a version is released its migrations are **frozen** — make later changes in
+*new* migration files. The generator hashes each migration in `versions.json` and
+**warns** if a released one was edited (that change can't land in an upgrade script).
+
+**Release flow:** generate → commit `extension/` (incl. `versions.json`) → tag. The
+[Release extension](.github/workflows/extension-release.yml) workflow regenerates at
+the tag's version, zips the full install **+ the whole upgrade chain** into
+`semantius-<ver>.zip`, and attaches it to a GitHub Release:
+
+```bash
+deno task extension 0.2.0 && git add extension && git commit -m "extension 0.2.0"
+git tag extension-v0.2.0 && git push origin main extension-v0.2.0
+```
+
+That same `semantius-<ver>.zip` is the PGXN archive — publish it (needs a pgxn.org
+account) with `pgxn release semantius-0.2.0.zip` (or upload at manager.pgxn.org).
+Details in [extension/README.md](extension/README.md).
 
 ---
 

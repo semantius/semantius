@@ -1,0 +1,6 @@
+# Used only by the repo-root Docker build context (pgdocker/docker-compose.ext.yml,
+# which builds Dockerfile.ext from the repo root to COPY the generated extension).
+# Ignore everything, then re-include just the files that build needs.
+# (The base pgdocker build uses context ./pgdocker and is unaffected by this file.)
+*
+!extension

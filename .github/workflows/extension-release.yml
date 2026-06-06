@@ -1,0 +1,83 @@
+name: Release extension
+
+# Publishes the Semantius core PostgreSQL extension as a GitHub Release.
+# Trigger by pushing a tag like `extension-v0.2.0`, or run manually with a version.
+# The same `semantius-<version>.zip` it attaches is also a valid PGXN distribution
+# archive (it contains META.json) — publish it to PGXN with `pgxn release` (see the
+# top-level README) or upload at manager.pgxn.org.
+
+on:
+  push:
+    tags:
+      - "extension-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Extension version, e.g. 0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#extension-v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved extension version: $V"
+
+      - name: Generate extension
+        run: deno task extension "${{ steps.ver.outputs.version }}"
+
+      - name: Package PGXN-style archive
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          DIST="semantius-$V"
+          mkdir -p "$DIST"
+          cp extension/META.json \
+             extension/semantius.control \
+             extension/Makefile \
+             extension/README.md \
+             "$DIST/"
+          # All install scripts: the current full install + the whole upgrade
+          # chain, so `make install` + `ALTER EXTENSION ... UPDATE` both work.
+          cp extension/semantius--*.sql "$DIST/"
+          zip -r "$DIST.zip" "$DIST"
+          echo "Built $DIST.zip:"
+          unzip -l "$DIST.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          TAG="extension-v$V"
+          cat > notes.md <<EOF
+          PostgreSQL extension build of **Semantius core v$V**.
+
+          **Install**
+          - PGXN: \`pgxn install semantius\`
+          - From this release: download \`semantius-$V.zip\`, unzip, run \`make install\`, then \`CREATE EXTENSION semantius CASCADE;\` (PostgreSQL 18, superuser).
+
+          \`semantius-$V.zip\` is also the PGXN distribution archive (contains META.json).
+          EOF
+          gh release create "$TAG" \
+            "semantius-$V.zip" \
+            "extension/semantius--$V.sql" \
+            extension/semantius.control \
+            --title "Semantius extension v$V" \
+            --notes-file notes.md

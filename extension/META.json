@@ -1,0 +1,50 @@
+{
+  "name": "semantius",
+  "abstract": "Database-first RBAC, RLS, data dictionary, and message queue for PostgreSQL",
+  "description": "Semantius core packaged as a PostgreSQL extension: role-based access control, row-level security, a semantic data dictionary, and a message queue. An alternative to deploying the migrations with the Semantius CLI.",
+  "version": "0.1.0",
+  "maintainer": [
+    "adenin TECHNOLOGIES"
+  ],
+  "license": "mit",
+  "provides": {
+    "semantius": {
+      "abstract": "Semantius core: RBAC, RLS, data dictionary, and message queue",
+      "file": "semantius--0.1.0.sql",
+      "docfile": "README.md",
+      "version": "0.1.0"
+    }
+  },
+  "prereqs": {
+    "runtime": {
+      "requires": {
+        "PostgreSQL": "18.0.0",
+        "pgcrypto": "0"
+      }
+    }
+  },
+  "resources": {
+    "homepage": "https://github.com/adenin-platform/semantius-core",
+    "bugtracker": {
+      "web": "https://github.com/adenin-platform/semantius-core/issues"
+    },
+    "repository": {
+      "url": "git://github.com/adenin-platform/semantius-core.git",
+      "web": "https://github.com/adenin-platform/semantius-core",
+      "type": "git"
+    }
+  },
+  "generated_by": "deno task extension",
+  "meta-spec": {
+    "version": "1.0.0",
+    "url": "https://pgxn.org/meta/spec.txt"
+  },
+  "tags": [
+    "rbac",
+    "rls",
+    "row level security",
+    "data dictionary",
+    "queue",
+    "security"
+  ]
+}

@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# Dockerfile.ext - the EXTENSION distribution variant.
+#
+# Layers the generated Semantius core extension on top of the base OAuth image
+# (postgres18-cli:local, built from ./Dockerfile). The build context is the
+# REPO ROOT (see docker-compose.ext.yml) so this can COPY the generated
+# ./extension files into PostgreSQL's extension directory.
+#
+# Generate the files first, from the repo root:   deno task extension
+# init-ext/20-extension.sql then runs CREATE EXTENSION at first container init.
+# ---------------------------------------------------------------------------
+ARG BASE_IMAGE=postgres18-cli:local
+FROM ${BASE_IMAGE}
+
+USER root
+COPY extension/semantius.control extension/semantius--*.sql \
+     /usr/share/postgresql/18/extension/
+USER postgres
