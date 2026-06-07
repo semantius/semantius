@@ -1,14 +1,14 @@
 {
-  "name": "@semantius/example-kysely-direct",
+  "name": "@semantius/example-kysely-raw",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "List users from Semantius core with Kysely, authenticating via an OAuth token over SASL OAUTHBEARER (PostgreSQL 18).",
+  "description": "List users from a Semantic Platform database with Kysely (raw SQL, no types), authenticating via an OAuth token over SASL OAUTHBEARER (PostgreSQL 18).",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "tsx src/kysely-direct.ts",
+    "start": "tsx src/list-users.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

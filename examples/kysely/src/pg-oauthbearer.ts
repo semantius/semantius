@@ -1,3 +1,7 @@
+// VENDORED from examples/transport/src/pg-oauthbearer.ts — the canonical copy.
+// This file is dependency-free; to update, re-copy it from there (or depend on
+// @semantius/pg-oauthbearer via "file:../transport" instead of vendoring).
+//
 // =============================================================================
 // pg-oauthbearer.ts — a tiny PostgreSQL client that authenticates with a
 // pre-minted OAuth bearer token over SASL OAUTHBEARER (RFC 7628).

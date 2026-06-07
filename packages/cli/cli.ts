@@ -9,6 +9,8 @@ import { connectDatabaseConnection } from "./commands/connect.ts";
 import { testCommand } from "./commands/test.ts";
 import { dropallCommand } from "./commands/dropall.ts";
 import { docgenCommand } from "./commands/docgen.ts";
+import { drizzlegenCommand } from "./commands/drizzlegen.ts";
+import { kyselygenCommand } from "./commands/kyselygen.ts";
 import { resetCommand } from "./commands/reset.ts";
 import { retestCommand } from "./commands/retest.ts";
 import { testgenJsonlogicCommand } from "./commands/testgen_jsonlogic.ts";
@@ -141,6 +143,8 @@ COMMANDS:
     reset            ⚠️ Drop all and migrate --apps _core,cloud (requires --confirm)
     retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
+    drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
+    kyselygen        Generate Kysely type definitions (one file per module + DB interface) from the catalog
     testgen_jsonlogic Generate 0015_test_jsonlogic.sql from 0015_test_jsonlogic.json
 
 EXAMPLES:
@@ -168,6 +172,10 @@ EXAMPLES:
     deno task retest --confirm --failfast
     deno task connect --env test
     deno task migrate --apps nwind --env staging
+    deno task drizzlegen
+    deno task drizzlegen --output examples/drizzle/src/schema
+    deno task kyselygen
+    deno task kyselygen --output examples/kysely/src/schema
   `);
 }
 
@@ -332,6 +340,14 @@ async function main(): Promise<void> {
       
     case "docgen":
       await docgenCommand(databaseUrl!);
+      break;
+
+    case "drizzlegen":
+      await drizzlegenCommand(databaseUrl!, args.output || "./drizzle/schema");
+      break;
+
+    case "kyselygen":
+      await kyselygenCommand(databaseUrl!, args.output || "./kysely/schema");
       break;
 
     case "testgen_jsonlogic":

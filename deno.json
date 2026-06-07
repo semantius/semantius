@@ -18,6 +18,8 @@
     "reset": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts reset",
     "retest": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts retest",
     "docgen": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts docgen",
+    "drizzlegen": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts drizzlegen",
+    "kyselygen": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts kyselygen",
     "testgen_jsonlogic": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts testgen_jsonlogic",
     "check": "deno check packages/cli/cli.ts",
     "bundle-sql": "deno run --allow-read --allow-write scripts/bundle-sql.ts"

@@ -28,7 +28,7 @@
 //
 // It is a direct Node port of pgdocker/verify_oauth.ts (which uses the *simple*
 // query protocol with no parameters); the extended-query path here is what lets
-// a query builder like Kysely send `$1, $2, …` parameters.
+// a query builder send `$1, $2, …` parameters.
 //
 // SCOPE / CAVEATS (this is an example, not a production driver):
 //   - one connection, not a pool (queries are serialized on the wire);
@@ -53,6 +53,13 @@ export interface PgConnectOptions {
 export interface RawQueryResult {
   /** Column names, in result order (from the RowDescription message). */
   fields: string[];
+  /**
+   * PostgreSQL type OID per column, in result order (from RowDescription).
+   * Values themselves still come back as TEXT (see `rows`); callers that want
+   * JS-typed values can feed each value through a parser keyed by its OID
+   * (e.g. node-postgres' `pg-types` `getTypeParser(oid)`).
+   */
+  fieldTypes: number[];
   /** One array of TEXT-format column values (or null) per row, in column order. */
   rows: (string | null)[][];
   /** The CommandComplete tag, e.g. "SELECT 5" or "INSERT 0 1". */
@@ -251,6 +258,7 @@ export class PgOAuthConnection {
     this.#socket.write(frame(F_SYNC, Buffer.alloc(0)));
 
     let fields: string[] = [];
+    let fieldTypes: number[] = [];
     const rows: (string | null)[][] = [];
     let command = "";
     let pendingError: string | null = null;
@@ -258,9 +266,12 @@ export class PgOAuthConnection {
     for (;;) {
       const msg = await this.#readMessage();
       switch (msg.type) {
-        case B_ROW_DESC:
-          fields = parseRowDescription(msg.payload);
+        case B_ROW_DESC: {
+          const desc = parseRowDescription(msg.payload);
+          fields = desc.names;
+          fieldTypes = desc.oids;
           break;
+        }
         case B_DATA_ROW:
           rows.push(parseDataRow(msg.payload));
           break;
@@ -274,7 +285,7 @@ export class PgOAuthConnection {
           break;
         case B_READY:
           if (pendingError) throw new Error(pendingError);
-          return { fields, rows, command, rowCount: parseRowCount(command) };
+          return { fields, fieldTypes, rows, command, rowCount: parseRowCount(command) };
         // ParseComplete / BindComplete / NoData / others: ignore.
         case B_PARSE_OK:
         case B_BIND_OK:
@@ -392,18 +403,21 @@ function parseCStrings(buf: Buffer): string[] {
   return out;
 }
 
-function parseRowDescription(payload: Buffer): string[] {
+function parseRowDescription(payload: Buffer): { names: string[]; oids: number[] } {
   const count = payload.readUInt16BE(0);
   const names: string[] = [];
+  const oids: number[] = [];
   let offset = 2;
   for (let i = 0; i < count; i++) {
     const end = payload.indexOf(0, offset);
     names.push(payload.toString("utf8", offset, end));
     // name + NUL, then 18 fixed bytes: tableOID(4) col(2) typeOID(4) typeLen(2)
-    // typeMod(4) format(2).
-    offset = end + 1 + 18;
+    // typeMod(4) format(2). The type OID sits 6 bytes in (after tableOID+col).
+    const fieldStart = end + 1;
+    oids.push(payload.readUInt32BE(fieldStart + 6));
+    offset = fieldStart + 18;
   }
-  return names;
+  return { names, oids };
 }
 
 function parseDataRow(payload: Buffer): (string | null)[] {

@@ -1,0 +1,26 @@
+{
+  "name": "@semantius/example-drizzle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "List users from a Semantic Platform database with Drizzle (pg-proxy) over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18), using a schema generated from the catalog. Plus Drizzle Studio.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/list-users.ts",
+    "studio": "drizzle-kit studio",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.4",
+    "pg-types": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "drizzle-kit": "^0.28.1",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

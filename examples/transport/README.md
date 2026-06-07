@@ -4,7 +4,10 @@ A tiny, **dependency-free** PostgreSQL client for Node that authenticates with a
 **pre-minted OAuth bearer token** over SASL **`OAUTHBEARER`** (PostgreSQL 18), and
 runs parameterized queries. It is the shared building block the examples use.
 
-Everything lives in one file: [`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts).
+The client lives in one file: [`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts). A
+companion helper [`src/get-auth-token.ts`](src/get-auth-token.ts) (also vendored by
+the examples) returns the OAuth token to authenticate with — it mints a **test**
+token here, and is the single place you'd swap for your real session-token source.
 
 ## Why it exists
 
@@ -59,7 +62,7 @@ can consume directly.
 It is a single file with **no dependencies**, so pick whichever fits:
 
 - **Copy** `src/pg-oauthbearer.ts` into your project (what the examples do — see
-  [`../kysely-direct`](../kysely-direct)).
+  [`../kysely-raw`](../kysely-raw)).
 - **Import** it as a local package: add `"@semantius/pg-oauthbearer": "file:../transport"`
   to your `package.json` (works under bundler-style resolution / `tsx`).
 

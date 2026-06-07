@@ -8,7 +8,14 @@
       "mcp__claude_ai_tests__read_field",
       "mcp__claude_ai_tests__read_permission",
       "mcp__claude_ai_tests__read_permission_hierarchy",
-      "mcp__claude_ai_tests__postgrestRequest"
+      "mcp__claude_ai_tests__postgrestRequest",
+      "Bash(DATABASE_URL='postgresql://postgres:devpassword@localhost:5432/appdb' timeout 25 npx drizzle-kit studio --port 4985)",
+      "Bash(echo \"exit=$? \\(124=timed out = stayed running, good\\)\")",
+      "Bash(echo \"exit=$? \\(124=stayed running=good\\)\")",
+      "Bash(deno fmt *)",
+      "Bash(deno lint *)",
+      "Bash(node -e \"const t=require\\('pg-types'\\); console.log\\('bool t =>', t.getTypeParser\\(16\\)\\('t'\\)\\); console.log\\('bool f =>', t.getTypeParser\\(16\\)\\('f'\\)\\); console.log\\('jsonb  =>', t.getTypeParser\\(3802\\)\\('{\\\\\"a\\\\\":1}'\\)\\); console.log\\('int4   =>', typeof t.getTypeParser\\(23\\)\\('42'\\), t.getTypeParser\\(23\\)\\('42'\\)\\);\")",
+      "Bash(docker exec *)"
     ]
   }
 }

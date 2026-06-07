@@ -1,27 +1,31 @@
-# kysely-direct — list users with Kysely over OAuth (Node)
+# kysely-raw — list users with Kysely (raw SQL) over OAuth (Node)
 
-Connect to Semantius core (**PostgreSQL 18**) from Node with [Kysely](https://kysely.dev),
-authenticating as the `authenticated` role with an **OAuth access token** over
-SASL `OAUTHBEARER` — then list users with a direct SQL statement.
+Connect to a **Semantic Platform** database (**PostgreSQL 18**) from Node with
+[Kysely](https://kysely.dev), authenticating as the `authenticated` role with an
+**OAuth access token** over SASL `OAUTHBEARER` — then list users with **raw SQL**
+(no generated types).
 
 This example is **self-contained**: it vendors the dependency-free transport
-([`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts)) from
-[`../transport`](../transport) (the canonical copy). The only npm dependency is
-`kysely` itself.
+([`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts)) and the token helper
+([`src/get-auth-token.ts`](src/get-auth-token.ts)) from [`../transport`](../transport)
+(the canonical copies). The only npm dependency is `kysely` itself.
 
 ### Files
 
 - [`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts) — vendored transport: socket +
   `OAUTHBEARER` SASL handshake + extended-query protocol. Canonical copy lives in
   [`../transport`](../transport).
+- [`src/get-auth-token.ts`](src/get-auth-token.ts) — vendored token helper. Mints a
+  test token here; in a real app you'd return the current user's session token.
 - [`src/kysely-dialect.ts`](src/kysely-dialect.ts) — a Kysely `Dialect` that reuses
   Kysely's Postgres compiler/adapter/introspector and swaps in the transport as a
   custom `Driver`.
-- [`src/kysely-direct.ts`](src/kysely-direct.ts) — the runnable example.
+- [`src/list-users.ts`](src/list-users.ts) — sample #1, "list users". Each sample is
+  its own task-named file in `src/`; add more as sibling files.
 
 ## What it does
 
-1. Mint a fresh access token for a test user from the test OIDC issuer (no login).
+1. Get an access token (`get-auth-token` — mints a test token; swap in your session token for real use).
 2. Connect as `authenticated`, presenting that token over SASL `OAUTHBEARER`.
 3. Call `public.get_userinfo()` once — first-login provisioning. It assigns the
    `User` role (which carries `user:read`), so the RLS `SELECT` policy on `users`
@@ -30,7 +34,7 @@ This example is **self-contained**: it vendors the dependency-free transport
 
 ## Prerequisites
 
-A running pgdocker stack with Semantius `_core` present. From `pgdocker/`:
+A running pgdocker stack with the Semantic Platform `_core` present. From `pgdocker/`:
 
 - **CLI stack** (port **5432**): `./pg-cli-create.sh`, then deploy core —
   `export DATABASE_URL=… && deno task migrate --apps _core`.
@@ -40,14 +44,21 @@ A running pgdocker stack with Semantius `_core` present. From `pgdocker/`:
 The container must reach the issuer's HTTPS JWKS endpoint outbound, and you need
 Node **≥ 20** (for global `fetch`).
 
-## Run
+## Run a sample
+
+Each sample is its own task-named file in [`src/`](src). Run the one you want with
+`tsx` (runs TypeScript directly, no build step):
 
 ```bash
 npm install
-npm start                            # CLI stack on 5432
-PGPORT=5433 npm start                # extension stack
-USER_ID=user2 npm start              # connect as a different test user
+npx tsx src/list-users.ts                # the "list users" sample (CLI stack on 5432)
+PGPORT=5433 npx tsx src/list-users.ts    # extension stack
+USER_ID=user2 npx tsx src/list-users.ts  # connect as a different test user
 ```
+
+`npm start` is just a convenience alias for the first sample
+(`tsx src/list-users.ts`). Further samples drop in as sibling files —
+`src/<task>.ts` — and run the same way.
 
 Expected output (fresh stack — `user1` becomes the admin on first login):
 
