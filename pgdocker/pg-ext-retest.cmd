@@ -25,7 +25,7 @@ echo == [1/5] Resetting the extension stack (down -v) ==
 docker compose -f "%COMPOSE_FILE%" -p "%PROJECT%" down -v || goto :err
 
 echo == [2/5] Creating a fresh extension container ==
-call pg-ext-create.cmd || goto :err
+call "%~dp0pg-ext-create.cmd" || goto :err
 
 REM Derive the DBA connection from the live .env (NOT hard-coded: the checked-out
 REM .env uses `devpassword`). Defaults match docker-compose.ext.yml.

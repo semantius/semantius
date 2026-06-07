@@ -144,7 +144,7 @@ COMMANDS:
     retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
-    kyselygen        Generate Kysely type definitions (one file per module + DB interface) from the catalog
+    kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog
     testgen_jsonlogic Generate 0015_test_jsonlogic.sql from 0015_test_jsonlogic.json
 
 EXAMPLES:
@@ -175,7 +175,7 @@ EXAMPLES:
     deno task drizzlegen
     deno task drizzlegen --output examples/drizzle/src/schema
     deno task kyselygen
-    deno task kyselygen --output examples/kysely/src/schema
+    deno task kyselygen --output examples/kysely/src/types.ts
   `);
 }
 
@@ -347,7 +347,7 @@ async function main(): Promise<void> {
       break;
 
     case "kyselygen":
-      await kyselygenCommand(databaseUrl!, args.output || "./kysely/schema");
+      await kyselygenCommand(databaseUrl!, args.output || "./kysely/types.ts");
       break;
 
     case "testgen_jsonlogic":

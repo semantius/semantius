@@ -2,15 +2,14 @@
  * kyselygen command implementation
  *
  * Generates Kysely type definitions from the Semantius catalog (modules ->
- * entities -> fields). Emits ONE TypeScript file per module (named by
- * module_slug) holding the per-table interfaces, plus an index.ts that declares
- * the `DB` interface Kysely is parameterized with (`new Kysely<DB>(…)`).
+ * entities -> fields) as a SINGLE TypeScript file, following the layout of the
+ * standard `kysely-codegen` tool: the helper aliases that are needed, one
+ * `export interface <Table>` per table keyed by the *physical* column names
+ * (snake_case — Kysely's default, matching the DB and the raw-SQL example), and
+ * a final `export interface DB` mapping each physical table name to its
+ * interface — the type Kysely is parameterized with (`new Kysely<DB>(…)`).
  *
- * Unlike Drizzle, Kysely is purely type-driven: there are no runtime table
- * objects, just interfaces. Each table becomes an `export interface <Table>`
- * keyed by the *physical* column names (snake_case — Kysely's default, matching
- * the DB and the raw-SQL example), and index.ts maps each physical table name to
- * its interface.
+ * Kysely is purely type-driven: there are no runtime table objects, only types.
  *
  * The type mapping mirrors public.format_to_data_type() / public.is_nullable()
  * (apps/_core/migrations/0070_dd_functions.sql) AND the runtime value decoding
@@ -19,27 +18,24 @@
  * timestamps are Dates, bigint/numeric come back as strings, jsonb as objects.
  *
  * Columns the database fills (auto-increment PKs, created_at/updated_at, any
- * field with a default) are wrapped in Kysely's `Generated<T>` so they are
- * optional on insert. `enum` fields become a literal-union type ('a' | 'b' | …),
- * matching the DB's TEXT + CHECK (not a native PG enum) — with '' included for
+ * field with a default) are wrapped in `Generated<T>` so they are optional on
+ * insert. `enum` fields become a literal-union type ('a' | 'b' | …), matching
+ * the DB's TEXT + CHECK (not a native PG enum) — with '' included for
  * non-required enums, mirroring public.effective_enum_values().
  *
- *   deno task kyselygen                                  # -> ./kysely/schema
- *   deno task kyselygen --output examples/kysely/src/schema
+ *   deno task kyselygen                                # -> ./kysely/types.ts
+ *   deno task kyselygen --output examples/kysely/src/types.ts
  */
 
 import { Client } from "@postgres";
-import { join } from "@std/path";
+import { dirname } from "@std/path";
 
 interface ModuleRecord {
   id: number;
-  module_name: string;
-  module_slug: string;
 }
 
 interface EntityRecord {
   table_name: string;
-  module_id: number | null;
 }
 
 interface FieldRecord {
@@ -71,15 +67,6 @@ function pascalCase(s: string): string {
   return upperFirst(camelCase(s));
 }
 
-/** Mirror of the DB module_slug trigger: lowercase, non-alnum -> _, trimmed. */
-function sanitizeSlug(s: string): string {
-  const r = s.toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return r || "module";
-}
-
 /** Quote an object key only if it isn't a bare JS identifier. */
 function key(name: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : JSON.stringify(name);
@@ -106,9 +93,9 @@ function effectiveEnumValues(
 
 /**
  * True when the database supplies the value, so the column is optional on insert
- * and should be wrapped in Kysely's `Generated<T>`. Mirrors the cases drizzlegen
- * emits a default for: auto-increment (serial/bigserial) PKs, the timestamp
- * bookkeeping columns, and any field carrying a catalog default_value.
+ * and should be wrapped in Kysely's `Generated<T>`: auto-increment (SERIAL /
+ * BIGSERIAL) PKs, the created_at/updated_at bookkeeping columns, and any field
+ * carrying a catalog default_value.
  */
 function isGenerated(field: FieldRecord): boolean {
   const f = field.format;
@@ -127,19 +114,21 @@ function isGenerated(field: FieldRecord): boolean {
 type Alias = "Timestamp" | "Numeric" | "Int8" | "Json";
 
 const ALIAS_DEFS: Record<Exclude<Alias, "Json">, string> = {
-  Timestamp: "type Timestamp = ColumnType<Date, Date | string, Date | string>;",
-  Numeric: "type Numeric = ColumnType<string, number | string, number | string>;",
+  Timestamp:
+    "export type Timestamp = ColumnType<Date, Date | string, Date | string>;",
+  Numeric:
+    "export type Numeric = ColumnType<string, number | string, number | string>;",
   Int8:
-    "type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;",
+    "export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;",
 };
 
 /** The five mutually-referencing aliases emitted when any jsonb column is present. */
 const JSON_DEFS = [
-  "type JsonArray = JsonValue[];",
-  "type JsonObject = { [K in string]?: JsonValue };",
-  "type JsonPrimitive = boolean | number | string | null;",
-  "type JsonValue = JsonArray | JsonObject | JsonPrimitive;",
-  "type Json = JsonValue;",
+  "export type JsonArray = JsonValue[];",
+  "export type JsonObject = { [K in string]?: JsonValue };",
+  "export type JsonPrimitive = boolean | number | string | null;",
+  "export type JsonValue = JsonArray | JsonObject | JsonPrimitive;",
+  "export type Json = JsonValue;",
 ].join("\n");
 
 /**
@@ -207,9 +196,9 @@ function columnType(field: FieldRecord, used: Set<Alias>): string {
 
 export async function kyselygenCommand(
   databaseUrl: string,
-  outputDir: string,
+  outputFile: string,
 ): Promise<void> {
-  console.log(`Generating Kysely types into ${outputDir} ...`);
+  console.log(`Generating Kysely types into ${outputFile} ...`);
 
   const client = new Client(databaseUrl);
 
@@ -218,10 +207,10 @@ export async function kyselygenCommand(
     console.log("Connected to database");
 
     const modules = (await client.queryObject<ModuleRecord>(
-      "SELECT id, module_name, module_slug FROM modules ORDER BY id",
+      "SELECT id FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name, module_id FROM entities ORDER BY table_name",
+      "SELECT table_name FROM entities ORDER BY table_name",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
       "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values FROM fields ORDER BY table_name, field_order",
@@ -231,56 +220,24 @@ export async function kyselygenCommand(
       `Found ${modules.length} module(s), ${entities.length} entit(y/ies), ${fields.length} field(s)`,
     );
 
-    // --- lookup maps ---------------------------------------------------------
-    const slugByModuleId = new Map<number, string>();
-    for (const m of modules) {
-      const slug = m.module_slug && m.module_slug.trim() !== ""
-        ? m.module_slug
-        : sanitizeSlug(m.module_name) || `module_${m.id}`;
-      slugByModuleId.set(m.id, slug);
-    }
-
-    const tableToSlug = new Map<string, string>();
-    for (const e of entities) {
-      const slug = (e.module_id != null && slugByModuleId.has(e.module_id))
-        ? slugByModuleId.get(e.module_id)!
-        : "unassigned";
-      tableToSlug.set(e.table_name, slug);
-    }
-
+    // --- index fields by table ----------------------------------------------
     const fieldsByTable = new Map<string, FieldRecord[]>();
     for (const f of fields) {
       if (!fieldsByTable.has(f.table_name)) fieldsByTable.set(f.table_name, []);
       fieldsByTable.get(f.table_name)!.push(f);
     }
 
-    // --- group tables by file (module slug) ----------------------------------
-    const tablesBySlug = new Map<string, string[]>();
-    for (const e of entities) {
-      const slug = tableToSlug.get(e.table_name)!;
-      if (!tablesBySlug.has(slug)) tablesBySlug.set(slug, []);
-      tablesBySlug.get(slug)!.push(e.table_name);
-    }
-
-    await Deno.mkdir(outputDir, { recursive: true });
-
-    const slugs = [...tablesBySlug.keys()].sort();
-    for (const slug of slugs) {
-      const tables = tablesBySlug.get(slug)!.sort();
-      const content = renderModuleFile(tables, fieldsByTable);
-      const path = join(outputDir, `${slug}.ts`);
-      await Deno.writeTextFile(path, content);
-      console.log(`  wrote ${path} (${tables.length} table(s))`);
-    }
-
-    // index.ts — re-exports every interface and declares the `DB` interface.
+    // Single file, kysely-codegen style: helper aliases, every table interface,
+    // then the `DB` map. Tables (and the DB keys) are sorted by physical name.
     const allTables = entities.map((e) => e.table_name).sort();
-    const indexPath = join(outputDir, "index.ts");
-    await Deno.writeTextFile(indexPath, renderIndex(slugs, tablesBySlug, allTables));
-    console.log(`  wrote ${indexPath}`);
+    const content = renderFile(allTables, fieldsByTable);
+
+    const dir = dirname(outputFile);
+    if (dir && dir !== ".") await Deno.mkdir(dir, { recursive: true });
+    await Deno.writeTextFile(outputFile, content);
 
     console.log(
-      `Kysely types generated: ${slugs.length} module file(s) + index.ts`,
+      `Kysely types generated: ${allTables.length} table(s) -> ${outputFile}`,
     );
   } catch (error) {
     console.error(
@@ -298,16 +255,19 @@ export async function kyselygenCommand(
   }
 }
 
-/** Render one module file: imports + helper aliases + per-table interfaces. */
-function renderModuleFile(
-  tables: string[],
+/**
+ * Render the single types file (kysely-codegen layout): the used helper aliases,
+ * one `export interface <Table>` per table, then the `export interface DB` map.
+ */
+function renderFile(
+  allTables: string[],
   fieldsByTable: Map<string, FieldRecord[]>,
 ): string {
   const used = new Set<Alias>();
   let needGenerated = false;
 
   const interfaceBlocks: string[] = [];
-  for (const table of tables) {
+  for (const table of allTables) {
     const fieldList = fieldsByTable.get(table) ?? [];
     const colLines: string[] = [];
     for (const field of fieldList) {
@@ -319,20 +279,32 @@ function renderModuleFile(
     );
   }
 
+  const dbLines: string[] = ["export interface DB {"];
+  for (const table of allTables) {
+    dbLines.push(`  ${key(table)}: ${pascalCase(table)};`);
+  }
+  dbLines.push("}");
+
   const lines: string[] = [];
   lines.push("// AUTO-GENERATED by `deno task kyselygen`. Do not edit by hand.");
   lines.push("");
 
-  // Imports from kysely: ColumnType backs the Timestamp/Numeric/Int8 aliases;
-  // Generated wraps DB-supplied columns.
-  const needColumnType = used.has("Timestamp") || used.has("Numeric") ||
-    used.has("Int8");
-  const kyselyImports = [
-    needColumnType ? "ColumnType" : "",
-    needGenerated ? "Generated" : "",
-  ].filter(Boolean);
-  if (kyselyImports.length) {
-    lines.push(`import type { ${kyselyImports.join(", ")} } from "kysely";`);
+  // ColumnType backs the Timestamp/Numeric/Int8 aliases and the Generated helper.
+  const needColumnType = needGenerated || used.has("Timestamp") ||
+    used.has("Numeric") || used.has("Int8");
+  if (needColumnType) {
+    lines.push(`import type { ColumnType } from "kysely";`);
+    lines.push("");
+  }
+
+  // Generated<T>: kysely-codegen's conditional form, which unwraps an already-
+  // ColumnType argument (e.g. Generated<Timestamp>) instead of nesting one.
+  if (needGenerated) {
+    lines.push(
+      "export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>\n" +
+        "  ? ColumnType<S, I | undefined, U>\n" +
+        "  : ColumnType<T, T | undefined, T>;",
+    );
     lines.push("");
   }
 
@@ -349,38 +321,7 @@ function renderModuleFile(
 
   lines.push(interfaceBlocks.join("\n\n"));
   lines.push("");
-  return lines.join("\n");
-}
-
-/** Render index.ts: re-export every interface + declare the `DB` interface. */
-function renderIndex(
-  slugs: string[],
-  tablesBySlug: Map<string, string[]>,
-  allTables: string[],
-): string {
-  const lines: string[] = [];
-  lines.push("// AUTO-GENERATED by `deno task kyselygen`. Do not edit by hand.");
-  lines.push("");
-
-  // Re-export every table interface so consumers can `import type { Users }`.
-  for (const slug of slugs) lines.push(`export type * from "./${slug}";`);
-  lines.push("");
-
-  // Import the interfaces this file references in the DB map below.
-  for (const slug of slugs) {
-    const names = tablesBySlug.get(slug)!.slice().sort().map(pascalCase);
-    lines.push(
-      `import type {\n${names.map((n) => `  ${n},`).join("\n")}\n} from "./${slug}";`,
-    );
-  }
-  lines.push("");
-
-  // The `DB` interface: physical table name -> its interface.
-  lines.push("export interface DB {");
-  for (const table of allTables) {
-    lines.push(`  ${key(table)}: ${pascalCase(table)};`);
-  }
-  lines.push("}");
+  lines.push(dbLines.join("\n"));
   lines.push("");
   return lines.join("\n");
 }

@@ -8,7 +8,7 @@ set "REPO_ROOT=%~dp0.."
 set "CONTAINER=postgres18-cli"
 
 echo == [1/3] Creating a fresh CLI-testing container ==
-call pg-cli-create.cmd || goto :err
+call "%~dp0pg-cli-create.cmd" || goto :err
 
 set "POSTGRES_DB=appdb"
 for /f "usebackq tokens=1,* delims==" %%A in (".env") do (

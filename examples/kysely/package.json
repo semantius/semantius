@@ -1,0 +1,23 @@
+{
+  "name": "@semantius/example-kysely",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "List users from a Semantic Platform database with Kysely, typed via a DB interface generated from the catalog (deno task kyselygen), over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/list-users.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "kysely": "^0.27.4",
+    "pg-types": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

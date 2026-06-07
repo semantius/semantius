@@ -15,7 +15,18 @@
       "Bash(deno fmt *)",
       "Bash(deno lint *)",
       "Bash(node -e \"const t=require\\('pg-types'\\); console.log\\('bool t =>', t.getTypeParser\\(16\\)\\('t'\\)\\); console.log\\('bool f =>', t.getTypeParser\\(16\\)\\('f'\\)\\); console.log\\('jsonb  =>', t.getTypeParser\\(3802\\)\\('{\\\\\"a\\\\\":1}'\\)\\); console.log\\('int4   =>', typeof t.getTypeParser\\(23\\)\\('42'\\), t.getTypeParser\\(23\\)\\('42'\\)\\);\")",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(cmd /c \"c:\\\\dev\\\\semantius-core\\\\pgdocker\\\\pg-ext-retest.cmd\")",
+      "PowerShell(& \"c:\\\\dev\\\\semantius-core\\\\pgdocker\\\\pg-ext-retest.cmd\" 2>&1)",
+      "PowerShell(docker exec postgres18-cli psql -U postgres -d appdb -tAc \"SELECT module_slug FROM modules ORDER BY 1\" 2>&1)",
+      "PowerShell(docker exec postgres18-ext psql -U postgres -d appdb -tAc \"SELECT module_slug FROM modules ORDER BY 1\" 2>&1)",
+      "PowerShell(\"=== CLI container \\(5432\\) modules ===\")",
+      "PowerShell(\"=== EXT container \\(5433\\) modules ===\")",
+      "PowerShell(\"=== examples/drizzle/src/schema ===\")",
+      "PowerShell(\"=== examples/kysely-raw/src ===\")",
+      "PowerShell(\"=== examples/kysely \\(the IDE-opened path\\) ===\")",
+      "PowerShell(\"=== repo-root ./kysely and ./drizzle \\(default gen outputs\\) ===\")",
+      "PowerShell(\"=== examples/kysely/src/schema ===\")"
     ]
   }
 }
