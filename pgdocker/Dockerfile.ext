@@ -13,6 +13,6 @@ ARG BASE_IMAGE=postgres18-cli:local
 FROM ${BASE_IMAGE}
 
 USER root
-COPY extension/semantius.control extension/semantius--*.sql \
+COPY extension/pg_semantic_platform.control extension/pg_semantic_platform--*.sql \
      /usr/share/postgresql/18/extension/
 USER postgres

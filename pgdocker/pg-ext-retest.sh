@@ -6,9 +6,9 @@
 # Fully non-interactive. Steps:
 #   1. down -v        reset the ext stack (wipe the data volume). NOT
 #                     pg-ext-delete, which prompts interactively and would hang.
-#   2. pg-ext-create  fresh ext container; `CREATE EXTENSION semantius` installs
+#   2. pg-ext-create  fresh ext container; `CREATE EXTENSION pg_semantic_platform` installs
 #                     `_core` and creates + seeds the `_versions` guard rows.
-#   3. readiness gate poll until the `semantius` extension is present (the
+#   3. readiness gate poll until the `pg_semantic_platform` extension is present (the
 #                     pg_isready healthcheck can go green before the init scripts
 #                     finish, so we check pg_extension directly).
 #   4. migrate --apps cloud,test,nwind   migrate auto-prepends `_core`, which is
@@ -51,14 +51,14 @@ if [ -z "$PW" ]; then
 fi
 EXT_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
-echo "== [3/5] Waiting for the semantius extension to install =="
+echo "== [3/5] Waiting for the pg_semantic_platform extension to install =="
 # Tolerate early "connection refused"/empty results: the healthcheck can pass
 # before 10-roles.sql / 20-extension.sql have finished.
 deadline=$(( SECONDS + 180 ))
 until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
-      "SELECT 1 FROM pg_extension WHERE extname='semantius'" 2>/dev/null)" = "1" ]; do
+      "SELECT 1 FROM pg_extension WHERE extname='pg_semantic_platform'" 2>/dev/null)" = "1" ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "Timed out waiting for the semantius extension to install." >&2
+    echo "Timed out waiting for the pg_semantic_platform extension to install." >&2
     docker compose -f "$COMPOSE_FILE" -p "$PROJECT" logs --tail 60 || true
     exit 1
   fi

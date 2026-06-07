@@ -169,12 +169,12 @@ extensions, so it's self-hosted only, and it replaces nothing.
 ### Install (end users)
 
 ```bash
-pgxn install semantius                 # from PGXN
-# ...or download semantius-<ver>.zip from a GitHub Release, unzip, then:
+pgxn install pg_semantic_platform      # from PGXN
+# ...or download pg_semantic_platform-<ver>.zip from a GitHub Release, unzip, then:
 make install
 ```
 
-Then, in the target database: `CREATE EXTENSION semantius CASCADE;` — it creates
+Then, in the target database: `CREATE EXTENSION pg_semantic_platform CASCADE;` — it creates
 its own `authenticated`/`semantius_user` roles and pulls in `pgcrypto`, so there's
 nothing to set up first. The [pgdocker](pgdocker/) stack can also build a
 ready-to-run image with the extension baked in — see `pg-ext-create` in
@@ -198,10 +198,10 @@ deno task extension 0.2.0        # cut a new version
 ```
 
 `deno task extension 0.2.0` (with `0.1.0` already released):
-- writes the current full install `semantius--0.2.0.sql` and **removes the prior
-  `semantius--0.1.0.sql`** (keep one full install, like pgTAP);
-- writes the upgrade script `semantius--0.1.0--0.2.0.sql` — just the migrations
-  added since 0.1.0 — so `ALTER EXTENSION semantius UPDATE` walks the chain;
+- writes the current full install `pg_semantic_platform--0.2.0.sql` and **removes the prior
+  `pg_semantic_platform--0.1.0.sql`** (keep one full install, like pgTAP);
+- writes the upgrade script `pg_semantic_platform--0.1.0--0.2.0.sql` — just the migrations
+  added since 0.1.0 — so `ALTER EXTENSION pg_semantic_platform UPDATE` walks the chain;
 - bumps `default_version`, records the version in `versions.json`, and refreshes
   `META.json`/`Makefile`/README.
 
@@ -212,7 +212,7 @@ Once a version is released its migrations are **frozen** — make later changes 
 **Release flow:** generate → test → commit `extension/` (incl. `versions.json`) →
 tag → push. The [Release extension](.github/workflows/extension-release.yml) workflow
 fires on the `v*` tag, regenerates at the tag's version, zips the full install **+ the
-whole upgrade chain** into `semantius-<ver>.zip`, and attaches it to a GitHub Release:
+whole upgrade chain** into `pg_semantic_platform-<ver>.zip`, and attaches it to a GitHub Release:
 
 ```bash
 deno task extension 0.2.0                              # 1. regenerate at the new version
@@ -228,8 +228,8 @@ was), just publish it — no regenerate, no commit needed, only the tag:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-That same `semantius-<ver>.zip` is the PGXN archive — publish it (needs a pgxn.org
-account) with `pgxn release semantius-0.2.0.zip` (or upload at manager.pgxn.org).
+That same `pg_semantic_platform-<ver>.zip` is the PGXN archive — publish it (needs a pgxn.org
+account) with `pgxn release pg_semantic_platform-0.2.0.zip` (or upload at manager.pgxn.org).
 Details in [extension/README.md](extension/README.md).
 
 ---

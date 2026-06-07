@@ -312,7 +312,7 @@ async function main(): Promise<void> {
       await extensionCommand({
         apps: args.apps || "_core",
         version,
-        name: "semantius",
+        name: "pg_semantic_platform",
         outputDir: args.output || "./extension",
       });
       break;
