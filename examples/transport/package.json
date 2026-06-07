@@ -1,0 +1,21 @@
+{
+  "name": "@semantius/pg-oauthbearer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny dependency-free PostgreSQL client for Node that authenticates with a pre-minted OAuth bearer token over SASL OAUTHBEARER (PostgreSQL 18).",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./src/pg-oauthbearer.ts"
+  },
+  "types": "./src/pg-oauthbearer.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
