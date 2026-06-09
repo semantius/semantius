@@ -1,0 +1,13 @@
+# dependencies
+/node_modules
+
+# env files — NEVER commit secrets (semantius_authenticator password, tokens)
+.env
+.env.local
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# misc
+.DS_Store

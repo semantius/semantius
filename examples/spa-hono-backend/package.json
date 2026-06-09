@@ -1,0 +1,32 @@
+{
+  "name": "@semantius/example-spa-hono-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Decoupled resource-server counterpart to the Next.js sample: a standalone Hono API (Node) that validates/forwards a bearer token, opens a request-scoped transaction, injects claims, and runs RLS-enforced Drizzle queries. Vendors the SAME lib/db layer as examples/nextjs. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, Neon, and Supabase.",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke:bearer": "tsx scripts/smoke-db.ts bearer",
+    "smoke:session": "tsx scripts/smoke-db.ts session",
+    "smoke:guard": "tsx scripts/smoke-guard.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "pg-types": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

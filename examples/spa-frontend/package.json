@@ -1,0 +1,26 @@
+{
+  "name": "@semantius/example-spa-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser React SPA counterpart to the Next.js sample: runs the OAuth authorization-code + PKCE flow in the browser (react-oauth2-code-pkce, S256), persists tokens in localStorage (survives reload, proactive refresh), and calls the standalone Hono API with Authorization: Bearer. NO database access whatsoever.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.170.15",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-oauth2-code-pkce": "^1.24.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
+  }
+}

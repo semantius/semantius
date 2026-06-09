@@ -1,0 +1,33 @@
+{
+  "name": "@semantius/example-nextjs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vendor-agnostic Next.js (App Router) sample: OAuth (auth-code + PKCE, no secret) -> request-scoped transaction -> Drizzle under RLS. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, Neon, and Supabase.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.36.4",
+    "jose": "^5.9.6",
+    "next": "^15.1.6",
+    "oauth4webapi": "^3.1.4",
+    "pg": "^8.13.1",
+    "pg-types": "^4.0.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.6.3"
+  }
+}
