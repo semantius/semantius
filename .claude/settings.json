@@ -26,7 +26,16 @@
       "PowerShell(\"=== examples/kysely-raw/src ===\")",
       "PowerShell(\"=== examples/kysely \\(the IDE-opened path\\) ===\")",
       "PowerShell(\"=== repo-root ./kysely and ./drizzle \\(default gen outputs\\) ===\")",
-      "PowerShell(\"=== examples/kysely/src/schema ===\")"
+      "PowerShell(\"=== examples/kysely/src/schema ===\")",
+      "Bash(chmod +x pg-cli-deploy-nwind.sh pg-ext-deploy-nwind.sh)",
+      "Bash(rm -f pg-cli-deploy-nwind.sh pg-cli-deploy-nwind.cmd pg-ext-deploy-nwind.sh pg-ext-deploy-nwind.cmd)",
+      "Bash(ls pg-*-deploy-*)",
+      "Bash(chmod +x pg-cli-deploy-module.sh pg-ext-deploy-module.sh)",
+      "Bash(bash -n pg-cli-deploy-module.sh)",
+      "Bash(bash -n pg-ext-deploy-module.sh)",
+      "Bash(bash -n pg-cli-retest.sh)",
+      "Bash(grep -rnE '\\\\-\\\\-env pgdocker\\([^-]|$\\)' --include='*.sh' --include='*.cmd' --include='*.md' .)",
+      "Bash(grep -rnE '\\\\.env\\\\.pgdocker\\([^-]|$\\)' --include='*.sh' --include='*.cmd' --include='*.md' .)"
     ]
   }
 }

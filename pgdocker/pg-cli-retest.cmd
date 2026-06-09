@@ -33,7 +33,7 @@ echo PostgreSQL ready.
 
 echo == [3/3] retest (dropall -^> migrate _core,cloud,test,nwind -^> test) ==
 pushd "%REPO_ROOT%"
-call deno task retest --confirm --env pgdocker || (popd & goto :err)
+call deno task retest --confirm --env pgdocker-cli || (popd & goto :err)
 popd
 
 echo.

@@ -180,7 +180,7 @@ extension-`_core` ≡ migrate-`_core`.
 
 | Path | Harness | What it does |
 | ---- | ------- | ------------ |
-| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker` (dropall → migrate `_core,cloud,test,nwind` → test), on port 5432 |
+| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,cloud,test,nwind` → test), on port 5432 |
 | **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `cloud,test,nwind` → test, on port 5433 |
 
 ```bash
@@ -199,15 +199,39 @@ required, not optional: `test.0030_seed` and several test files use the
 database be managed by the CLI; it is also the fix for the `CREATE EXTENSION`
 install itself (`_core/0050` attaches an RLS policy to `_versions`).
 
-> Both harnesses derive their connection rather than hard-coding it: `pg-ext-retest`
-> reads `POSTGRES_PASSWORD` from `pgdocker/.env` and passes `--database-url`
-> (which also outranks any exported `DATABASE_URL`); `pg-cli-retest` uses the
-> `.env.pgdocker` profile (whose password must match `pgdocker/.env`). They wrap
-> `retest`/`migrate`/`test` unchanged — no new CLI flags.
+> The connection is not hard-coded: `pg-cli-retest` uses the `.env.pgdocker-cli`
+> profile, while `pg-ext-retest` reads `POSTGRES_PASSWORD` from `pgdocker/.env`
+> and passes `--database-url` (which also outranks any exported `DATABASE_URL`).
+> The lighter `deploy-module` scripts (below) use the matching `--env pgdocker-cli`
+> / `--env pgdocker-ext` profiles. Either way the profile's password must match
+> `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged — no new CLI flags.
 
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
 `migrate --apps cloud,test,nwind` + `test` steps stays green (migrate reports
 `cloud`/`test`/`nwind` already applied and the tests roll back cleanly).
+
+### Just deploy a module (no reset, no tests)
+
+To load one or more app modules onto an **already-running** container without
+recreating it, dropping data, or running the suite, use the `deploy-module`
+scripts. They take the module list as an argument (comma-separated, exactly as
+`migrate --apps` expects) and run `migrate --apps <modules>` against the matching
+`--env` profile (which auto-prepends `_core` — a no-op when it is already
+present, whether from a CLI migrate or the extension):
+
+| Stack | Script | What it does |
+| ----- | ------ | ------------ |
+| CLI | `pg-cli-deploy-module <modules>` (`.sh`/`.cmd`) | `migrate --apps <modules> --env pgdocker-cli`, on the running CLI container (port 5432) |
+| extension | `pg-ext-deploy-module <modules>` (`.sh`/`.cmd`) | `migrate --apps <modules> --env pgdocker-ext`, on the running extension container (port 5433); `_core` comes from the extension and is skipped |
+
+```bash
+./pg-cli-deploy-module.sh nwind          # deploy the Northwind sample onto the CLI stack
+./pg-cli-deploy-module.sh cloud,nwind    # deploy several modules at once
+./pg-ext-deploy-module.sh nwind          # same, onto the extension stack
+```
+
+Re-runnable: a second run reports the modules already applied. (The Northwind
+sample registers a module at `/nwind`.)
 
 ---
 
@@ -449,6 +473,8 @@ so no host-specific changes are needed.
 - [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantic_platform CASCADE`
 - [pg-cli-retest.sh](pg-cli-retest.sh) / [pg-cli-retest.cmd](pg-cli-retest.cmd) — Path A equivalence harness (migrate-installed `_core` → pgTAP)
 - [pg-ext-retest.sh](pg-ext-retest.sh) / [pg-ext-retest.cmd](pg-ext-retest.cmd) — Path B equivalence harness (extension-installed `_core` → pgTAP)
+- [pg-cli-deploy-module.sh](pg-cli-deploy-module.sh) / [pg-cli-deploy-module.cmd](pg-cli-deploy-module.cmd) — deploy given module(s) onto the running CLI container (`<module[,module...]>`)
+- [pg-ext-deploy-module.sh](pg-ext-deploy-module.sh) / [pg-ext-deploy-module.cmd](pg-ext-deploy-module.cmd) — deploy given module(s) onto the running extension container (`<module[,module...]>`)
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
 - [verify_oauth.ts](verify_oauth.ts) — end-to-end OAuth handshake + claims check
 - [test_oauth_security.ts](test_oauth_security.ts) — hostile-client impersonation check

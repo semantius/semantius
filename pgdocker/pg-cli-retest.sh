@@ -6,11 +6,11 @@
 # Fully non-interactive. Steps:
 #   1. pg-cli-create  fresh plain PG18 container on 5432 (no extension).
 #   2. readiness gate poll until the DBA login accepts connections.
-#   3. retest --confirm --env pgdocker
+#   3. retest --confirm --env pgdocker-cli
 #                     dropall -> migrate _core,cloud,test,nwind -> test.
 #
 # `retest`/`reset` are deliberately unchanged; this only wraps them. The DBA
-# connection comes from .env.pgdocker (port 5432, password must match
+# connection comes from .env.pgdocker-cli (port 5432, password must match
 # pgdocker/.env).
 set -euo pipefail
 
@@ -40,7 +40,7 @@ done
 echo "PostgreSQL ready."
 
 echo "== [3/3] retest (dropall -> migrate _core,cloud,test,nwind -> test) =="
-( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker )
+( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker-cli )
 
 echo
 echo "Path A complete. If all tests are green, the migrate path is good."

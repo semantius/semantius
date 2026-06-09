@@ -141,7 +141,8 @@ DATABASE_URL='postgresql://username:password@host:port/database?sslmode=require'
 | Flag | File loaded |
 |------|------------|
 | *(none)* | `.env.local` |
-| `--env pgdocker` | `.env.pgdocker` |
+| `--env pgdocker-cli` | `.env.pgdocker-cli` |
+| `--env pgdocker-ext` | `.env.pgdocker-ext` |
 | `--env test` | `.env.test` |
 | `--env staging` | `.env.staging` |
 
@@ -150,12 +151,16 @@ The `--database-url` flag takes the highest priority and overrides both the
 
 ### Local pgdocker database
 
-`.env.pgdocker` is a ready-made profile for the local [pgdocker](pgdocker/)
-container — it connects as the `postgres` DBA on `localhost:5432`. Edit it to
-match your `pgdocker/.env` (password, port, database), then either:
+There are two ready-made profiles for the local [pgdocker](pgdocker/) stacks,
+both connecting as the `postgres` DBA:
 
-- use it per-command: `deno task migrate --apps _core --env pgdocker`, or
-- make it the default: `cp .env.pgdocker .env.local`.
+- `.env.pgdocker-cli` — the plain CLI-testing container on `localhost:5432`.
+- `.env.pgdocker-ext` — the extension container on `localhost:5433`.
+
+Edit them to match your `pgdocker/.env` (password, port, database), then either:
+
+- use one per-command: `deno task migrate --apps _core --env pgdocker-cli`, or
+- make one the default: `cp .env.pgdocker-cli .env.local`.
 
 ---
 
