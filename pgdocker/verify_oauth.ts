@@ -34,9 +34,15 @@ export function parseFlags(argv: string[]): Record<string, string> {
   return out;
 }
 
-export async function mintToken(userId: string, clientId: string): Promise<string> {
-  const url = `${ISSUER}/getaccesstoken?user_id=${userId}&client_id=${clientId}`;
-  const res = await fetch(url, { headers: { "user-agent": "curl/8.0", accept: "*/*" } });
+export async function mintToken(
+  userId: string,
+  clientId: string,
+): Promise<string> {
+  const url =
+    `${ISSUER}/getaccesstoken?user_id=${userId}&client_id=${clientId}`;
+  const res = await fetch(url, {
+    headers: { "user-agent": "curl/8.0", accept: "*/*" },
+  });
   if (!res.ok) throw new Error(`token mint failed: HTTP ${res.status}`);
   let body = (await res.text()).trim();
   if (body.startsWith("{")) body = JSON.parse(body).access_token ?? "";
@@ -44,7 +50,9 @@ export async function mintToken(userId: string, clientId: string): Promise<strin
 }
 
 async function writeAll(conn: Deno.Conn, data: Uint8Array): Promise<void> {
-  for (let off = 0; off < data.length;) off += await conn.write(data.subarray(off));
+  for (let off = 0; off < data.length;) {
+    off += await conn.write(data.subarray(off));
+  }
 }
 
 async function readExact(conn: Deno.Conn, n: number): Promise<Uint8Array> {
@@ -57,7 +65,9 @@ async function readExact(conn: Deno.Conn, n: number): Promise<Uint8Array> {
   return buf;
 }
 
-async function readMsg(conn: Deno.Conn): Promise<{ type: number; payload: Uint8Array }> {
+async function readMsg(
+  conn: Deno.Conn,
+): Promise<{ type: number; payload: Uint8Array }> {
   const type = (await readExact(conn, 1))[0];
   const len = new DataView((await readExact(conn, 4)).buffer).getUint32(0);
   return { type, payload: await readExact(conn, len - 4) };
@@ -95,7 +105,11 @@ function errText(payload: Uint8Array): string {
 }
 
 function parseDataRow(payload: Uint8Array): (string | null)[] {
-  const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const dv = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  );
   const ncols = dv.getUint16(0);
   const vals: (string | null)[] = [];
   let off = 2;
@@ -112,65 +126,144 @@ function parseDataRow(payload: Uint8Array): (string | null)[] {
   return vals;
 }
 
-/** Open a connection and authenticate via SASL OAUTHBEARER. */
-export async function oauthConnect(
-  host: string, port: number, db: string, token: string,
-  user = "authenticated", verbose = false,
+/** One OAUTHBEARER attempt: open a connection and authenticate. Closes the
+ *  connection if the attempt fails, so a retry (see oauthConnect) starts clean. */
+async function oauthConnectOnce(
+  host: string,
+  port: number,
+  db: string,
+  token: string,
+  user = "authenticated",
+  verbose = false,
 ): Promise<Deno.Conn> {
   const conn = await Deno.connect({ hostname: host, port });
+  try {
+    // StartupMessage (no type byte): Int32 len + Int32 protocol(3.0) + params
+    const params = enc.encode(`user\0${user}\0database\0${db}\0\0`);
+    const startup = new Uint8Array(8 + params.length);
+    const sdv = new DataView(startup.buffer);
+    sdv.setUint32(0, startup.length);
+    sdv.setUint32(4, 196608);
+    startup.set(params, 8);
+    await writeAll(conn, startup);
 
-  // StartupMessage (no type byte): Int32 len + Int32 protocol(3.0) + params
-  const params = enc.encode(`user\0${user}\0database\0${db}\0\0`);
-  const startup = new Uint8Array(8 + params.length);
-  const sdv = new DataView(startup.buffer);
-  sdv.setUint32(0, startup.length);
-  sdv.setUint32(4, 196608);
-  startup.set(params, 8);
-  await writeAll(conn, startup);
+    // expect AuthenticationSASL (R, 10) listing OAUTHBEARER
+    let { type, payload } = await readMsg(conn);
+    if (type !== R) {
+      throw new Error(`expected Authentication ('R'), got ${type}`);
+    }
+    if (new DataView(payload.buffer, payload.byteOffset).getUint32(0) !== 10) {
+      throw new Error("expected AuthenticationSASL (10)");
+    }
+    const mechs = cstrings(payload.subarray(4));
+    if (verbose) console.log("server offered SASL mechanisms:", mechs);
+    if (!mechs.includes("OAUTHBEARER")) {
+      throw new Error("server did not offer OAUTHBEARER");
+    }
 
-  // expect AuthenticationSASL (R, 10) listing OAUTHBEARER
-  let { type, payload } = await readMsg(conn);
-  if (type !== R) throw new Error(`expected Authentication ('R'), got ${type}`);
-  if (new DataView(payload.buffer, payload.byteOffset).getUint32(0) !== 10) {
-    throw new Error("expected AuthenticationSASL (10)");
-  }
-  const mechs = cstrings(payload.subarray(4));
-  if (verbose) console.log("server offered SASL mechanisms:", mechs);
-  if (!mechs.includes("OAUTHBEARER")) throw new Error("server did not offer OAUTHBEARER");
+    // SASLInitialResponse: mechanism cstring + Int32 len + bearer token (RFC 7628)
+    const initial = enc.encode(`n,,\x01auth=Bearer ${token}\x01\x01`);
+    const mech = enc.encode("OAUTHBEARER\0");
+    const body = new Uint8Array(mech.length + 4 + initial.length);
+    new DataView(body.buffer).setInt32(mech.length, initial.length);
+    body.set(mech, 0);
+    body.set(initial, mech.length + 4);
+    await writeAll(conn, frame(P, body));
 
-  // SASLInitialResponse: mechanism cstring + Int32 len + bearer token (RFC 7628)
-  const initial = enc.encode(`n,,\x01auth=Bearer ${token}\x01\x01`);
-  const mech = enc.encode("OAUTHBEARER\0");
-  const body = new Uint8Array(mech.length + 4 + initial.length);
-  new DataView(body.buffer).setInt32(mech.length, initial.length);
-  body.set(mech, 0);
-  body.set(initial, mech.length + 4);
-  await writeAll(conn, frame(P, body));
-
-  let authed = false;
-  for (let i = 0; i < 50; i++) {
-    ({ type, payload } = await readMsg(conn));
-    if (type === R) {
-      const at = new DataView(payload.buffer, payload.byteOffset).getUint32(0);
-      if (at === 0) {
-        authed = true;
-        if (verbose) console.log("AuthenticationOk: OAUTHBEARER token accepted");
-      } else if (at === 11) { // SASL failure challenge (JSON)
-        if (verbose) console.log("SASL failure challenge:", dec.decode(payload.subarray(4)));
-        await writeAll(conn, frame(P, new Uint8Array([0x01]))); // kvsep error response
+    let authed = false;
+    for (let i = 0; i < 50; i++) {
+      ({ type, payload } = await readMsg(conn));
+      if (type === R) {
+        const at = new DataView(payload.buffer, payload.byteOffset).getUint32(
+          0,
+        );
+        if (at === 0) {
+          authed = true;
+          if (verbose) {
+            console.log("AuthenticationOk: OAUTHBEARER token accepted");
+          }
+        } else if (at === 11) { // SASL failure challenge (JSON)
+          if (verbose) {
+            console.log(
+              "SASL failure challenge:",
+              dec.decode(payload.subarray(4)),
+            );
+          }
+          await writeAll(conn, frame(P, new Uint8Array([0x01]))); // kvsep error response
+        }
+      } else if (type === E) {
+        throw new Error(`authentication failed: ${errText(payload)}`);
+      } else if (type === Z) {
+        break; // ReadyForQuery
       }
-    } else if (type === E) {
-      throw new Error(`authentication failed: ${errText(payload)}`);
-    } else if (type === Z) {
-      break; // ReadyForQuery
+    }
+    if (!authed) throw new Error("not authenticated");
+    return conn;
+  } catch (e) {
+    try {
+      conn.close();
+    } catch {
+      // already closed / never fully opened — nothing to do
+    }
+    throw e;
+  }
+}
+
+/**
+ * The bundled `pg_oidc_validator` is experimental and (on older builds) fetches
+ * the issuer's JWKS/discovery document on the FIRST connection after the
+ * container boots. Until that is cached, it rejects the (perfectly valid) token
+ * with `invalid_token` — a startup race, not a bad token. So this retries the
+ * OAUTHBEARER handshake a few times with backoff before giving up. A warm
+ * validator authenticates on the first try, so this is a no-op in steady state.
+ */
+function isTransientOAuthError(msg: string): boolean {
+  return /invalid_token|OAuth bearer authentication failed|connection (reset|refused)|broken pipe|os error/i
+    .test(msg);
+}
+
+/** Open a connection and authenticate via SASL OAUTHBEARER, retrying the
+ *  validator's cold-start `invalid_token` race (see isTransientOAuthError). */
+export async function oauthConnect(
+  host: string,
+  port: number,
+  db: string,
+  token: string,
+  user = "authenticated",
+  verbose = false,
+  attempts = 5,
+): Promise<Deno.Conn> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await oauthConnectOnce(host, port, db, token, user, verbose);
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (attempt < attempts && isTransientOAuthError(msg)) {
+        const delayMs = 300 * attempt;
+        if (verbose) {
+          console.log(
+            `OAUTHBEARER transient (${msg.split("\n")[0]}); ` +
+              `retry ${attempt}/${
+                attempts - 1
+              } in ${delayMs}ms (validator JWKS cold start)`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw e;
     }
   }
-  if (!authed) throw new Error("not authenticated");
-  return conn;
+  throw lastErr;
 }
 
 /** Run a simple query; return rows (each a list of string|null). */
-export async function runQuery(conn: Deno.Conn, sql: string): Promise<(string | null)[][]> {
+export async function runQuery(
+  conn: Deno.Conn,
+  sql: string,
+): Promise<(string | null)[][]> {
   await writeAll(conn, frame(Q, enc.encode(sql + "\0")));
   const rows: (string | null)[][] = [];
   for (let i = 0; i < 200; i++) {
@@ -191,7 +284,9 @@ async function main(): Promise<number> {
 
   const token = await mintToken(userId, a["client-id"] ?? "test-client");
   if (!token || token.split(".").length !== 3) {
-    console.log(`FAIL: did not get a JWT from the issuer (got: ${token.slice(0, 60)})`);
+    console.log(
+      `FAIL: did not get a JWT from the issuer (got: ${token.slice(0, 60)})`,
+    );
     return 2;
   }
   console.log(`minted token for sub=${userId} (len=${token.length})`);

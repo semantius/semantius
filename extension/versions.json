@@ -3,6 +3,7 @@
     "0.1.0": {
       "files": {
         "_core/0010_create_core": "1ff747f180457d753d07723e5940d6efa43feb8e6b948dde2efeb513e55e5cec",
+        "_core/0011_session_authenticator": "fd1b1747d9cb98ba8356d7306a210f21e7d05218e16f7a3d72f5cb39bf57041f",
         "_core/0012_create_cache": "cc14808354be14043179b0c85dc2d19804060c08ab7dccf2105797ffc9bdf4e7",
         "_core/0015_jsonlogic": "cdc70617197642eef671fa775e7afd843cd45ee4d444c1033e47cd1e60e416e8",
         "_core/0020_rbac_schema": "ddd5de5ffebf2cfb71199a4919ce860686c6177393a48a0e25b3dbb1a9fa3eb5",

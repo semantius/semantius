@@ -4,14 +4,22 @@ A Docker image and Compose stack that runs **PostgreSQL 18** preconfigured as a
 third deployment target for Semantius Core — alongside Supabase and Neon — so
 you can self-host on any PostgreSQL 18+ server **without** a managed provider.
 
-It does two things:
+It does three things:
 
 1. **A full-DBA login** (`postgres`, password/SCRAM) — what `DATABASE_URL`
    points at for deploying migrations and admin (the Semantius CLI, `psql`, …).
-2. **OAuth/JWT auth for application connections** — clients present an OIDC
-   access token; PostgreSQL verifies it natively (SASL `OAUTHBEARER`) against
-   the issuer's JWKS and maps it to the **`authenticated`** role — the *same*
-   role name Supabase and Neon use for authenticated end users.
+2. **`bearer` mode — OAuth/JWT auth for application connections** — clients present
+   an OIDC access token; PostgreSQL verifies it natively (SASL `OAUTHBEARER`)
+   against the issuer's JWKS and maps it to the **`authenticated`** role — the
+   *same* role name Supabase and Neon use for authenticated end users. The DB
+   verifies the signature.
+3. **`session` mode — the Supabase/Neon model** — the app (having already verified
+   the JWT itself) connects as a restricted login role **`semantius_authenticator`**
+   and, per transaction, does `SET LOCAL ROLE authenticated` + injects the verified
+   claims into `request.jwt.claims`. The DB does **not** verify the signature here —
+   the app is the trust boundary. See [Session mode](#session-mode).
+
+The two modes are selected by the sample apps via `DB_AUTH_MODE = bearer | session`.
 
 > ⚠️ The OAuth validator (`pg_oidc_validator`) is **experimental and not
 > production-ready** per its authors. There is no mature, blessed validator for
@@ -31,12 +39,14 @@ validator module. This image compiles Percona's
 - verifies each access token's RS256 signature against those keys, and
 - extracts the identity claim (default `sub`) so PostgreSQL can map it to a role.
 
-### The two roles
+### The roles
 
 | Role            | Auth method        | Used by                              | LOGIN |
 | --------------- | ------------------ | ------------------------------------ | ----- |
 | `postgres`      | password (SCRAM)   | migrations / admin (`DATABASE_URL`)  | yes   |
-| `authenticated` | OAuth (`OAUTHBEARER`) | application end-user connections  | yes   |
+| `authenticated` | OAuth (`OAUTHBEARER`) | `bearer`-mode end-user connections + the `SET ROLE` target in `session` mode | yes (local) |
+| `semantius_authenticator` | password (SCRAM) | `session`-mode app connections — can only `SET ROLE authenticated` | yes (local) |
+| `semantius_user` | — (NOLOGIN group) | internal: holds the table/schema grants; all RLS policies are `TO semantius_user` | no |
 
 `authenticated` is created with **`LOGIN`** ([init/10-roles.sql](init/10-roles.sql)).
 This differs from the Supabase/Neon **PostgREST** model, where `authenticated`
@@ -109,6 +119,146 @@ that only ever touches the caller's own row.
 > be redundant — and it speaks a different claim API than the `request.jwt.*`
 > convention this codebase (and the Neon **Data API** / Supabase) already uses.
 > It fits Neon's proxy-injection model, not PG18 native OAuth.
+
+---
+
+## Session mode
+
+`bearer` mode (above) is self-host-only and DB-verified. **`session` mode** is the
+portable path — the *same* mechanism Supabase and Neon (Data API) use — so the
+sample apps run unchanged on local pgdocker, Neon, and Supabase by flipping
+`DB_AUTH_MODE = bearer | session`.
+
+### The role: `semantius_authenticator`
+
+Created by the **core migrations** ([../apps/_core/migrations/0011_session_authenticator.sql](../apps/_core/migrations/0011_session_authenticator.sql)),
+so every deployment — local, Neon, Supabase — gets the *same* role automatically:
+
+```sql
+CREATE ROLE semantius_authenticator NOLOGIN NOSUPERUSER NOINHERIT;   -- migration (idempotent)
+GRANT authenticated TO semantius_authenticator WITH INHERIT FALSE, SET TRUE;
+```
+
+`NOSUPERUSER NOINHERIT NOBYPASSRLS` ⇒ the role has **no privileges of its own** and
+can do **nothing but `SET ROLE authenticated`** — a gatekeeper that *enforces* RLS
+by `SET ROLE`-ing into an RLS-subject role; it never bypasses RLS. This is exactly
+Supabase's `authenticator → authenticated` pattern (namespaced `semantius_*` so it
+never collides with Supabase's own `authenticator`).
+
+**LOGIN + password are set per-environment** (never in committed SQL), mirroring how
+`authenticated` is created `NOLOGIN` in core and flipped to `LOGIN` by pgdocker:
+
+- **Local pgdocker:** [init/11-session-role.sh](init/11-session-role.sh) reads
+  `SEMANTIUS_AUTHENTICATOR_PASSWORD` (from `pgdocker/.env`) and sets LOGIN + password
+  at first init. Default `devpassword` — **change it for anything shared/exposed.**
+- **Managed (Neon/Supabase):** run the one-time setup task over the **owner** connection:
+  ```bash
+  SEMANTIUS_AUTHENTICATOR_PASSWORD='<a real secret>' deno task setup-session-role --env supabase
+  ```
+  ([scripts/setup-session-role.ts](../scripts/setup-session-role.ts) — idempotent;
+  flips LOGIN + sets the password; never commits it).
+
+### The per-request contract (what the app runs)
+
+Having **already verified the JWT**, the app runs, per request/transaction:
+
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;                              -- the identity role (member of semantius_user)
+SELECT set_config('request.jwt.claims', $1::text, true);  -- LOCAL; inject BEFORE any rbac call
+-- … queries …
+COMMIT;
+```
+
+- **`SET ROLE` target is `authenticated`** (not `semantius_user`) — keeps
+  `current_user = authenticated` consistent with `bearer` mode.
+- **Ordering matters:** `rbac.uid()` is `STABLE` (cached per tx), so inject claims
+  **before** the first rbac/RLS call. Use a fresh tx per identity.
+- Both `SET LOCAL ROLE` and `set_config(…, true)` are **transaction-scoped** and
+  auto-revert on COMMIT/ROLLBACK → **transaction-pooling-safe** (PgBouncer/Supavisor).
+  Never use session-level `SET ROLE` / `set_config(…, false)` on the live path.
+- **Minimal claims:** `{"sub":"…","role":"authenticated"}` (both required by
+  `rbac.uid()`), plus `"email"` for first-login provisioning, plus `"aud"` only if
+  `_settings.jwt_aud` is seeded (off by default).
+- **First login:** call `public.get_userinfo()` once before other reads, or
+  `ensure_context_initialized()` raises *"User not found"*. It works in session mode
+  because `get_userinfo`/`upsert_user_from_jwt` are `SECURITY DEFINER` owned by the
+  BYPASSRLS migration role — not because `semantius_authenticator` has any write grant.
+
+### Trust model — who verifies the signature
+
+For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
+
+| Path | Gate 1 (connect) | Signature verified in DB? | Net |
+|------|------------------|---------------------------|-----|
+| `bearer` (self-hosted PG18 / local) | the token itself (OAUTHBEARER) | ✅ `pg_oidc_validator` (RS256) | **DB-verified** |
+| `session` (Supabase / Neon / self-hosted) | `semantius_authenticator` password | ❌ no off-the-shelf RS256 in-DB verifier | **app-verified** |
+
+> **In `session` mode the app is the sole trust boundary on *every* backend**
+> (Supabase, Neon, self-hosted) for RS256 tokens. The only off-the-shelf in-DB JWKS
+> verifier, Neon's `pg_session_jwt`, is **Ed25519/EdDSA-only** (can't verify RS256),
+> and Supabase can't install it anyway. So the DB does not verify the signature in
+> session mode — the `semantius_authenticator` password **plus the app's own jose
+> verification** are the protection. **For DB-enforced verification, use `bearer`.**
+
+**The session adapter (in each sample) MUST:**
+
+1. **Verify before inject, fail closed** — jose-verify against the remote JWKS,
+   pinning `algorithms: ['RS256']`, checking `issuer` and `audience` (`aud` checking
+   is mandatory). On *any* failure → reject (401); never inject; never fall back to a
+   stale keyset. Fail-open is forbidden.
+2. **Inject the verified payload**, not a re-decode; set `role:'authenticated'`
+   server-side, never trusted from the token.
+3. **Only inside a transaction** — throw if not in a tx (never session-level `SET ROLE`).
+4. **Refuse a superuser/owner connection at startup** — `SELECT rolsuper, rolbypassrls`
+   for `current_user`; refuse to start if either is true (catches a `DATABASE_URL`
+   accidentally pointing at `postgres`/owner, which silently bypasses RLS).
+
+> ⚠️ **The only RLS-bypass risk on a managed platform is connecting as the
+> `postgres`/project-owner role instead of `semantius_authenticator`.** The owner is
+> a superuser/BYPASSRLS and will **silently return all rows**. Always use the
+> `semantius_authenticator` connection string for app traffic.
+
+> ⚠️ **First user becomes Administrator.** On a fresh database the *first* provisioned
+> user is auto-assigned the **Administrator** role (`rbac.auto_assign_user_role`), in
+> both modes. Provision your intended admin first.
+
+### Testing session mode
+
+[verify_session.ts](verify_session.ts) and [test_session_trust.ts](test_session_trust.ts)
+(shared helpers in [session_helpers.ts](session_helpers.ts)) use the standard SCRAM
+driver (`deno.land/x/postgres`, already locked) — the hand-rolled transport in
+`verify_oauth.ts` is OAUTHBEARER-only:
+
+```bash
+deno run --allow-net --allow-env --allow-read verify_session.ts        # 5432
+deno run --allow-net --allow-env --allow-read test_session_trust.ts --port 5433
+```
+
+- **verify_session.ts** — guardrail (role is NOT superuser/bypassrls) → first-login
+  provisioning via `get_userinfo()` → positive RLS path (`rbac.uid()` + a `users` read).
+- **test_session_trust.ts** — asserts the trust model (injected `sub` is authoritative
+  in session mode — the app is the trust boundary) plus three negatives: bare role
+  denied (NOINHERIT), no-claims rejected, `role != authenticated` rejected.
+
+`pg-cli-test` / `pg-ext-test` run these alongside the bearer checks (all four).
+
+### Scalability & production caveats (sample-acceptable; state them honestly)
+
+The mechanisms are correct (session mode is genuinely transaction-pooler-safe). But:
+
+- **`bearer` does not scale past ~`max_connections` concurrent users** — the transport
+  ([../examples/transport/src/pg-oauthbearer.ts](../examples/transport/src/pg-oauthbearer.ts))
+  is one connection per user/token, no pool, with ≥5 serialized round-trips per
+  request; OAUTHBEARER can't be pooled (bound to one `sub`) and PgBouncer can't
+  passthrough it. Treat `bearer` as demo / low-concurrency self-host.
+- **Per-request permission resolution** — `ensure_context_initialized()` runs the
+  recursive `get_user_permissions()` once per tx (cached in a LOCAL GUC that resets at
+  COMMIT), so it re-runs every request in *both* modes. For high-RPS / high-permission
+  users, production needs an app-side permission cache (keyed by `sub` + roles-version);
+  the samples don't implement one.
+- **Validator JWKS caching (`bearer`)** — pin `pg_oidc_validator` ≥ v0.2 (JWKS/discovery
+  caching); older builds do a fresh outbound JWKS fetch per connection.
 
 ---
 
@@ -250,12 +400,14 @@ them from this `pgdocker/` folder, e.g. `./pg-cli-start.sh` or `pg-cli-start.cmd
 | Status | `pg-cli-status` | `pg-ext-status` | show created / running (healthy) / exited |
 | Stop   | `pg-cli-stop`   | `pg-ext-stop`   | remove container+network, **keep data** |
 | Delete | `pg-cli-delete` | `pg-ext-delete` | remove container+network+**data volume**+image (asks to confirm) |
-| Test   | `pg-cli-test`   | `pg-ext-test`   | run the OAuth + impersonation checks against the stack |
+| Test   | `pg-cli-test`   | `pg-ext-test`   | run all four checks (bearer OAuth + impersonation, session RLS + trust) against the stack |
 
-> `pg-ext-test` runs the same OAuth/impersonation checks as `pg-cli-test`, but
-> against port 5433 — it's the smoke test that the `CREATE EXTENSION` install
-> produced a working RBAC/OAuth database. (`pg-cli-test` needs `_core` deployed
-> first via the CLI; `pg-ext-test` gets `_core` from the extension.)
+> `pg-cli-test` / `pg-ext-test` run **four** checks — `verify_oauth` +
+> `test_oauth_security` (bearer) and `verify_session` + `test_session_trust`
+> (session) — against port 5432 / 5433. The `.sh` runners aggregate exit codes and
+> treat *"2 = `_core` not deployed"* as a skip; the `.cmd` runners collapse any
+> non-zero to exit 1, so deploy `_core` first there. (`pg-cli-test` needs `_core`
+> deployed via the CLI; `pg-ext-test` gets `_core` from the extension.)
 
 The token helpers are **not** stack-specific:
 
@@ -334,7 +486,7 @@ destructive path:
 | ------------ | ----------- | --- |
 | `conf/pg_hba.conf` / `conf/pg_ident.conf` (issuer, scope, maps) | **`pg-cli-stop` → `pg-cli-start`** (or `docker compose restart`, or `SELECT pg_reload_conf()`) | mounted file; re-read on fresh start / reload |
 | `Dockerfile` / `patches/` (validator, packages) | **`pg-cli-create`** (rebuilds the image) | baked into the image |
-| `init/*.sql` (role bootstrap) | **`pg-cli-delete` → `pg-cli-create`** | init scripts run **only on a fresh data volume** |
+| `init/*.sql` / `init/*.sh` (role bootstrap, incl. `11-session-role.sh`) | **`pg-cli-delete` → `pg-cli-create`** | init scripts run **only on a fresh data volume**; an existing volume needs a re-create or a one-off manual `ALTER ROLE … LOGIN PASSWORD` |
 | the extension SQL (ran `deno task extension`) | **`pg-ext-delete` → `pg-ext-create`** | the extension files are baked into the image; init runs on a fresh volume |
 | nothing — just resuming | **`pg-cli-start`** (or `pg-ext-start`) | reuses image + data |
 
@@ -470,17 +622,22 @@ so no host-specific changes are needed.
 - [conf/pg_hba.conf](conf/pg_hba.conf) — full-DBA SCRAM lines + the `oauth` rules
 - [conf/pg_ident.conf](conf/pg_ident.conf) — token identity → `authenticated` role map
 - [init/10-roles.sql](init/10-roles.sql) — creates the `authenticated` LOGIN role (both stacks)
+- [init/11-session-role.sh](init/11-session-role.sh) — gives `semantius_authenticator` LOGIN + password for session mode (both stacks; reads `SEMANTIUS_AUTHENTICATOR_PASSWORD`)
 - [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantic_platform CASCADE`
 - [pg-cli-retest.sh](pg-cli-retest.sh) / [pg-cli-retest.cmd](pg-cli-retest.cmd) — Path A equivalence harness (migrate-installed `_core` → pgTAP)
 - [pg-ext-retest.sh](pg-ext-retest.sh) / [pg-ext-retest.cmd](pg-ext-retest.cmd) — Path B equivalence harness (extension-installed `_core` → pgTAP)
 - [pg-cli-deploy-module.sh](pg-cli-deploy-module.sh) / [pg-cli-deploy-module.cmd](pg-cli-deploy-module.cmd) — deploy given module(s) onto the running CLI container (`<module[,module...]>`)
 - [pg-ext-deploy-module.sh](pg-ext-deploy-module.sh) / [pg-ext-deploy-module.cmd](pg-ext-deploy-module.cmd) — deploy given module(s) onto the running extension container (`<module[,module...]>`)
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
-- [verify_oauth.ts](verify_oauth.ts) — end-to-end OAuth handshake + claims check
-- [test_oauth_security.ts](test_oauth_security.ts) — hostile-client impersonation check
+- [verify_oauth.ts](verify_oauth.ts) — bearer: end-to-end OAuth handshake + claims check
+- [test_oauth_security.ts](test_oauth_security.ts) — bearer: hostile-client impersonation check
+- [verify_session.ts](verify_session.ts) — session: SCRAM connect → `SET ROLE` + claims → RLS, with provisioning + guardrail
+- [test_session_trust.ts](test_session_trust.ts) — session: trust-model assertion + NOINHERIT/no-claims/bad-role negatives
+- [session_helpers.ts](session_helpers.ts) — shared session helpers (SCRAM connect, password resolution, claims/tx)
+- [../scripts/setup-session-role.ts](../scripts/setup-session-role.ts) — managed setup: set `semantius_authenticator` LOGIN + password over the owner connection (`deno task setup-session-role`)
 - [get_user_token.ts](get_user_token.ts) — mint + print a JWT for a user
 - [get_userinfo_jwt.ts](get_userinfo_jwt.ts) — print `get_userinfo()` for a given JWT
-- [.env.example](.env.example) — DBA password, DB name, host port
+- [.env.example](.env.example) — DBA password, DB name, host port, `SEMANTIUS_AUTHENTICATOR_PASSWORD`
 
 ## Using it as the devcontainer database
 

@@ -24,6 +24,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      # Password for the session-mode login role `semantius_authenticator`.
+      # Read by init/11-session-role.sh (an .sh init script, so this env var is
+      # visible to it; .sql init files get no interpolation).
+      SEMANTIUS_AUTHENTICATOR_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
     ports:
       - "${POSTGRES_EXT_PORT:-5433}:5432"
     volumes:
@@ -34,8 +38,13 @@ services:
       # Mounted as INDIVIDUAL files (not the whole ./init dir + a nested overlay):
       # overlaying a single file inside a directory bind-mount fails on Docker
       # Desktop ("read-only file system" when creating the nested mountpoint).
-      # The entrypoint runs them in alphabetical order: 10-roles then 20-extension.
+      # The entrypoint runs them in alphabetical order: 10-roles, 11-session-role,
+      # then 20-extension (so semantius_authenticator is LOGIN before the
+      # extension's migrations run). The CLI stack gets 11-session-role.sh via its
+      # whole-./init dir mount; here every init file is mounted INDIVIDUALLY, so a
+      # new init script needs its own explicit line (this one).
       - ./init/10-roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+      - ./init/11-session-role.sh:/docker-entrypoint-initdb.d/11-session-role.sh:ro
       - ./init-ext/20-extension.sql:/docker-entrypoint-initdb.d/20-extension.sql:ro
     command:
       - "postgres"

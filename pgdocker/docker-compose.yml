@@ -15,6 +15,10 @@ services:
       # Full-DBA login password (the `postgres`/SCRAM lines in pg_hba.conf).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      # Password for the session-mode login role `semantius_authenticator`.
+      # Read by init/11-session-role.sh (an .sh init script, so this env var is
+      # visible to it; .sql init files get no interpolation).
+      SEMANTIUS_AUTHENTICATOR_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
