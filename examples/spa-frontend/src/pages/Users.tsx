@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError, useApi } from "../api/client";
-import type { MeResponse, UserDto, UsersResponse, WriteResponse } from "../types";
+import type { MeResponse, UserDto, UserInfo, UsersResponse, WriteResponse } from "../types";
 
 /** Users: provision (GET /me, the write path) + RLS read (GET /users) + the
  * user:manage write demo (PUT /me/display-name). */
@@ -10,6 +11,7 @@ export function Users() {
   const api = useApi();
 
   const [rows, setRows] = useState<UserDto[]>([]);
+  const [info, setInfo] = useState<UserInfo | null>(null);
   const [mode, setMode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export function Users() {
         if (cancelled) return;
         setMode(usersRes.mode);
         setRows(usersRes.users);
+        setInfo(meRes.info);
         setName(meRes.me?.displayName ?? "");
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof ApiError ? err.message : String(err));
@@ -78,6 +81,23 @@ export function Users() {
         ) : null}
         . Signed in as <code>{claims?.email ?? claims?.sub}</code>.
       </p>
+
+      {info && (
+        <div className="card">
+          <p style={{ margin: 0 }}>
+            You are <code>{info.email ?? info.externalId}</code> (
+            <code>sub={info.externalId}</code>) with role{" "}
+            <span className="badge">{info.roles.join(", ") || "(none)"}</span>.
+          </p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {info.canManageUsers
+              ? "You hold user:manage (Administrator) → the write demo below will succeed."
+              : "You do NOT hold user:manage → the write demo below is correctly RLS-blocked. " +
+                "Admin is granted to the FIRST account to log in on a fresh DB, NOT by email."}{" "}
+            <Link to="/audit">View the audit log →</Link>
+          </p>
+        </div>
+      )}
 
       {loading && <p className="muted">Loading…</p>}
 

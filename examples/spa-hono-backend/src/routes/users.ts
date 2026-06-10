@@ -12,6 +12,8 @@ import { Hono } from "hono";
 import { sessionMiddleware, type AppEnv } from "../middleware/session";
 import {
   getUserByExternalId,
+  getUserInfo,
+  listAuditRecords,
   listUsers,
   provisionCurrentUser,
   updateDisplayName,
@@ -32,9 +34,9 @@ data.use("*", sessionMiddleware);
  * exist, or rbac raises "User not found").
  */
 data.get("/me", async (c) => {
-  await provisionCurrentUser();
+  const info = await getUserInfo(); // provisions (idempotent) + returns roles/permissions
   const me = await getUserByExternalId(c.get("claims").sub);
-  return c.json({ me, mode: c.get("mode"), sub: c.get("claims").sub });
+  return c.json({ me, info, mode: c.get("mode"), sub: c.get("claims").sub });
 });
 
 /** All users visible under RLS. Demonstrates RLS gating (user:read), not row
@@ -42,6 +44,17 @@ data.get("/me", async (c) => {
 data.get("/users", async (c) => {
   const users = await listUsers();
   return c.json({ users, mode: c.get("mode") });
+});
+
+/**
+ * Audit log — the read-deny RLS demo. `audit_record_logs` SELECT requires the
+ * `admin` permission (Administrator), so an admin sees rows and a plain `User`
+ * gets ZERO rows (no error). `info` lets the SPA word the empty state correctly.
+ */
+data.get("/audit", async (c) => {
+  const info = await getUserInfo();
+  const records = await listAuditRecords(50);
+  return c.json({ records, info, mode: c.get("mode") });
 });
 
 /**

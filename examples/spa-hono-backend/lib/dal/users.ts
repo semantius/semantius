@@ -71,3 +71,118 @@ export async function updateDisplayName(userId: number, displayName: string): Pr
     .returning({ id: users.id });
   return updated.length;
 }
+
+// -----------------------------------------------------------------------------
+// "Who am I + what can I do", straight from public.get_userinfo().
+// -----------------------------------------------------------------------------
+
+export interface UserInfo {
+  userId: number;
+  externalId: string;
+  email: string | null;
+  displayName: string;
+  roles: string[];
+  permissions: string[];
+  /** has the `user:manage` permission → may write to `users` (the write demo). */
+  canManageUsers: boolean;
+  /** has the `admin` permission → may read the audit log. */
+  isAdmin: boolean;
+}
+
+/**
+ * One adapter-agnostic read of a single jsonb column: session mode (node-postgres)
+ * returns rows keyed by the column alias, bearer mode (pg-proxy) returns positional
+ * arrays — a single aliased `j` column reads correctly in both. jsonb is already
+ * parsed to a JS value by both adapters (node-postgres / pg-types).
+ */
+async function readJson<T>(query: ReturnType<typeof sql>): Promise<T | null> {
+  // The two adapters return db.execute() in DIFFERENT shapes:
+  //   session (node-postgres): a QueryResult — { rows: [{ j: <value> }] }  (keyed)
+  //   bearer  (drizzle pg-proxy): the rows array directly — [[<value>]]     (positional)
+  // Normalize both, then pull the single aliased `j` column out of the first row.
+  const res = (await getDb().execute(query)) as unknown;
+  const rows = (Array.isArray(res) ? res : (res as { rows?: unknown[] })?.rows ?? []) as Array<
+    Record<string, unknown> | unknown[]
+  >;
+  const row = rows[0];
+  if (row == null) return null;
+  return (Array.isArray(row) ? row[0] : (row as Record<string, unknown>).j) as T;
+}
+
+/**
+ * Provision (idempotent) AND return the caller's identity, roles, and permissions
+ * from public.get_userinfo(). It is SECURITY DEFINER, so it returns the user's OWN
+ * roles/permissions even though RLS hides `user_roles`/`roles` from a non-admin —
+ * which is exactly why the UI must source "am I admin?" from here, not from a
+ * direct read of those tables.
+ */
+export async function getUserInfo(): Promise<UserInfo> {
+  const info = await readJson<{
+    user_id: number;
+    external_id: string;
+    email: string | null;
+    display_name: string | null;
+    roles: Array<{ role_name: string }> | null;
+    permissions: string[] | null;
+  }>(sql`select public.get_userinfo() as j`);
+  if (!info) throw new Error("get_userinfo() returned no row");
+  const permissions = info.permissions ?? [];
+  return {
+    userId: info.user_id,
+    externalId: info.external_id,
+    email: info.email,
+    displayName: info.display_name ?? "",
+    roles: (info.roles ?? []).map((r) => r.role_name),
+    permissions,
+    canManageUsers: permissions.includes("user:manage"),
+    isAdmin: permissions.includes("admin"),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Audit log — an admin-only READ (the read-deny RLS demo).
+// -----------------------------------------------------------------------------
+
+export interface AuditRecord {
+  id: number;
+  ts: string; // ISO timestamp (jsonb serializes timestamptz to a string)
+  op: string; // INSERT | UPDATE | DELETE | TRUNCATE
+  tableName: string;
+  recordPk: string;
+  userId: number;
+}
+
+/**
+ * Recent DML audit entries. `audit_record_logs` SELECT is RLS-gated on the `admin`
+ * permission, so an admin sees rows and a non-admin sees ZERO rows — no error, just
+ * an empty set. The table isn't in the vendored Drizzle schema, so we query it raw
+ * and aggregate to one jsonb column (portable across both adapters via readJson()).
+ */
+export async function listAuditRecords(limit = 50): Promise<AuditRecord[]> {
+  const arr = await readJson<
+    Array<{
+      id: number;
+      ts: string;
+      op: string;
+      table_name: string;
+      record_pk: string;
+      user_id: number;
+    }>
+  >(sql`
+    select coalesce(jsonb_agg(x order by x.ts desc), '[]'::jsonb) as j
+    from (
+      select id, ts, op, table_name, record_pk, user_id
+      from audit_record_logs
+      order by ts desc
+      limit ${limit}
+    ) x
+  `);
+  return (arr ?? []).map((r) => ({
+    id: r.id,
+    ts: r.ts,
+    op: r.op,
+    tableName: r.table_name,
+    recordPk: r.record_pk,
+    userId: r.user_id,
+  }));
+}

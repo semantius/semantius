@@ -25,7 +25,7 @@ async function main(): Promise<number> {
   const host = a.host ?? "127.0.0.1";
   const port = Number(a.port ?? 5432);
   const db = a.db ?? "appdb";
-  const realSub = a["real-sub"] ?? "user1";
+  const realSub = a["real-sub"] ?? "user3"; // user3 = admin@test.com
   const spoofSub = a["spoof-sub"] ?? "user2";
 
   const token = await mintToken(realSub, a["client-id"] ?? "test-client");

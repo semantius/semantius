@@ -26,8 +26,9 @@ cp .env.example .env        # all values are PUBLIC (no secret in a PKCE client)
 npm run dev                 # http://localhost:3000
 ```
 
-Open <http://localhost:3000>, click **Log in**, sign in at the issuer (e.g.
-`user1` / `password123`), and you land on `/users` (RLS read) with a write demo.
+Open <http://localhost:3000>, click **Log in**, sign in at the issuer (password
+`password123`; **`user3` = `admin@test.com` is the Administrator**, `user1` =
+`user@test.com` is a plain user), and you land on `/users` (RLS read) with a write demo.
 **The session survives a reload (F5)** — tokens are persisted (see below).
 
 > **Port 3000 is required** — the issuer's redirect allow-list contains

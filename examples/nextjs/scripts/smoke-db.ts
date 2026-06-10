@@ -11,7 +11,7 @@
 //   npx tsx scripts/smoke-db.ts session
 //
 // Env (defaults target the local EXT stack on 5433):
-//   PORT=5433  PGDATABASE=appdb  USER_ID=user1  CLIENT_ID=test-client
+//   PORT=5433  PGDATABASE=appdb  USER_ID=user3  CLIENT_ID=test-client  (user3 = admin@test.com)
 //   ISSUER=https://oidc-test.semanti.us
 //   SEMANTIUS_AUTHENTICATOR_PASSWORD=devpassword   (session mode)
 //
@@ -34,7 +34,10 @@ if (mode !== "bearer" && mode !== "session") {
 const ISSUER = process.env.ISSUER ?? "https://oidc-test.semanti.us";
 const PORT = process.env.PORT ?? "5433";
 const DB = process.env.PGDATABASE ?? "appdb";
-const USER_ID = process.env.USER_ID ?? "user1";
+// Default to the admin@test.com account (its issuer handle is `user3`; the issuer
+// rejects the email as a user_id). Provisioning it first makes admin@test.com the
+// Administrator, so the write demo and audit log work as the admin.
+const USER_ID = process.env.USER_ID ?? "user3";
 const CLIENT_ID = process.env.CLIENT_ID ?? "test-client";
 
 async function mintToken(): Promise<string> {

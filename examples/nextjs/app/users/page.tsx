@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/context";
 import { getAccessToken, tokenExpiresWithin } from "@/lib/auth/tokens";
 import { getAdapter, withSession } from "@/lib/db/session";
-import { getUserByExternalId, listUsers, type UserRow } from "@/lib/dal/users";
+import { getUserInfo, listUsers, type UserInfo, type UserRow } from "@/lib/dal/users";
 import { UpdateNameForm } from "./update-name-form";
 import { logoutAction } from "./actions";
 
@@ -25,13 +25,15 @@ export default async function UsersPage() {
 
   // ONE request-scoped read transaction for everything this page renders (plan §2:
   // a single session/render, not one per component, to avoid the fan-out cliff).
+  // getUserInfo() both provisions AND returns the caller's roles/permissions, so
+  // the UI can show your real role instead of guessing from your email.
   let rows: UserRow[] = [];
-  let me: UserRow | null = null;
+  let info: UserInfo | null = null;
   let readError: string | null = null;
   try {
-    ({ rows, me } = await withSession(ctx, async () => ({
+    ({ rows, info } = await withSession(ctx, async () => ({
       rows: await listUsers(),
-      me: await getUserByExternalId(ctx.claims.sub),
+      info: await getUserInfo(),
     })));
   } catch (err) {
     readError = err instanceof Error ? err.message : String(err);
@@ -47,6 +49,24 @@ export default async function UsersPage() {
         Read under RLS via <span className="badge">DB_AUTH_MODE = {mode}</span>.
         Signed in as <code>{ctx.claims.email ?? ctx.claims.sub}</code>.
       </p>
+
+      {info && (
+        <div className="card">
+          <p style={{ margin: 0 }}>
+            You are <code>{info.email ?? info.externalId}</code> (
+            <code>sub={info.externalId}</code>) with role{" "}
+            <span className="badge">{info.roles.join(", ") || "(none)"}</span>.
+          </p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            {info.canManageUsers
+              ? "You hold user:manage (Administrator) → the write demo below will succeed."
+              : "You do NOT hold user:manage → the write demo below is correctly RLS-blocked. " +
+                "Admin is granted to the FIRST account to log in on a fresh DB, NOT by email — so " +
+                "an account called admin@test.com is not necessarily the Administrator."}{" "}
+            <Link href="/audit">View the audit log →</Link>
+          </p>
+        </div>
+      )}
 
       {readError ? (
         <div className="card">
@@ -101,7 +121,7 @@ export default async function UsersPage() {
           Administrator, so this works for them; a non-admin is correctly blocked
           by RLS.
         </p>
-        <UpdateNameForm current={me?.displayName ?? ""} />
+        <UpdateNameForm current={info?.displayName ?? ""} />
       </div>
 
       <form action={logoutAction}>

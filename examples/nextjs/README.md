@@ -1,6 +1,4 @@
-# Next.js sample — vendor-agnostic OAuth → Drizzle under RLS
-
-A Next.js (App Router) BFF that authenticates users with **OAuth (authorization-code
+Next.js (App Router) BFF that authenticates users with **OAuth (authorization-code
 + PKCE, no client secret)**, runs **every request inside a request-scoped
 transaction** with the user's identity injected, and reads/writes through
 **Drizzle** so the database's **RLS/RBAC** enforces per-user access.
@@ -245,4 +243,6 @@ npx tsx scripts/smoke-guard.ts         # superuser connection is refused
 ```
 
 Full UI round-trip: `cp .env.example .env.local`, edit, `npm run dev`, then log in at
-<http://localhost:3000> with a test user (e.g. `user1` / `password123`).
+<http://localhost:3000> (issuer password `password123`). **`user3` (`admin@test.com`)
+is the Administrator** — sign in as `user3` to exercise the write demo + audit log;
+sign in as `user1` (`user@test.com`) to see a plain user correctly RLS-blocked.

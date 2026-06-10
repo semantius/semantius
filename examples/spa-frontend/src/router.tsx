@@ -25,6 +25,7 @@ import {
 import { useAuth, type AuthValue } from "./auth/AuthContext";
 import { Home } from "./pages/Home";
 import { Users } from "./pages/Users";
+import { Audit } from "./pages/Audit";
 
 export interface RouterContext {
   auth: AuthValue;
@@ -63,6 +64,7 @@ function RootLayout() {
           {status === "authenticated" && (
             <>
               <Link to="/users">Users</Link>
+              <Link to="/audit">Audit</Link>
               <button
                 className="linkbtn"
                 onClick={() => {
@@ -103,6 +105,19 @@ const usersRoute = createRoute({
   component: Users,
 });
 
+const auditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "audit",
+  // Same auth guard as /users.
+  beforeLoad: ({ context, location }) => {
+    if (context.auth.status === "unauthenticated") {
+      stashReturnTo(location.href);
+      throw redirect({ to: "/" });
+    }
+  },
+  component: Audit,
+});
+
 const callbackRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "oauth2_callback",
@@ -136,7 +151,7 @@ function CallbackPage() {
   return <p className="muted">Completing sign-in…</p>;
 }
 
-const routeTree = rootRoute.addChildren([indexRoute, usersRoute, callbackRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, usersRoute, auditRoute, callbackRoute]);
 
 // `auth` is a placeholder here; the real value is injected by RouterProvider's
 // `context` prop in main.tsx (which carries the live useAuth() value).

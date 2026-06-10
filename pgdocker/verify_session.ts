@@ -20,7 +20,7 @@
  * Exit 0 = ok. Exit 2 = _core not deployed (rbac.uid()/get_userinfo() missing).
  *
  *   deno run --allow-net --allow-env --allow-read verify_session.ts \
- *     [--host 127.0.0.1] [--port 5432] [--db appdb] [--user-id user1]
+ *     [--host 127.0.0.1] [--port 5432] [--db appdb] [--user-id user3]
  */
 import { parseFlags } from "./verify_oauth.ts";
 import {
@@ -41,7 +41,10 @@ async function main(): Promise<number> {
   const host = a.host ?? "127.0.0.1";
   const port = Number(a.port ?? 5432);
   const db = a.db ?? "appdb";
-  const sub = a["user-id"] ?? "user1";
+  // Default to the admin@test.com account. At this issuer that account's handle is
+  // `user3` (sub=user3, email=admin@test.com); the issuer rejects the email itself
+  // as a user_id. Provisioning this first makes admin@test.com the Administrator.
+  const sub = a["user-id"] ?? "user3";
   const password = await resolvePassword();
 
   const client = await connectAuthenticator({ host, port, db, password });

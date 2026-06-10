@@ -68,7 +68,7 @@ Then start the SPA ([`examples/spa-frontend`](../spa-frontend)) on `:3000` and l
 in there. To drive the API directly:
 
 ```bash
-TOKEN=$(curl -s "https://oidc-test.semanti.us/getaccesstoken?user_id=user1&client_id=test-client")
+TOKEN=$(curl -s "https://oidc-test.semanti.us/getaccesstoken?user_id=user3&client_id=test-client")  # user3 = admin@test.com (the Administrator)
 curl http://localhost:8788/me     -H "Authorization: Bearer $TOKEN"
 curl http://localhost:8788/users  -H "Authorization: Bearer $TOKEN"
 ```

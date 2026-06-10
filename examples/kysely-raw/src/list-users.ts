@@ -24,7 +24,7 @@
 //
 // Point it at your stack with env vars (defaults in parentheses):
 //   PGHOST (localhost)  PGPORT (5432)  PGDATABASE (appdb)
-//   USER_ID (user1)  CLIENT_ID (test-client)  ISSUER (https://oidc-test.semanti.us)
+//   USER_ID (user3 = admin@test.com)  CLIENT_ID (test-client)  ISSUER (https://oidc-test.semanti.us)
 //   (USER_ID / CLIENT_ID / ISSUER are read by ./get-auth-token.)
 //
 // For the EXTENSION stack (pg-ext-*), use PGPORT=5433. The CLI stack (5432)
@@ -39,7 +39,7 @@ import { getAuthToken } from "./get-auth-token";
 const HOST = process.env.PGHOST ?? "localhost";
 const PORT = Number(process.env.PGPORT ?? 5432);
 const DATABASE = process.env.PGDATABASE ?? "appdb";
-const USER_ID = process.env.USER_ID ?? "user1"; // for the summary line only
+const USER_ID = process.env.USER_ID ?? "user3"; // for the summary line only (user3 = admin@test.com)
 
 async function main(): Promise<void> {
   const token = await getAuthToken();

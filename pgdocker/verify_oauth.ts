@@ -12,7 +12,7 @@
  * The connect/query helpers are reused by test_oauth_security.ts.
  *
  *   deno run --allow-net verify_oauth.ts [--host 127.0.0.1] [--port 5432]
- *            [--db appdb] [--user-id user1] [--client-id test-client]
+ *            [--db appdb] [--user-id user3] [--client-id test-client]
  */
 // TEST ISSUER ONLY — a public, throwaway OIDC test server that mints tokens for
 // anyone with no login. It holds no secrets or passwords (nothing behind it is
@@ -280,7 +280,7 @@ async function main(): Promise<number> {
   const host = a.host ?? "127.0.0.1";
   const port = Number(a.port ?? 5432);
   const db = a.db ?? "appdb";
-  const userId = a["user-id"] ?? "user1";
+  const userId = a["user-id"] ?? "user3"; // user3 = admin@test.com (the Administrator)
 
   const token = await mintToken(userId, a["client-id"] ?? "test-client");
   if (!token || token.split(".").length !== 3) {

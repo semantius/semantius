@@ -19,13 +19,13 @@
 // it does not care how you got it. Everything else in the examples stays the same.
 //
 // Test config via env (defaults in parentheses):
-//   ISSUER (https://oidc-test.semanti.us)  USER_ID (user1)  CLIENT_ID (test-client)
+//   ISSUER (https://oidc-test.semanti.us)  USER_ID (user3 = admin@test.com)  CLIENT_ID (test-client)
 // =============================================================================
 
 /** Return an OAuth access token (JWT) to present to PostgreSQL over OAUTHBEARER. */
 export async function getAuthToken(): Promise<string> {
   const issuer = process.env.ISSUER ?? "https://oidc-test.semanti.us";
-  const userId = process.env.USER_ID ?? "user1";
+  const userId = process.env.USER_ID ?? "user3"; // user3 = admin@test.com (the Administrator)
   const clientId = process.env.CLIENT_ID ?? "test-client";
 
   console.log(`Minting token for "${userId}" from ${issuer} …`);

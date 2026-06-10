@@ -15,8 +15,21 @@ export interface UserDto {
   lastSeen: string | null;
 }
 
+/** "Who am I + what can I do" — mirrors the API's UserInfo (from get_userinfo). */
+export interface UserInfo {
+  userId: number;
+  externalId: string;
+  email: string | null;
+  displayName: string;
+  roles: string[];
+  permissions: string[];
+  canManageUsers: boolean;
+  isAdmin: boolean;
+}
+
 export interface MeResponse {
   me: UserDto | null;
+  info: UserInfo;
   mode: string;
   sub: string;
 }
@@ -29,4 +42,19 @@ export interface UsersResponse {
 export interface WriteResponse {
   ok: boolean;
   message: string;
+}
+
+export interface AuditRecord {
+  id: number;
+  ts: string;
+  op: string;
+  tableName: string;
+  recordPk: string;
+  userId: number;
+}
+
+export interface AuditResponse {
+  records: AuditRecord[];
+  info: UserInfo;
+  mode: string;
 }

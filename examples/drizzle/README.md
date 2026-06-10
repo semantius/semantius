@@ -72,18 +72,20 @@ USER_ID=user2 npx tsx src/list-users.ts  # connect as a different test user
 (`tsx src/list-users.ts`). Further samples (a count, a join over `relations()`, …)
 drop in as sibling files — `src/<task>.ts` — and run the same way.
 
-Expected output (fresh stack — `user1` becomes the admin on first login):
+Expected output (fresh stack — `user3` / `admin@test.com` is the Administrator,
+provisioned first by the CLI; admin is granted by login order, not by email):
 
 ```
-Minting token for "user1" from https://oidc-test.semanti.us …
-Connected: { current_user: 'authenticated', system_user: 'oauth:user1' }
-┌─────────┬─────┬─────────────┬─────────────────┬──────────────┬──────────┐
-│ (index) │ id  │ externalId  │ email           │ displayName  │ lastSeen │
-├─────────┼─────┼─────────────┼─────────────────┼──────────────┼──────────┤
-│    0    │  1  │   'user1'   │ 'user@test.com' │ 'John Smith' │   null   │
-└─────────┴─────┴─────────────┴─────────────────┴──────────────┴──────────┘
+Minting token for "user3" from https://oidc-test.semanti.us …
+Connected: { current_user: 'authenticated', system_user: 'oauth:user3' }
 
-1 user(s) visible to "user1" under RLS.
+┌─────────┬────┬────────────┬──────────────────┬─────────────┬──────────────────────────┐
+│ (index) │ id │ externalId │ email            │ displayName │ lastSeen                 │
+├─────────┼────┼────────────┼──────────────────┼─────────────┼──────────────────────────┤
+│ 0       │ 1  │ 'user3'    │ 'admin@test.com' │ 'Wei Chen'  │ 2026-06-09T22:11:36.875Z │
+└─────────┴────┴────────────┴──────────────────┴─────────────┴──────────────────────────┘
+
+1 user(s) visible to "user3" under RLS.
 ```
 
 Note `id` is a real number (`1`, not `'1'`) — see [How values are typed](#how-values-are-typed).
@@ -134,7 +136,7 @@ set.
 | `PGHOST` | `localhost` | database host |
 | `PGPORT` | `5432` | `5432` = CLI stack, `5433` = extension stack |
 | `PGDATABASE` | `appdb` | database name |
-| `USER_ID` | `user1` | test user to mint a token for (`user1`/`user2`/`user3`) |
+| `USER_ID` | `user3` | test user to mint a token for (`user3` = `admin@test.com`, the admin; `user1` = `user@test.com`, a plain user; `user2` = `sales@test.com`) |
 | `CLIENT_ID` | `test-client` | OAuth client id |
 | `ISSUER` | `https://oidc-test.semanti.us` | OIDC issuer (must match `pg_hba.conf`) |
 | `DATABASE_URL` | `postgresql://postgres:devpassword@localhost:5432/appdb` | **Studio only** — the `postgres` login `drizzle-kit` uses |
