@@ -279,7 +279,7 @@ Point the Semantius CLI at it and deploy:
 
 ```bash
 export DATABASE_URL=postgresql://postgres:<POSTGRES_PASSWORD>@localhost:5432/appdb
-deno task reset --confirm     # drop + migrate _core,cloud
+deno task reset --confirm     # drop + migrate _core
 deno task retest --confirm    # migrate test + run pgTAP
 ```
 
@@ -330,21 +330,22 @@ extension-`_core` ≡ migrate-`_core`.
 
 | Path | Harness | What it does |
 | ---- | ------- | ------------ |
-| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,cloud,test,nwind` → test), on port 5432 |
-| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `cloud,test,nwind` → test, on port 5433 |
+| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,test,nwind` → test), on port 5432 |
+| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `test,nwind` → test, on port 5433 |
 
 ```bash
 ./pg-cli-retest.sh      # Path A — migrate-installed _core
 ./pg-ext-retest.sh      # Path B — extension-installed _core
 ```
 
-In **Path B**, `migrate --apps cloud,test,nwind` auto-prepends `_core`, but the
+In **Path B**, `migrate --apps test,nwind` auto-prepends `_core`, but the
 extension already seeded the `_versions` run-once guards, so every `_core.*`
-migration is **skipped** (not re-run) and only `cloud`/`test`/`nwind` are
+migration is **skipped** (not re-run) and only `test`/`nwind` are
 deployed onto the extension's `_core` — the exact same app set Path A migrates,
-so the two paths run the identical suite over an identical schema. (`cloud` is
-required, not optional: `test.0030_seed` and several test files use the
-`webhook_receivers` table that the cloud app creates.) That seed (plus the
+so the two paths run the identical suite over an identical schema. (The
+`webhook_receivers`/`dashboards` tables that `test.0030_seed` and several test
+files use are now part of `_core` itself, so they come from the extension —
+no separate app needed.) That seed (plus the
 `_versions` table the extension now creates) is what lets an extension-installed
 database be managed by the CLI; it is also the fix for the `CREATE EXTENSION`
 install itself (`_core/0050` attaches an RLS policy to `_versions`).
@@ -357,8 +358,8 @@ install itself (`_core/0050` attaches an RLS policy to `_versions`).
 > `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged — no new CLI flags.
 
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
-`migrate --apps cloud,test,nwind` + `test` steps stays green (migrate reports
-`cloud`/`test`/`nwind` already applied and the tests roll back cleanly).
+`migrate --apps test,nwind` + `test` steps stays green (migrate reports
+`test`/`nwind` already applied and the tests roll back cleanly).
 
 ### Just deploy a module (no reset, no tests)
 
@@ -376,7 +377,7 @@ present, whether from a CLI migrate or the extension):
 
 ```bash
 ./pg-cli-deploy-module.sh nwind          # deploy the Northwind sample onto the CLI stack
-./pg-cli-deploy-module.sh cloud,nwind    # deploy several modules at once
+./pg-cli-deploy-module.sh test,nwind     # deploy several modules at once
 ./pg-ext-deploy-module.sh nwind          # same, onto the extension stack
 ```
 

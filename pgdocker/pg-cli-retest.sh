@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pg-cli-retest.sh  -  Path A harness: deploy `_core,cloud,test,nwind` via the CLI
+# pg-cli-retest.sh  -  Path A harness: deploy `_core,test,nwind` via the CLI
 # migrate path onto the plain CLI-testing container, then run the pgTAP suite.
 # The mirror of pg-ext-retest.sh (which installs `_core` via CREATE EXTENSION).
 #
@@ -7,7 +7,7 @@
 #   1. pg-cli-create  fresh plain PG18 container on 5432 (no extension).
 #   2. readiness gate poll until the DBA login accepts connections.
 #   3. retest --confirm --env pgdocker-cli
-#                     dropall -> migrate _core,cloud,test,nwind -> test.
+#                     dropall -> migrate _core,test,nwind -> test.
 #
 # `retest`/`reset` are deliberately unchanged; this only wraps them. The DBA
 # connection comes from .env.pgdocker-cli (port 5432, password must match
@@ -39,7 +39,7 @@ until docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d "$
 done
 echo "PostgreSQL ready."
 
-echo "== [3/3] retest (dropall -> migrate _core,cloud,test,nwind -> test) =="
+echo "== [3/3] retest (dropall -> migrate _core,test,nwind -> test) =="
 ( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker-cli )
 
 echo

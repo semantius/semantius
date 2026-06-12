@@ -4,7 +4,7 @@
 # path.
 #
 #   ./pg-cli-deploy-module.sh nwind
-#   ./pg-cli-deploy-module.sh cloud,nwind
+#   ./pg-cli-deploy-module.sh test,nwind
 #
 # The module list is passed straight to `migrate --apps`. migrate auto-prepends
 # `_core`, which is a no-op if it is already applied (or installs it if the DB is
@@ -19,7 +19,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
-  echo "usage: $(basename "$0") <module[,module...]>   e.g. nwind  or  cloud,nwind" >&2
+  echo "usage: $(basename "$0") <module[,module...]>   e.g. nwind  or  test,nwind" >&2
   exit 2
 fi
 

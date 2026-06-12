@@ -92,6 +92,39 @@
         "_core/0230_entity_insert_defaults": "9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a",
         "_core/0240_entities_field_metadata": "3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c"
       }
+    },
+    "0.1.3": {
+      "files": {
+        "_core/0010_create_core": "1ff747f180457d753d07723e5940d6efa43feb8e6b948dde2efeb513e55e5cec",
+        "_core/0011_session_authenticator": "38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef",
+        "_core/0012_create_cache": "cc14808354be14043179b0c85dc2d19804060c08ab7dccf2105797ffc9bdf4e7",
+        "_core/0015_jsonlogic": "cdc70617197642eef671fa775e7afd843cd45ee4d444c1033e47cd1e60e416e8",
+        "_core/0020_rbac_schema": "1bdc95f3f3b95685eb75a1368fe5b258383cb32908a5c982506d354fd57d1376",
+        "_core/0030_rbac_functions": "5d46b81576dd6c3f2dbde503cccca97d665ed67ce6e515779dfc5dd842e85cc0",
+        "_core/0040_rbac_seed": "08d3b16f10953848289824bffa1eca8af870469854cd6b3fc7b7e8d797b5fcaf",
+        "_core/0050_rbac_rls": "d877b99a831cfb98f5283b3c70a1e8dc8acacaf26945cc9b7986c51a76cdb2c2",
+        "_core/0060_dd_schema": "76fda480973eae8cf93b42c4c8969736fedbb3cce6bd5d5559e1e54bac01cc65",
+        "_core/0070_dd_functions": "612fe30f9cc1a5538366b4f57793e8df2305d7c0928da0275faec0d106ce9be5",
+        "_core/0072_apply_core_fts": "5fbbdf341350d6186c0e0a1cee993c781ddd7982541f0f05cb52b37dc82234b6",
+        "_core/0080_public_functions": "75fa4fc065f163e93a751bc8d7d1e243ca2d9bf2dcdb101bf332ba2737e9098a",
+        "_core/0090_notify_triggers": "aa8df1a7fee7d0c352c7251c2548161ee778f350e7206578e354ccce69798f03",
+        "_core/0110_apikeys": "ab9efe3351cca781a71fde3d41292f726184795ab0962242ac1561feb94befb7",
+        "_core/0130_create_tables_view_compat": "9aa24d2b24c5d6e2675a5c9cfe406249bf629d1162240b018c008031d57c285a",
+        "_core/0140_dd_rename": "a721268fd43b852abc6164fde6c20148252095a7873c47339e837e2def7694a7",
+        "_core/0145_managed_enable": "35f0177ebda49b113fee111b2f24a7efa58a25d28f7bb904201e53afc0f022db",
+        "_core/0150_audit_log": "feb89cdc5b9c99392de8f873d8ce94c81c88a7c03102f83e5e2aeeac444fafd2",
+        "_core/0160_pgmq": "748daa7131bbe5212131eaccc654ac11f8cd9afc469196ade23052befa33c4b1",
+        "_core/0170_queue": "434144a6c92f9ed29189e803623df8ee68d620f0c522185a6722c65b4d60fcc1",
+        "_core/0180_computed_validation": "262cd2acb27c50f725c270fbd6be92cb1ed8dbdf6524b633d33c70d90397c7c4",
+        "_core/0190_user_name_claims": "51a481a82a5b79541c87d3cdd2fc94021db58a8089f8e4a21e0a511e2e106040",
+        "_core/0200_module_slug_validation": "e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd",
+        "_core/0210_raci": "e039b09a1c3be7a6e5897ec5114091ca60412a5b5b920a41f68110cecd356556",
+        "_core/0220_module_slug_field_metadata": "a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24",
+        "_core/0230_entity_insert_defaults": "9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a",
+        "_core/0240_entities_field_metadata": "3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c",
+        "_core/0250_webhook_receiver": "e169a16387eba76058b3430943f7b59df7a1e6cc91fdd715f1db152ff28b70f0",
+        "_core/0260_dashboard": "89e072363b89f0379c1690f7deb9e940e9aab2b1345cbe9a05baa82828eedf37"
+      }
     }
   }
 }

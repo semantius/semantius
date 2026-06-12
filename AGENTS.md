@@ -106,7 +106,7 @@ deno task dropall --confirm
 ```bash
 # Deploy all migrations and test infrastructure
 # IMPORTANT: test must come before nwind to avoid module ID conflicts
-deno task migrate --apps _core,cloud,test,nwind --verbose
+deno task migrate --apps _core,test,nwind --verbose
 ```
 
 **Step 4 - Execute Tests**:
@@ -135,7 +135,7 @@ deno task test
 2. **Set environment**: `export DENO_TLS_CA_STORE=system` (for GitHub Copilot agents)
 3. **Test connection**: `deno task connect` - if fails, STOP and inform user
 4. **Reset database**: `deno task dropall --confirm`
-5. **Deploy schema**: `deno task migrate --apps _core,cloud,test,nwind --verbose`
+5. **Deploy schema**: `deno task migrate --apps _core,test,nwind --verbose`
 6. **Run tests**: `deno task test`
 7. **Verify ALL tests pass** before marking task complete
 
@@ -318,7 +318,7 @@ The `public.get_schema()` function returns JSON Schema with:
 
 Tests are written in pgTAP and stored in `apps/test/tests/`. The testing workflow ensures:
 1. Clean database state via `dropall`
-2. Fresh schema deployment via `migrate --apps _core,cloud,test,nwind` (**order matters**: `test` must run before `nwind` to avoid module ID sequence conflicts)
+2. Fresh schema deployment via `migrate --apps _core,test,nwind` (**order matters**: `test` must run before `nwind` to avoid module ID sequence conflicts)
 3. Comprehensive test execution via `test` command
 
 This prototyping approach allows rapid iteration without migration complexity.

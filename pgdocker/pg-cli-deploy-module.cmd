@@ -5,7 +5,7 @@ REM already-running plain CLI-testing container (port 5432), via the CLI migrate
 REM path.
 REM
 REM   pg-cli-deploy-module.cmd nwind
-REM   pg-cli-deploy-module.cmd cloud,nwind
+REM   pg-cli-deploy-module.cmd test,nwind
 REM
 REM The module list is passed straight to `migrate --apps`. migrate auto-prepends
 REM `_core` (no-op if already applied). The connection comes from the
@@ -17,7 +17,7 @@ set "REPO_ROOT=%~dp0.."
 
 set "APPS=%~1"
 if "%APPS%"=="" (
-  echo usage: pg-cli-deploy-module.cmd ^<module[,module...]^>   e.g. nwind  or  cloud,nwind
+  echo usage: pg-cli-deploy-module.cmd ^<module[,module...]^>   e.g. nwind  or  test,nwind
   exit /b 2
 )
 

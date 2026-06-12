@@ -3,7 +3,7 @@
 # already-running EXTENSION container (port 5433), via the CLI migrate path.
 #
 #   ./pg-ext-deploy-module.sh nwind
-#   ./pg-ext-deploy-module.sh cloud,nwind
+#   ./pg-ext-deploy-module.sh test,nwind
 #
 # The module list is passed straight to `migrate --apps`. `_core` is already
 # installed by the extension (CREATE EXTENSION pg_semantic_platform), so migrate
@@ -19,7 +19,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
-  echo "usage: $(basename "$0") <module[,module...]>   e.g. nwind  or  cloud,nwind" >&2
+  echo "usage: $(basename "$0") <module[,module...]>   e.g. nwind  or  test,nwind" >&2
   exit 2
 fi
 

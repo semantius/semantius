@@ -4,7 +4,7 @@ REM pg-ext-deploy-module.cmd  -  Deploy one or more app modules onto the
 REM already-running EXTENSION container (port 5433), via the CLI migrate path.
 REM
 REM   pg-ext-deploy-module.cmd nwind
-REM   pg-ext-deploy-module.cmd cloud,nwind
+REM   pg-ext-deploy-module.cmd test,nwind
 REM
 REM The module list is passed straight to `migrate --apps`. `_core` comes from the
 REM extension (CREATE EXTENSION), so migrate auto-prepends `_core` but SKIPS it
@@ -17,7 +17,7 @@ set "REPO_ROOT=%~dp0.."
 
 set "APPS=%~1"
 if "%APPS%"=="" (
-  echo usage: pg-ext-deploy-module.cmd ^<module[,module...]^>   e.g. nwind  or  cloud,nwind
+  echo usage: pg-ext-deploy-module.cmd ^<module[,module...]^>   e.g. nwind  or  test,nwind
   exit /b 2
 )
 

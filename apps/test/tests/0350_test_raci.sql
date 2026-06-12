@@ -6,7 +6,7 @@
 -- All operations run as admin (user3) unless noted.
 BEGIN;
 
-SELECT plan(63);
+SELECT plan(68);
 
 -- Authenticate as admin for all RACI setup
 SELECT authenticate_as('user3');
@@ -204,10 +204,14 @@ SELECT p.id, 'consulted', r.id, 'block'
 FROM   processes p, roles r
 WHERE  p.process_key = 'make_offer' AND r.role_name = 'Sales User';
 
+-- Informed is held by `User` (role id 1) — deliberately a DIFFERENT role from
+-- Consulted (`Sales User`) and Accountable (`Administrator`) so the emit tests
+-- below can assert C and I in isolation (a bug emitting two consulted / zero
+-- informed would otherwise pass when C and I share a role).
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'informed', r.id, 'read'
 FROM   processes p, roles r
-WHERE  p.process_key = 'make_offer' AND r.role_name = 'Sales User';
+WHERE  p.process_key = 'make_offer' AND r.role_name = 'User';
 
 -- Test 24: Assignments were inserted
 SELECT is(
@@ -587,6 +591,30 @@ SELECT is(
     'Number of raci_events should match C/I assignment count'
 );
 
+-- Test 56b: exactly ONE consulted event, targeting the Consulted role (Sales User).
+-- With C and I on distinct roles this isolates the consulted letter — a bug that
+-- emitted two consulted events (or mislabelled informed as consulted) fails here.
+SELECT is(
+    (SELECT COUNT(*)::integer FROM raci_events
+     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'
+       AND raci = 'consulted'
+       AND target_role_id = (SELECT id FROM roles WHERE role_name = 'Sales User')),
+    1,
+    'Emit should create exactly one consulted event targeting the Sales User role'
+);
+
+-- Test 56c: exactly ONE informed event, targeting the Informed role (User).
+-- Proves informed is emitted on its own letter to its own role, not collapsed
+-- into the consulted count.
+SELECT is(
+    (SELECT COUNT(*)::integer FROM raci_events
+     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'
+       AND raci = 'informed'
+       AND target_role_id = (SELECT id FROM roles WHERE role_name = 'User')),
+    1,
+    'Emit should create exactly one informed event targeting the User role'
+);
+
 -- Test 57: Re-entering the same state does NOT create duplicate events
 UPDATE departments SET status = 'approved' WHERE id = 2;   -- already approved → no re-emit
 
@@ -666,15 +694,66 @@ DELETE FROM raci_events WHERE entity = 'departments' AND record_id = '3';
 UPDATE departments SET status = 'draft'    WHERE id = 3;
 UPDATE departments SET status = 'approved' WHERE id = 3;
 
--- Read queue as owner (pgmq requires elevated access)
+-- Read the queue ONCE as owner (pgmq requires elevated access; a second read in
+-- this txn would hit the visibility timeout) and capture the messages so several
+-- properties can be asserted against the same enqueued payloads.
 RESET ROLE;
+CREATE TEMP TABLE _raci_notify_msgs ON COMMIT DROP AS
+SELECT message FROM pgmq.read('raci_notify', 0, 20);
+
+-- Test 62: a raci_events INSERT enqueues a raci_notify message
 SELECT ok(
     (SELECT COUNT(*) > 0
-     FROM pgmq.read('raci_notify', 0, 20)
+     FROM _raci_notify_msgs
      WHERE message->>'table' = 'raci_events'
        AND message->>'op'    = 'INSERT'),
     'Inserting raci_events should enqueue a message in raci_notify'
 );
+
+-- Test 62b: the enqueued messages carry message_type = 'entity_event'
+SELECT ok(
+    (SELECT bool_and(message->>'message_type' = 'entity_event')
+     FROM _raci_notify_msgs
+     WHERE message->>'table' = 'raci_events'),
+    'raci_notify messages for raci_events should have message_type=entity_event'
+);
+
+-- Test 62c: each message's id_value matches an actually-inserted raci_events row
+-- (the C/I events emitted for the record-3 transition), proving the payload
+-- identifies the real row, not a placeholder.
+SELECT ok(
+    (SELECT bool_and(
+                (message->>'id_value')::integer IN (
+                    SELECT id FROM raci_events
+                    WHERE entity = 'departments' AND record_id = '3'
+                ))
+     FROM _raci_notify_msgs
+     WHERE message->>'table' = 'raci_events'),
+    'each raci_notify message id_value should match an inserted raci_events row id'
+);
+
+-- =====================================================
+-- GROUP 13: Catalog is admin-write-gated (negative RLS)
+-- =====================================================
+-- Every write above ran as admin (user3). Prove the RACI catalog rejects a
+-- write from a non-privileged user behaviorally, not just by policy shape.
+-- Stash valid ids as admin so the attempt fails ONLY on RLS (42501), not a bad FK.
+SELECT authenticate_as('user3');
+CREATE TEMP TABLE _raci_rls_ids ON COMMIT DROP AS
+SELECT (SELECT id FROM processes WHERE process_key = 'make_offer') AS process_id,
+       (SELECT id FROM roles     WHERE role_name   = 'User')        AS role_id;
+
+-- Test 63: user1 (non-admin) cannot INSERT into raci_assignments
+SELECT authenticate_as('user1');
+SELECT throws_ok(
+    $$ INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
+       SELECT process_id, 'informed', role_id, 'read' FROM _raci_rls_ids $$,
+    '42501', NULL,
+    'Non-admin user1 must not be able to INSERT into raci_assignments (RLS 42501)'
+);
+
+-- Restore the admin role for any subsequent steps.
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- Finish

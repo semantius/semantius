@@ -21,11 +21,13 @@ const originalError = console.error;
 const originalWarn = console.warn;
 
 console.error = (...args: any[]) => {
-  originalError(...args.map(arg => typeof arg === 'string' ? red(arg) : arg));
+  originalError(...args.map((arg) => typeof arg === "string" ? red(arg) : arg));
 };
 
 console.warn = (...args: any[]) => {
-  originalWarn(...args.map(arg => typeof arg === 'string' ? yellow(arg) : arg));
+  originalWarn(
+    ...args.map((arg) => typeof arg === "string" ? yellow(arg) : arg),
+  );
 };
 
 interface CliArgs {
@@ -140,8 +142,8 @@ COMMANDS:
     extension        Generate the PostgreSQL extension (control + SQL) into ./extension
     extension <VER>  Generate the extension with an explicit version (e.g. 0.2.0)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
-    reset            ⚠️ Drop all and migrate --apps _core,cloud (requires --confirm)
-    retest           ⚠️ Drop all, migrate --apps cloud,test, and run tests (requires --confirm)
+    reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
+    retest           ⚠️ Drop all, migrate --apps test,nwind, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
     kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog
@@ -185,11 +187,11 @@ function showVersion(): void {
 
 async function buildProject(outputDir: string = "./dist"): Promise<void> {
   console.log(`🔨 Building project to ${outputDir}...`);
-  
+
   try {
     // Ensure output directory exists
     await Deno.mkdir(outputDir, { recursive: true });
-    
+
     // Compile the main application
     const command = new Deno.Command("deno", {
       args: [
@@ -199,12 +201,12 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
         "--allow-env",
         "--output",
         `${outputDir}/semantius-core`,
-        "src/main.ts"
+        "src/main.ts",
       ],
     });
-    
+
     const { code } = await command.output();
-    
+
     if (code === 0) {
       console.log("✅ Build completed successfully!");
       console.log(`📦 Executable created at: ${outputDir}/semantius-core`);
@@ -212,39 +214,51 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
       console.error("❌ Build failed!");
       Deno.exit(1);
     }
-    
   } catch (error) {
-    console.error("❌ Build error:", error instanceof Error ? error.message : String(error));
+    console.error(
+      "❌ Build error:",
+      error instanceof Error ? error.message : String(error),
+    );
     Deno.exit(1);
   }
 }
 
 async function lintProject(): Promise<void> {
   console.log("🔍 Running linter...");
-  
+
   try {
     const command = new Deno.Command("deno", {
       args: ["lint"],
     });
-    
+
     const { code } = await command.output();
-    
+
     if (code === 0) {
       console.log("✅ No linting issues found!");
     } else {
       console.error("❌ Linting issues found!");
       Deno.exit(1);
     }
-    
   } catch (error) {
-    console.error("❌ Linter error:", error instanceof Error ? error.message : String(error));
+    console.error(
+      "❌ Linter error:",
+      error instanceof Error ? error.message : String(error),
+    );
     Deno.exit(1);
   }
 }
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    boolean: ["help", "version", "verbose", "tap", "confirm", "script", "failfast"],
+    boolean: [
+      "help",
+      "version",
+      "verbose",
+      "tap",
+      "confirm",
+      "script",
+      "failfast",
+    ],
     string: ["config", "output", "apps", "env", "database-url"],
     alias: {
       h: "help",
@@ -284,37 +298,38 @@ async function main(): Promise<void> {
     case "init":
       await initProject();
       break;
-      
+
     case "build":
       await buildProject(args.output);
       break;
-      
+
     case "connect":
       await connectDatabaseConnection(databaseUrl!);
       break;
-      
+
     case "test": {
       const filter = args._.length > 1 ? String(args._[1]) : undefined;
       await testCommand(databaseUrl!, args.tap, args.failfast, filter);
       break;
     }
-      
+
     case "lint":
       await lintProject();
       break;
-      
+
     case "format":
     case "fmt":
       await formatProject();
       break;
-      
+
     case "migrate": {
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
-      const appsParam = args.apps || (args._.length > 1 ? args._.slice(1).join(",") : "");
+      const appsParam = args.apps ||
+        (args._.length > 1 ? args._.slice(1).join(",") : "");
       await migrateCommand(appsParam, databaseUrl!, args.script || false);
       break;
     }
-      
+
     case "extension": {
       const version = args._.length > 1 ? String(args._[1]) : VERSION;
       await extensionCommand({
@@ -327,7 +342,11 @@ async function main(): Promise<void> {
     }
 
     case "dropall":
-      await dropallCommand(databaseUrl!, args.confirm || false, args.script || false);
+      await dropallCommand(
+        databaseUrl!,
+        args.confirm || false,
+        args.script || false,
+      );
       break;
 
     case "reset":
@@ -335,9 +354,13 @@ async function main(): Promise<void> {
       break;
 
     case "retest":
-      await retestCommand(databaseUrl!, args.confirm || false, args.failfast || false);
+      await retestCommand(
+        databaseUrl!,
+        args.confirm || false,
+        args.failfast || false,
+      );
       break;
-      
+
     case "docgen":
       await docgenCommand(databaseUrl!);
       break;
@@ -353,7 +376,7 @@ async function main(): Promise<void> {
     case "testgen_jsonlogic":
       await testgenJsonlogicCommand();
       break;
-      
+
     default:
       if (command) {
         console.error(`❌ Unknown command: ${command}`);

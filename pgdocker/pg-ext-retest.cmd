@@ -10,10 +10,11 @@ REM                     pg-ext-delete, which prompts and would hang.
 REM   2. pg-ext-create  fresh ext container; CREATE EXTENSION installs _core and
 REM                     creates + seeds the _versions guard rows.
 REM   3. readiness gate poll until the pg_semantic_platform extension is present.
-REM   4. migrate --apps cloud,test,nwind   migrate auto-prepends _core, SKIPPED
+REM   4. migrate --apps test,nwind   migrate auto-prepends _core, SKIPPED
 REM                     because the extension seeded _versions; deploys only
-REM                     cloud,test,nwind (cloud is required: test seeds into the
-REM                     webhook_receivers table that the cloud app creates).
+REM                     test,nwind. (The extension's _core already includes the
+REM                     webhook_receivers/dashboards tables that test.0030_seed
+REM                     and several test files depend on.)
 REM   5. test           run the full pgTAP suite against the ext DB.
 cd /d "%~dp0"
 set "REPO_ROOT=%~dp0.."
@@ -61,9 +62,9 @@ goto :wait
 :ready
 echo Extension present.
 
-echo == [4/5] Deploying cloud,test,nwind (migrate skips the seeded _core) ==
+echo == [4/5] Deploying test,nwind (migrate skips the seeded _core) ==
 pushd "%REPO_ROOT%"
-call deno task migrate --apps cloud,test,nwind --database-url "%EXT_URL%" || (popd & goto :err)
+call deno task migrate --apps test,nwind --database-url "%EXT_URL%" || (popd & goto :err)
 
 echo == [5/5] Running the pgTAP suite against the extension DB ==
 call deno task test --database-url "%EXT_URL%" || (popd & goto :err)
