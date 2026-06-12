@@ -77,8 +77,7 @@ export interface Fields {
   field_order: number;
   input_type: Generated<"default" | "required" | "readonly" | "disabled" | "hidden">;
   width: Generated<"default" | "s" | "m" | "w">;
-  ctype: "" | "id" | "label";
-  is_core: boolean;
+  ctype: "" | "id" | "label" | "audit" | "core";
   searchable: boolean;
   enum_values: Json;
   precision: Generated<number>;
@@ -90,8 +89,8 @@ export interface Fields {
   unique_value: boolean;
   cube_type: Generated<"auto" | "dimension" | "measure" | "disabled">;
   input_type_rule: Json;
-  updated_at: Generated<Timestamp | null>;
   created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
 }
 
 export interface Modules {
@@ -167,8 +166,8 @@ export interface QueueTableEvents {
 }
 
 export interface Queues {
-  id: Generated<number>;
   queue_name: string;
+  id: Generated<number>;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }

@@ -489,35 +489,35 @@ SELECT is(
 
 -- Test that id field is marked as is_core
 SELECT is(
-    (SELECT is_core FROM fields WHERE table_name = 'customers_test' AND field_name = 'id'),
+    (SELECT (coalesce(ctype, '') <> '') FROM fields WHERE table_name = 'customers_test' AND field_name = 'id'),
     TRUE,
     'id field should be marked as is_core = TRUE'
 );
 
 -- Test that customer_name (label) field is marked as is_core
 SELECT is(
-    (SELECT is_core FROM fields WHERE table_name = 'customers_test' AND field_name = 'customer_name'),
+    (SELECT (coalesce(ctype, '') <> '') FROM fields WHERE table_name = 'customers_test' AND field_name = 'customer_name'),
     TRUE,
     'customer_name (label) field should be marked as is_core = TRUE'
 );
 
 -- Test that created_at field is marked as is_core
 SELECT is(
-    (SELECT is_core FROM fields WHERE table_name = 'customers_test' AND field_name = 'created_at'),
+    (SELECT (coalesce(ctype, '') <> '') FROM fields WHERE table_name = 'customers_test' AND field_name = 'created_at'),
     TRUE,
     'created_at field should be marked as is_core = TRUE'
 );
 
 -- Test that updated_at field is marked as is_core
 SELECT is(
-    (SELECT is_core FROM fields WHERE table_name = 'customers_test' AND field_name = 'updated_at'),
+    (SELECT (coalesce(ctype, '') <> '') FROM fields WHERE table_name = 'customers_test' AND field_name = 'updated_at'),
     TRUE,
     'updated_at field should be marked as is_core = TRUE'
 );
 
 -- Test that non-core fields (like email) are marked as is_core = FALSE
 SELECT is(
-    (SELECT is_core FROM fields WHERE table_name = 'customers_test' AND field_name = 'email'),
+    (SELECT (coalesce(ctype, '') <> '') FROM fields WHERE table_name = 'customers_test' AND field_name = 'email'),
     FALSE,
     'email field should be marked as is_core = FALSE'
 );
@@ -529,7 +529,7 @@ select authenticate_as('user3');
 SELECT throws_ok(
     'DELETE FROM fields WHERE table_name = ''customers_test'' AND field_name = ''created_at''',
     'P0001',
-    'Cannot delete core system field "created_at". Core fields (id, label, created_at, updated_at) cannot be deleted.',
+    'Cannot delete core system field "created_at". Core fields (ctype id/label/audit/core) cannot be deleted.',
     'Deleting created_at field should raise an exception'
 );
 
@@ -537,7 +537,7 @@ SELECT throws_ok(
 SELECT throws_ok(
     'DELETE FROM fields WHERE table_name = ''customers_test'' AND field_name = ''id''',
     'P0001',
-    'Cannot delete core system field "id". Core fields (id, label, created_at, updated_at) cannot be deleted.',
+    'Cannot delete core system field "id". Core fields (ctype id/label/audit/core) cannot be deleted.',
     'Deleting id field should raise an exception'
 );
 

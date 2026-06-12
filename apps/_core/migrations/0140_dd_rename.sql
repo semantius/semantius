@@ -378,8 +378,8 @@ BEGIN
     -- A) Handle field_name rename
     -- --------------------------------------------------
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
-        -- Core fields cannot be renamed, except the label column
-        IF OLD.is_core THEN
+        -- Core fields (ctype <> '') cannot be renamed, except the label column
+        IF coalesce(OLD.ctype, '') <> '' THEN
             IF OLD.ctype = 'label' THEN
                 -- Label column rename is allowed; update entities.label_column to match
                 UPDATE entities
@@ -485,8 +485,8 @@ BEGIN
     -- both are TEXT, but email → json is not because TEXT ≠ JSONB).
     -- Unmanaged tables have no physical columns, so any format change is allowed.
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
-        -- Core field formats cannot be changed (existing rule, enforced here too)
-        IF OLD.is_core THEN
+        -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
+        IF coalesce(OLD.ctype, '') <> '' THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
@@ -564,19 +564,17 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
 
-    -- Prevent changing structural attributes of core fields
-    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
-    IF OLD.is_core THEN
+    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- DD-managed core column). Core fields can only have metadata updates (title, description,
+    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
+    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-
-        IF OLD.is_core <> NEW.is_core THEN
-            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
     END IF;
 

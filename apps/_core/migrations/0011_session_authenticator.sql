@@ -54,7 +54,22 @@ BEGIN
     --                    the role is later (mistakenly) ALTERed to INHERIT.
     --   SET TRUE      -> may `SET ROLE authenticated` (the only thing it can do).
     -- Idempotent: re-running just re-asserts the same membership options.
-    GRANT authenticated TO semantius_authenticator WITH INHERIT FALSE, SET TRUE;
+    --
+    -- Privilege-tolerant: granting role membership requires ADMIN OPTION on `authenticated`
+    -- (or superuser). The migration role has it when IT created `authenticated` (0010), and on
+    -- local pgdocker (superuser) / Supabase (postgres) the grant always succeeds. But on managed
+    -- platforms where `authenticated` PRE-EXISTS under a different owner (e.g. some Neon
+    -- databases), `neondb_owner` lacks ADMIN OPTION on it and the bare GRANT would raise
+    -- `insufficient_privilege` (42501) and abort the ENTIRE migration. This role only backs
+    -- SESSION auth mode; bearer-mode deploys (Neon/Supabase OAUTHBEARER, connecting AS
+    -- `authenticated`) never use it. So downgrade a privilege error to a NOTICE: the deploy
+    -- completes, and a privileged operator can establish the membership out-of-band if/when
+    -- session mode is actually used on that platform.
+    BEGIN
+        GRANT authenticated TO semantius_authenticator WITH INHERIT FALSE, SET TRUE;
+    EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Skipped GRANT authenticated TO semantius_authenticator: current role "%" lacks ADMIN OPTION on "authenticated". semantius_authenticator (session-mode login role) is created but unlinked; grant the membership as a privileged role if session mode is needed here.', current_user;
+    END;
 END
 $$;
 

@@ -270,7 +270,6 @@ BEGIN
             f.reference_table,
             f.reference_delete_mode,
             f.ctype,
-            f.is_core,
             f.searchable,
             f.cube_type,
             f.singular_label_parent,
@@ -314,8 +313,8 @@ BEGIN
                 THEN jsonb_build_object('ctype', ctype)
                 ELSE '{}'::jsonb
             END ||
-            -- Add is_core field
-            jsonb_build_object('is_core', is_core) ||
+            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
+            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
             -- Add cube_type field

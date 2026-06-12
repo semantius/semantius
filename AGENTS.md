@@ -235,7 +235,7 @@ The `fields` table uses a JSON Schema-based format system:
   - Enum format: 'enum' (mapped to TEXT type with CHECK constraint for allowed values)
 - **input_type** column: UI rendering hint - ENUM with allowed values `['default', 'required', 'readonly', 'disabled', 'hidden']`
 - **width** column: UI width hint - ENUM with allowed values `['default', 's', 'm', 'w']` (default/auto, small, medium, wide)
-- **ctype** column: Special column type - ENUM with allowed values `['', 'id', 'label']` (empty string = normal field)
+- **ctype** column: Special column type AND the single marker of a DD-managed core column - ENUM with allowed values `['', 'id', 'label', 'audit', 'core']`. Empty = normal, user-editable field; `id` = primary key; `label` = display column; `audit` = managed record-versioning columns (created_at/updated_at, room for created_by/updated_by); `core` = other system/metadata columns. A non-empty ctype marks a protected core column (no rename/format/default/delete; the `label` rename is the one allowed exception). ctype is itself **immutable and privilege-locked** (the `fields_ctype_lock` trigger lets only BYPASSRLS DD/migration code set or change it; user writes get ctype forced to ''). The legacy `is_core` boolean column was **dropped** — `is_core` is now *derived* as `(ctype <> '')` and still emitted in `get_schema()` output for compatibility.
 - **title** column: Human-readable field label (renamed from 'label')
 - **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
   - Required when format='enum' to define allowed values

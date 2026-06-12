@@ -80,10 +80,10 @@ SELECT is(
 -- =====================================================
 
 SELECT is(
-    (SELECT is_core FROM fields
+    (SELECT (coalesce(ctype, '') <> '') FROM fields
      WHERE table_name = 'lblren1' AND field_name = 'item_title'),
     TRUE,
-    'Renamed label field should still be is_core = TRUE'
+    'Renamed label field should still be core (ctype = label)'
 );
 
 -- =====================================================

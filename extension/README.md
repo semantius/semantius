@@ -8,7 +8,7 @@ PostgreSQL extension. It is an **additional** distribution channel for
 self-hosted PostgreSQL 18 (see `../pgdocker`), alongside the `deno task migrate`
 deploy used for Neon/Supabase. It replaces nothing.
 
-Current version: `0.1.0`
+Current version: `0.1.1`
 Requires: pgcrypto
 
 ## Install

@@ -15,10 +15,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
 UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
 
 -- Add data dictionary entries for the new fields
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
-    ('users', 'first_name', 'First Name', 'First name from JWT given_name claim', 'text', FALSE, 22, 'default', 'default', NULL, TRUE, TRUE, '', ''),
-    ('users', 'last_name',  'Last Name',  'Last name from JWT family_name claim', 'text', FALSE, 23, 'default', 'default', NULL, TRUE, TRUE, '', '')
+    ('users', 'first_name', 'First Name', 'First name from JWT given_name claim', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', ''),
+    ('users', 'last_name',  'Last Name',  'Last name from JWT family_name claim', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '')
 ON CONFLICT DO NOTHING;
 
 -- =====================================================

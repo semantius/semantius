@@ -311,15 +311,16 @@ BEGIN
     );
     EXECUTE v_policy_sql;
     
-    -- Insert field records for id, label, created_at, and updated_at columns
-    -- All these are core fields that cannot be deleted or renamed (is_core = TRUE)
-    -- The label column is marked as searchable=TRUE for full-text search
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'created_at', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'updated_at', TRUE, FALSE, '', '');
+    -- Insert field records for id, label, created_at, and updated_at columns.
+    -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
+    -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
+    -- The label column is marked as searchable=TRUE for full-text search.
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    VALUES
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
@@ -371,6 +372,47 @@ CREATE TRIGGER auto_set_field_order_trigger
     BEFORE INSERT ON fields
     FOR EACH ROW
     EXECUTE FUNCTION auto_set_field_order();
+
+-- =====================================================
+-- ctype LOCK: ctype is the single, un-tamperable core marker
+-- =====================================================
+-- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
+-- (no rename/delete/format/default change) keys on `ctype <> ''`. For that to be sound the
+-- marker must be settable ONLY by DD/migration code and immutable thereafter — otherwise a
+-- tenant admin (who holds the fields edit permission) could mint a ctype, or clear the ctype
+-- of the id column to "free" it for deletion. Privilege is decided by BYPASSRLS: the migration
+-- owner and every SECURITY DEFINER DD function (create_dd_table, enable_dd_table, …) run as the
+-- BYPASSRLS owner; the request path runs as semantius_user (NOBYPASSRLS). Non-privileged
+-- callers get ctype forced to '' on INSERT and a hard rejection on any UPDATE that changes it.
+CREATE OR REPLACE FUNCTION lock_field_ctype()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_privileged BOOLEAN;
+BEGIN
+    SELECT rolbypassrls INTO v_privileged FROM pg_roles WHERE rolname = current_user;
+    IF COALESCE(v_privileged, FALSE) THEN
+        RETURN NEW;  -- DD / migration code: trusted to set ctype
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        NEW.ctype := '';  -- users cannot mint a core marker on a new field
+    ELSIF NEW.ctype IS DISTINCT FROM OLD.ctype THEN
+        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field "%"', NEW.field_name
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION lock_field_ctype IS
+'BEFORE INSERT/UPDATE guard on fields: only a BYPASSRLS (DD/migration) caller may set or change ctype. Non-privileged users get ctype forced to '''' on INSERT and a rejection on any UPDATE that changes ctype. Keeps ctype (the core marker that "core = ctype <> ''" depends on) un-tamperable.';
+
+REVOKE EXECUTE ON FUNCTION lock_field_ctype() FROM PUBLIC;
+
+CREATE TRIGGER fields_ctype_lock
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION lock_field_ctype();
 
 REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
@@ -667,19 +709,17 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
     
-    -- Prevent changing structural attributes of core fields
-    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
-    IF OLD.is_core THEN
+    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- DD-managed core column). Core fields can only have metadata updates (title, description,
+    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
+    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
-        
+
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-        
-        IF OLD.is_core <> NEW.is_core THEN
-            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
     END IF;
     
@@ -971,9 +1011,10 @@ BEGIN
         RETURN OLD;
     END IF;
     
-    -- Prevent deletion of core fields (id, label, created_at, updated_at) for standalone field deletions
-    IF OLD.is_core THEN
-        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (id, label, created_at, updated_at) cannot be deleted.', OLD.field_name;
+    -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
+    -- for standalone field deletions.
+    IF coalesce(OLD.ctype, '') <> '' THEN
+        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (ctype id/label/audit/core) cannot be deleted.', OLD.field_name;
     END IF;
     
     -- Check if the parent table is managed

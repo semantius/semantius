@@ -67,8 +67,7 @@ export const fields = pgTable("fields", {
   fieldOrder: integer("field_order").notNull(),
   inputType: text("input_type", { enum: ["default", "required", "readonly", "disabled", "hidden"] }).notNull().default("default"),
   width: text("width", { enum: ["default", "s", "m", "w"] }).notNull().default("default"),
-  ctype: text("ctype", { enum: ["", "id", "label"] }).notNull(),
-  isCore: boolean("is_core").notNull(),
+  ctype: text("ctype", { enum: ["", "id", "label", "audit", "core"] }).notNull(),
   searchable: boolean("searchable").notNull(),
   enumValues: jsonb("enum_values").notNull(),
   precision: integer("precision").notNull().default(2),
@@ -80,8 +79,8 @@ export const fields = pgTable("fields", {
   uniqueValue: boolean("unique_value").notNull(),
   cubeType: text("cube_type", { enum: ["auto", "dimension", "measure", "disabled"] }).notNull().default("auto"),
   inputTypeRule: jsonb("input_type_rule").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const modules = pgTable("modules", {
@@ -157,8 +156,8 @@ export const queueTableEvents = pgTable("queue_table_events", {
 });
 
 export const queues = pgTable("queues", {
-  id: serial("id").primaryKey(),
   queueName: text("queue_name").notNull(),
+  id: serial("id").primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
