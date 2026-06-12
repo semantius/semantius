@@ -318,8 +318,8 @@ BEGIN
     VALUES 
         (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'created_at', TRUE, FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'updated_at', TRUE, FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,

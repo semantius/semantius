@@ -279,11 +279,17 @@ BEGIN
     VALUES (NEW.id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
     
-    -- Check if this is the first user (no other users have last_seen set)
-    -- If this is the first user, also assign Administrator role (role ID 2)
-    SELECT NOT EXISTS (
-        SELECT 1 FROM users 
-        WHERE id != NEW.id 
+    -- Bootstrap admin (I5, hardened b9): grant Administrator (role 2) to the first user who has
+    -- ACTUALLY accessed the system — i.e. this row is created WITH last_seen set AND no other user
+    -- has ever been seen. The extra `NEW.last_seen IS NOT NULL` clause closes the over-grant where
+    -- a fresh batch of users (all last_seen NULL, created before anyone logs in) would EACH satisfy
+    -- "no other user has last_seen" and all become admin. Residual (accepted LOW): two users
+    -- created concurrently both WITH last_seen, neither committed, can still both qualify — closing
+    -- that fully needs an advisory lock / unique partial index on the admin assignment.
+    SELECT NEW.last_seen IS NOT NULL
+       AND NOT EXISTS (
+        SELECT 1 FROM users
+        WHERE id != NEW.id
         AND last_seen IS NOT NULL
     ) INTO v_is_first_user;
     

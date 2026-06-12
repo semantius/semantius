@@ -24,3 +24,17 @@ UPDATE fields
 SET input_type = 'required'
 WHERE table_name = 'entities'
   AND field_name = 'module_id';
+
+-- =====================================================
+-- ctype coverage for the managed system timestamps (b6)
+-- =====================================================
+-- created_at / updated_at are DD-managed core columns but were historically marked with an empty
+-- ctype, so the canonical "core = ctype <> ''" identity (spec v2 I6, used by the b7 trigger) would
+-- not recognize them. 0060 now enumerates 'created_at'/'updated_at' in valid_ctype and the runtime
+-- generators (create_dd_table, enable_dd_table) stamp them on new tables; this backfills every
+-- created_at/updated_at field row already present (bootstrap meta tables on a fresh DB, and any
+-- existing/production database) so the marker is complete and uniform.
+UPDATE fields
+SET ctype = field_name
+WHERE field_name IN ('created_at', 'updated_at')
+  AND ctype IS DISTINCT FROM field_name;

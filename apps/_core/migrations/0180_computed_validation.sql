@@ -5,15 +5,22 @@
 --
 -- Schema for entities.computed_fields and entities.validation_rules lives in
 -- 0060_dd_schema.sql alongside the rest of the entities table; this migration
--- contains only the runtime: a per-table BEFORE INSERT OR UPDATE trigger
--- function that is (re)generated whenever either array is non-empty, and
+-- contains only the runtime: a per-table BEFORE INSERT OR UPDATE OR DELETE
+-- trigger function that is (re)generated whenever either array is non-empty, and
 -- dropped when both are empty or the entity itself is deleted.
 --
 -- Reserved variables injected into the JsonLogic data:
 --   $today    -> server date
 --   $now      -> server timestamp
 --   $user_id  -> internal user_id from JWT context, null when no context
---   $old      -> previous row as JSON on UPDATE, null on INSERT
+--   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
+--   $mode     -> the operation: 'insert' | 'update' | 'delete'
+--
+-- DELETE arm (I7): the rules also fire on DELETE, evaluated against the row being
+-- removed (OLD). Computed-field output is discarded on DELETE (the row is going
+-- away), but validation_rules can abort the delete — e.g. a rule guarded by
+-- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. Because the USING/WITH
+-- CHECK predicate is per-row, this holds regardless of statement shape (A4).
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -130,17 +137,23 @@ DECLARE
     v_uid_text text;
 BEGIN
     v_uid_text := current_setting('app.current_user_id', true);
-    v_data := to_jsonb(NEW) || jsonb_build_object(
+    -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
+    v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
                        ELSE to_jsonb(v_uid_text::int)
                    END,
-        '$old',     CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE 'null'::jsonb END
+        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END,
+        '$mode',    to_jsonb(lower(TG_OP))
     );
 %s
-    v_data := v_data - '$today' - '$now' - '$user_id' - '$old';
+    -- DELETE keeps no computed output; the validation rules above may still abort it.
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
     NEW := jsonb_populate_record(NULL::public.%I, v_data);
     RETURN NEW;
 END;
@@ -153,13 +166,13 @@ $FUNC$, v_fn_name, v_rules_block, p_table_name);
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
 
     EXECUTE format(
-        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
+        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
         v_trg_name, p_table_name, v_fn_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_record_logic_trigger IS
-'Generates (or drops) the per-table BEFORE INSERT OR UPDATE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity.';
+'Generates (or drops) the per-table BEFORE INSERT OR UPDATE OR DELETE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete.';
 
 REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
 

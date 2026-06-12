@@ -209,10 +209,10 @@ GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 -- GET SCHEMA FOR TABLE (Internal helper)
 -- =====================================================
 
--- Internal helper that builds a schema JSON for a single table.
--- Assumes the caller has already verified the table exists and the
--- user has the required view permission. Used by both get_schema()
--- and get_schemas() so that any future change applies to both.
+-- Helper that builds a schema JSON for a single table. Self-gating (b9): it applies the
+-- view_permission check + existence-hiding itself (identical undefined_table error for
+-- missing-table and permission-denied), so it is safe to expose directly to the request role.
+-- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
 CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -221,6 +221,8 @@ DECLARE
     v_required_fields JSON;
     v_children JSON;
     v_result JSON;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
 BEGIN
     PERFORM rbac.uid();
 
@@ -228,9 +230,28 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Return NULL if the table does not exist (callers should verify before calling)
+    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
+    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
+    -- callers — otherwise any request-role caller reads any table's full schema (including its
+    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
+    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
+    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
+    -- harmless) for them.
     IF NOT FOUND THEN
-        RETURN NULL;
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
 
     -- Build properties object from fields
@@ -430,8 +451,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION public.build_schema_for_table IS 
-'Internal helper that builds a schema JSON for a single table without performing permission checks. Used by get_schema() and get_schemas() to ensure consistent output from a single implementation.';
+COMMENT ON FUNCTION public.build_schema_for_table IS
+'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;

@@ -285,9 +285,7 @@ GRANT  EXECUTE ON FUNCTION is_raci_actor(TEXT, TEXT, TEXT) TO semantius_user;
 
 -- has_consultation(entity, to_state, record_id) → boolean
 -- Returns TRUE when an "acted" consulted raci_events row exists for the
--- record's process. Used to back C-block gates.
--- Calls rbac.uid() to authenticate the caller (result not used here since
--- consultation checks are record-scoped, not caller-scoped).
+-- record's process, AND the caller participates in that process (b9 caller-scope).
 
 CREATE OR REPLACE FUNCTION has_consultation(
     p_entity    TEXT,
@@ -300,9 +298,36 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+    v_user_id INTEGER;
 BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
+
+    -- Caller-scope (b9): has_consultation is GRANTed to the request role and exposed as
+    -- /rpc/has_consultation, so without a caller gate it is a record-existence oracle — any user
+    -- could probe any record's consultation state. Restrict it to PARTICIPANTS of the governing
+    -- process: the caller must hold a role that carries some RACI assignment on the process that
+    -- governs (entity, to_state). A consulted-gate is always evaluated by an actor who is a RACI
+    -- participant (R/A initiating the transition), so legitimate use is unaffected; a non-
+    -- participant probe fails closed (FALSE), indistinguishable from "not yet consulted".
+    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::INTEGER;
+    IF v_user_id IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM   process_gates    pg
+        JOIN   raci_assignments ra ON ra.process_id = pg.process_id
+        JOIN   user_roles       ur ON ur.role_id    = ra.role_id
+        WHERE  pg.entity   = p_entity
+          AND  pg.to_state = p_to_state
+          AND  ur.user_id  = v_user_id
+    ) THEN
+        RETURN FALSE;
+    END IF;
+
     RETURN EXISTS (
         SELECT 1
         FROM   raci_events  re
@@ -317,7 +342,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION has_consultation IS
-'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state). Backs C-block gates. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
+'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state) AND the caller participates in the governing process (holds a role with a RACI assignment on it). Non-participants get FALSE (caller-scoped, b9). Backs C-block gates. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
 
 REVOKE EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) TO semantius_user;

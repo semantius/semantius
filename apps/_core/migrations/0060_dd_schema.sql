@@ -169,7 +169,7 @@ COMMENT ON COLUMN fields.default_value IS 'Default value for the field (as SQL e
 COMMENT ON COLUMN fields.field_order IS 'Display order for the field';
 COMMENT ON COLUMN fields.input_type IS 'Input type for UI rendering: default, required, readonly, disabled, or hidden';
 COMMENT ON COLUMN fields.width IS 'Display width for UI rendering: default (auto), s (small), m (medium), or w (wide)';
-COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), or label (display field)';
+COMMENT ON COLUMN fields.ctype IS 'Special column type: empty string (normal field), id (primary key), label (display field), created_at / updated_at (managed system timestamps). A non-empty ctype marks a DD-managed core column protected against rename/format/default/delete (the label column rename being the one allowed exception).';
 COMMENT ON COLUMN fields.is_core IS 'Whether this is a core system field (id, label, created_at, updated_at) that cannot be deleted or have structural changes';
 COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for this field (e.g., ["active", "inactive", "pending"])';
 COMMENT ON COLUMN fields."precision" IS 'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats. Default 2 (currency-style).';
@@ -345,7 +345,7 @@ DECLARE
   ];
   input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
   width_values TEXT[] := ARRAY['default', 's', 'm', 'w'];
-  ctype_values TEXT[] := ARRAY['', 'id', 'label'];
+  ctype_values TEXT[] := ARRAY['', 'id', 'label', 'created_at', 'updated_at'];
   reference_delete_mode_values TEXT[] := ARRAY['', 'restrict', 'clear', 'cascade'];
   edit_mode_values TEXT[] := ARRAY['auto', 'sidebar', 'modal', 'page'];
   cube_mode_values TEXT[] := ARRAY['disabled', 'auto'];

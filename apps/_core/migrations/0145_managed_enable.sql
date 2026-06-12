@@ -273,11 +273,11 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    SELECT NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'created_at', TRUE, FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'created_at');
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    SELECT NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'updated_at', TRUE, FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'updated_at');
 
     -- ── Add any missing columns for existing field records ───────────────
@@ -304,6 +304,16 @@ BEGIN
     )
     WHERE table_name = NEW.table_name;
 
+    -- Build the canonical-predicate RLS policies (select_rule, or the permission-only default
+    -- when no rule is set) DETERMINISTICALLY here, rather than relying on the separate
+    -- manage_select_rule_policy AFTER-trigger firing in the right alphabetical order (F3). The
+    -- table-creation block above installs permission-only policies; this replaces the SELECT /
+    -- UPDATE / DELETE policies with the per-row rule when entities.select_rule is non-empty, so
+    -- the F→T toggle can never leave a select_rule-bearing entity gated by view_permission alone.
+    -- Idempotent: build_select_rule_policy drops + recreates, so the redundant manage_*-trigger
+    -- call is harmless.
+    PERFORM build_select_rule_policy(NEW.table_name);
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -312,7 +322,9 @@ COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
 creates the physical table (with RLS policies and updated_at trigger) if it does
 not already exist, then adds any columns that were defined as field records while
-the table was unmanaged.';
+the table was unmanaged. Finally calls build_select_rule_policy() so the canonical
+select_rule predicate is installed deterministically, without depending on the
+firing order of the manage_select_rule_policy AFTER-trigger (F3).';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
 CREATE TRIGGER enable_table_trigger
