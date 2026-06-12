@@ -17,6 +17,9 @@ CREATE TABLE modules (
     logo_color TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     module_slug TEXT DEFAULT '' NOT NULL UNIQUE,
+    -- Catalog/blueprint lineage (v0.1.2): the catalog code this module was provisioned/cloned from.
+    -- Non-unique (a clone deploys one code into several modules); module_slug stays the identity.
+    catalog_module_code TEXT NOT NULL DEFAULT '',
     settings JSONB,
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -83,6 +86,9 @@ CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
     role_name TEXT UNIQUE NOT NULL DEFAULT '',
     slug TEXT NOT NULL DEFAULT '' UNIQUE,
+    -- Catalog/blueprint lineage (v0.1.2): the catalog persona this role was provisioned from.
+    -- Non-unique lineage; roles.slug stays the identity. No consumer yet (D5 insurance).
+    catalog_role_code TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'user',
     module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
