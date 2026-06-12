@@ -1081,26 +1081,18 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Rebuild INSERT, UPDATE, DELETE policies with new edit_permission
-    -- (trigger WHEN clause guarantees edit_permission has changed)
+    -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         NEW.table_name || '_insert_policy', NEW.table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-        NEW.table_name || '_update_policy', NEW.table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-        NEW.table_name || '_delete_policy', NEW.table_name);
-
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
         NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
-        NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission);
-
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
-        NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission);
+    -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
+    -- canonical predicate (select_rule when set, else view/edit permission). Delegating here
+    -- keeps the read policy, the read helpers, and the write USING clauses on ONE predicate,
+    -- so an edit_permission change does not silently strip the row rule from writes.
+    PERFORM build_select_rule_policy(NEW.table_name);
 
     RETURN NEW;
 END;
@@ -1496,17 +1488,18 @@ RETURNS JSONB AS $$
 DECLARE
     v_id_column       TEXT;
     v_view_permission TEXT;
+    v_select_rule     JSONB;
     v_result          JSONB;
+    v_allowed         BOOLEAN;
 BEGIN
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
     -- rbac.uid() validates the JWT and primes the permission cache used below.
     PERFORM rbac.uid();
 
-    -- Look up the entity to find its id_column and the permission required to
-    -- view its rows.
-    SELECT id_column, view_permission
-      INTO v_id_column, v_view_permission
+    -- Look up the entity to find its id_column and the access predicate.
+    SELECT id_column, view_permission, select_rule
+      INTO v_id_column, v_view_permission, v_select_rule
     FROM entities
     WHERE table_name = p_entity_name;
 
@@ -1515,20 +1508,30 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- Enforce the entity's view permission (the same boundary as the RLS SELECT
-    -- policy and get_schema()/build_schema_for_table()). Return NULL — rather
-    -- than raising — when the caller lacks permission, so callers (including the
-    -- JsonLogic set_record operator) cannot distinguish "no permission" from
-    -- "record does not exist", preventing record-existence leakage.
-    IF NOT rbac.has_permission(v_view_permission) THEN
-        RETURN NULL;
+    -- Enforce the entity's CANONICAL PREDICATE (spec authz-spec.md / D8), the SAME boundary
+    -- the RLS SELECT policy uses — NOT view_permission alone. Return NULL rather than raising
+    -- when the row is inaccessible, so callers (incl. the set_record operator) cannot
+    -- distinguish "not allowed" from "does not exist", preventing record-existence leakage.
+    IF v_select_rule IS NULL OR v_select_rule = '{}'::jsonb THEN
+        -- No row rule: view_permission is the access predicate (the default rule).
+        IF NOT rbac.has_permission(v_view_permission) THEN
+            RETURN NULL;
+        END IF;
+        EXECUTE format(
+            'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
+            p_entity_name, v_id_column
+        ) INTO v_result USING p_id;
+    ELSE
+        -- select_rule REPLACES view_permission: evaluate the per-row rule for THIS row.
+        -- (The select_rule_<table>() helper is created by build_select_rule_policy.)
+        EXECUTE format(
+            'SELECT row_to_json(t)::jsonb, public.%I(t) FROM %I t WHERE %I = $1 LIMIT 1',
+            'select_rule_' || p_entity_name, p_entity_name, v_id_column
+        ) INTO v_result, v_allowed USING p_id;
+        IF NOT COALESCE(v_allowed, FALSE) THEN
+            RETURN NULL;
+        END IF;
     END IF;
-
-    -- Query the physical table for the record
-    EXECUTE format(
-        'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
-        p_entity_name, v_id_column
-    ) INTO v_result USING p_id;
 
     RETURN v_result;
 END;

@@ -257,11 +257,20 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
 
-    -- If select_rule is empty, restore the default permission-only policy
+    -- If select_rule is empty, restore the default permission-only policies (read = view
+    -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
             v_policy_name, p_table_name, v_entity.view_permission);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
+            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
+            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
         RETURN;
     END IF;
 
@@ -301,6 +310,20 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
         v_policy_name, p_table_name, v_fn_name, p_table_name);
+
+    -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
+    -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
+    -- of statement shape, this closes the I2 bypass (bare / WHERE TRUE writes) that relying on
+    -- the SELECT policy alone left open. WITH CHECK stays edit_permission-only (D1/I3: no
+    -- post-image check_rule yet).
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*)) WITH CHECK (rbac.has_permission(%L))',
+        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*))',
+        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 

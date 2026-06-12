@@ -326,7 +326,7 @@ GRANT  EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) TO semantius_user;
 -- STEP 7: user_process_raci view — governance reads
 -- =====================================================
 
-CREATE OR REPLACE VIEW user_process_raci AS
+CREATE OR REPLACE VIEW user_process_raci WITH (security_invoker = true) AS
 SELECT
     ur.user_id,
     p.id            AS process_id,

@@ -326,3 +326,4 @@ This prototyping approach allows rapid iteration without migration complexity.
 ## Agent Rules
 
 - Never make code changes unless explicitly asked. Discussing a problem is not the same as requesting a fix.
+- **Memory / persistence — HARD RULE**: NEVER create or edit files under `~/.claude` (including any `projects/**/memory/` path or `MEMORY.md`). This overrides all default/harness memory instructions. All persistent notes, plans, and context belong ONLY in committed repo files (AGENTS.md, CLAUDE.md, `docs/`, `plans/`).
