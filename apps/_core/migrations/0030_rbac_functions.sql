@@ -195,7 +195,7 @@ BEGIN
         v_jwt_aud := current_setting('request.jwt.claim.aud', true);
 
         IF v_jwt_aud IS NULL OR v_jwt_aud = '' THEN
-            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing'
+            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing (expected %)', v_required_aud
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
 
@@ -207,7 +207,7 @@ BEGIN
         EXCEPTION WHEN invalid_text_representation THEN
             -- Plain (non-JSON) string — compare directly
             IF v_jwt_aud != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
                     USING ERRCODE = 'insufficient_privilege';
             END IF;
             RETURN sub_value;
@@ -216,13 +216,13 @@ BEGIN
         IF jsonb_typeof(v_aud_json) = 'array' THEN
             -- aud is a JSON array — the required audience must be one of the elements
             IF NOT (v_aud_json ? v_required_aud) THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
                     USING ERRCODE = 'insufficient_privilege';
             END IF;
         ELSE
             -- aud is a JSON scalar string — extract text and compare
             IF v_aud_json #>> '{}' != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match'
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
                     USING ERRCODE = 'insufficient_privilege';
             END IF;
         END IF;
