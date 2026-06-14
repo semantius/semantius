@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS entities (
     edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
     label_column TEXT NOT NULL DEFAULT 'label',
+    label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
@@ -48,6 +49,9 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
     CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- label_parent is empty (intrinsic) or a column-name identifier (validated against the
+    -- fields catalog by the validate_label_parent trigger in 0145_managed_enable.sql).
+    CONSTRAINT valid_label_parent CHECK (label_parent = '' OR label_parent ~ '^[a-z_][a-z0-9_]*$'),
 
     -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
     CONSTRAINT plural_matches_table_name CHECK (plural = table_name),
@@ -376,6 +380,17 @@ VALUES
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
      '[{"code":"origin_immutable_hierarchy","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
 
+-- Stamp the pure junctions explicitly (entity_type='junction' is authoritative; see dd_is_junction
+-- in 0145). The structural test is two parent FK legs with no relationship payload of their own —
+-- audit/provenance columns (assigned_at/assigned_by, granted_at/granted_by, origin, created_at)
+-- don't count. permission_hierarchy qualifies: its two legs both point at permissions and its only
+-- non-leg fields are origin (provenance) and created_at (audit). Stamping it is authoritative — the
+-- dd_is_junction heuristic alone would miss it because origin is not an audit-named/ctype column.
+-- Runs before the entity_type-watching triggers (0145), so it's a plain seed-time stamp; the
+-- label-function backfill at the end of 0145 then builds the junction-shaped labels for all entities.
+UPDATE entities SET entity_type = 'junction'
+WHERE table_name IN ('user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy');
+
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
 -- =====================================================
@@ -513,6 +528,7 @@ VALUES
     ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'text',      FALSE, 90,  'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        ''),
+    ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        ''),
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        ''),

@@ -633,3 +633,435 @@ the column is created via apply_field_ddl() and the function returns early.';
 
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
+
+-- =====================================================
+-- COMPOSED RECORD LABELS  (label_parent + _label / <fk>_label)
+-- =====================================================
+-- A record's composed label answers "which record is this?" by folding the entity's local label
+-- with its parent chain. Labels are DERIVED AT READ TIME (never stored) as PostgREST computed
+-- columns: a function whose single argument is the table's row type is exposed as a selectable
+-- column of that table (e.g. select=id,_label). The functions are SECURITY INVOKER, so each parent
+-- read inside them is gated by that parent's own RLS policy — a parent the caller cannot read
+-- degrades to the local label, it never leaks (viewer-relative labels).
+--
+-- Two derived columns per entity:
+--   _label          composed label of the row (root: local; relational: parent._label › local;
+--                   junction: legA._label › legB._label …)
+--   <fk>_label      for every reference/parent field: the referenced record's composed label
+--
+-- The fold uses concat_ws(sep, …) (skips NULL arms, so no dangling separator) over scalar
+-- subqueries (NULL when the FK is null / deleted / hidden) and NULLIF(local,'') (empty local
+-- contributes nothing) — this is the required degrade-to-local behaviour.
+--
+-- Termination is a VALIDATION guarantee, not a runtime guard: self-referential spines are rejected
+-- and the label_parent graph is kept acyclic (validate_label_parent), so the generated functions
+-- can recurse plainly and always terminate.
+
+-- Shared predicate: a field that carries a foreign key (and thus gets a <fk>_label companion).
+-- Used by BOTH the generator and get_schema() so the advertised set never drifts from the built set.
+CREATE OR REPLACE FUNCTION dd_is_fk_format(p_format TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT p_format IN ('reference', 'parent') $$;
+
+-- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
+-- fallback heuristic recognises a pure pairing table — ≥2 parent legs and every non-leg field is an
+-- id/label/audit column (recognised audit names + ctype='audit'). A status/rating/note payload
+-- field disqualifies it (so an interview scorecard is NOT a junction).
+CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN FALSE
+    WHEN (SELECT entity_type FROM entities WHERE table_name = p_table_name) = 'junction' THEN TRUE
+    ELSE COALESCE((
+      SELECT count(*) FILTER (WHERE f.format = 'parent') >= 2
+         AND count(*) FILTER (WHERE NOT (
+                  f.format = 'parent'
+               OR f.field_name = e.id_column
+               OR f.field_name = e.label_column
+               OR COALESCE(f.ctype, '') = 'audit'
+               OR f.field_name IN ('created_at','updated_at','created_by','updated_by',
+                                   'assigned_at','assigned_by','granted_at','granted_by')
+             )) = 0
+      FROM fields f
+      CROSS JOIN entities e
+      WHERE f.table_name = p_table_name AND e.table_name = p_table_name
+    ), FALSE)
+  END
+$$;
+
+-- The committed identity-spine parent of an entity (reference_table of its label_parent field),
+-- or '' when it has no spine. Used by validate_label_parent() to walk the chain for cycles.
+CREATE OR REPLACE FUNCTION dd_spine_parent(p_table_name TEXT)
+RETURNS TEXT
+LANGUAGE sql STABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE((
+    SELECT f.reference_table
+    FROM entities e
+    JOIN fields f ON f.table_name = e.table_name AND f.field_name = NULLIF(e.label_parent, '')
+    WHERE e.table_name = p_table_name
+  ), '')
+$$;
+
+-- (Re)generate _label and every <fk>_label for one entity from current metadata + physical columns.
+-- Defensive: only references columns/tables that physically exist, so it produces valid SQL for any
+-- entity shape (core meta-tables, composite-PK junctions, dangling references). check_function_bodies
+-- is disabled around the CREATEs so order-independent / mutually-referential generation never fails;
+-- the bodies are validated at first call instead.
+CREATE OR REPLACE FUNCTION rebuild_entity_label_functions(p_table_name TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+    v_id_col      TEXT;
+    v_label_col   TEXT;
+    v_spine       TEXT;
+    v_rowtype     TEXT;
+    v_local       TEXT;
+    v_body        TEXT;
+    v_is_junction BOOLEAN;
+    v_saved       TEXT;
+    v_legs        TEXT[];
+    v_parent_id   TEXT;
+    v_spine_ref   TEXT;
+    v_spine_fmt   TEXT;
+    r             RECORD;
+BEGIN
+    -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
+    IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN
+        RETURN;
+    END IF;
+    v_rowtype := format('public.%I', p_table_name);
+    IF to_regclass(v_rowtype) IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT id_column, label_column, NULLIF(label_parent, '')
+      INTO v_id_col, v_label_col, v_spine
+      FROM entities WHERE table_name = p_table_name;
+
+    v_saved := current_setting('check_function_bodies');
+    PERFORM set_config('check_function_bodies', 'off', true);
+
+    -- Drop every label function currently bound to this row type (clears stale companions after a
+    -- field rename / drop / format change before recreating the live set).
+    FOR r IN
+        SELECT p.oid::regprocedure AS sig
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND (p.proname = '_label' OR p.proname LIKE '%\_label')
+          AND p.pronargs = 1
+          AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+    END LOOP;
+
+    -- Local term: own label value with '' folded to NULL (so it contributes nothing).
+    IF v_label_col IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = p_table_name AND column_name = v_label_col
+    ) THEN
+        v_local := format('NULLIF((rec.%I)::text, %L)', v_label_col, '');
+    ELSE
+        v_local := 'NULL::text';
+    END IF;
+
+    v_is_junction := dd_is_junction(p_table_name);
+
+    IF v_is_junction THEN
+        -- Junction: combine the parent legs (field order); no local term.
+        v_legs := ARRAY[]::TEXT[];
+        FOR r IN
+            SELECT f.field_name, f.reference_table
+            FROM fields f
+            WHERE f.table_name = p_table_name
+              AND f.format = 'parent'
+              AND f.reference_table <> ''
+              AND f.reference_table <> p_table_name
+            ORDER BY f.field_order
+        LOOP
+            SELECT id_column INTO v_parent_id FROM entities WHERE table_name = r.reference_table;
+            CONTINUE WHEN v_parent_id IS NULL;
+            CONTINUE WHEN to_regclass(format('public.%I', r.reference_table)) IS NULL;
+            CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
+            v_legs := array_append(v_legs, format(
+                '(SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I)',
+                r.reference_table, v_parent_id, r.field_name));
+        END LOOP;
+
+        IF array_length(v_legs, 1) >= 1 THEN
+            v_body := format('SELECT NULLIF(concat_ws(%L, %s), %L)',
+                             ' › ', array_to_string(v_legs, ', '), '');
+        ELSE
+            v_body := format('SELECT %s', v_local);
+        END IF;
+
+    ELSIF v_spine IS NOT NULL THEN
+        -- Relational: parent._label › local, degrading to local when the spine does not resolve.
+        SELECT format, reference_table INTO v_spine_fmt, v_spine_ref
+          FROM fields WHERE table_name = p_table_name AND field_name = v_spine;
+        IF dd_is_fk_format(v_spine_fmt)
+           AND COALESCE(v_spine_ref, '') <> ''
+           AND v_spine_ref <> p_table_name
+           AND to_regclass(format('public.%I', v_spine_ref)) IS NOT NULL
+           AND EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema='public' AND table_name=p_table_name AND column_name=v_spine)
+        THEN
+            SELECT id_column INTO v_parent_id FROM entities WHERE table_name = v_spine_ref;
+            v_body := format(
+                'SELECT NULLIF(concat_ws(%L, (SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I), %s), %L)',
+                ' › ', v_spine_ref, v_parent_id, v_spine, v_local, '');
+        ELSE
+            v_body := format('SELECT %s', v_local);
+        END IF;
+
+    ELSE
+        -- Root / self-identifying: composed label is the local label.
+        v_body := format('SELECT %s', v_local);
+    END IF;
+
+    EXECUTE format(
+        'CREATE OR REPLACE FUNCTION public._label(rec %s) RETURNS text '
+        'LANGUAGE sql STABLE SET search_path = public AS $body$ %s $body$',
+        v_rowtype, v_body);
+    -- Computed-label functions are SECURITY INVOKER (default): keep them off PUBLIC but executable
+    -- by the request role so they work as PostgREST computed columns and in nested _label calls.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public._label(%s) TO semantius_user', v_rowtype);
+
+    -- <fk>_label companion for every reference/parent field (referenced record's composed label).
+    FOR r IN
+        SELECT f.field_name, f.reference_table
+        FROM fields f
+        WHERE f.table_name = p_table_name AND dd_is_fk_format(f.format) AND f.reference_table <> ''
+        ORDER BY f.field_order
+    LOOP
+        SELECT id_column INTO v_parent_id FROM entities WHERE table_name = r.reference_table;
+        CONTINUE WHEN v_parent_id IS NULL;
+        CONTINUE WHEN to_regclass(format('public.%I', r.reference_table)) IS NULL;
+        CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
+        CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- display column), it wins — skip the companion so the column is never shadowed by a function.
+        CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
+        EXECUTE format(
+            'CREATE OR REPLACE FUNCTION public.%I(rec %s) RETURNS text '
+            'LANGUAGE sql STABLE SET search_path = public AS $body$ '
+            'SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I $body$',
+            r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
+    END LOOP;
+
+    PERFORM set_config('check_function_bodies', v_saved, true);
+END;
+$fn$;
+
+COMMENT ON FUNCTION rebuild_entity_label_functions(TEXT) IS
+'Regenerates the _label and <fk>_label PostgREST computed-column functions for one entity from
+current metadata + physical columns. SECURITY DEFINER (creates functions) but the generated
+functions are SECURITY INVOKER so composed labels respect each caller''s row-level read permissions.';
+
+-- =====================================================
+-- §9 RESERVED FIELD-NAME NAMESPACE
+-- =====================================================
+-- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
+-- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
+-- denormalised customer_label, or even a deliberate <fk>_label) are common and allowed. A real
+-- column always wins over a generated <fk>_label companion — the generator and get_schema are
+-- collision-aware and skip a companion whose name is already a real column (so nothing is shadowed
+-- silently). Privileged DD/migration code (BYPASSRLS) is exempt.
+CREATE OR REPLACE FUNCTION reserve_field_namespace()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE v_priv BOOLEAN;
+BEGIN
+    SELECT rolbypassrls INTO v_priv FROM pg_roles WHERE rolname = current_user;
+    IF COALESCE(v_priv, FALSE) THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.field_name ~ '^_' THEN
+        RAISE EXCEPTION 'Field name "%" is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)', NEW.field_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER fields_reserve_namespace_trigger
+    BEFORE INSERT OR UPDATE OF field_name ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION reserve_field_namespace();
+
+-- =====================================================
+-- §10 label_parent VALIDATION  (+ §2/§11 acyclic, no self-reference)
+-- =====================================================
+CREATE OR REPLACE FUNCTION validate_label_parent()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_fmt  TEXT;
+    v_ref  TEXT;
+    v_cur  TEXT;
+    v_hops INT := 0;
+BEGIN
+    IF COALESCE(NEW.label_parent, '') = '' THEN
+        RETURN NEW;
+    END IF;
+
+    IF dd_is_junction(NEW.table_name) THEN
+        RAISE EXCEPTION 'label_parent cannot be set on junction entity "%"', NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT format, reference_table INTO v_fmt, v_ref
+      FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_parent;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'label_parent "%" is not a field of entity "%"', NEW.label_parent, NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF NOT dd_is_fk_format(v_fmt) OR COALESCE(v_ref, '') = '' THEN
+        RAISE EXCEPTION 'label_parent "%" on "%" must name a reference/parent field', NEW.label_parent, NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF v_ref = NEW.table_name THEN
+        RAISE EXCEPTION 'label_parent "%" must not be self-referential (the identity spine must be acyclic)', NEW.label_parent
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF dd_is_junction(v_ref) THEN
+        RAISE EXCEPTION 'label_parent "%" must not target junction entity "%"', NEW.label_parent, v_ref
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Walk the committed spine chain from the target; returning to this entity is a cycle.
+    v_cur := v_ref;
+    WHILE COALESCE(v_cur, '') <> '' AND v_hops < 64 LOOP
+        IF v_cur = NEW.table_name THEN
+            RAISE EXCEPTION 'label_parent on "%" via "%" would create a cycle in the identity spine', NEW.table_name, NEW.label_parent
+                USING ERRCODE = 'check_violation';
+        END IF;
+        v_cur := dd_spine_parent(v_cur);
+        v_hops := v_hops + 1;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER validate_label_parent_trigger
+    BEFORE INSERT OR UPDATE OF label_parent ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_label_parent();
+
+-- =====================================================
+-- LIFECYCLE WIRING  (zzz_ names → fire AFTER the structural DD triggers)
+-- =====================================================
+-- One generator, driven by the same metadata get_schema reads, kept in sync by lightweight AFTER
+-- triggers rather than by editing the structural trigger functions.
+CREATE OR REPLACE FUNCTION dd_label_fn_sync_entity()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        -- Table rename: rebuild self under the new name, and every entity whose generated bodies
+        -- hard-code the old name (reference_table already cascaded to the new name by then).
+        PERFORM rebuild_entity_label_functions(NEW.table_name);
+        PERFORM rebuild_entity_label_functions(s.t)
+          FROM (SELECT DISTINCT table_name AS t FROM fields WHERE reference_table = NEW.table_name) s;
+    ELSE
+        PERFORM rebuild_entity_label_functions(NEW.table_name);
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION dd_label_fn_sync_field()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM rebuild_entity_label_functions(COALESCE(NEW.table_name, OLD.table_name));
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER zzz_label_fn_entity_insert_trigger
+    AFTER INSERT ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_fn_sync_entity();
+
+CREATE TRIGGER zzz_label_fn_entity_update_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name   IS DISTINCT FROM NEW.table_name
+       OR OLD.label_parent IS DISTINCT FROM NEW.label_parent
+       OR OLD.entity_type  IS DISTINCT FROM NEW.entity_type
+       OR OLD.label_column IS DISTINCT FROM NEW.label_column
+       OR OLD.managed      IS DISTINCT FROM NEW.managed)
+    EXECUTE FUNCTION dd_label_fn_sync_entity();
+
+CREATE TRIGGER zzz_label_fn_field_insert_trigger
+    AFTER INSERT ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_fn_sync_field();
+
+CREATE TRIGGER zzz_label_fn_field_delete_trigger
+    AFTER DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_fn_sync_field();
+
+CREATE TRIGGER zzz_label_fn_field_update_trigger
+    AFTER UPDATE ON fields
+    FOR EACH ROW
+    WHEN (OLD.field_name      IS DISTINCT FROM NEW.field_name
+       OR OLD.format          IS DISTINCT FROM NEW.format
+       OR OLD.reference_table IS DISTINCT FROM NEW.reference_table)
+    EXECUTE FUNCTION dd_label_fn_sync_field();
+
+REVOKE EXECUTE ON FUNCTION rebuild_entity_label_functions(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION reserve_field_namespace() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_label_parent() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_fn_sync_entity() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_fn_sync_field() FROM PUBLIC;
+-- Pure predicates: off PUBLIC (TEST 2.2) but available to the request role.
+REVOKE EXECUTE ON FUNCTION dd_is_fk_format(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_is_junction(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_spine_parent(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_is_fk_format(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_is_junction(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
+
+-- Backfill: build label functions for every entity that already exists (core meta-tables and any
+-- entity created before these triggers were installed). Entities created later self-provision via
+-- the AFTER triggers above. Order-independent thanks to check_function_bodies being off per build.
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT table_name FROM entities ORDER BY table_name LOOP
+        PERFORM rebuild_entity_label_functions(r.table_name);
+    END LOOP;
+END $$;

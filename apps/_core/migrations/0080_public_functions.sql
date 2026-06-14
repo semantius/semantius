@@ -395,18 +395,68 @@ BEGIN
                 -- For JSON types without explicit default, add empty object default
                 WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
-            END)::json AS property_value
+            END) AS property_value
         FROM ordered_fields
+    ),
+    -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
+    -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
+    -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
+    label_props AS (
+        SELECT
+            '_label'::text AS field_name,
+            (COALESCE((SELECT field_order FROM fields
+                       WHERE table_name = p_table_name AND ctype = 'label'
+                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', v_table_record.singular_label,
+                'description', 'Composed, human-readable label folded from the parent chain',
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', COALESCE((SELECT field_order FROM fields
+                                         WHERE table_name = p_table_name AND ctype = 'label'
+                                         ORDER BY field_order LIMIT 1), 1),
+                'ctype', '_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'source', NULLIF(v_table_record.label_parent, '')
+            ) AS property_value
+        UNION ALL
+        SELECT
+            f.field_name || '_label',
+            (f.field_order::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', f.title,
+                'description', 'Composed label of the referenced '
+                               || COALESCE(e2.singular_label, f.reference_table),
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', f.field_order,
+                'ctype', 'fk_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'reference_table', f.reference_table,
+                'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
+            )
+        FROM fields f
+        LEFT JOIN entities e2 ON e2.table_name = f.reference_table
+        WHERE f.table_name = p_table_name
+          AND public.dd_is_fk_format(f.format)
+          AND f.reference_table <> ''
+          -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
+          AND NOT EXISTS (SELECT 1 FROM fields f2
+                          WHERE f2.table_name = p_table_name
+                            AND f2.field_name = f.field_name || '_label')
+    ),
+    all_props AS (
+        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
+        FROM properties_with_defaults
+        UNION ALL
+        SELECT field_name, sort_order, property_value FROM label_props
     )
     SELECT COALESCE(
-        json_object_agg(
-            field_name,
-            property_value ORDER BY field_order
-        ),
+        json_object_agg(field_name, property_value ORDER BY sort_order),
         '{}'::json
     )
     INTO v_properties
-    FROM properties_with_defaults;
+    FROM all_props;
     
     -- Build required fields array (fields where nullability is false based on format)
     -- Exclude the id_column since it's auto-generated and not required for INSERT
@@ -432,7 +482,8 @@ BEGIN
     -- Get children (fields in other tables that reference this table with format='parent')
     v_children := public.get_schema_children(p_table_name);
 
-    -- Build the final JSON Schema result
+    -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
+    -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
     v_result := json_build_object(
         '$schema', 'https://semantius.com/meta/sem-schema/v1',
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',

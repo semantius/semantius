@@ -593,9 +593,13 @@ SELECT is(
 
 -- Test that ALL fields defined in fields table for 'entities' are present in get_schema output
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'entities'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'entities'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'entities' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'entities' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
@@ -608,9 +612,13 @@ SELECT is(
 
 -- Test that there are NO missing fields (expected - actual = 0)
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'entities'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'entities'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'entities' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'entities' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
@@ -628,9 +636,13 @@ SELECT is(
 
 -- Test that there are NO extra fields (actual - expected = 0)
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'entities'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'entities'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'entities' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'entities' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('entities')::jsonb->'properties') AS property_name
@@ -652,9 +664,13 @@ SELECT is(
 
 -- Test that ALL fields defined in fields table for 'fields' are present in get_schema output
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'fields'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'fields'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'fields' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'fields' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
@@ -667,9 +683,13 @@ SELECT is(
 
 -- Test that there are NO missing fields
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'fields'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'fields'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'fields' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'fields' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
@@ -687,9 +707,13 @@ SELECT is(
 
 -- Test that there are NO extra fields
 WITH expected_fields AS (
-    SELECT field_name
-    FROM fields
-    WHERE table_name = 'fields'
+    -- authored fields PLUS the derived label columns that get_schema must expose (so a missing
+    -- _label / <fk>_label is caught), computed from the same metadata the generator uses
+    SELECT field_name FROM fields WHERE table_name = 'fields'
+    UNION SELECT '_label'
+    UNION SELECT f.field_name || '_label' FROM fields f
+      WHERE f.table_name = 'fields' AND f.format IN ('reference','parent') AND f.reference_table <> ''
+        AND NOT EXISTS (SELECT 1 FROM fields f2 WHERE f2.table_name = 'fields' AND f2.field_name = f.field_name || '_label')
 ),
 actual_properties AS (
     SELECT jsonb_object_keys(public.get_schema('fields')::jsonb->'properties') AS property_name
