@@ -259,7 +259,10 @@ async function main(): Promise<void> {
       "script",
       "failfast",
     ],
-    string: ["config", "output", "apps", "env", "database-url"],
+    // "_" keeps positional args as strings; without it @std/flags coerces
+    // numeric-looking positionals to numbers and drops leading zeros, which
+    // breaks numeric test-file filters like `test 0335` (-> 335, never matches).
+    string: ["config", "output", "apps", "env", "database-url", "_"],
     alias: {
       h: "help",
       v: "verbose",
