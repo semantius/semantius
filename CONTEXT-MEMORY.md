@@ -65,6 +65,18 @@ Derive values with:
 "compatibility_flags": ["nodejs_compat"]
 ```
 
+## Build
+
+### Astro content-layer cache lives in `node_modules/.astro` (not `apps/web/.astro`)
+
+Astro's content layer persists its data store at `apps/web/node_modules/.astro/data-store.json`, separate from the generated types and module maps in `apps/web/.astro/`. After deleting or renaming files that back a content collection (for example the `skills/*/README.mdx` and `models/*-semantic-model.md` sources), a local `astro build` can fail with a stale reference such as `Rollup failed to resolve import "astro:content-layer-deferred-module?...README.mdx"` or `UnknownContentCollectionError: ... ats/readme`. The custom collection loaders in `content.config.ts` wrap the `glob` loader and do not prune store entries whose source files have disappeared.
+
+Fix: clear **both** caches, then rebuild:
+```bash
+rm -rf apps/web/.astro apps/web/node_modules/.astro
+```
+Clearing only `apps/web/.astro` is insufficient because the deleted entries survive in the `node_modules/.astro` data store. CI is unaffected since a clean install has neither directory.
+
 ## Styling
 
 ### Astro component styles inside MDX prose
