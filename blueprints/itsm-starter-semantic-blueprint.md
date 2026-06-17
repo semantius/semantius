@@ -27,8 +27,8 @@ Single-domain starter kit for a small IT team that wants a lightweight service d
 | --- | --- | --- |
 | Incidents | `service_incidents` | Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents). |
 | Knowledge Articles | `knowledge_articles` | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. |
-| Service Catalog Items | `service_catalog_items` | Definition of what can be requested: the form schema, fulfilment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item. |
-| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfilment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
+| Service Catalog Items | `service_catalog_items` | Definition of what can be requested: the form schema, fulfillment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item. |
+| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
 | SLAs | `service_slas` | Service-level agreement record: response-time, resolution-time, and availability targets per priority / category / customer tier. SLAs attach to incidents, service requests, and changes; breach metrics roll up to operational KPIs. |
 | Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
 
@@ -202,7 +202,7 @@ _(none: no other module embeds this scope's masters; the canonical owners do.)_
 | ITSM-INCIDENT-MGMT | GRC | _(domain-level)_ | `control.failed` | `untested` → `fail` _(state_change)_ | `service_incidents` | api_call | high | Failed IT control → ITSM ticket; no feedback when ITSM closes ticket on GRC SLA. |
 | ITSM-INCIDENT-MGMT | GRC | _(domain-level)_ | `remediation_plan.created` | _(lifecycle)_ | `service_incidents` | event_stream | medium | Remediation ticket created in ITSM. |
 | ITSM-INCIDENT-MGMT | AUDIT | _(domain-level)_ | `audit_engagement.completed` | `in_progress` → `completed` _(lifecycle)_ | `service_incidents` | manual_handoff | high | IT audit outcomes trigger ITSM actions; requires human interpretation of scope/findings. |
-| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronisation back to HRSD. |
+| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronization back to HRSD. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-ACCESS-REQUEST | `iga_access_request.approved` | _(state_change)_ | `service_incidents` | api_call | medium | Approved access requests with manual-fulfillment steps route to ITSM. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-AUTO-PROVISIONING | `iga_provisioning_event.completed` | _(state_change)_ | `service_incidents` | event_stream | medium | Provisioning event drives ITSM fulfillment-task closure where access tickets exist. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-AUTO-PROVISIONING | `iga_provisioning_event.failed` | _(state_change)_ | `service_incidents` | api_call | high | Failed provisioning becomes ITSM incident/request for manual completion. Alert-without-feedback-loop friction shape. |
@@ -301,7 +301,7 @@ _This scope holds `service_incidents` as **embedded_master**; the canonical stat
 | 3 | `in_progress` | - | - | - | - | Assignee is actively diagnosing or working the incident. |
 | 4 | `resolved` | - | - | ✓ | `itsm-starter:resolved_incident` | Workaround or fix delivered; awaiting reporter confirmation. |
 | 5 | `closed` | - | ✓ | ✓ | `itsm-starter:closed_incident` | Resolution confirmed; incident archived and SLA clock stopped. |
-| 6 | `cancelled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
+| 6 | `canceled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
 
 ### `service_requests` (Service Request)
 
@@ -314,7 +314,7 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | 3 | `fulfilling` | - | - | - | - | Fulfillment team is provisioning or executing the request. |
 | 4 | `fulfilled` | - | - | - | - | Item or access has been delivered to the requester. |
 | 5 | `closed` | - | ✓ | - | - | Request archived after requester confirmation. |
-| 6 | `cancelled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
+| 6 | `canceled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
 
 ## 8. Permissions and business rules (derived)
 

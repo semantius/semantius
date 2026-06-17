@@ -39,17 +39,17 @@ The installer preserves `state.jsonc` and `learnings.jsonc` across upgrades. Tea
 
 Before doing any domain work, the skill follows this sequence:
 
-1. **Verify `use-semantius` is loaded in the session.** Look at the available-skills list in the system reminder. If `use-semantius` is not present, halt with: *"This skill delegates all Semantius CLI mechanics to `use-semantius`. Install it from the catalog and reload the session: https://semantius.app/catalog/use-semantius"*. This is an agent-level check (no script can see what's loaded in the Claude Code session); the agent performs it on every invocation as the cheapest gate.
+1. **Verify `use-semantius` is loaded in the session.** Look at the available-skills list in the system reminder. If `use-semantius` is not present, halt with this exact message (use the command below verbatim; do NOT invent an install URL): *"This skill delegates all Semantius CLI mechanics to `use-semantius`. Install it and reload the session: `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`"*. This is an agent-level check (no script can see what's loaded in the Claude Code session); the agent performs it on every invocation as the cheapest gate.
 2. **Verify Bun is installed.** Run `bun --version`. If exit code is non-zero, halt with the install link (`https://bun.sh/install`). All scripts in `scripts/` are TypeScript on Bun (no Python, ever, see hard rules). The skill cannot proceed without Bun.
-3. **Read `learnings.jsonc`** in full (it is small). It is the **earned-knowledge** store: knowledge the skill had to work out or was told, that neither the CLI nor re-discovery can give back. Each entry is a `trigger` + `resolution` of kind `error_fix`, `user_input`, `recipe`, or `quirk`. Before solving a non-trivial operation or after a failure, match by `trigger` and apply `active` resolutions instead of re-deriving them; surface `proposed` ones for one-tap confirmation. Format and trust/decay rules: [references/learnings-format.md](references/learnings-format.md).
+3. **Read `learnings.jsonc`** in full (it is small). It is the **earned-knowledge** store: knowledge the skill had to work out or was told, that neither the CLI nor re-discovery can give back. Each entry is a `trigger` + `resolution` of kind `error_fix`, `user_input`, `recipe`, or `quirk`. Before solving a non-trivial operation or after a failure, match by `trigger` and apply `active` resolutions instead of re-deriving them; surface `proposed` ones for one-tap confirmation. Format and trust/decay rules: [references/learnings-format.md](./references/learnings-format.md).
    - If bootstrap halts Phase 1 with `can_offer_install: true` (the `semantius` CLI is not installed), **offer to run the install for the user.** The result carries `install_command` (the one-liner for their platform) and `install_docs`. Ask their go-ahead first (it modifies their system); never auto-install silently. On "yes", run the exact `install_command`, have them restart the shell if PATH changed, then re-run bootstrap. On "no", surface `install_docs` and stop.
 4. **Check `ready.flag`.** Single-file check. The skill is ready when:
    - `ready.flag` exists, AND
    - `ready.flag.valid_through_emitted == spec.emitted`, AND
    - `ready.flag.valid_through_major == spec.facts_major`.
-   If any condition fails, run `bun run scripts/bootstrap.ts` from the project root. Bootstrap orchestrates Phase 1 (environment) → Phase 2a (runs the provenance resolution ladder, writes `discovered.json`) → ready.flag. Phase 2a resolves every DomainMap concept against the live deployment by **deterministic platform reads** (no name guessing): see the ladder below. If Phase 2a leaves genuine ambiguities (a live row with an **empty** `catalog_entity_code`, i.e. created outside the deploy pipeline, or a concept that resolves to more than one in-domain entity), bootstrap DOES NOT write `ready.flag`; the agent runs Phase 2b ([references/discovery.md](references/discovery.md)) to surface only those to the user, records resolutions in `state.jsonc`, then re-invokes `bootstrap.ts`. A fully provenance-stamped deployment yields zero ambiguities and no prompts. **Run all of this silently:** the user must never see bootstrap mechanics, internal file names, module IDs, version numbers, or read-by-read narration (see [How to talk about the deployment](#how-to-talk-about-the-deployment)).
+   If any condition fails, run `bun run scripts/bootstrap.ts` from the project root. Bootstrap orchestrates Phase 1 (environment) → Phase 2a (runs the provenance resolution ladder, writes `discovered.json`) → ready.flag. Phase 2a resolves every DomainMap concept against the live deployment by **deterministic platform reads** (no name guessing): see the ladder below. If Phase 2a leaves genuine ambiguities (a live row with an **empty** `catalog_entity_code`, i.e. created outside the deploy pipeline, or a concept that resolves to more than one in-domain entity), bootstrap DOES NOT write `ready.flag`; the agent runs Phase 2b ([references/discovery.md](./references/discovery.md)) to surface only those to the user, records resolutions in `state.jsonc`, then re-invokes `bootstrap.ts`. A fully provenance-stamped deployment yields zero ambiguities and no prompts. **Run all of this silently:** the user must never see bootstrap mechanics, internal file names, module IDs, version numbers, or read-by-read narration (see [How to talk about the deployment](#how-to-talk-about-the-deployment)).
 5. **Once `ready.flag` is current,** answer the user's request from the persisted discovery, not from live re-queries. `discovered.json` already holds the full operational shape of this deployment, captured once at bootstrap: per entity the deployed `table_name`, `id_column` and `label_column` (read, never assumed: the label column is entity-specific, e.g. `candidate_name` vs `application_ref`), `description`, view/edit permissions, and per field the `name`, `title`, `format`, `ctype`, `enum_values` (live lifecycle/enum vocab), `reference_table` + `reference_delete_mode` + `relationship_label` (the relationship shape), and `is_pk`/`is_nullable`/`unique_value`. `state.jsonc` holds the deployment deltas (renames, omissions). Read those files; do NOT re-discover field names, formats, enums, or relationships per request, that is what the one-time discovery is for. **Before any write, apply the entity's operating contract from `discovered.json`**: `validation_rules` (live write guards, each with a human `message`), `input_type_rule` (conditional field editability), and `select_rule` (row-level read visibility, so you know what a query returns vs. what the UI shows). Never assume catalog names hold; this deployment may have renamed `suppliers` to `vendors`, dropped `cost_centers`, or split a master into two entities. Operational failures from semantius calls surface verbatim (Rule #6); the skill does NOT pre-flight authentication on every invocation; trust the CLI to error when it errors.
-6. **When something is earned during the run, write it to `learnings.jsonc`** so it is not re-derived next session: a call that failed in a non-obvious way plus the working form (`error_fix`), a correction or rule the user supplied (`user_input`), a validated multi-step or multi-table operation (`recipe`), or a deployment-specific fact the schema cannot express (`quirk`). `user_input` is `active` immediately; a `recipe` is `active` only after it actually ran and returned the expected result; `error_fix`/`quirk` are `proposed` until reconfirmed or user-approved. Re-encountered knowledge bumps `confidence`/`last_seen` rather than duplicating; contradicted knowledge is marked `obsolete`, never deleted. Do NOT record what `discovered.json` already holds (a plain rename is fixed by re-discovery, not remembered here). These feed back into step 3 on the next invocation. See [references/learnings-format.md](references/learnings-format.md).
+6. **When something is earned during the run, write it to `learnings.jsonc`** so it is not re-derived next session: a call that failed in a non-obvious way plus the working form (`error_fix`), a correction or rule the user supplied (`user_input`), a validated multi-step or multi-table operation (`recipe`), or a deployment-specific fact the schema cannot express (`quirk`). `user_input` is `active` immediately; a `recipe` is `active` only after it actually ran and returned the expected result; `error_fix`/`quirk` are `proposed` until reconfirmed or user-approved. Re-encountered knowledge bumps `confidence`/`last_seen` rather than duplicating; contradicted knowledge is marked `obsolete`, never deleted. Do NOT record what `discovered.json` already holds (a plain rename is fixed by re-discovery, not remembered here). These feed back into step 3 on the next invocation. See [references/learnings-format.md](./references/learnings-format.md).
 
 To force a fresh discovery: delete `ready.flag` (or also `discovered.json` and `.phase1-cache.json` for a fully cold rebuild). The next invocation will re-run bootstrap.
 
@@ -78,7 +78,7 @@ The provenance columns and their **empty** values (core v0.1.2 stores NOT NULL w
 | `catalog_module_code` (`modules`) | `''` | greenfield; a weak **hint** for the slice (membership is resolved by `settings.domain_code` + entity-first, not by this code) |
 | `settings` (`modules`, json) | `null` | not provisioned by the deploy pipeline (hand-built); its `domain_code` key is the authoritative slice marker when present |
 
-`catalog_entity_code` stamps the **canonical** DomainMap code (so the join is clean across dialect and silo renames); the deployed name lives in `table_name`. The name/alias/label heuristic survives only as a fallback for rows whose `catalog_entity_code` is empty. Full procedure and query shapes: [references/discovery.md](references/discovery.md).
+`catalog_entity_code` stamps the **canonical** DomainMap code (so the join is clean across dialect and silo renames); the deployed name lives in `table_name`. The name/alias/label heuristic survives only as a fallback for rows whose `catalog_entity_code` is empty. Full procedure and query shapes: [references/discovery.md](./references/discovery.md).
 
 ---
 
@@ -143,7 +143,7 @@ The **earned-knowledge** store: only knowledge the CLI exit codes and re-discove
 - **`recipe`**, a validated multi-step or multi-table operation/query (e.g. a 3-table cube join for a metric), so a solution found once is not re-derived.
 - **`quirk`**, a deployment-specific fact the schema cannot express (e.g. this deployment leaves `source_id` null and tracks source on the candidate).
 
-The point is persistence: match by `trigger` before a non-trivial op, apply the known `resolution` instead of working it out again. Trust and decay (`proposed`/`active`/`obsolete`, confidence bumps, never-delete) are in [references/learnings-format.md](references/learnings-format.md). Local to this deployment by default; a genuinely universal learning can be upstreamed via the catalog's contribution channel (never automatic). `learnings.jsonc` REPLACES the former `lessons.md` + `improvements.md`.
+The point is persistence: match by `trigger` before a non-trivial op, apply the known `resolution` instead of working it out again. Trust and decay (`proposed`/`active`/`obsolete`, confidence bumps, never-delete) are in [references/learnings-format.md](./references/learnings-format.md). Local to this deployment by default; a genuinely universal learning can be upstreamed via the catalog's contribution channel (never automatic). `learnings.jsonc` REPLACES the former `lessons.md` + `improvements.md`.
 
 ## What's in `discovered.json`
 
@@ -201,21 +201,13 @@ Stay honest: they are not active right now, but the framing is "available to ena
 
 These hold across every Semantius write the skill performs, regardless of what the user asks:
 
-- **`record_status` on agent-authored rows is `new`.** Never stamp `approved` without explicit per-load user confirmation. The default on every `record_status` column is already `"new"`; omitting the field is cleanest.
-- **No em-dashes** in any prose written to the catalog or to local files.
-- **American English** in every emitted artifact.
-- **Use the `semantius` CLI exclusively.** Never call MCP-exposed Semantius tools; they authenticate against the wrong scope and will fail or hit the wrong deployment.
-- **`semantius` reads `.env` from cwd.** Invoke from the project root; never `cd` into a subfolder before calling it.
-- **JWT-audience errors halt the run.** Surface the verbatim error and wait for user direction.
+- **Use the `semantius` CLI exclusively.** Never call MCP-exposed Semantius tools; they might authenticate against a different scope and could fail or hit the wrong deployment.
 - **Never use Python. Use Bun (TypeScript) for every script.** Python on Windows is brittle in this project's deployment surface (encoding mismatches piping JSON into `semantius`, venv/path drift, subprocess plumbing that swallows stderr). The bootstrap scripts ship as `.ts` files run with `bun`. Any script this skill writes (bootstrap, discovery, ad-hoc helpers, loaders) MUST be TypeScript on Bun. "Just this once" with Python is not acceptable. If you think Python is the right tool, you're wrong, write the TypeScript instead.
 
-Full versions of these rules with rationale live in the catalog's [domain-map-analyst SKILL.md](https://github.com/<...>/domain-map/blob/main/.claude/skills/domain-map-analyst/SKILL.md).
 
 ---
 
 ## Quick reference
-
-UI base: `https://<org>.semantius.app/real-estate-agent/<table>`
 
 Spec file: [`spec.json`](./spec.json)
 
@@ -226,7 +218,7 @@ Learnings file: `./learnings.jsonc` (earned knowledge; created on first learning
 Discovered schema: `./discovered.json` (full entity/field/relationship snapshot)
 
 Procedure references:
-- [Bootstrap checks](references/bootstrap.md)
-- [Discovery procedure](references/discovery.md)
-- [Learnings format](references/learnings-format.md)
-- [Skill changelog](references/skill-changelog.md)
+- [Bootstrap checks](./references/bootstrap.md)
+- [Discovery procedure](./references/discovery.md)
+- [Learnings format](./references/learnings-format.md)
+- [Skill changelog](./references/skill-changelog.md)

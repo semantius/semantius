@@ -246,7 +246,7 @@ _This scope holds `interviews` as **embedded_master**; the canonical state machi
 | 2 | `confirmed` | - | - | - | - | Candidate and panel confirmed attendance. |
 | 3 | `completed` | - | ✓ | - | - | Interview took place; scorecards are being collected. |
 | 4 | `no_show` | - | ✓ | - | - | Candidate or panel did not attend; interview did not occur. |
-| 5 | `cancelled` | - | ✓ | - | - | Interview cancelled before it took place. |
+| 5 | `canceled` | - | ✓ | - | - | Interview canceled before it took place. |
 | 6 | `rescheduled` | - | ✓ | - | - | Original slot abandoned in favor of a new scheduled interview record. |
 
 ### `job_applications` (Application)
@@ -287,7 +287,7 @@ _This scope holds `job_postings` as **embedded_master**; the canonical state mac
 | 2 | `published` | - | - | ✓ | `hiring-starter:publish_posting` | Posting is live on the target channel; gated publish step. |
 | 3 | `paused` | - | - | - | - | Posting temporarily hidden from the channel. |
 | 4 | `expired` | - | ✓ | - | - | Posting reached its scheduled end date. |
-| 5 | `closed` | - | ✓ | - | - | Posting taken down because the requisition is filled or cancelled. |
+| 5 | `closed` | - | ✓ | - | - | Posting taken down because the requisition is filled or canceled. |
 
 ## 8. Permissions and business rules (derived)
 

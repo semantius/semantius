@@ -89,7 +89,7 @@ flowchart TD
 | 3 | `legal_contracts` | `legal_contracts` | Contract | Contracts | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
 | 4 | `data_protection_addenda` | `data_protection_addenda` | Data Protection Addendum | Data Protection Addenda | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
 | 5 | `signature_records` | `signature_records` | Signature Record | Signature Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 | 7 | `envelopes` | `envelopes` | Envelope | Envelopes | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms

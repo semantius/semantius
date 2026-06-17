@@ -342,7 +342,7 @@ _This scope holds `internal_opportunities` as **embedded_master**; the canonical
 | 2 | `open` | - | - | ✓ | `ats-candidate-crm:publish_opportunity` | - |
 | 3 | `closed` | - | - | ✓ | `ats-candidate-crm:close_opportunity` | - |
 | 4 | `filled` | - | ✓ | - | - | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `ats-candidate-crm:cancel_opportunity` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `ats-candidate-crm:cancel_opportunity` | - |
 
 ### `outreach_sequences` (Outreach Sequence)
 
@@ -379,7 +379,7 @@ _This scope holds `internal_opportunities` as **embedded_master**; the canonical
 | 2 | `open_for_registration` | - | - | - | - | Registration is accepting attendees; promotion campaigns active. |
 | 3 | `held` | - | - | - | - | Event has been executed; attendee lists captured, leads ingested into talent pool. |
 | 4 | `closed` | - | ✓ | - | - | Post-event activities complete; cost accounting and source-attribution finalized. |
-| 5 | `cancelled` | - | ✓ | - | - | Event called off before it happens; sunk costs recognized, attendees notified. |
+| 5 | `canceled` | - | ✓ | - | - | Event called off before it happens; sunk costs recognized, attendees notified. |
 
 ### `talent_pools` (Talent Pool)
 
@@ -404,7 +404,7 @@ _This scope holds `talent_pools` as **embedded_master**; the canonical state mac
 | `ats-candidate-crm:flag_do_not_hire` | workflow-gate (lifecycle) | Transition `candidates` into state `do_not_hire` | ✓ |
 | `ats-candidate-crm:publish_opportunity` | workflow-gate (lifecycle) | Transition `internal_opportunities` into state `open` | ✓ |
 | `ats-candidate-crm:close_opportunity` | workflow-gate (lifecycle) | Transition `internal_opportunities` into state `closed` | ✓ |
-| `ats-candidate-crm:cancel_opportunity` | workflow-gate (lifecycle) | Transition `internal_opportunities` into state `cancelled` | ✓ |
+| `ats-candidate-crm:cancel_opportunity` | workflow-gate (lifecycle) | Transition `internal_opportunities` into state `canceled` | ✓ |
 | `ats-candidate-crm:withdraw_consent` | workflow-gate (lifecycle) | Transition `candidate_consents` into state `withdrawn` | ✓ |
 | `ats-candidate-crm:verify_dsr_identity` | workflow-gate (lifecycle) | Transition `data_subject_requests` into state `verified` | ✓ |
 | `ats-candidate-crm:fulfill_dsr` | workflow-gate (lifecycle) | Transition `data_subject_requests` into state `fulfilled` | ✓ |

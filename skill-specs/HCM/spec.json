@@ -5,7 +5,7 @@
   "domain": {
     "code": "HCM",
     "name": "Human Capital Management",
-    "description": "Core HR system of record covering worker data, organisation and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
+    "description": "Core HR system of record covering worker data, organization and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
     "parent_domain_code": null,
     "certification_required": false,
     "catalog_tagline": "Run the single source of truth for your workforce, from the employee record to org structure, positions, and the full hire-to-retire lifecycle.",
@@ -55,7 +55,7 @@
     },
     {
       "code": "ORG-MGMT",
-      "name": "Organisation and Position Management",
+      "name": "Organization and Position Management",
       "cross_cutting": false
     },
     {
@@ -146,7 +146,7 @@
     },
     {
       "code": "HCM-ORG-POSITIONS",
-      "name": "Organisation and Position Management",
+      "name": "Organization and Position Management",
       "kind": "full",
       "realizes_capabilities": [
         "ORG-MGMT",
@@ -162,7 +162,7 @@
         "financial_plans",
         "job_requisitions"
       ],
-      "description": "Organisation design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics."
+      "description": "Organization design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics."
     }
   ],
   "data_objects": [

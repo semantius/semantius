@@ -190,7 +190,7 @@ _This scope holds `sourcing_events` as **consumer**; the canonical state machine
 | 3 | `in_progress` | - | - | - | - | Suppliers are actively submitting responses or bids. |
 | 4 | `bidding_closed` | - | - | - | - | Response window has closed; sourcing team is evaluating submissions. |
 | 5 | `awarded` | - | ✓ | ✓ | - | Winning supplier selected; outcome feeds CLM contract creation. |
-| 6 | `cancelled` | - | ✓ | - | - | Event terminated without award. |
+| 6 | `canceled` | - | ✓ | - | - | Event terminated without award. |
 
 ## 8. Permissions and business rules (derived)
 

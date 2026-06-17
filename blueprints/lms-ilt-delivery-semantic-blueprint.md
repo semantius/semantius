@@ -37,7 +37,7 @@ Scheduled course delivery: offerings and sessions, instructor assignments, atten
 | Virtual Classroom Meetings | `virtual_classroom_meetings` | Linkage to an external video meeting (Zoom / Teams / Webex) for a virtual session; carries join URL and recording reference. |
 | Waitlist Entries | `waitlist_entries` | Capacity overflow queue for a course offering; priority order and notify-on-seat-open policy. |
 | Course Enrollments | `course_enrollments` | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. |
-| Courses | `courses` | Atomic learning unit: e-learning module, video, live session, blended programme, external content. Carries content reference, duration, format, language, prerequisites, certification award. |
+| Courses | `courses` | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. |
 | Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
 | Locations | `locations` | - |
 | Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
@@ -133,7 +133,7 @@ flowchart TD
 | 13 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
 | 14 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
 | 15 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 16 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 16 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -326,7 +326,7 @@ _(none: no other module embeds this scope's masters; the canonical owners do.)_
 | HCM-ORG-POSITIONS | FIN | _(domain-level)_ | `org_unit.created` | _(state_change)_ | `org_units` | api_call | medium | New org unit usually maps to cost-center; ERP-FIN must reflect the structure for budgeting and labor allocation. |
 | HCM-CORE-WORKER | EXPENSE | _(domain-level)_ | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Termination triggers EXPENSE corporate-card deactivation and outstanding-report close-out. |
 | HCM-CORE-WORKER | PSA | PSA-PROJECT-DELIVERY | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Terminated employee may be the assignee on open project_tasks. PROJECT-DELIVERY needs to surface affected tasks for reassignment or completion handover. |
-| HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | ML attrition score crosses high threshold. PSA resource managers may proactively rebalance assignments away from at-risk consultants on critical engagements. High friction: probabilistic→deterministic pattern (score requires judgement call), false-positive volume can swamp the staffing queue. |
+| HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | ML attrition score crosses high threshold. PSA resource managers may proactively rebalance assignments away from at-risk consultants on critical engagements. High friction: probabilistic→deterministic pattern (score requires judgment call), false-positive volume can swamp the staffing queue. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.created` | `created` _(lifecycle)_ | `employees` | event_stream | low | New consultant hired. PSA resource pool adds the employee as available capacity; skill inventory record is seeded for downstream certifications. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.promoted` | _(lifecycle)_ | `employees` | event_stream | low | Consultant promoted (level / job profile change). PSA reevaluates billable rate band and skill inventory; existing project_assignments may need rate revision. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Consultant terminated. PSA must release any active project_assignments, return capacity to bench and re-allocate forecast. Medium friction: leaver-event timing varies (immediate vs notice period) and active assignments may need urgent rebalancing. |
@@ -339,7 +339,7 @@ _(none: no other module embeds this scope's masters; the canonical owners do.)_
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | HCM-CORE-WORKER | ATS | ATS-CANDIDATE-CRM | `candidate.hired` | `hired` _(lifecycle)_ | `employees` | event_stream | medium | Candidate-to-employee conversion: hired candidate from ATS triggers employee-record creation in HCM. Field mapping (candidate → employee) is rarely perfect; missing fields (legal name spelling, work-eligibility detail, tax IDs) get collected in the Onboarding journey and back-filled into HCM. |
 | HCM-CORE-WORKER | COMP-MGMT | COMP-PLANNING | `merit_cycle.approved` | `approved` _(state_change)_ | `employees` | event_stream | low | Cycle-close pay-rate changes post to the worker record (base salary, bonus target, equity guideline). |
-| HCM-CORE-WORKER | EMP-EXP | EMP-EXP-CONTINUOUS-LISTEN | `attrition_risk.high` | _(state_change)_ | `employees` | api_call | high | Attrition-risk inference from engagement signals surfaces to managers via HCM dashboards. Probabilistic-signal → deterministic-action pattern: a risk score is not a directive; intervention is gated by manager judgement, data-privacy rules (anonymity floor), and DEI-bias concerns. |
+| HCM-CORE-WORKER | EMP-EXP | EMP-EXP-CONTINUOUS-LISTEN | `attrition_risk.high` | _(state_change)_ | `employees` | api_call | high | Attrition-risk inference from engagement signals surfaces to managers via HCM dashboards. Probabilistic-signal → deterministic-action pattern: a risk score is not a directive; intervention is gated by manager judgment, data-privacy rules (anonymity floor), and DEI-bias concerns. |
 | HCM-CORE-WORKER | PA | PA-PREDICTIVE-MODELS | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | Flight-risk score flagged on employee; HR-business-partner motion required. Probabilistic-signal-to-deterministic-action friction shape; false-positive volume drives mistrust. |
 | HCM-CORE-WORKER | MDM | _(domain-level)_ | `employee_golden_record.created` | `active` _(lifecycle)_ | `employees` | api_call | medium | Resolved identity → HCM links operational HR record. |
 
@@ -376,7 +376,7 @@ _This scope holds `course_enrollments` as **embedded_master**; the canonical sta
 | 2 | `open_for_enrollment` | - | - | ✓ | `lms-ilt-delivery:open` | - |
 | 3 | `in_progress` | - | - | - | - | - |
 | 4 | `completed` | - | ✓ | ✓ | `lms-ilt-delivery:complete` | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
 
 ### `course_sessions` (Course Session)
 
@@ -385,7 +385,7 @@ _This scope holds `course_enrollments` as **embedded_master**; the canonical sta
 | 1 | `scheduled` | ✓ | - | - | - | - |
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `completed` | - | ✓ | ✓ | `lms-ilt-delivery:complete` | - |
-| 4 | `cancelled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
+| 4 | `canceled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
 
 ### `courses` (Course)
 
@@ -417,7 +417,7 @@ _This scope holds `employees` as **embedded_master**; the canonical state machin
 | 1 | `assigned` | ✓ | - | - | - | - |
 | 2 | `confirmed` | - | - | ✓ | `lms-ilt-delivery:confirm` | - |
 | 3 | `completed` | - | ✓ | - | - | - |
-| 4 | `cancelled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
+| 4 | `canceled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
 
 ### `instructors` (Instructor)
 
@@ -460,7 +460,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | 1 | `scheduled` | ✓ | - | - | - | - |
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `completed` | - | ✓ | - | - | - |
-| 4 | `cancelled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
+| 4 | `canceled` | - | ✓ | ✓ | `lms-ilt-delivery:cancel` | - |
 
 ### `waitlist_entries` (Waitlist Entry)
 
@@ -469,7 +469,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | 1 | `waiting` | ✓ | - | - | - | - |
 | 2 | `promoted` | - | ✓ | ✓ | `lms-ilt-delivery:promote` | - |
 | 3 | `expired` | - | ✓ | - | - | - |
-| 4 | `cancelled` | - | ✓ | - | - | - |
+| 4 | `canceled` | - | ✓ | - | - | - |
 
 ## 8. Permissions and business rules (derived)
 
@@ -494,7 +494,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `lms-ilt-delivery:expire` | workflow-gate (lifecycle) | Transition `course_enrollments` into state `expired` | ✓ |
 | `lms-ilt-delivery:withdraw` | workflow-gate (lifecycle) | Transition `course_enrollments` into state `withdrawn` | ✓ |
 | `lms-ilt-delivery:open` | workflow-gate (lifecycle) | Transition `course_offerings` into state `open_for_enrollment` | ✓ |
-| `lms-ilt-delivery:cancel` | workflow-gate (lifecycle) | Transition `course_offerings` into state `cancelled` | ✓ |
+| `lms-ilt-delivery:cancel` | workflow-gate (lifecycle) | Transition `course_offerings` into state `canceled` | ✓ |
 | `lms-ilt-delivery:activate` | workflow-gate (lifecycle) | Transition `instructors` into state `active` | ✓ |
 | `lms-ilt-delivery:deactivate` | workflow-gate (lifecycle) | Transition `instructors` into state `inactive` | ✓ |
 | `lms-ilt-delivery:confirm` | workflow-gate (lifecycle) | Transition `instructor_assignments` into state `confirmed` | ✓ |

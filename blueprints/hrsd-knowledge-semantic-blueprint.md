@@ -121,7 +121,7 @@ _(none: no other module embeds this scope's masters; the canonical owners do.)_
 
 | target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| HRSD-KNOWLEDGE | HRSD | HRSD-CASE-MGMT | `case_category.updated` | _(state_change)_ | `case_categories` | lifecycle_progression | low | Case taxonomy updates re-categorise the HR knowledge base so deflection and agent-assist suggestions stay aligned with the routing model. |
+| HRSD-KNOWLEDGE | HRSD | HRSD-CASE-MGMT | `case_category.updated` | _(state_change)_ | `case_categories` | lifecycle_progression | low | Case taxonomy updates re-categorize the HR knowledge base so deflection and agent-assist suggestions stay aligned with the routing model. |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
 

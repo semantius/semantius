@@ -1,95 +1,51 @@
 ---
 export const prerender = true;
 import Layout from '~/layouts/Layout.astro';
-import Pagination from '~/components/common/Pagination.astro';
 import { getCollection } from 'astro:content';
+import ModuleCard from '~/components/blueprints/ModuleCard.astro';
 
-const PAGINATION = 4;
-
-const allBlueprints = await getCollection('blueprints');
-const sorted = allBlueprints.sort(
-	(a, b) => b.data.created_at.valueOf() - a.data.created_at.valueOf()
+// The blueprints listing is now grouped by domain, sourced from the domain map
+// (domain-map/domain-map.json via the `domains` collection). Each domain is a
+// section (code, name, description); inside it each module links to its
+// blueprint at /blueprints/<module-code-lowercased>.
+const domains = (await getCollection('domains')).sort(
+	(a, b) => a.data.order - b.data.order,
 );
-const totalPages = Math.ceil(sorted.length / PAGINATION);
-const current = sorted.slice(0, PAGINATION);
-
-// `overview` is derived from the body at collection-build time (see
-// content.config.ts + lib/models-extract.ts), so listing cards have a
-// description even when the source file has none in frontmatter.
-const cards = current.map((blueprint) => ({
-	blueprint,
-	description: blueprint.data.description ?? blueprint.data.overview ?? '',
-}));
-const featured = cards[0];
-const rest = cards.slice(1);
-
-const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
-
-function randomColor(): string {
-	return COLORS[Math.floor(Math.random() * COLORS.length)];
-}
-
-const blueprintColors = current.map(() => randomColor());
 ---
 
-<Layout title="Semantic Blueprints" description="Semantic data blueprints you can adopt, customize, and build on.">
+<Layout title="Semantic Blueprints" description="Semantic data blueprints you can adopt, customize, and build on, grouped by domain.">
 	<section class="pt-32 pb-16">
 		<div class="max-w-6xl mx-auto px-6">
-			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Semantic Blueprints</h1>
+			<h1 class="text-center text-4xl font-display font-normal lg:text-[56px]">Semantic Blueprints</h1>
+			<p class="mx-auto mt-6 max-w-2xl text-center text-lg text-muted-foreground">
+				Browse the catalog by domain. Each domain groups the modules you can adopt, customize, and build on.
+			</p>
 
-			{featured && (
-				<div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 pb-16">
-					<a href={`/blueprints/${featured.blueprint.data.system_slug}`} class="block">
-						<div
-							class="flex items-center justify-center rounded-lg h-57.5"
-							style={`background-color:${blueprintColors[0]}`}
-						>
-							<span class="px-6 text-center text-4xl font-semibold text-white">
-								{featured.blueprint.data.system_name}
+			<div class="mt-16 space-y-20">
+				{domains.map((domain) => (
+					<section aria-labelledby={`domain-${domain.data.code}`}>
+						<div class="border-b border-border pb-6">
+							<span class="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+								{domain.data.code}
 							</span>
+							<h2 id={`domain-${domain.data.code}`} class="mt-3 text-2xl font-display font-semibold lg:text-3xl">
+								<a href={`/blueprints/${domain.data.code.toLowerCase()}`} class="hover:text-primary transition-colors">
+									{domain.data.name}
+								</a>
+							</h2>
+							<p class="mt-3 max-w-3xl text-foreground/80">{domain.data.description}</p>
 						</div>
-					</a>
-					<div>
-						{featured.description && (
-							<p class="line-clamp-4 text-foreground/90">{featured.description}</p>
-						)}
-						<a
-							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
-							href={`/blueprints/${featured.blueprint.data.system_slug}`}
-						>
-							View Blueprint
-						</a>
-					</div>
-				</div>
-			)}
 
-			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-				{rest.map(({ blueprint, description }, i) => (
-					<div class="mb-8">
-						<a href={`/blueprints/${blueprint.data.system_slug}`} class="block">
-							<div
-								class="flex items-center justify-center rounded-lg h-45"
-								style={`background-color:${blueprintColors[i + 1]}`}
-							>
-								<span class="px-6 text-center text-2xl font-semibold text-white">
-									{blueprint.data.system_name}
-								</span>
+						{domain.data.modules.length > 0 && (
+							<div class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+								{domain.data.modules.map((module) => (
+									<ModuleCard module={module} />
+								))}
 							</div>
-						</a>
-						{description && (
-							<p class="mt-4 line-clamp-4 text-foreground/90">{description}</p>
 						)}
-						<a
-							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
-							href={`/blueprints/${blueprint.data.system_slug}`}
-						>
-							View Blueprint
-						</a>
-					</div>
+					</section>
 				))}
 			</div>
-
-			<Pagination section="blueprints" currentPage={1} totalPages={totalPages} />
 		</div>
 	</section>
 </Layout>

@@ -4,6 +4,8 @@
       "code": "ATS",
       "name": "Applicant Tracking and Recruiting",
       "description": "Requisition management, candidate sourcing, interview workflows, and offer management. AI-assisted matching and screening overlays are increasingly bundled.",
+      "catalog_tagline": "Hire faster with a connected pipeline from sourcing through offer acceptance.",
+      "catalog_description": "Track every candidate from first contact through hire. Manage job requisitions, posting distribution, application intake, interview scheduling, scorecard collection, and offer generation in one connected pipeline.\n\nWhen a candidate accepts an offer, the workflow hands off cleanly to onboarding so your new hire's first day doesn't start from a blank page. Built-in support for EEOC-compliant funnel analytics, requisition approval routing, and offer-letter version control.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-09",
       "business_functions": [
@@ -29,6 +31,8 @@
           "code": "ATS-BACKGROUND-CHECKS",
           "name": "Background Checks",
           "description": "Pre-employment background-check orchestration with adverse-action workflow. Coordinates external vendor handoffs and gates offer-to-firm conversion on clearance. Requires an external `send_email` tool for FCRA adverse-action notices.",
+          "catalog_tagline": "Run compliant background screening with the adverse-action flow built in.",
+          "catalog_description": "Order screening packages, track each component to completion, and adjudicate results in one place. The full FCRA flow (disclosures, summary-of-rights acknowledgments, pre-adverse and adverse-action notices, and dispute handling) is modeled as part of the workflow.\n\nScreening is necessity-scoped, so deployments outside FCRA jurisdictions enable only what applies to them.",
           "personas": [
             {
               "code": "LEGAL-COMPLIANCE-SPECIALIST",
@@ -69,6 +73,8 @@
           "code": "ATS-CANDIDATE-CRM",
           "name": "Candidate CRM",
           "description": "The candidate-relationship backbone of an ATS, masters candidates (including the `prospect` lifecycle state), recruitment sources, agencies, and events. Structurally the same shape as standalone candidate-CRM products. Folds the AI-RECRUIT capability (resume parsing, ML matching, screening assistants) since those tools operate on `candidates` and are tightly bound to candidate workflows.",
+          "catalog_tagline": "Build and nurture a pipeline of candidates long before a role opens.",
+          "catalog_description": "Capture every candidate, source, and recruiter touchpoint in one place. Run nurture campaigns, log interactions, and keep warm relationships ready so you can fill roles from people who already know you.\n\nConsent and data-subject requests are tracked alongside each profile, so candidate privacy is handled as part of the workflow rather than bolted on.",
           "personas": [
             {
               "code": "HIRING-MANAGER",
@@ -129,6 +135,8 @@
           "code": "ATS-INTERVIEWS",
           "name": "Interviews",
           "description": "Interview scheduling, panel coordination, scorecards, and structured assessments. Realizes INTERVIEW-MGMT. Realizes the `interviewing` lifecycle state on `job_applications` (state pruned when this module is not installed).",
+          "catalog_tagline": "Run consistent, structured interviews and collect comparable feedback.",
+          "catalog_description": "Schedule interviews against panel availability, equip interviewers with kits and question banks, and gather scorecards and assessments in a single structured record. Consistent inputs make hiring decisions easier to defend and faster to reach.",
           "personas": [
             {
               "code": "HIRING-MANAGER",
@@ -169,6 +177,8 @@
           "code": "ATS-OFFERS",
           "name": "Offers",
           "description": "Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool, drops module Semantius coverage to ~83%.",
+          "catalog_tagline": "Generate, approve, and send offers without losing a version.",
+          "catalog_description": "Draft offers from templates, route them through approval chains, and track every version until acceptance. Generated offer letters stay linked to the offer record, so what was approved is exactly what was sent.",
           "personas": [
             {
               "code": "HIRING-MANAGER",
@@ -234,6 +244,8 @@
           "code": "ATS-PRE-EMPLOYEE-RECORD",
           "name": "Pre-Employee Record",
           "description": "The bridge between offer-accepted and start-date: ATS owns the pre-employee lifecycle stage (paperwork in flight, pre-boarding tasks open, background check pending). Realizes the `hired` state on `job_applications`. Publishes the `pre_employee.activated` event that hands the canonical reconciliation to HCM-mastered `employees`. Formerly NEW-HIRE-HANDOFF, renamed per §7.1 because HCM canonically masters `employees`.",
+          "catalog_tagline": "Hold the new hire's record between offer acceptance and day one.",
+          "catalog_description": "Once a candidate accepts, the pre-employee record carries their details through the gap before onboarding starts. It is the clean handoff point to onboarding and your HRIS, so a new hire's first day never starts from a blank page.",
           "personas": [
             {
               "code": "RECRUITING-COORDINATOR",
@@ -269,6 +281,8 @@
           "code": "ATS-RECRUITMENT-PIPELINE",
           "name": "Recruitment Pipeline",
           "description": "Requisitions → postings → applications with pipeline-stage lifecycle. Realizes REQ-MGMT and CANDIDATE-EXP (application flow slice). Embedded-masters `candidates`, optionally `hcm_positions` and `org_units` for canonical position/org context.",
+          "catalog_tagline": "Move applicants from requisition to decision on a structured, auditable pipeline.",
+          "catalog_description": "Open and approve requisitions, distribute postings, collect applications, and advance candidates through configurable stages, with screening questions, stage transitions, and hiring-team assignments captured as you go.\n\nApplicant-flow and disposition records are built in, so equal-opportunity reporting is a by-product of normal work rather than a separate project.",
           "personas": [
             {
               "code": "HIRING-MANAGER",
@@ -349,6 +363,8 @@
           "code": "ATS-REFERRALS",
           "name": "Employee Referrals",
           "description": "Employee-driven candidate sourcing with referral-bonus tracking (`candidate_referrals`). Embedded-masters `candidates`. Cross-domain handoffs to PAYROLL (bonus payout) and EMP-EXP (engagement signal).",
+          "catalog_tagline": "Turn your employees into your best sourcing channel.",
+          "catalog_description": "Let employees submit referrals, track each one through the pipeline, and pay out rewards automatically when a hire sticks. Campaigns and reward tiers keep participation high without manual bookkeeping.",
           "personas": [
             {
               "code": "RECRUITING-MANAGER",
@@ -379,6 +395,8 @@
           "code": "ATS-TALENT-POOLS",
           "name": "Talent Pools",
           "description": "Curated candidate groupings for nurture and pipeline-building (`talent_pools`). Embedded-masters `candidates`; deployed alone, materializes a thin candidate shell. Mirrors standalone talent-acquisition CRM products.",
+          "catalog_tagline": "Group and segment candidates so the right shortlist is one search away.",
+          "catalog_description": "Organize candidates into pools and segments, tag them by skill or stage, and save the searches you run most. When a requisition opens, your shortlist is already assembled instead of rebuilt from scratch.",
           "personas": [
             {
               "code": "RECRUITING-MANAGER",
@@ -403,6 +421,8 @@
           "code": "HIRING-STARTER",
           "name": "Hiring Starter",
           "description": "Entry-tier deployable for a basic hiring workflow: post jobs, capture applications, run interviews, generate offers. Embeds the canonical masters from the full ATS modules and inherits their lifecycle states. Ships three baseline permissions and one system skill; no workflow gates, no requisition approvals, no background-check orchestration, no pre-employee reconciliation. Upgrades to the full ATS surface without tenant data migration via the embedded-master demotion path.",
+          "catalog_tagline": "Everything a small team needs to hire, in one lightweight package.",
+          "catalog_description": "A starter bundle covering the core hiring path (postings, candidates, applications, interviews, and offers) without the breadth of the full module set. Stand up hiring quickly, then grow into the full modules as your volume increases; your data moves with you when you do.",
           "personas": [],
           "processes": [],
           "related_modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-RECRUITMENT-PIPELINE"]
@@ -672,6 +692,8 @@
       "code": "CLM",
       "name": "Contract Lifecycle Management",
       "description": "Authoring, negotiation, execution, and post-signature management of contracts.",
+      "catalog_tagline": "Draft, negotiate, sign, and track every contract from first draft through renewal in one place.",
+      "catalog_description": "Manage the entire life of a contract without losing the thread. Author new agreements from a library of pre-approved clauses and templates, route them through legal and business review, and capture redlines as counterparties negotiate. When terms are settled, send for electronic signature and store the executed document in a searchable repository.\n\nAfter signing, the work continues: track the obligations each contract creates, get ahead of due dates and renewals, and know the moment a commitment is satisfied, breached, or waived. Every contract stays current, every deadline stays visible, and the organization always knows what it has agreed to.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-11",
       "business_functions": [
@@ -693,6 +715,8 @@
           "code": "CLM-AUTHORING",
           "name": "Contract Authoring",
           "description": "Template-driven contract drafting with the approved clause library. Masters contract_templates and contract_clauses; produces draft legal_contracts that flow into CLM-NEGOTIATION. Realizes CLM-CONTRACT-AUTHORING and CLM-CLAUSE-LIBRARY-MGMT.",
+          "catalog_tagline": "Assemble new contracts fast from a library of approved clauses and templates.",
+          "catalog_description": "Build new agreements from pre-approved language instead of starting from a blank page. Pull clauses and templates from a maintained library, assemble a draft, and route it through legal and business review with a clear approval trail.\n\nVersioning and approval states keep the clause and template library trustworthy, so every new contract starts from terms the organization has already agreed it can stand behind.",
           "personas": [
             {
               "code": "CONTRACT-OPS-MANAGER",
@@ -748,6 +772,8 @@
           "code": "CLM-NEGOTIATION",
           "name": "Negotiation and Redlining",
           "description": "Track-changes negotiation with counterparty exchange, version comparison, and clause-risk detection. Consumes legal_contracts and contract_clauses; gates the in_negotiation -> approved lifecycle transition. Requires sign_document for signature workflow; coverage drops below 100% on the sign_document leg.",
+          "catalog_tagline": "Redline counterparty terms and reach agreement without losing track of changes.",
+          "catalog_description": "Work through counterparty markups in a structured negotiation, comparing proposed language against approved positions and capturing each round of changes. Surface the terms that need legal attention and route them for sign-off.\n\nWhen both sides agree, the negotiated contract moves cleanly into approval and execution, with a record of how the final language was reached.",
           "personas": [
             {
               "code": "CONTRACT-OPS-MANAGER",
@@ -778,6 +804,8 @@
           "code": "CLM-OBLIGATION-MGMT",
           "name": "Obligation Management",
           "description": "Register, tracking, and alerting for contract obligations (deliverables, SLA milestones, payment terms). Masters contract_obligations. Publishes obligation.due and obligation.breached events that fan out to OP-RES / GRC.",
+          "catalog_tagline": "Track every commitment a contract creates and act before a deadline slips.",
+          "catalog_description": "Turn the promises buried in a signed contract into tracked obligations with owners, due dates, and status. Watch performance, payment, delivery, reporting, and compliance commitments move from open to satisfied, and catch the ones at risk of breach.\n\nClear ownership and visible due dates mean obligations are met on time, and the moment one is breached or waived, the right people know.",
           "personas": [
             {
               "code": "CONTRACT-OPS-MANAGER",
@@ -808,6 +836,8 @@
           "code": "CLM-RENEWAL",
           "name": "Renewal Management",
           "description": "Date-based renewal alerting, auto-renewal-clause detection, and renewal execution. Consumes legal_contracts; publishes renewal.30_day_warning and legal_contract.renewed. Distinct from amendments which run through CLM-REPOSITORY.",
+          "catalog_tagline": "Get ahead of every expiry and renewal so no contract lapses by accident.",
+          "catalog_description": "Know which contracts are coming up for renewal well before they expire, and decide deliberately whether to renew, renegotiate, or let them end. Renewal countdowns and early warnings turn a reactive scramble into a planned workflow.\n\nCapture each renewal against the original agreement so the repository always reflects the live commitment, and value is never lost to a missed deadline.",
           "personas": [
             {
               "code": "CONTRACT-OPS-MANAGER",
@@ -838,6 +868,8 @@
           "code": "CLM-REPOSITORY",
           "name": "Contract Repository",
           "description": "Executed-contract index. Masters legal_contracts (post-signature) and signature_records. Contributes terms to saas_subscriptions and software_licenses (the buyer-side records that consume contract terms). The system of record for the active, expired, renewed, and terminated lifecycle states.",
+          "catalog_tagline": "Store every executed contract in one searchable, always-current system of record.",
+          "catalog_description": "Keep every signed agreement in a single repository with the counterparty, contract type, key dates, value, and governing terms captured as structured data. Find any contract in seconds and see its full history, including amendments and renewals.\n\nThe repository is the authoritative record of what the organization has signed, ready to answer questions for finance, legal, audit, and the teams that depend on each agreement.",
           "personas": [
             {
               "code": "CONTRACT-OPS-MANAGER",
@@ -913,6 +945,8 @@
           "code": "REAL-ESTATE-AGENT",
           "name": "Real Estate Agent (solo / small firm bundle)",
           "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "catalog_tagline": "A working surface for the real-estate agent.",
+          "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
           "personas": [],
           "processes": [],
           "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
@@ -1116,7 +1150,9 @@
     {
       "code": "HCM",
       "name": "Human Capital Management",
-      "description": "Core HR system of record covering worker data, organisation and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
+      "description": "Core HR system of record covering worker data, organization and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
+      "catalog_tagline": "Run the single source of truth for your workforce, from the employee record to org structure, positions, and the full hire-to-retire lifecycle.",
+      "catalog_description": "Human Capital Management is the system of record for your people. Maintain every worker's core profile, employment contracts, and the org structure they sit in, then drive each change through a governed workflow: hiring, transfers, promotions, leaves of absence, and offboarding. Self-service lets employees and managers raise and track their own changes while HR retains approval control.\n\nBecause the worker record is authoritative, the lifecycle events you record here ripple cleanly downstream: a new hire provisions access and payroll, a termination recalls assets and closes accounts, a promotion updates compensation. You define jobs and positions once, plan headcount against them, and keep compliance evidence in step with the regulations that apply to your workforce.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-09",
       "business_functions": [
@@ -1154,6 +1190,8 @@
           "code": "HCM-CORE-WORKER",
           "name": "Core Worker Record",
           "description": "Core worker record: identity, employment lifecycle, contracts, and effective-dated employment events. The system-of-record layer for every employee.",
+          "catalog_tagline": "Maintain the authoritative worker record, employment contracts, and the personal data the rest of HR depends on.",
+          "catalog_description": "The core worker module is where every employee profile lives: identity, status, manager, position, org unit, and the employment contracts that bind them. Capture each worker from pre-hire through active employment to termination, with personal-content fields protected by the access controls a workforce of record requires.\n\nKeep contracts and core attributes current and let downstream systems read from a single trusted source. When a worker is hired, promoted, or leaves, this module is the event that triggers payroll, access provisioning, benefits, and asset recall, so the data here stays clean and the handoffs stay reliable.",
           "personas": [
             {
               "code": "HR-BUSINESS-PARTNER",
@@ -1264,6 +1302,8 @@
           "code": "HCM-LIFECYCLE-WORKFLOWS",
           "name": "Employee Lifecycle Workflows",
           "description": "Employee and manager self-service portal coordinating cross-domain lifecycle: onboarding intake from ATS, lifecycle change requests, leave/absence visibility, and offboarding handoffs to ITSM/IGA/PAYROLL. Workflow surface on top of HCM-CORE-WORKER and HCM-ORG-POSITIONS, no masters of its own.",
+          "catalog_tagline": "Move people through the moments that matter: onboarding, job and leave changes, and a coordinated offboarding.",
+          "catalog_description": "The lifecycle workflows module orchestrates the transitions in an employee's journey. Reconcile new hires arriving from recruiting into active workers, route everyday change requests like transfers and leaves of absence, and coordinate a clean offboarding across IT, identity, and payroll.\n\nEmployees and managers drive much of this themselves through self-service, while HR keeps oversight. Each step reads from and writes back to the authoritative worker record, so a completed onboarding, an approved leave, or a finished separation lands consistently everywhere it needs to without manual rekeying.",
           "personas": [
             {
               "code": "HR-BUSINESS-PARTNER",
@@ -1387,8 +1427,10 @@
         },
         {
           "code": "HCM-ORG-POSITIONS",
-          "name": "Organisation and Position Management",
-          "description": "Organisation design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics.",
+          "name": "Organization and Position Management",
+          "description": "Organization design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics.",
+          "catalog_tagline": "Design your organization: build the job catalog, define positions, and shape the org structure headcount planning runs on.",
+          "catalog_description": "The org and positions module is where you model the shape of the organization rather than the people in it. Author and publish job profiles, approve and open positions against budgeted headcount, and maintain the org-unit hierarchy through creation, reorganization, merges, and closures.\n\nThis is the planning surface that recruiting, compensation, and workforce planning all consume. Publishing a job profile opens the door to a requisition; approving a position signals where to hire; reorganizing a unit cascades to access and reporting lines. Get the structure right here and every downstream people process inherits a clean foundation.",
           "personas": [
             {
               "code": "HIRING-MANAGER",
@@ -1895,6 +1937,8 @@
       "code": "HRSD",
       "name": "HR Service Delivery",
       "description": "Employee case management, knowledge, journeys, and document management for the HR function.",
+      "catalog_tagline": "Give employees one place to ask HR questions, get answers, and track every request to resolution.",
+      "catalog_description": "Run employee HR support as a single service experience. Employees raise questions and requests from a self-service portal, find answers in a curated knowledge base, and watch their case move from intake to resolution without chasing anyone.\n\nBehind the scenes, incoming cases are triaged and routed to the right HR specialist, escalated across payroll, benefits, access, and other teams when needed, and resolved against documented service levels. Approvals, assignments, and reopen handling are built into the workflow so nothing slips between stages.\n\nAs cases resolve, the knowledge base grows from real questions, deflecting future requests and freeing HR teams to focus on the cases that genuinely need a human.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-09",
       "business_functions": [
@@ -1912,6 +1956,8 @@
           "code": "HRSD-CASE-MGMT",
           "name": "HR Case Management",
           "description": "Core HR case management surface: HR cases, case taxonomy, triage, approval routing, and AI-assisted classification. Masters hr_cases and case_categories. The execution backbone of any HRSD deployment.",
+          "catalog_tagline": "Capture, triage, and resolve every employee HR request in one tracked queue.",
+          "catalog_description": "Turn employee questions and requests into structured cases that move through a clear workflow: intake, triage, assignment, work, approval, and resolution. Each case lands with the right specialist, carries its full history, and closes against a service level everyone can see.\n\nRoute sensitive cases to the right owner, escalate to payroll, benefits, or access teams when a request crosses into their scope, and reopen a closed case cleanly when something changes. Managers get a real-time view of workload, aging, and approvals so HR support stays predictable instead of reactive.",
           "personas": [
             {
               "code": "HRSD-CASE-AGENT",
@@ -1997,6 +2043,8 @@
           "code": "HRSD-EMPLOYEE-PORTAL",
           "name": "Employee Self-Service Portal",
           "description": "Employee self-service intake surface: catalog browse, request submission, knowledge search, and case status. Workflow layer on top of HRSD-CASE-MGMT, no masters of its own. Hands intake off to case-mgmt and can route IT-flavored requests through to ITSM.",
+          "catalog_tagline": "A single front door where employees ask, request, and self-serve HR needs.",
+          "catalog_description": "Give employees one place to start anything HR-related. They search for answers first, raise a case when they need a person, and check the status of everything they have open without sending a follow-up email.\n\nThe portal connects to the same case workflow HR teams use, so a request submitted here arrives fully formed and ready to triage. Familiar self-service patterns reduce inbound volume and let employees resolve common needs on their own time.",
           "personas": [
             {
               "code": "HRSD-CASE-AGENT",
@@ -2022,6 +2070,8 @@
           "code": "HRSD-KNOWLEDGE",
           "name": "HR Knowledge",
           "description": "HR knowledge surface: HR-audience articles, FAQs, and policy explainers. Consumes the cross-cutting knowledge_articles entity (mastered by ITSM/KMS) and feeds back authoring suggestions when cases are resolved.",
+          "catalog_tagline": "Build and publish the HR knowledge that answers employees before they ask.",
+          "catalog_description": "Maintain a living library of HR answers, policies, and how-to guidance that employees can find from the portal and that agents can attach to a case in seconds. Articles are organized by the same categories that classify cases, so the right answer surfaces in the right context.\n\nEvery resolved case is a candidate for new knowledge, so the library compounds over time, deflecting repeat questions and keeping guidance consistent across the whole employee population.",
           "personas": [
             {
               "code": "HRSD-CASE-AGENT",
@@ -2217,6 +2267,8 @@
       "code": "HVAC-SVC-MGMT",
       "name": "HVAC Service Management (small-org starter)",
       "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organizations deploy the full modules and skip the starter.",
+      "catalog_tagline": "A ready-to-run home-services starter that takes an HVAC job from customer call to scheduled visit and invoice.",
+      "catalog_description": "This starter packages the field-service essentials a heating and cooling service business needs on day one. It bundles the customer and contact record, the installed equipment at each site, work orders and field visits, service contracts, and the quote-to-invoice path so a small team can book a call, schedule a technician, complete the job, and bill it without stitching tools together. It is a fast on-ramp to field service for trades operators who want the core workflow working immediately and can grow into the full modules later.",
       "domain_kind": "bundle",
       "catalog_release": "2026-06-16",
       "business_functions": [],
@@ -2224,7 +2276,9 @@
         {
           "code": "HVAC-SVC-MGMT",
           "name": "HVAC Service Management (small-org starter)",
-          "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organisations deploy the full modules and skip the starter.",
+          "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organizations deploy the full modules and skip the starter.",
+          "catalog_tagline": "A ready-to-run home-services starter that takes an HVAC job from customer call to scheduled visit and invoice.",
+          "catalog_description": "This starter packages the field-service essentials a heating and cooling service business needs on day one. It bundles the customer and contact record, the installed equipment at each site, work orders and field visits, service contracts, and the quote-to-invoice path so a small team can book a call, schedule a technician, complete the job, and bill it without stitching tools together. It is a fast on-ramp to field service for trades operators who want the core workflow working immediately and can grow into the full modules later.",
           "personas": [],
           "processes": [],
           "related_modules": []
@@ -2240,6 +2294,8 @@
       "code": "INTRANET-GOV",
       "name": "Intranet Governance",
       "description": "Platform-agnostic inventory, accountable ownership, recertification, content lifecycle, quality and accessibility governance, and improvement planning over content held in an organization's existing intranets. The accountability layer over the intranet platform(s) already in place, not a publishing platform itself. Distinct from Employee Communications & Intranet (the publishing platform), Web Content Operations & Governance (external / customer-facing audience), and Collaboration Governance (Microsoft 365 container and tenant governance).",
+      "catalog_tagline": "Know what is in every intranet, who owns it, and whether it is still true, without replacing the intranet you have.",
+      "catalog_description": "Map every page, hub, library, and form across the intranets you already run, then make someone accountable for each one. Assign owners and review cadences, run recertification cycles so content gets confirmed current or flagged stale, and turn what you find into a prioritized improvement backlog. Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress as governed sources and govern them from one place. Built for the digital-workplace and internal-comms teams who inherit stale, abandoned, unowned content nobody trusts. It is an accountability layer over your existing intranets, not another intranet to migrate to.",
       "domain_kind": "emerging_market",
       "catalog_release": "2026-06-16",
       "business_functions": [
@@ -2265,6 +2321,8 @@
           "code": "INTGOV-GOVERNANCE",
           "name": "Ownership, Lifecycle and Planning",
           "description": "Accountable ownership assignments, recertification attestations, and the improvement backlog.",
+          "catalog_tagline": "Put a name on every page and keep it accountable over time.",
+          "catalog_description": "Assign an accountable owner and review cadence to each piece of content, run recertification cycles so owners confirm what is current or flag what is stale, and turn the gaps into a prioritized improvement backlog. The accountability layer that keeps your intranet from decaying into a ghost town.",
           "personas": [
             {
               "code": "CONTENT-OWNER",
@@ -2300,6 +2358,8 @@
           "code": "INTGOV-INVENTORY",
           "name": "Inventory and Sources",
           "description": "Connector registry, cross-platform content inventory, content-type policy, and health scoring.",
+          "catalog_tagline": "See every piece of content across all your intranets in one map.",
+          "catalog_description": "Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress and automatically build a living inventory of every page, hub, library, and form. Classify content by type, score its health and accessibility, and know exactly what exists before you decide what to fix.",
           "personas": [
             {
               "code": "CONTENT-OWNER",
@@ -2385,6 +2445,8 @@
       "code": "IT-OPS-STARTER",
       "name": "IT Operations Starter",
       "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+      "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
+      "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
       "domain_kind": "bundle",
       "catalog_release": "2026-06-16",
       "business_functions": [],
@@ -2393,6 +2455,8 @@
           "code": "IT-OPS-STARTER",
           "name": "IT Operations Starter",
           "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
+          "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
           "personas": [],
           "processes": [],
           "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
@@ -2408,6 +2472,8 @@
       "code": "ITSM",
       "name": "IT Service Management",
       "description": "Workflows for managing IT requests, incidents, problems, changes, and knowledge in support of internal business users.",
+      "catalog_tagline": "Run a responsive IT service desk that resolves incidents, fulfills requests, and ships changes without breaking the business.",
+      "catalog_description": "IT Service Management gives your service desk one place to capture, route, and resolve everything your workforce throws at it: outages, password resets, new-laptop requests, recurring problems, and risky changes. Tickets follow a clear lifecycle from intake to closure, with priority routing, approvals, and SLA timers built in, so nothing slips and the right person always owns the next step.\n\nThe suite spans incident, request, problem, change, knowledge, and service-level management, plus an agent workspace that pulls the full picture together. Self-service portals and a curated knowledge base deflect routine work, while problem and change workflows keep the underlying environment stable. The result is faster resolution, fewer repeat issues, and a measurable service experience your users and auditors can both trust.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-16",
       "business_functions": [
@@ -2437,6 +2503,8 @@
           "code": "IT-OPS-STARTER",
           "name": "IT Operations Starter",
           "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
+          "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
           "personas": [],
           "processes": [],
           "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
@@ -2445,6 +2513,8 @@
           "code": "ITSM-AGENT-WORKSPACE",
           "name": "Agent Workspace and Reporting",
           "description": "Unified agent experience: workspace, walk-up support, virtual agent / conversational ITSM, and continuous-improvement reporting.",
+          "catalog_tagline": "Give agents one workspace and leaders the reporting to run the service desk.",
+          "catalog_description": "Agent Workspace and Reporting brings the agent's queue, context, and tools into a single view so they can work tickets without hunting across screens. Everything needed to understand and act on the next item is in one place.\n\nFor team leads, built-in reporting turns daily activity into the trends, volumes, and service metrics that drive staffing and improvement decisions. A productive agent and an informed manager together raise the whole desk's performance.",
           "personas": [],
           "processes": [],
           "related_modules": ["HCM-ORG-POSITIONS"]
@@ -2453,6 +2523,8 @@
           "code": "ITSM-CHANGE-MGMT",
           "name": "Change and Release Management",
           "description": "Change request capture, CAB workflow, approval routing, release planning, and standard-change catalog.",
+          "catalog_tagline": "Ship changes to production with the right approvals and a clear rollback path.",
+          "catalog_description": "Change and Release Management governs how work reaches your live environment. Every change is proposed, assessed for risk, approved by the right authority, and scheduled so it lands without colliding with other work or breaking dependent services.\n\nApproval gates, submission controls, and a full change history give you the assurance to move fast without inviting the next outage. The payoff is a higher rate of successful changes and far fewer self-inflicted incidents.",
           "personas": [],
           "processes": [
             {
@@ -2477,6 +2549,8 @@
           "code": "ITSM-EVENT-MGMT",
           "name": "Event and Alert Handling",
           "description": "Reactive event filtering, deduplication, and routing into the incident workflow. Bridge between observability platforms and ITSM.",
+          "catalog_tagline": "Turn the flood of monitoring alerts into the few incidents that actually matter.",
+          "catalog_description": "Event and Alert Handling sits between your monitoring tools and your service desk, taking in the constant stream of alerts and deciding what deserves a human response. Noise is filtered, related signals are grouped, and only meaningful events become tracked incidents.\n\nBy promoting the right alerts automatically and suppressing the rest, the team spends its attention on real problems rather than chasing false alarms. Faster detection of genuine issues shortens the time to restore service.",
           "personas": [],
           "processes": [],
           "related_modules": []
@@ -2485,6 +2559,8 @@
           "code": "ITSM-INCIDENT-MGMT",
           "name": "Incident Management",
           "description": "Capture, triage, route, and resolve service-disrupting incidents. Includes major-incident command, AI-assisted classification, and skill-based assignment.",
+          "catalog_tagline": "Capture, prioritize, and resolve outages and disruptions before they spread.",
+          "catalog_description": "Incident Management turns every report of something broken into a tracked ticket with an owner, a priority, and a clock. Agents triage incoming issues, route them to the right team, and drive each one from new to resolved while keeping the requester informed.\n\nBuilt-in prioritization, assignment, and resolution gates keep major incidents from slipping through the cracks, and a clean audit trail shows exactly how each disruption was handled. The faster you restore service, the less an outage costs you.",
           "personas": [],
           "processes": [
             {
@@ -2599,6 +2675,8 @@
           "code": "ITSM-KNOWLEDGE",
           "name": "Knowledge Management",
           "description": "Authoring, review, publication, and consumption of knowledge articles supporting ITSM agents and self-service portals.",
+          "catalog_tagline": "Capture what your team knows and put it to work for agents and self-service.",
+          "catalog_description": "Knowledge Management gives experts a place to write, review, and publish the articles that resolve issues faster. Content moves through a clear authoring and review lifecycle so what reaches your users is accurate and current.\n\nPublished articles power both agent-assisted resolution and self-service deflection, so common questions get answered without a ticket. Every reuse of a good article is time your team gets back.",
           "personas": [],
           "processes": [
             {
@@ -2613,6 +2691,8 @@
           "code": "ITSM-PROBLEM-MGMT",
           "name": "Problem Management",
           "description": "Root-cause analysis, known-error tracking, and corrective action for recurring or major incidents.",
+          "catalog_tagline": "Find the root cause behind recurring incidents and stop them coming back.",
+          "catalog_description": "Problem Management connects the dots across repeated incidents to surface the underlying fault, document the known error, and drive a permanent fix. Instead of firefighting the same outage week after week, your team works the cause once.\n\nA structured path from identification through analysis to resolution keeps investigations disciplined, and a shared record of known errors speeds up every future diagnosis. Fewer repeat incidents means a calmer service desk and lower operating cost.",
           "personas": [],
           "processes": [
             {
@@ -2627,6 +2707,8 @@
           "code": "ITSM-SERVICE-REQUEST",
           "name": "Service Request Fulfillment",
           "description": "End-user-driven request workflow, including catalog authoring, request routing, approvals, and self-service portal.",
+          "catalog_tagline": "Let employees order the services they need and fulfill each one with confidence.",
+          "catalog_description": "Service Request Fulfillment gives your workforce a single front door for the everyday things they need from IT: access, equipment, software, and standard changes. Each request follows a defined path through submission, approval, and fulfillment so nothing stalls in someone's inbox.\n\nApproval routing and fulfillment tracking make the experience predictable for the requester and measurable for the team. Repeatable requests become catalog-driven, freeing agents to focus on the work that genuinely needs a human.",
           "personas": [],
           "processes": [
             {
@@ -2666,6 +2748,8 @@
           "code": "ITSM-SLA-MGMT",
           "name": "SLA and Chargeback Management",
           "description": "SLA / OLA definitions, breach tracking, escalation rules, service-cost tracking, and chargeback to consuming business units.",
+          "catalog_tagline": "Set service-level targets, track them in real time, and account for the cost.",
+          "catalog_description": "SLA and Chargeback Management defines the response and resolution commitments your service desk operates to, then measures every ticket against them so breaches are caught before they become escalations. Targets are explicit and performance is visible.\n\nLinking service consumption back to cost lets you show what IT delivers and what it costs to deliver, turning the service desk from a black box into an accountable function the business can plan around.",
           "personas": [],
           "processes": [],
           "related_modules": ["HCM-ORG-POSITIONS", "ITSM-STARTER"]
@@ -2674,6 +2758,8 @@
           "code": "ITSM-STARTER",
           "name": "IT Service Desk Starter",
           "description": "Single-domain starter kit for a small IT team that wants a lightweight service desk without the full ITSM suite or any asset estate. Embeds lightweight shells of ITSM's own records: incidents and service requests (the required helpdesk core), plus an optional request catalog, knowledge base, and SLA clocks. Problem, change, release, and event handling stay in the full itsm-* modules you turn on when you outgrow the desk; assets are out of scope (IT-OPS-STARTER and HAM). The embedded shells demote to the canonical itsm-* masters when those modules install alongside. The narrow, single-domain complement to IT-OPS-STARTER.",
+          "catalog_tagline": "Stand up a lightweight IT help desk in a day: log tickets, take requests, and answer the same questions once.",
+          "catalog_description": "A simple service desk for a small IT team. Log incidents when something breaks, take service requests from a catalog or by free text, and move each ticket from new to resolved to closed without a heavyweight tool. Turn on a knowledge base so common answers get written once and reused, a request catalog so people ask for the right things, and SLA clocks so nothing sits too long, each when you are ready. Start with just tickets and grow into the rest as your team and your process mature. Built for IT teams that want ticketing and self-service without standing up a full enterprise service-management suite.",
           "personas": [],
           "processes": [],
           "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-KNOWLEDGE", "ITSM-SERVICE-REQUEST", "ITSM-SLA-MGMT"]
@@ -2991,6 +3077,8 @@
       "code": "LMS",
       "name": "Learning Management",
       "description": "Course authoring, content delivery, compliance training, certifications, and learning paths for employees and extended audiences.",
+      "catalog_tagline": "Train your whole workforce and prove it, from first enrollment to audit-ready completion records.",
+      "catalog_description": "Run corporate learning end to end. Author and publish courses, deliver them online or in the classroom, and track every enrollment through to completion. Issue the certifications and badges that show who is qualified, and keep the evidence auditors and regulators ask for. Assign mandatory training automatically, chase overdue learners without manual follow-up, and feed completion signals to the HR, compliance, and identity systems that depend on them.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-09",
       "business_functions": [
@@ -3024,6 +3112,8 @@
           "code": "LMS-AUTOMATION",
           "name": "Learning Automation",
           "description": "Horizontal automation surface across LMS deployment: dynamic audience segments, automated training assignment rules, reusable notification templates, learner notification log, manager-directed nudges for overdue training, and escalation policies. Cuts across LMS-COURSE-DELIVERY, LMS-COMPLIANCE-TRAINING, LMS-PATHS, and LMS-CREDENTIALS.",
+          "catalog_tagline": "Automate enrollments, reminders, and escalations so the right training reaches the right people on time.",
+          "catalog_description": "Put routine learning administration on autopilot. Enroll people automatically based on role, team, or hire date, send reminders and nudges before deadlines, and escalate when training slips. Set the cadence once and let the rules keep learners on track.",
           "personas": [
             {
               "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
@@ -3048,6 +3138,8 @@
           "code": "LMS-COMPLIANCE-TRAINING",
           "name": "Compliance Training",
           "description": "Mandatory regulatory training assignment, tracking, and certification: sexual harassment training (CA SB-1343), HIPAA, OSHA, anti-bribery, SOX, GDPR, AML. Masters `compliance_assignments` and `learner_certifications`. Realizes COMPLIANCE-TRAIN and CERT-MGMT. Distinct from general LMS course delivery: assignments are mandatory and time-bound, lifecycle includes `overdue`/`waived`/`expired` states with regulator-evidence retention, and ownership typically sits with GRC/Compliance, not L&D.",
+          "catalog_tagline": "Assign mandatory training, chase overdue learners automatically, and capture the evidence regulators ask for.",
+          "catalog_description": "Run regulatory and policy training as repeatable campaigns. Assign required courses to the right people, track completion against deadlines, and escalate overdue assignments without manual chasing. Capture signed training evidence, manage recertification, and produce the filings and audit records compliance reviewers expect.",
           "personas": [
             {
               "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
@@ -3108,6 +3200,8 @@
           "code": "LMS-COURSE-DELIVERY",
           "name": "Course Delivery",
           "description": "The core LMS workflow: course authoring, content delivery, enrollment, completion tracking, and transcript posting. Masters `courses`, `course_enrollments`, `learning_records`. Realizes COURSE-AUTHOR and CONTENT-DELIVERY capabilities. The backbone module every LMS deployment installs first; the other LMS modules embedded_master courses to reference content.",
+          "catalog_tagline": "Build, publish, and deliver online courses, then track every enrollment through to completion.",
+          "catalog_description": "Create courses from lessons, content assets, and assessments, and publish new versions when material changes. Enroll learners, deliver self-paced training in the browser, and grade quizzes and exams as they go. Watch progress and completion in real time, and keep a clean record of who finished what.",
           "personas": [
             {
               "code": "LD-INSTRUCTIONAL-DESIGNER",
@@ -3153,6 +3247,8 @@
           "code": "LMS-CREDENTIALS",
           "name": "Credentials, Badges and Continuing Education",
           "description": "Catalog and lifecycle for certifications, micro-credential badges, and continuing-education credits. Masters learner_certifications (re-mastered from LMS-COMPLIANCE-TRAINING) since professional development, FINRA CE, internal product certifications, and Open-Badges micro-credentials all live here, not just compliance training. Compliance training embeds learner_certifications for the regulated-training certification workflow.",
+          "catalog_tagline": "Issue certifications and digital badges, then manage renewals and let others verify them.",
+          "catalog_description": "Define certifications and badges, issue them when learners qualify, and track expiry and renewal across the workforce. Let learners share verifiable credentials and let third parties confirm them, so a qualification is easy to prove long after the course is done.",
           "personas": [
             {
               "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
@@ -3198,6 +3294,8 @@
           "code": "LMS-CT-GDPR",
           "name": "Learner Data Privacy",
           "description": "Learner data privacy substrate that compliance training depends on: GDPR Article 6/7 consent capture, Article 15 subject access requests, and Article 17 right-to-erasure processing for training data. Carved out from LMS-COMPLIANCE-TRAINING because privacy obligations apply across the LMS even where statutory training is out of scope.",
+          "catalog_tagline": "Handle learner data-subject requests, consent, and retention so training data stays privacy-compliant.",
+          "catalog_description": "Give learners control over their training data. Capture and track consent, process data-subject access and deletion requests, and enforce retention policies that remove records when they should expire. Keep a defensible trail of how learner data is handled.",
           "personas": [
             {
               "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
@@ -3223,6 +3321,8 @@
           "code": "LMS-ILT-DELIVERY",
           "name": "Instructor-Led and Virtual-Instructor-Led Training",
           "description": "Scheduled course delivery: offerings and sessions, instructor assignments, attendance capture (OSHA evidence substrate), waitlist management, virtual-classroom integration, and per-session resources. Structurally distinct from evergreen e-learning in LMS-COURSE-DELIVERY because it carries its own cardinality (course -> many offerings -> many sessions), its own roles (instructors are not learners), and its own per-session compliance footprint.",
+          "catalog_tagline": "Run instructor-led and virtual classroom training: schedule sessions, book rooms, and track attendance.",
+          "catalog_description": "Plan classroom and virtual instructor-led training from one place. Schedule offerings and sessions, reserve rooms and resources, and manage rosters, waitlists, and cancellations. Record attendance and completion so classroom learning lands in the same record as everything else.",
           "personas": [
             {
               "code": "LD-INSTRUCTIONAL-DESIGNER",
@@ -3253,6 +3353,8 @@
           "code": "LMS-PATHS",
           "name": "Learning Paths",
           "description": "Authors and assigns sequenced learning paths inside the LMS. Masters learning_paths; consumes skill_profiles (mastered by SKILLS-MGMT after migration) to recommend paths against skill gaps.",
+          "catalog_tagline": "Guide learners along structured paths that build the skills each role needs.",
+          "catalog_description": "Sequence courses into curricula and learning paths so learners always know what comes next. Tie each step to the skills and proficiency a role requires, recommend the next best course, and roll individual development into longer-term career plans. Track progress across the whole path, not just one course at a time.",
           "personas": [
             {
               "code": "LD-INSTRUCTIONAL-DESIGNER",
@@ -3288,6 +3390,8 @@
           "code": "TRAINING-RECORDS-STARTER",
           "name": "Training Records (Compliance Documentation Starter)",
           "description": "Deployable starter kit for small and mid-market organizations that outsource training delivery to external vendors (EasyLlama, Traliant, Ethena, NAVEX, KnowBe4) and need to retain audit-ready evidence in their own catalog. Embeds compliance assignments, training evidence records, learner certifications, signature records, and per-regulation training records from the full LMS-COMPLIANCE-TRAINING and LMS-CREDENTIALS modules; deploys standalone without requiring the full LMS substrate. Buyer persona: HR Director or Compliance Officer at a 50 to 500 person organization. When the org later adopts the full LMS, embedded shells deterministically demote to consumer.",
+          "catalog_tagline": "A lightweight way to assign training and keep completion records, ready to deploy on day one.",
+          "catalog_description": "Start small without standing up the full learning suite. Assign training, record completions, and keep the essential evidence a small or first-time team needs. Upgrade to the full modules later without losing any of the records you have already captured.",
           "personas": [
             {
               "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
@@ -3508,6 +3612,8 @@
       "code": "RE-BROKERAGE",
       "name": "Real Estate Brokerage and Agent Operations",
       "description": "Lead capture, transaction management (offer→close), MLS syndication, commission splits, tour scheduling, and broker CRM for residential and commercial brokerages. Buyer is the brokerage / individual agent (per-seat pricing) or the franchise (enterprise pricing). Distinct from generic CRM (deal model is the property transaction, not the sales opportunity; commissions are split across cooperating brokerages by MLS rules).",
+      "catalog_tagline": "Run the brokerage from first lead to closed deal.",
+      "catalog_description": "Capture and nurture buyer and seller leads, publish listings to the MLS, schedule and track tours, and move every offer through escrow, contingencies, and closing. Calculate cooperating-broker and internal agent commission splits, keep state-mandated disclosures complete for compliance, and hand the closed transaction off to property management and accounting. Built for the way agents and brokers actually work a deal, not a generic sales pipeline.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-16",
       "business_functions": [
@@ -3529,6 +3635,8 @@
           "code": "RE-BROK-AGENT-OPS",
           "name": "Real Estate Agent Operations",
           "description": "Agent-facing workflow from lead capture through closing. Lead nurture (writes back into CRM contributor flow), listing creation and MLS syndication, tour scheduling and execution, transaction management (offer to escrow to contingencies to close), and buyer/seller disclosure handling. The deployable unit for solo agents and small firms; agents in larger brokerages work here while broker oversight runs in BROKERAGE-OPS.",
+          "catalog_tagline": "Work every deal from lead to close in one place.",
+          "catalog_description": "Capture leads and turn them into listings, syndicate to the MLS, and schedule showings with access windows and follow-ups. Drive each transaction from accepted offer through inspection, financing, and contingencies to a clean close, with buyer and seller disclosures tracked at every step. The deployable unit for solo agents and small firms.",
           "personas": [],
           "processes": [
             {
@@ -3558,6 +3666,8 @@
           "code": "RE-BROK-BROKERAGE-OPS",
           "name": "Brokerage Oversight and Commission Management",
           "description": "Broker-level oversight on top of agent operations. Multi-agent commission-split engine with franchise overrides and per-agent caps, broker compliance review of transactions and disclosures, trust-account / escrow oversight, broker-level MLS conformance review. Only deployed when the brokerage has grown past informal-broker-supervision scale (typically 10+ agents).",
+          "catalog_tagline": "Give the broker oversight of money and compliance.",
+          "catalog_description": "Run multi-agent commission splits with franchise overrides and per-agent caps, review transactions and disclosures for compliance before close, and keep trust and escrow accounts reconciled. Add broker-level MLS conformance review so the brokerage scales past informal supervision without losing control of the deal.",
           "personas": [],
           "processes": [],
           "related_modules": ["RE-BROK-AGENT-OPS"]
@@ -3566,6 +3676,8 @@
           "code": "REAL-ESTATE-AGENT",
           "name": "Real Estate Agent (solo / small firm bundle)",
           "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "catalog_tagline": "A working surface for the real-estate agent.",
+          "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
           "personas": [],
           "processes": [],
           "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
@@ -3623,6 +3735,8 @@
       "code": "REAL-ESTATE-AGENT",
       "name": "Real Estate Agent (solo / small firm bundle)",
       "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+      "catalog_tagline": "A working surface for the real-estate agent.",
+      "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
       "domain_kind": "bundle",
       "catalog_release": "2026-06-16",
       "business_functions": [],
@@ -3631,6 +3745,8 @@
           "code": "REAL-ESTATE-AGENT",
           "name": "Real Estate Agent (solo / small firm bundle)",
           "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "catalog_tagline": "A working surface for the real-estate agent.",
+          "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
           "personas": [],
           "processes": [],
           "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
@@ -3645,7 +3761,9 @@
     {
       "code": "SMP",
       "name": "SaaS Management Platforms",
-      "description": "Discovery, optimisation, lifecycle management, and renewal management for the company's SaaS portfolio. Distinct from classic SAM which focuses on installed software licences.",
+      "description": "Discovery, optimization, lifecycle management, and renewal management for the company's SaaS portfolio. Distinct from classic SAM which focuses on installed software licenses.",
+      "catalog_tagline": "See every SaaS app your company pays for, cut wasted licenses, and never miss a renewal.",
+      "catalog_description": "Discover every SaaS application in use, sanctioned or not, see who owns each one, and track real usage against what you pay for. Reclaim idle licenses automatically, run renewals on a schedule instead of in a panic, and give employees a self-service catalog to request the apps they need. One place to manage your whole SaaS portfolio, from first sign-up to final offboarding.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-16",
       "business_functions": [
@@ -3667,6 +3785,8 @@
           "code": "IT-OPS-STARTER",
           "name": "IT Operations Starter",
           "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
+          "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
           "personas": [],
           "processes": [],
           "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
@@ -3675,6 +3795,8 @@
           "code": "SMP-AUTOMATION",
           "name": "SMP Automation and Self-Service Requests",
           "description": "Declarative automation workflows, workflow run history, and employee-facing self-service app-access requests. The automation surface of an SMP deployment.",
+          "catalog_tagline": "Automate the busywork of granting, moving, and removing app access.",
+          "catalog_description": "Build declarative workflows that provision and deprovision SaaS access automatically, track every run, and give employees a self-service way to request the apps they need with manager and IT approval built in. Less manual ticket-pushing, faster access, cleaner offboarding.",
           "personas": [
             {
               "code": "IT-SAAS-ADMIN",
@@ -3705,6 +3827,8 @@
           "code": "SMP-DISCOVERY",
           "name": "SMP Discovery and Catalog",
           "description": "Discovery of sanctioned and shadow SaaS, app inventory, ownership, integrations, lifecycle staging, catalog publication, and operational signal/alerts. The discovery substrate of an SMP deployment.",
+          "catalog_tagline": "Find every SaaS app in use, including the ones nobody told you about.",
+          "catalog_description": "Automatically discover sanctioned and shadow SaaS across your org, assign an owner to each app, and connect the integrations that feed usage and spend data. Publish a clean app catalog, stage each application through its portfolio lifecycle, and get alerted the moment something needs attention.",
           "personas": [
             {
               "code": "IT-SAAS-ADMIN",
@@ -3760,6 +3884,8 @@
           "code": "SMP-OPTIMIZATION",
           "name": "SMP License Optimization",
           "description": "Usage analytics, license rightsizing, reclamation actions, per-app cost benchmarks, and optimization recommendations. The cost-and-utilization substrate of an SMP deployment.",
+          "catalog_tagline": "Stop paying for licenses nobody uses.",
+          "catalog_description": "Track real usage for every SaaS seat, surface rightsizing and savings recommendations, and reclaim idle or duplicate licenses with a safe grace period. Benchmark your cost-per-seat against peers so you know where you are overspending and act on it.",
           "personas": [
             {
               "code": "IT-SAAS-ADMIN",
@@ -3790,6 +3916,8 @@
           "code": "SMP-RENEWAL-VENDOR",
           "name": "SMP Renewal and Vendor Management",
           "description": "Renewal pipeline tracking, vendor relationship management, contract coordination with procurement and legal, spend allocation, and per-SaaS vendor-risk attestation. The commercial layer of an SMP deployment.",
+          "catalog_tagline": "Run every SaaS renewal on your terms, not the vendor's deadline.",
+          "catalog_description": "Track every upcoming renewal, assign renewal tasks, and manage vendor negotiations from first outreach to signed agreement. Allocate spend across cost centers, coordinate contracts with procurement and legal, and keep a per-vendor risk and attestation record so renewals are decisions, not surprises.",
           "personas": [
             {
               "code": "IT-SAAS-ADMIN",
@@ -3951,6 +4079,8 @@
       "code": "WORK-MGMT",
       "name": "Work Management",
       "description": "Task, project, and workflow management for cross-functional work: assignments with owners and due dates, dependencies, statuses, dashboards, automations, and goal/OKR tracking. Bought by PMOs, BizOps, marketing, and any team running structured work that isn't engineering-specific. Distinct from SPM (top-down portfolio investment decision, CIO/EPMO buyer), from PSA (services billing/utilization for revenue-generating projects), and from dedicated software-engineering sprint tooling (developer-specific dev workflow).",
+      "catalog_tagline": "Run every team's projects, tasks, and goals in one place, from first request to finished work.",
+      "catalog_description": "Bring structured work out of scattered spreadsheets and inboxes. Create projects, break them into assignable tasks with owners and due dates, map dependencies, and watch progress on boards, timelines, and dashboards that update as the work moves.\n\nSet team objectives and key results, then connect them to the tasks that move them so progress rolls up automatically. Standardize repeatable work with templates, and let automations handle status changes, reminders, and routing.\n\nBuilt for operations, marketing, and any team running cross-functional work that needs one shared view of who is doing what, by when.",
       "domain_kind": "established_market",
       "catalog_release": "2026-06-16",
       "business_functions": [
@@ -3980,6 +4110,8 @@
           "code": "WORK-MGMT-GOALS-OKR",
           "name": "Team-Execution Goals and OKRs",
           "description": "Team-execution OKR tracking surface: objectives with key results that link to work items for automatic progress rollup, weekly check-in cadences, scoring, and closure. Deploys alongside the task-execution module for full integration, or standalone with a thin embedded work-item shell for KR linking.",
+          "catalog_tagline": "Set objectives, score key results, and see progress roll up from the work behind them.",
+          "catalog_description": "Define objectives and measurable key results for the quarter or year, assign owners, and keep them current with regular check-ins. Link objectives to the tasks and projects that drive them so progress updates as work gets done instead of being re-entered by hand.\n\nCommit objectives once agreed, track them through the cycle, and score them at close so the team learns what worked.",
           "personas": [
             {
               "code": "OKR-OWNER",
@@ -4005,6 +4137,8 @@
           "code": "WORK-MGMT-INTAKE",
           "name": "Request Intake",
           "description": "Structured request-intake surface: form definitions, form submissions, routing rules. Pre-task surface that converts a submission into a work_item in the target TASK-EXEC project. Backs the WORK-INTAKE-FORMS capability with entities. Vendor reference: Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms.",
+          "catalog_tagline": "Capture work requests through structured forms and route them straight into the right project.",
+          "catalog_description": "Replace ad-hoc requests with structured intake forms that collect exactly what the team needs to start. Submissions are triaged and converted into work items in the right project, with the requester's details captured along the way.\n\nStandardized intake means no lost requests in chat or email, a consistent starting point for every piece of work, and a clear record of what was asked and what happened next.",
           "personas": [
             {
               "code": "MARKETING-CAMPAIGN-MANAGER",
@@ -4029,6 +4163,8 @@
           "code": "WORK-MGMT-TASK-EXEC",
           "name": "Task and Project Execution",
           "description": "Cross-functional task and project execution surface: work items with owners, due dates, dependencies, statuses, and assignments; project containers with timelines, dashboards, and board views; user-authored automation rules that fire on item state changes. The deployable substrate every team-based work-management product orbits.",
+          "catalog_tagline": "Plan projects, assign tasks, and track them from kickoff to done.",
+          "catalog_description": "Organize work into projects and sections, then assign tasks with owners, due dates, priorities, and dependencies. Track everything on boards, lists, and timelines, and keep work moving with approval steps, milestones, and automations that handle routine status changes and notifications.\n\nStandardize recurring work with reusable project and task templates, tailor records with custom fields, and use workload views to spot who is over or under capacity before deadlines slip.",
           "personas": [
             {
               "code": "MARKETING-CAMPAIGN-MANAGER",

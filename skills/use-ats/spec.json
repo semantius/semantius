@@ -364,7 +364,7 @@
       "name": "application_dispositions",
       "singular_label": "Application Disposition",
       "plural_label": "Application Dispositions",
-      "description": "Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorised business reason.",
+      "description": "Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorized business reason.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -620,7 +620,7 @@
           "permission_verb_override": "adjudicate_background_check"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         }
@@ -701,7 +701,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         }
@@ -1098,7 +1098,7 @@
           "permission_verb_override": "review_failed_screening"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         }
@@ -1138,7 +1138,7 @@
       "name": "fcra_disclosures",
       "singular_label": "FCRA Disclosure",
       "plural_label": "FCRA Disclosures",
-      "description": "Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgement signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.).",
+      "description": "Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgment signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.).",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,
@@ -1170,9 +1170,9 @@
     },
     {
       "name": "fcra_summary_of_rights_acknowledgements",
-      "singular_label": "FCRA Summary of Rights Acknowledgement",
-      "plural_label": "FCRA Summary of Rights Acknowledgements",
-      "description": "Candidate acknowledgement of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgement timestamp persist for audit.",
+      "singular_label": "FCRA Summary of Rights Acknowledgment",
+      "plural_label": "FCRA Summary of Rights Acknowledgments",
+      "description": "Candidate acknowledgment of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgment timestamp persist for audit.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,
@@ -1253,7 +1253,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true
         }
@@ -1385,7 +1385,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         },
@@ -1609,7 +1609,7 @@
       "name": "job_requisitions",
       "singular_label": "Job Requisition",
       "plural_label": "Job Requisitions",
-      "description": "Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / cancelled).",
+      "description": "Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled).",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -1658,7 +1658,7 @@
           "permission_verb_override": "close_requisition"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 6,
           "is_terminal": true
         }
@@ -1993,7 +1993,7 @@
           "permission_verb_override": "activate_pre_employee"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         }
@@ -2144,7 +2144,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true
         }

@@ -387,7 +387,7 @@
       "name": "automated_enrollment_rules",
       "singular_label": "Automated Enrollment Rule",
       "plural_label": "Automated Enrollment Rules",
-      "description": "Rule engine entry that auto-enrols learners into courses or paths based on audience membership and lifecycle events.",
+      "description": "Rule engine entry that auto-enrolls learners into courses or paths based on audience membership and lifecycle events.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -735,7 +735,7 @@
           "permission_verb_override": "complete"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true,
           "requires_permission": true,
@@ -1036,7 +1036,7 @@
           "permission_verb_override": "complete"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true,
           "requires_permission": true,
@@ -1144,7 +1144,7 @@
           "permission_verb_override": "complete"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true,
           "requires_permission": true,
@@ -1216,7 +1216,7 @@
       "name": "courses",
       "singular_label": "Course",
       "plural_label": "Courses",
-      "description": "Atomic learning unit: e-learning module, video, live session, blended programme, external content. Carries content reference, duration, format, language, prerequisites, certification award.",
+      "description": "Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award.",
       "is_canonical_bare_word": true,
       "pattern_flags": {
         "has_personal_content": false,
@@ -1375,7 +1375,7 @@
       "name": "data_deletion_requests",
       "singular_label": "Data Deletion Request",
       "plural_label": "Data Deletion Requests",
-      "description": "GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfilment status.",
+      "description": "GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfillment status.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,
@@ -1603,9 +1603,9 @@
     },
     {
       "name": "harassment_training_acknowledgements",
-      "singular_label": "Harassment Training Acknowledgement",
-      "plural_label": "Harassment Training Acknowledgements",
-      "description": "Statutory acknowledgement of harassment training completion per CA SB-1343, NY 201-g, IL 2-109; carries signed timestamp and IP.",
+      "singular_label": "Harassment Training Acknowledgment",
+      "plural_label": "Harassment Training Acknowledgments",
+      "description": "Statutory acknowledgment of harassment training completion per CA SB-1343, NY 201-g, IL 2-109; carries signed timestamp and IP.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,
@@ -1614,7 +1614,7 @@
       },
       "aliases": [
         {
-          "name": "SB-1343 acknowledgement",
+          "name": "SB-1343 acknowledgment",
           "source": "synonym"
         }
       ],
@@ -1669,7 +1669,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true,
           "requires_permission": true,
@@ -1944,7 +1944,7 @@
       "name": "learning_paths",
       "singular_label": "Learning Path",
       "plural_label": "Learning Paths",
-      "description": "Curated sequence of courses targeting a role, skill, or certification. Drives ordered enrolment and progress tracking across multiple courses.",
+      "description": "Curated sequence of courses targeting a role, skill, or certification. Drives ordered enrollment and progress tracking across multiple courses.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -2542,7 +2542,7 @@
       "name": "subject_access_requests",
       "singular_label": "Subject Access Request",
       "plural_label": "Subject Access Requests",
-      "description": "GDPR Article 15 subject-access-request ticket: requester, scope, fulfilment status, regulator deadline.",
+      "description": "GDPR Article 15 subject-access-request ticket: requester, scope, fulfillment status, regulator deadline.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,
@@ -2694,7 +2694,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true,
           "requires_permission": true,
@@ -2733,7 +2733,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true
         }

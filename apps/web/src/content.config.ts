@@ -1,6 +1,6 @@
 import { defineCollection } from 'astro:content';
 import { z } from 'astro/zod';
-import { glob } from 'astro/loaders';
+import { glob, file } from 'astro/loaders';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import matter from 'gray-matter';
@@ -189,10 +189,69 @@ const skillsCollection = defineCollection({
     }),
 });
 
+// The domain map (../../domain-map/domain-map.json, repo root) is the single
+// source of truth for the domains that group the semantic blueprints. Each
+// domain owns a set of modules; a module's blueprint page lives at
+// /blueprints/<module-code-lowercased>. Loaded via the `file` loader (path is
+// relative to the Astro project root, same convention as the blueprints glob
+// base above). The parser lifts the nested `domains` array and stamps an `id`
+// (required by the file loader) and `order` (preserves source order).
+const domainsCollection = defineCollection({
+    loader: file('../../domain-map/domain-map.json', {
+        parser: (text) =>
+            (JSON.parse(text).domains as Array<Record<string, unknown>>).map((d, i) => ({
+                ...d,
+                id: d.code as string,
+                order: i,
+            })),
+    }),
+    // Only the fields the listing needs are declared; zod drops the rest
+    // (personas, processes, related_modules, etc.).
+    schema: z.object({
+        code: z.string(),
+        name: z.string(),
+        description: z.string(),
+        domain_kind: z.string().optional(),
+        order: z.number().default(0),
+        modules: z
+            .array(
+                z.object({
+                    code: z.string(),
+                    name: z.string(),
+                    // `description` is the internal/technical blurb; `catalog_description`
+                    // is the buyer-facing copy and is preferred for display.
+                    description: z.string(),
+                    catalog_description: z.string().optional(),
+                }),
+            )
+            .default([]),
+    }),
+});
+
+// Per-domain catalog copy that backs the /skills listing. One catalog.yaml per
+// domain lives at ../../skill-specs/<DOMAIN_CODE>/catalog.yaml (repo root,
+// emitted from the catalog DB). The glob loader parses YAML data files natively;
+// each entry carries domain_code so pages can join it to the `domains` map.
+const catalogsCollection = defineCollection({
+    loader: glob({ pattern: '*/catalog.yaml', base: '../../skill-specs' }),
+    schema: z.object({
+        domain_code: z.string(),
+        domain_code_lower: z.string().optional(),
+        domain_name: z.string(),
+        catalog_tagline: z.string().optional(),
+        catalog_description: z.string().optional(),
+        skill_name: z.string().optional(),
+        module_slug: z.string().optional(),
+        capability_names: z.array(z.string()).default([]),
+    }),
+});
+
 export const collections = {
 	'blog': blogCollection,
     'docs': docsCollection,
     'changelog': changelogCollection,
     'blueprints': blueprintsCollection,
     'skills': skillsCollection,
+    'domains': domainsCollection,
+    'catalogs': catalogsCollection,
 };

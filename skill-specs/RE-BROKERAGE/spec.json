@@ -336,7 +336,7 @@
           "permission_verb_override": "close_transaction"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 8,
           "is_terminal": true,
           "requires_permission": true,
@@ -385,7 +385,7 @@
           "permission_verb_override": "complete_tour"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 4,
           "is_terminal": true,
           "requires_permission": true,

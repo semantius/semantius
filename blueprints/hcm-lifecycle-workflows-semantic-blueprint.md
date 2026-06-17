@@ -41,13 +41,13 @@ Employee and manager self-service portal coordinating cross-domain lifecycle: on
 | Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
 | Employment Events | `employment_events` | Lifecycle event records for an employee: hire, promotion, transfer, leave start, leave return, comp change, termination. The audit history that drives plan-vs-actual analytics (PA consumer) and downstream system updates. HCM masters; PA derives metrics from the event stream. |
 | Engagement Drivers | `engagement_drivers` | Calculated driver score (e.g. Strategy, Growth, Recognition, Wellbeing, Leadership) at a team/department/segment grain. The action layer of engagement listening. |
-| HR Cases | `hr_cases` | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analogue of ITSM service_requests, scoped to HR-owned workflows. |
+| HR Cases | `hr_cases` | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows. |
 | Learning Records | `learning_records` | Granular completion event for a course or activity, often xAPI / SCORM / cmi5 statement: actor, verb, object, result, timestamp. Feeds skill_profiles and certifications. |
 | Legal Holds | `legal_holds` | eDiscovery / litigation preservation notice: matter reference, affected record types (email, documents, messages, files), custodian scope, issued date, lifting date. Drives enforcement across data systems. |
 | Life Events | `life_events` | Qualifying event (marriage, birth, adoption, divorce, dependent loss-of-coverage, employment change) that opens a mid-year enrollment window. Triggers benefit_enrollments changes outside open enrollment. |
 | Merit Recommendations | `merit_recommendations` | Per-employee per-cycle proposed merit increase, bonus, and equity refresh from manager, with calibration adjustments and final approval. Approved values become the pay-rate change posted to payroll. |
 | Offers | `job_offers` | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). |
-| Performance Goals | `performance_goals` | Individual goal or OKR with owner, period, metric, weight, status, alignment to organisational objectives. Reviewed within performance_reviews cycles. |
+| Performance Goals | `performance_goals` | Individual goal or OKR with owner, period, metric, weight, status, alignment to organizational objectives. Reviewed within performance_reviews cycles. |
 | Skill Profiles | `skill_profiles` | Per-worker collection of skills with self-assessed and validated proficiency levels, derived from completed courses, certifications, performance signals, and inferred peer-comparison. The central artifact of HCM-side skills-cloud and talent-intelligence offerings. |
 | Succession Plans | `succession_plans` | Bench plan for a critical position: identified successors, readiness ratings (ready_now, 1-2_years, 3+_years), development plans, risk-of-loss assessment. |
 | Workforce Segments | `workforce_segments` | Named cohort definitions used for analysis and intervention: hi-po, flight-risk, top-quartile-performer, early-career, returning-from-leave, regrettable-loss-risk. Drives Talent Mgmt programs (high_potential.identified is the canonical outbound handoff) and HR Service Delivery actions. |
@@ -440,6 +440,8 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `frontline_recognitions` | recognizes | `employees` | one_to_many | required | none (required-if-present) | n/a | - |
 | `advocate_profiles` | represents | `employees` | one_to_one | required | none (required-if-present) | n/a | - |
 | `candidates` | submitted_via | `agency_submissions` | one_to_many | optional | none | n/a | - |
+| `time_off_policies` | governs | `absence_balances` | one_to_many | required | none (required-if-present) | n/a | - |
+| `time_off_policies` | governs | `absence_requests` | one_to_many | required | none (required-if-present) | n/a | - |
 
 ## 6. Cross-domain context
 
@@ -533,7 +535,7 @@ _This scope holds `candidate_assessments` as **consumer**; the canonical state m
 | 2 | `in_progress` | - | - | - | - | Candidate is actively taking the assessment. |
 | 3 | `completed` | - | ✓ | - | - | Candidate finished the assessment and a score/result is recorded. |
 | 4 | `expired` | - | ✓ | - | - | Invitation lapsed before the candidate completed the assessment. |
-| 5 | `cancelled` | - | ✓ | - | - | Assessment withdrawn before completion. |
+| 5 | `canceled` | - | ✓ | - | - | Assessment withdrawn before completion. |
 
 ### `candidates` (Candidate)
 
@@ -689,7 +691,7 @@ _This scope holds `performance_goals` as **consumer**; the canonical state machi
 | 2 | `approved` | - | - | ✓ | `talent-performance-mgmt:approve_performance_goal` | Manager approves the goal; it becomes part of the cycle. |
 | 3 | `in_progress` | - | - | - | - | Goal is being worked. |
 | 4 | `completed` | - | - | ✓ | `talent-performance-mgmt:complete_performance_goal` | Outcome recorded; counts toward review rating. |
-| 5 | `cancelled` | - | ✓ | ✓ | `talent-performance-mgmt:cancel_performance_goal` | Goal abandoned (role change, priority shift, etc.). |
+| 5 | `canceled` | - | ✓ | ✓ | `talent-performance-mgmt:cancel_performance_goal` | Goal abandoned (role change, priority shift, etc.). |
 
 ### `pre_employees` (Pre-Employee)
 
@@ -701,7 +703,7 @@ _This scope holds `pre_employees` as **embedded_master**; the canonical state ma
 | 2 | `paperwork_in_flight` | - | - | - | - | I-9 / W-4 / direct-deposit / banking forms issued; awaiting candidate completion. Background check may run in parallel. |
 | 3 | `cleared` | - | - | - | - | All paperwork received and background check completed clear. Ready for HCM activation. |
 | 4 | `activated` | - | ✓ | ✓ | `hcm-lifecycle-workflows:activate_pre_employee` | Reconciliation handoff fired to HCM (pre_employee.activated event). Canonical employees row created downstream; ATS record becomes read-only. |
-| 5 | `cancelled` | - | ✓ | - | - | Offer rescinded or candidate withdrew before activation. Record retained for audit. |
+| 5 | `canceled` | - | ✓ | - | - | Offer rescinded or candidate withdrew before activation. Record retained for audit. |
 
 ### `skill_profiles` (Skill Profile)
 

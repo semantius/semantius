@@ -28,12 +28,12 @@ End-user-driven request workflow, including catalog authoring, request routing, 
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Service Catalog Items | `service_catalog_items` | Definition of what can be requested: the form schema, fulfilment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item. |
+| Service Catalog Items | `service_catalog_items` | Definition of what can be requested: the form schema, fulfillment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item. |
 | Service Offerings | `service_offerings` | The back-end service definition (commitments, supported configurations, and fulfillment details) split from its user-facing catalog item presentation. One offering can back several catalog items, and a catalog item can present one offering. |
-| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfilment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
+| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
 | Configuration Items | `configuration_items` | Canonical record of an IT thing under management: server, container, application, business service, network device, database, cloud resource. The flagship CMDB entity, referenced by changes, incidents, problems, and topology. Multi-feed: DISCOVERY auto-populates, HAM provides the physical-asset overlay for hardware CIs, SAM/SMP overlay for software/SaaS CIs. |
 | Locations | `locations` | - |
-| Onboarding Tasks | `onboarding_tasks` | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgement). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. |
+| Onboarding Tasks | `onboarding_tasks` | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgment). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. |
 | Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
 
 ```mermaid
@@ -87,7 +87,7 @@ flowchart TD
 | 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | optional | - | operational_workflow | `:manage` | - |
 | 5 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
 | 6 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | embedded_master | `onb-journey-mgmt` | Onboarding Journey Management | required | personal_content | operational_workflow | `:manage` | ITSM-SERVICE-REQUEST receives onboarding tasks (IT provisioning, workplace setup) as service-request payloads. |
-| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -228,7 +228,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 | target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronisation back to HRSD. |
+| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronization back to HRSD. |
 | ITSM-SERVICE-REQUEST | SAM | _(domain-level)_ | `license.expiry_warning` | _(threshold)_ | `service_requests` | api_call | low | Upcoming license expiry creates a renewal-action service request in ITSM. Low friction because the trigger is calendar-based and well-defined; routing to the right owner is the only nuance. |
 | ITSM-SERVICE-REQUEST | SAM | _(domain-level)_ | `license_audit.required` | _(state_change)_ | `service_requests` | api_call | medium | Vendor-initiated audit or proactive internal review triggers an audit workflow service request. Friction sits in evidence collection across SAM + CLM + S2P data. |
 | ITSM-SERVICE-REQUEST | HCM | HCM-CORE-WORKER | `employee.terminated` | `terminated` _(lifecycle)_ | `service_requests` | api_call | medium | Termination in HCM creates a fan-out of offboarding service requests in ITSM: workspace cleanup, mail-forwarding setup, equipment-return tracking, exit-interview scheduling. Failure modes: template tasks for new role types missing; tasks created against wrong assignee groups when org changed shortly before termination. |
@@ -268,9 +268,9 @@ _This scope holds `onboarding_tasks` as **embedded_master**; the canonical state
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `pending` | ✓ | - | - | - | Task assigned; due date set; not yet started. |
 | 2 | `in_progress` | - | - | - | - | Assignee has started work or partial evidence captured. |
-| 3 | `completed` | - | ✓ | ✓ | `itsm-service-request:completed_onboarding_task` | Task done; evidence (form, acknowledgement, signature, ticket id) captured. |
+| 3 | `completed` | - | ✓ | ✓ | `itsm-service-request:completed_onboarding_task` | Task done; evidence (form, acknowledgment, signature, ticket id) captured. |
 | 4 | `skipped` | - | ✓ | ✓ | `itsm-service-request:skipped_onboarding_task` | Task waived by manager/HR for this journey. |
-| 5 | `cancelled` | - | ✓ | ✓ | `itsm-service-request:cancelled_onboarding_task` | Task voided (journey cancelled, prerequisite removed). |
+| 5 | `canceled` | - | ✓ | ✓ | `itsm-service-request:canceled_onboarding_task` | Task voided (journey canceled, prerequisite removed). |
 
 ### `org_units` (Org Unit)
 
@@ -300,7 +300,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | 3 | `fulfilling` | - | - | - | - | Fulfillment team is provisioning or executing the request. |
 | 4 | `fulfilled` | - | - | - | - | Item or access has been delivered to the requester. |
 | 5 | `closed` | - | ✓ | - | - | Request archived after requester confirmation. |
-| 6 | `cancelled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
+| 6 | `canceled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
 
 ## 8. Permissions and business rules (derived)
 
@@ -313,7 +313,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `itsm-service-request:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `itsm-service-request:completed_onboarding_task` | workflow-gate (lifecycle) | Transition `onboarding_tasks` into state `completed` | ✓ |
 | `itsm-service-request:skipped_onboarding_task` | workflow-gate (lifecycle) | Transition `onboarding_tasks` into state `skipped` | ✓ |
-| `itsm-service-request:cancelled_onboarding_task` | workflow-gate (lifecycle) | Transition `onboarding_tasks` into state `cancelled` | ✓ |
+| `itsm-service-request:canceled_onboarding_task` | workflow-gate (lifecycle) | Transition `onboarding_tasks` into state `canceled` | ✓ |
 | `itsm-service-request:active_org_unit` | workflow-gate (lifecycle) | Transition `org_units` into state `active` | ✓ |
 | `itsm-service-request:reorganized_org_unit` | workflow-gate (lifecycle) | Transition `org_units` into state `reorganized` | ✓ |
 | `itsm-service-request:closed_org_unit` | workflow-gate (lifecycle) | Transition `org_units` into state `closed` | ✓ |
@@ -355,7 +355,7 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `itsm-service-request:manage` | `itsm-service-request:read` |
 | `itsm-service-request:admin` | `itsm-service-request:completed_onboarding_task` |
 | `itsm-service-request:admin` | `itsm-service-request:skipped_onboarding_task` |
-| `itsm-service-request:admin` | `itsm-service-request:cancelled_onboarding_task` |
+| `itsm-service-request:admin` | `itsm-service-request:canceled_onboarding_task` |
 | `itsm-service-request:admin` | `itsm-service-request:active_org_unit` |
 | `itsm-service-request:admin` | `itsm-service-request:reorganized_org_unit` |
 | `itsm-service-request:admin` | `itsm-service-request:closed_org_unit` |

@@ -29,18 +29,18 @@ Core HR case management surface: HR cases, case taxonomy, triage, approval routi
 | Name | data_object | Description |
 | --- | --- | --- |
 | HR Case Categories | `case_categories` | Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics. |
-| HR Cases | `hr_cases` | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analogue of ITSM service_requests, scoped to HR-owned workflows. |
+| HR Cases | `hr_cases` | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows. |
 | Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
 | Background Checks | `background_checks` | External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider. |
-| Carrier Feeds | `carrier_feeds` | Outbound integration to a benefit_carrier (EDI 834 enrolment, 820 remittance, custom API, file_drop). Mostly weekly batch; failures cause coverage discrepancies between HR system of record and carrier of record. |
-| Compensation Statements | `compensation_statements` | Personalised total-rewards letter delivered to a worker showing the value of base, bonus, equity, benefits, and perks. Generated on hire, merit cycle close, and annually. |
+| Carrier Feeds | `carrier_feeds` | Outbound integration to a benefit_carrier (EDI 834 enrollment, 820 remittance, custom API, file_drop). Mostly weekly batch; failures cause coverage discrepancies between HR system of record and carrier of record. |
+| Compensation Statements | `compensation_statements` | Personalized total-rewards letter delivered to a worker showing the value of base, bonus, equity, benefits, and perks. Generated on hire, merit cycle close, and annually. |
 | Compliance Training Assignments | `compliance_assignments` | Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log. |
 | Engagement Surveys | `engagement_surveys` | Employee engagement, pulse, and sentiment survey responses. Mastered by PA (or by a specialized engagement-platform when used). Drives segment-level engagement scoring and intervention triggers. |
 | Garnishment Orders | `garnishment_orders` | Court-ordered or agency-issued instruction to withhold from an employee's wages (child support, tax levy, bankruptcy, student loan, creditor). Carries priority, ceiling, remit-to instructions, and lifecycle (active, released, exhausted). |
 | IGA Access Requests | `iga_access_requests` | User-initiated access request + approval workflow within an IGA platform. |
 | Knowledge Articles | `knowledge_articles` | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. |
 | Knowledge Base Articles | `knowledge_base_articles` | Authored, versioned content unit. The KMS standalone-market master, distinct from ITSM/CSM/HRSD/LSD bundled `knowledge_articles` (which are platform-embedded). Lifecycle: draft → published → archived. |
-| Onboarding Tasks | `onboarding_tasks` | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgement). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. |
+| Onboarding Tasks | `onboarding_tasks` | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgment). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. |
 | Policy Attestations | `policy_attestations` | Record that a user read, understood, and acknowledged a policy; timestamp, version, medium, completion evidence. |
 | Shifts | `work_shifts` | A scheduled work block assigned to a worker: start, end, position, location, break plan, premium pay flags. The atomic scheduling unit. |
 
@@ -341,6 +341,8 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `frontline_recognitions` | recognizes | `employees` | one_to_many | required | none (required-if-present) | n/a | - |
 | `shift_swap_requests` | concerns | `work_shifts` | one_to_many | required | none (required-if-present) | n/a | - |
 | `advocate_profiles` | represents | `employees` | one_to_one | required | none (required-if-present) | n/a | - |
+| `work_schedules` | includes | `work_shifts` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `work_shifts` | has | `time_entries` | one_to_many | optional | none | n/a | - |
 
 ## 6. Cross-domain context
 
@@ -358,7 +360,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 | source module | target domain | target module | trigger_event | transition | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| HRSD-CASE-MGMT | HRSD | HRSD-KNOWLEDGE | `case_category.updated` | _(state_change)_ | `case_categories` | lifecycle_progression | low | Case taxonomy updates re-categorise the HR knowledge base so deflection and agent-assist suggestions stay aligned with the routing model. |
+| HRSD-CASE-MGMT | HRSD | HRSD-KNOWLEDGE | `case_category.updated` | _(state_change)_ | `case_categories` | lifecycle_progression | low | Case taxonomy updates re-categorize the HR knowledge base so deflection and agent-assist suggestions stay aligned with the routing model. |
 | HRSD-CASE-MGMT | HRSD | HRSD-KNOWLEDGE | `hr_case.resolved` | `open` → `resolved` _(lifecycle)_ | `hr_cases` | lifecycle_progression | low | Case resolution feeds the HR-knowledge improvement loop. Resolution notes and root-cause tags drive article authoring and refinement. |
 | HRSD-CASE-MGMT | KMS | _(domain-level)_ | `case_category.updated` | _(state_change)_ | `case_categories` | event_stream | low | Case-category taxonomy changes drive KMS knowledge-base remapping. |
 | HRSD-CASE-MGMT | KMS | _(domain-level)_ | `hr_case.resolved` | `open` → `resolved` _(lifecycle)_ | `hr_cases` | event_stream | low | Case resolution feeds the knowledge-base authoring loop: KMS receives resolution signal to suggest new articles, update existing ones, or improve deflection. |
@@ -386,7 +388,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | HCM-CORE-WORKER | BEN-ADMIN | BEN-ENROLLMENT | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | high | Termination triggers benefits termination, COBRA / equivalent notices, and dependent coverage decisions. Late notifications cause coverage gaps. |
 | HCM-CORE-WORKER | EXPENSE | _(domain-level)_ | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Termination triggers EXPENSE corporate-card deactivation and outstanding-report close-out. |
 | HCM-CORE-WORKER | PSA | PSA-PROJECT-DELIVERY | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Terminated employee may be the assignee on open project_tasks. PROJECT-DELIVERY needs to surface affected tasks for reassignment or completion handover. |
-| HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | ML attrition score crosses high threshold. PSA resource managers may proactively rebalance assignments away from at-risk consultants on critical engagements. High friction: probabilistic→deterministic pattern (score requires judgement call), false-positive volume can swamp the staffing queue. |
+| HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | ML attrition score crosses high threshold. PSA resource managers may proactively rebalance assignments away from at-risk consultants on critical engagements. High friction: probabilistic→deterministic pattern (score requires judgment call), false-positive volume can swamp the staffing queue. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.created` | `created` _(lifecycle)_ | `employees` | event_stream | low | New consultant hired. PSA resource pool adds the employee as available capacity; skill inventory record is seeded for downstream certifications. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.promoted` | _(lifecycle)_ | `employees` | event_stream | low | Consultant promoted (level / job profile change). PSA reevaluates billable rate band and skill inventory; existing project_assignments may need rate revision. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `employee.terminated` | `terminated` _(lifecycle)_ | `employees` | event_stream | medium | Consultant terminated. PSA must release any active project_assignments, return capacity to bench and re-allocate forecast. Medium friction: leaver-event timing varies (immediate vs notice period) and active assignments may need urgent rebalancing. |
@@ -395,7 +397,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 | target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| HRSD-CASE-MGMT | GRC | _(domain-level)_ | `compliance_policy.updated` | `published` → `republished` _(state_change)_ | `policy_attestations` | manual_handoff | high | Policy update (leave, harassment) → HRSD exception handling; no standardised machine-readable payload. |
+| HRSD-CASE-MGMT | GRC | _(domain-level)_ | `compliance_policy.updated` | `published` → `republished` _(state_change)_ | `policy_attestations` | manual_handoff | high | Policy update (leave, harassment) → HRSD exception handling; no standardized machine-readable payload. |
 | HRSD-CASE-MGMT | HRSD | HRSD-EMPLOYEE-PORTAL | `hr_case.intake_submitted` | `submitted` _(lifecycle)_ | `hr_cases` | lifecycle_progression | low | Portal intake submission progresses into the case-management workflow. In-process state transition, same vendor stack, no message moves. |
 | HRSD-CASE-MGMT | KMS | _(domain-level)_ | `knowledge_base_article.published` | _(lifecycle)_ | `knowledge_base_articles` | event_stream | low | HR service delivery picks up new HR knowledge articles for employee self-service. |
 | HRSD-CASE-MGMT | IGA | IGA-ACCESS-REQUEST | `iga_access_request.submitted` | _(state_change)_ | `iga_access_requests` | event_stream | low | Access-related HR questions can spawn HRSD cases for context. |
@@ -410,7 +412,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | HRSD-CASE-MGMT | ONBOARDING | ONB-JOURNEY-MGMT | `task.escalation_required` | _(state_change)_ | `onboarding_tasks` | api_call | medium | When an onboarding task is blocked, overdue, or contested (missing document, declined accommodation, pre-boarding question), an HR case is opened in HRSD. HRSD masters the case lifecycle; the case-resolution event flows back to unblock the task. Friction comes from inconsistent case-routing taxonomies between Onboarding and HRSD. |
 | HCM-CORE-WORKER | ATS | ATS-CANDIDATE-CRM | `candidate.hired` | `hired` _(lifecycle)_ | `employees` | event_stream | medium | Candidate-to-employee conversion: hired candidate from ATS triggers employee-record creation in HCM. Field mapping (candidate → employee) is rarely perfect; missing fields (legal name spelling, work-eligibility detail, tax IDs) get collected in the Onboarding journey and back-filled into HCM. |
 | HCM-CORE-WORKER | COMP-MGMT | COMP-PLANNING | `merit_cycle.approved` | `approved` _(state_change)_ | `employees` | event_stream | low | Cycle-close pay-rate changes post to the worker record (base salary, bonus target, equity guideline). |
-| HCM-CORE-WORKER | EMP-EXP | EMP-EXP-CONTINUOUS-LISTEN | `attrition_risk.high` | _(state_change)_ | `employees` | api_call | high | Attrition-risk inference from engagement signals surfaces to managers via HCM dashboards. Probabilistic-signal → deterministic-action pattern: a risk score is not a directive; intervention is gated by manager judgement, data-privacy rules (anonymity floor), and DEI-bias concerns. |
+| HCM-CORE-WORKER | EMP-EXP | EMP-EXP-CONTINUOUS-LISTEN | `attrition_risk.high` | _(state_change)_ | `employees` | api_call | high | Attrition-risk inference from engagement signals surfaces to managers via HCM dashboards. Probabilistic-signal → deterministic-action pattern: a risk score is not a directive; intervention is gated by manager judgment, data-privacy rules (anonymity floor), and DEI-bias concerns. |
 | HCM-CORE-WORKER | PA | PA-PREDICTIVE-MODELS | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | Flight-risk score flagged on employee; HR-business-partner motion required. Probabilistic-signal-to-deterministic-action friction shape; false-positive volume drives mistrust. |
 | HCM-CORE-WORKER | MDM | _(domain-level)_ | `employee_golden_record.created` | `active` _(lifecycle)_ | `employees` | api_call | medium | Resolved identity → HCM links operational HR record. |
 
@@ -444,7 +446,7 @@ _This scope holds `background_checks` as **consumer**; the canonical state machi
 | 2 | `in_progress` | - | - | - | - | Provider is running verification (criminal, employment, education, identity). |
 | 3 | `completed_clear` | - | ✓ | ✓ | `ats-background-checks:clear_background_check` | Provider returned a clear result; no adverse findings. |
 | 4 | `completed_consider` | - | ✓ | ✓ | `ats-background-checks:adjudicate_background_check` | Provider returned adverse findings; gated review required before adjudication. |
-| 5 | `cancelled` | - | ✓ | - | - | Check withdrawn before the provider returned a result. |
+| 5 | `canceled` | - | ✓ | - | - | Check withdrawn before the provider returned a result. |
 
 ### `carrier_feeds` (Carrier Feed)
 
@@ -533,7 +535,7 @@ _This scope holds `iga_access_requests` as **consumer**; the canonical state mac
 | 50 | `provisioning` | - | - | - | - | Connector framework executing entitlement grants in downstream systems. |
 | 60 | `completed` | - | ✓ | - | - | All grants confirmed; request closed. |
 | 70 | `rejected` | - | ✓ | ✓ | `iga-access-request:reject_access_request` | Denied by an approver. |
-| 80 | `cancelled` | - | ✓ | - | - | Requester or admin cancelled before completion. |
+| 80 | `canceled` | - | ✓ | - | - | Requester or admin canceled before completion. |
 
 ### `knowledge_articles` (Knowledge Article)
 
@@ -565,9 +567,9 @@ _This scope holds `onboarding_tasks` as **consumer**; the canonical state machin
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `pending` | ✓ | - | - | - | Task assigned; due date set; not yet started. |
 | 2 | `in_progress` | - | - | - | - | Assignee has started work or partial evidence captured. |
-| 3 | `completed` | - | ✓ | ✓ | `onb-journey-mgmt:completed_onboarding_task` | Task done; evidence (form, acknowledgement, signature, ticket id) captured. |
+| 3 | `completed` | - | ✓ | ✓ | `onb-journey-mgmt:completed_onboarding_task` | Task done; evidence (form, acknowledgment, signature, ticket id) captured. |
 | 4 | `skipped` | - | ✓ | ✓ | `onb-journey-mgmt:skipped_onboarding_task` | Task waived by manager/HR for this journey. |
-| 5 | `cancelled` | - | ✓ | ✓ | `onb-journey-mgmt:cancelled_onboarding_task` | Task voided (journey cancelled, prerequisite removed). |
+| 5 | `canceled` | - | ✓ | ✓ | `onb-journey-mgmt:canceled_onboarding_task` | Task voided (journey canceled, prerequisite removed). |
 
 ## 8. Permissions and business rules (derived)
 

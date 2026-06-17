@@ -88,7 +88,7 @@
     },
     {
       "code": "ITSM-REQUEST",
-      "name": "Service Request Fulfilment",
+      "name": "Service Request Fulfillment",
       "cross_cutting": false
     },
     {
@@ -365,7 +365,7 @@
       "name": "service_catalog_items",
       "singular_label": "Service Catalog Item",
       "plural_label": "Service Catalog Items",
-      "description": "Definition of what can be requested: the form schema, fulfilment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item.",
+      "description": "Definition of what can be requested: the form schema, fulfillment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -463,7 +463,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 8,
           "is_terminal": true
         }
@@ -516,7 +516,7 @@
           "requires_permission": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 6,
           "is_terminal": true
         }
@@ -615,7 +615,7 @@
       "name": "service_requests",
       "singular_label": "Service Request",
       "plural_label": "Service Requests",
-      "description": "Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents, incidents are reactive, service requests are proactive. The fulfilment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD).",
+      "description": "Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents, incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD).",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": false,
@@ -657,7 +657,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 6,
           "is_terminal": true
         }

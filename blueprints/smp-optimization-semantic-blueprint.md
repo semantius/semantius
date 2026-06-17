@@ -124,7 +124,7 @@ _(none: no outbound handoffs whose payload is in this scope)_
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SMP-OPTIMIZATION | SMP | SMP-DISCOVERY | `saas_application.deprovisioned` | _(lifecycle)_ | `smp_license_seat_assignments` | lifecycle_progression | low | Deprovisioning an application reclaims all of its license seat assignments. |
 | SMP-OPTIMIZATION | SMP | SMP-DISCOVERY | `saas_application.sanctioned` | _(lifecycle)_ | `smp_license_seat_assignments` | lifecycle_progression | low | A sanctioned SaaS application becomes eligible for license seat provisioning and usage metering in the optimization module. |
-| SMP-OPTIMIZATION | SMP | SMP-RENEWAL-VENDOR | `saas_subscription.cancelled` | `active` → `cancelled` _(lifecycle)_ | `smp_reclamation_actions` | lifecycle_progression | low | Cancelling a subscription triggers reclamation of its license seats. |
+| SMP-OPTIMIZATION | SMP | SMP-RENEWAL-VENDOR | `saas_subscription.canceled` | `active` → `canceled` _(lifecycle)_ | `smp_reclamation_actions` | lifecycle_progression | low | Canceling a subscription triggers reclamation of its license seats. |
 | SMP-OPTIMIZATION | SMP | SMP-AUTOMATION | `smp_app_request.fulfilled` | _(lifecycle)_ | `smp_license_seat_assignments` | lifecycle_progression | low | Fulfilling a self-service app request provisions a license seat assignment. |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
@@ -162,7 +162,7 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | 30 | `grace_period` | - | - | - | - | - |
 | 40 | `reclaimed` | - | ✓ | ✓ | `smp-optimization:execute_reclamation` | - |
 | 50 | `restored` | - | ✓ | ✓ | `smp-optimization:restore_reclamation` | - |
-| 60 | `cancelled` | - | ✓ | ✓ | `smp-optimization:cancel_reclamation` | - |
+| 60 | `canceled` | - | ✓ | ✓ | `smp-optimization:cancel_reclamation` | - |
 
 ## 8. Permissions and business rules (derived)
 
@@ -181,7 +181,7 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `smp-optimization:notify_user_of_reclamation` | workflow-gate (lifecycle) | Transition `smp_reclamation_actions` into state `notified` | ✓ |
 | `smp-optimization:execute_reclamation` | workflow-gate (lifecycle) | Transition `smp_reclamation_actions` into state `reclaimed` | ✓ |
 | `smp-optimization:restore_reclamation` | workflow-gate (lifecycle) | Transition `smp_reclamation_actions` into state `restored` | ✓ |
-| `smp-optimization:cancel_reclamation` | workflow-gate (lifecycle) | Transition `smp_reclamation_actions` into state `cancelled` | ✓ |
+| `smp-optimization:cancel_reclamation` | workflow-gate (lifecycle) | Transition `smp_reclamation_actions` into state `canceled` | ✓ |
 
 ### 8.2 Business rules
 

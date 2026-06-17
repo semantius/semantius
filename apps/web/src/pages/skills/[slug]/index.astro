@@ -1,39 +1,44 @@
 ---
 export const prerender = true;
-import { type CollectionEntry, getCollection, render } from 'astro:content';
+import { getCollection } from 'astro:content';
 import Layout from '~/layouts/Layout.astro';
+import Command from '~/components/common/Command.astro';
 
+// One skill per domain. The page is driven by the per-domain catalog copy
+// (catalogs collection, from skill-specs/<CODE>/catalog.yaml), with the slug =
+// domain code lowercased (e.g. /skills/ats). The domain map supplies the
+// modules whose blueprints back this domain.
 export async function getStaticPaths() {
-	const skills = await getCollection('skills');
-	// Entry IDs are "<folder>/README" so the slug is the folder name.
-	return skills.map((skill) => ({
-		params: { slug: skill.id.split('/')[0] },
-		props: { skill },
+	const catalogs = await getCollection('catalogs');
+	const domains = await getCollection('domains');
+	const modulesByCode = new Map(domains.map((d) => [d.data.code, d.data.modules]));
+	return catalogs.map((catalog) => ({
+		params: { slug: (catalog.data.domain_code_lower ?? catalog.data.domain_code).toLowerCase() },
+		props: {
+			catalog: catalog.data,
+			modules: modulesByCode.get(catalog.data.domain_code) ?? [],
+		},
 	}));
 }
 
-interface Props {
-	skill: CollectionEntry<'skills'>;
-}
+const { catalog, modules } = Astro.props;
 
-const { skill } = Astro.props;
-// Entry ID is "<folder>/README" so the slug is the folder name.
-const slug = skill.id.split('/')[0];
-const { Content } = await render(skill);
+// The catalog_description block scalar holds one or more paragraphs separated
+// by blank lines.
+const paragraphs = (catalog.catalog_description ?? '')
+	.split(/\n\s*\n/)
+	.map((p) => p.trim())
+	.filter(Boolean);
 
-// Look up the related blueprint to get its display name.
-let relatedBlueprint: CollectionEntry<'blueprints'> | undefined;
-if (skill.data.semantic_model) {
-	const allBlueprints = await getCollection('blueprints');
-	relatedBlueprint = allBlueprints.find((b) => b.data.system_slug === skill.data.semantic_model);
-}
+// Install command mirrors the one the remark plugin injects on skill READMEs.
+const installCommand = catalog.skill_name
+	? `npx skills add https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`
+	: null;
 ---
 
 <Layout
-	title={skill.data.title}
-	description={skill.data.description || `Agent skill: ${skill.data.title}.`}
-	noindex={skill.data.noindex}
-	nofollow={skill.data.nofollow}
+	title={catalog.domain_name}
+	description={catalog.catalog_tagline || `Agent skill for ${catalog.domain_name}.`}
 >
 	<section class="pt-32 pb-16">
 		<div class="max-w-3xl mx-auto px-6">
@@ -43,23 +48,68 @@ if (skill.data.semantic_model) {
 				</a>
 			</div>
 
-			<div class="prose dark:prose-invert prose-base max-w-none prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
-				<Content />
+			<span class="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+				{catalog.domain_code}
+			</span>
+			<h1 class="mt-3 text-3xl font-display font-bold lg:text-4xl">{catalog.domain_name}</h1>
+			{catalog.catalog_tagline && (
+				<p class="mt-4 text-lg text-foreground/90">{catalog.catalog_tagline}</p>
+			)}
 
-				{skill.data.semantic_model && relatedBlueprint && (
-					<div class="not-prose mt-6">
-						<a
-							href={`/blueprints/${skill.data.semantic_model}`}
-							class="text-sm text-primary hover:text-primary/80 font-medium"
-						>
-							Learn more about the {relatedBlueprint.data.system_name} semantic blueprint &rarr;
-						</a>
+			{paragraphs.length > 0 && (
+				<div class="mt-6 space-y-4 text-foreground/80">
+					{paragraphs.map((paragraph) => (
+						<p>{paragraph}</p>
+					))}
+				</div>
+			)}
+
+			{installCommand && (
+				<div class="mt-10">
+					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						Install the {catalog.skill_name} skill
+					</h2>
+					<Command mode="shell" command={installCommand} />
+				</div>
+			)}
+
+			{catalog.capability_names.length > 0 && (
+				<div class="mt-10">
+					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						What it does
+					</h2>
+					<div class="flex flex-wrap gap-2">
+						{catalog.capability_names.map((capability) => (
+							<span class="inline-flex items-center rounded-full border border-border px-3 py-1.5 text-sm text-foreground/90">
+								{capability}
+							</span>
+						))}
 					</div>
-				)}
+				</div>
+			)}
 
-				<div class="not-prose mt-8 pt-6 border-t border-border">
+			{modules.length > 0 && (
+				<div class="mt-10 border-t border-border pt-8">
+					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						Related blueprints
+					</h2>
+					<div class="flex flex-wrap gap-2">
+						{modules.map((module) => (
+							<a
+								href={`/blueprints/${module.code.toLowerCase()}`}
+								class="inline-flex items-center gap-1.5 rounded-full border border-primary px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-primary hover:text-white"
+							>
+								{module.name}
+							</a>
+						))}
+					</div>
+				</div>
+			)}
+
+			{catalog.skill_name && (
+				<div class="mt-10 border-t border-border pt-6">
 					<a
-						href={`https://github.com/semantius/semantius/tree/main/skills/${slug}`}
+						href={`https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -70,43 +120,7 @@ if (skill.data.semantic_model) {
 						Review skill details on GitHub
 					</a>
 				</div>
-			</div>
+			)}
 		</div>
 	</section>
 </Layout>
-
-<script>
-  // Copy-button handler for .command boxes injected by the remark plugin.
-  // Mirrors the script in Command.astro so the copy button works on this page.
-  document.addEventListener('click', async (event) => {
-    const target = event.target as HTMLElement | null;
-    const button = target?.closest<HTMLButtonElement>('.command-copy');
-    if (!button) return;
-
-    const command = button.dataset.command ?? '';
-    const wrapper = button.closest('.command');
-    const label = button.querySelector<HTMLElement>('.command-copy-label');
-    const originalLabel = label?.textContent ?? 'Copy';
-
-    try {
-      await navigator.clipboard.writeText(command);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = command;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-
-    wrapper?.classList.add('copied');
-    if (label) label.textContent = 'Copied';
-
-    setTimeout(() => {
-      wrapper?.classList.remove('copied');
-      if (label) label.textContent = originalLabel;
-    }, 1600);
-  });
-</script>

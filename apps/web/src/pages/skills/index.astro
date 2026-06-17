@@ -3,45 +3,71 @@ export const prerender = true;
 import Layout from '~/layouts/Layout.astro';
 import { getCollection } from 'astro:content';
 
-// Each skill entry ID is "<folder>/README" so the slug is the folder name.
-const allSkills = await getCollection('skills');
-const sorted = allSkills.sort((a, b) => a.data.title.localeCompare(b.data.title));
+// The skills listing is grouped by domain (one skill per domain for now). The
+// domain map (domains collection) drives the order and which domains appear;
+// each domain's buyer copy comes from skill-specs/<CODE>/catalog.yaml (catalogs
+// collection), joined on domain_code.
+const domains = (await getCollection('domains')).sort(
+	(a, b) => a.data.order - b.data.order,
+);
+const catalogs = await getCollection('catalogs');
+const catalogByCode = new Map(catalogs.map((c) => [c.data.domain_code, c.data]));
 
-const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
-
-function colorFor(index: number): string {
-	return COLORS[index % COLORS.length];
-}
+// Only render domains that have a catalog. Split the description block scalar
+// into paragraphs on blank lines.
+const entries = domains
+	.map((domain) => catalogByCode.get(domain.data.code))
+	.filter((catalog): catalog is NonNullable<typeof catalog> => Boolean(catalog))
+	.map((catalog) => ({
+		...catalog,
+		slug: (catalog.domain_code_lower ?? catalog.domain_code).toLowerCase(),
+		paragraphs: (catalog.catalog_description ?? '')
+			.split(/\n\s*\n/)
+			.map((p) => p.trim())
+			.filter(Boolean),
+	}));
 ---
 
-<Layout title="Skills" description="Agent skills you can install and use with your semantic models.">
+<Layout title="Skills" description="Agent skills you can install and use with your semantic models, grouped by domain.">
 	<section class="pt-32 pb-16">
 		<div class="max-w-6xl mx-auto px-6">
-			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Skills</h1>
+			<h1 class="text-center text-4xl font-display font-normal lg:text-[56px]">Skills</h1>
+			<p class="mx-auto mt-6 max-w-2xl text-center text-lg text-muted-foreground">
+				One installable skill per domain. Install it alongside your semantic model and put your agent to work.
+			</p>
 
-			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-8">
-				{sorted.map((skill, i) => (
-					<div class="mb-8">
-						<a href={`/skills/${skill.id.split('/')[0]}`} class="block">
-							<div
-								class="flex items-center justify-center rounded-lg h-45"
-								style={`background-color:${colorFor(i)}`}
-							>
-								<span class="px-6 text-center text-2xl font-semibold text-white">
-									{skill.data.title}
-								</span>
+			<div class="mt-16 space-y-16">
+				{entries.map((catalog) => (
+					<section aria-labelledby={`skill-${catalog.domain_code}`} class="border-b border-border pb-12 last:border-b-0">
+						<span class="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+							{catalog.domain_code}
+						</span>
+						<h2 id={`skill-${catalog.domain_code}`} class="mt-3 text-2xl font-display font-semibold lg:text-3xl">
+							<a href={`/skills/${catalog.slug}`} class="hover:text-primary transition-colors">
+								{catalog.domain_name}
+							</a>
+						</h2>
+						{catalog.catalog_tagline && (
+							<p class="mt-3 max-w-3xl text-lg text-foreground/90">{catalog.catalog_tagline}</p>
+						)}
+						{catalog.paragraphs.length > 0 && (
+							<div class="mt-4 max-w-3xl space-y-4 text-foreground/70">
+								{catalog.paragraphs.map((paragraph) => (
+									<p>{paragraph}</p>
+								))}
 							</div>
-						</a>
-						{skill.data.description && (
-							<p class="mt-4 line-clamp-4 text-foreground/90">{skill.data.description}</p>
 						)}
 						<a
-							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
-							href={`/skills/${skill.id.split('/')[0]}`}
+							class="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
+							href={`/skills/${catalog.slug}`}
 						>
-							View Skill
+							View skill
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+								<path d="M5 12h14" />
+								<path d="m12 5 7 7-7 7" />
+							</svg>
 						</a>
-					</div>
+					</section>
 				))}
 			</div>
 		</div>

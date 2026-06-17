@@ -226,7 +226,7 @@ _This scope holds `work_items` as **embedded_master**; the canonical state machi
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `blocked` | - | - | - | - | - |
 | 4 | `done` | - | ✓ | - | - | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `work-mgmt-goals-okr:cancel_work_item` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `work-mgmt-goals-okr:cancel_work_item` | - |
 
 ## 8. Permissions and business rules (derived)
 
@@ -237,7 +237,7 @@ _This scope holds `work_items` as **embedded_master**; the canonical state machi
 | `work-mgmt-goals-okr:read` | baseline-read | Read access to every entity in the module | ✓ |
 | `work-mgmt-goals-okr:manage` | baseline-manage | Edit operational records | ✓ |
 | `work-mgmt-goals-okr:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
-| `work-mgmt-goals-okr:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `cancelled` | ✓ |
+| `work-mgmt-goals-okr:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `canceled` | ✓ |
 | `work-mgmt-goals-okr:commit_okr_objective` | workflow-gate (lifecycle) | Transition `okr_objectives` into state `committed` | ✓ |
 | `work-mgmt-goals-okr:score_okr_objective` | workflow-gate (lifecycle) | Transition `okr_objectives` into state `scored` | ✓ |
 | `work-mgmt-goals-okr:commit_okr_key_result` | workflow-gate (lifecycle) | Transition `okr_key_results` into state `committed` | ✓ |

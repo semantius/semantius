@@ -3,42 +3,73 @@ export const prerender = true;
 import { type CollectionEntry, getCollection } from 'astro:content';
 import Layout from '~/layouts/Layout.astro';
 import Command from '~/components/common/Command.astro';
+import DomainLanding from '~/components/blueprints/DomainLanding.astro';
 
+// This route serves two page kinds at /blueprints/<slug>:
+//   - 'blueprint': a module's semantic blueprint detail (slug = system_slug).
+//   - 'domain':    a domain landing page (slug = domain code lowercased).
+// Domain landings are skipped for any domain whose code collides with a
+// blueprint slug (the single-module bundle/starter domains), so the richer
+// blueprint detail keeps that URL.
 export async function getStaticPaths() {
 	const blueprints = await getCollection('blueprints');
-	return blueprints.map((blueprint) => ({
+	const blueprintSlugs = new Set(blueprints.map((b) => b.data.system_slug));
+	const domains = await getCollection('domains');
+
+	const blueprintPaths = blueprints.map((blueprint) => ({
 		params: { slug: blueprint.data.system_slug },
-		props: { blueprint },
+		props: { kind: 'blueprint' as const, blueprint },
 	}));
+
+	const domainPaths = domains
+		.filter((domain) => !blueprintSlugs.has(domain.data.code.toLowerCase()))
+		.map((domain) => ({
+			params: { slug: domain.data.code.toLowerCase() },
+			props: { kind: 'domain' as const, domain },
+		}));
+
+	return [...blueprintPaths, ...domainPaths];
 }
 
-interface Props {
-	blueprint: CollectionEntry<'blueprints'>;
+type Props =
+	| { kind: 'blueprint'; blueprint: CollectionEntry<'blueprints'> }
+	| { kind: 'domain'; domain: CollectionEntry<'domains'> };
+
+const props = Astro.props as Props;
+
+// Blueprint-only data; computed only when rendering a blueprint detail page.
+let blueprint: CollectionEntry<'blueprints'> | null = null;
+let description = '';
+let subsetHtml = '';
+let date = '';
+let blueprintFileUrl = '';
+let systemName = '';
+let relatedSkills: CollectionEntry<'skills'>[] = [];
+
+if (props.kind === 'blueprint') {
+	blueprint = props.blueprint;
+	// `overview` and `subsetHtml` are derived once at collection-build time by the
+	// custom loader in content.config.ts (see lib/models-extract.ts).
+	description = blueprint.data.description ?? blueprint.data.overview ?? '';
+	subsetHtml = blueprint.data.subsetHtml ?? '';
+	date = blueprint.data.created_at.toLocaleDateString('en-US', {
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+	});
+	blueprintFileUrl = new URL(`/blueprints/${blueprint.id}.md`, Astro.site ?? Astro.url).toString();
+	systemName = blueprint.data.system_name;
+	// Find skills related to this blueprint (semantic_model matches system_slug).
+	const allSkills = await getCollection('skills');
+	relatedSkills = allSkills.filter(
+		(skill) => skill.data.semantic_model === blueprint!.data.system_slug,
+	);
 }
-
-const { blueprint } = Astro.props;
-
-// `overview` and `subsetHtml` are derived once at collection-build time by the
-// custom loader in content.config.ts (see lib/models-extract.ts).
-const description = blueprint.data.description ?? blueprint.data.overview ?? '';
-const subsetHtml = blueprint.data.subsetHtml ?? '';
-
-const date = blueprint.data.created_at.toLocaleDateString('en-US', {
-	year: 'numeric',
-	month: 'long',
-	day: 'numeric',
-});
-
-const blueprintFileUrl = new URL(`/blueprints/${blueprint.id}.md`, Astro.site ?? Astro.url).toString();
-const systemName = blueprint.data.system_name;
-
-// Find skills related to this blueprint (semantic_model matches system_slug).
-const allSkills = await getCollection('skills');
-const relatedSkills = allSkills.filter(
-	(skill) => skill.data.semantic_model === blueprint.data.system_slug,
-);
 ---
 
+{props.kind === 'domain' && <DomainLanding domain={props.domain.data} />}
+
+{props.kind === 'blueprint' && blueprint && (
 <Layout
 	title={blueprint.data.system_name}
 	description={description || `Semantic data blueprint for ${blueprint.data.system_name}.`}
@@ -117,7 +148,9 @@ const relatedSkills = allSkills.filter(
 		</div>
 	</section>
 </Layout>
+)}
 
+{props.kind === 'blueprint' && blueprint && (
 <script is:inline define:vars={{ blueprintSlug: blueprint.data.system_slug, blueprintName: blueprint.data.system_name }}>
   document.addEventListener('DOMContentLoaded', function() {
     var viewBtn = document.querySelector('a[href*="/blueprint"]');
@@ -136,3 +169,4 @@ const relatedSkills = allSkills.filter(
     }
   });
 </script>
+)}

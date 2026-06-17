@@ -177,7 +177,7 @@ _This scope holds `work_items` as **embedded_master**; the canonical state machi
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `blocked` | - | - | - | - | - |
 | 4 | `done` | - | ✓ | - | - | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `intgov-governance:cancel_work_item` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `intgov-governance:cancel_work_item` | - |
 
 ## 8. Permissions and business rules (derived)
 
@@ -188,7 +188,7 @@ _This scope holds `work_items` as **embedded_master**; the canonical state machi
 | `intgov-governance:read` | baseline-read | Read access to every entity in the module | ✓ |
 | `intgov-governance:manage` | baseline-manage | Edit operational records | ✓ |
 | `intgov-governance:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
-| `intgov-governance:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `cancelled` | ✓ |
+| `intgov-governance:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `canceled` | ✓ |
 | `intgov-governance:attest` | workflow-gate (lifecycle) | Transition `intranet_content_attestations` into state `attested_current` | ✓ |
 | `intgov-governance:flag_stale` | workflow-gate (lifecycle) | Transition `intranet_content_attestations` into state `flagged_stale` | ✓ |
 | `intgov-governance:archive` | workflow-gate (lifecycle) | Transition `intranet_content_attestations` into state `archived` | ✓ |

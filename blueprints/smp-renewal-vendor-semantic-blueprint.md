@@ -25,7 +25,7 @@ Renewal pipeline tracking, vendor relationship management, contract coordination
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Renewal Engagements | `smp_renewal_engagements` | Lifecycle envelope per renewal cycle: timeline, owner, vendor proposals received, BATNA notes, decisions taken. Buyer-side analogue of CRM opportunities; distinct in that the buyer drives the negotiation. Productiv Renewal Pipeline + Zylo Renewal Workbench are the flagship. |
+| Renewal Engagements | `smp_renewal_engagements` | Lifecycle envelope per renewal cycle: timeline, owner, vendor proposals received, BATNA notes, decisions taken. Buyer-side analog of CRM opportunities; distinct in that the buyer drives the negotiation. Productiv Renewal Pipeline + Zylo Renewal Workbench are the flagship. |
 | Renewal Tasks | `smp_renewal_tasks` | Workstream task within a SaaS renewal cycle (renewal window notice, owner assignment, decision: renew/renegotiate/consolidate/cancel). Productiv, Zylo, Flexera Renewal workspace surfaces. |
 | SaaS Spend Allocations | `smp_spend_allocations` | Chargeback split of a SaaS subscription across cost centers, business units, or projects, with allocation method (per-seat, per-headcount, fixed-percentage) and effective window. Zylo Cost Center Allocation + Flexera Chargeback Allocations are the flagship. Distinct from FINOPS cost_allocations (cloud-only). |
 | SaaS Subscriptions | `saas_subscriptions` | The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P). |
@@ -97,7 +97,7 @@ flowchart TD
 | 5 | `smp_vendor_negotiations` | `smp_vendor_negotiations` | Vendor Negotiation | Vendor Negotiations | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 6 | `smp_vendor_risk_assessments` | `smp_vendor_risk_assessments` | Vendor Risk Assessment | Vendor Risk Assessments | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 7 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 8 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 8 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 | 9 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | embedded_master | `smp-discovery` | SMP Discovery and Catalog | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -325,7 +325,7 @@ _This scope holds `saas_applications` as **embedded_master**; the canonical stat
 | 20 | `active` | - | - | - | - | Contract executed; license consumption underway. |
 | 30 | `renewing` | - | - | ✓ | `smp-renewal-vendor:initiate_renewal` | Within the renewal window (typically 90 days pre-expiry). Quantity and tier negotiation in progress. |
 | 40 | `renewed` | - | ✓ | ✓ | `smp-renewal-vendor:approve_renewal` | Renewal executed; a new active term started. |
-| 50 | `cancelled` | - | ✓ | ✓ | `smp-renewal-vendor:cancel_subscription` | Subscription terminated; deprovisioning workflow triggered. |
+| 50 | `canceled` | - | ✓ | ✓ | `smp-renewal-vendor:cancel_subscription` | Subscription terminated; deprovisioning workflow triggered. |
 
 ### `smp_renewal_engagements` (Renewal Engagement)
 
@@ -346,7 +346,7 @@ _This scope holds `saas_applications` as **embedded_master**; the canonical stat
 | 20 | `in_progress` | - | - | ✓ | `smp-renewal-vendor:start_renewal_task` | - |
 | 30 | `blocked` | - | - | - | - | - |
 | 40 | `done` | - | ✓ | ✓ | `smp-renewal-vendor:complete_renewal_task` | - |
-| 50 | `cancelled` | - | ✓ | ✓ | `smp-renewal-vendor:cancel_renewal_task` | - |
+| 50 | `canceled` | - | ✓ | ✓ | `smp-renewal-vendor:cancel_renewal_task` | - |
 
 ### `smp_spend_allocations` (SaaS Spend Allocation)
 
@@ -395,7 +395,7 @@ _This scope holds `saas_applications` as **embedded_master**; the canonical stat
 | `smp-renewal-vendor:deprovision_application` | workflow-gate (lifecycle) | Transition `saas_applications` into state `deprovisioned` | ✓ |
 | `smp-renewal-vendor:initiate_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewing` | ✓ |
 | `smp-renewal-vendor:approve_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewed` | ✓ |
-| `smp-renewal-vendor:cancel_subscription` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `cancelled` | ✓ |
+| `smp-renewal-vendor:cancel_subscription` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `canceled` | ✓ |
 | `smp-renewal-vendor:approve_legal_contract` | workflow-gate (lifecycle) | Transition `legal_contracts` into state `approved` | ✓ |
 | `smp-renewal-vendor:execute_legal_contract` | workflow-gate (lifecycle) | Transition `legal_contracts` into state `signed` | ✓ |
 | `smp-renewal-vendor:amend_legal_contract` | workflow-gate (lifecycle) | Transition `legal_contracts` into state `amended` | ✓ |
@@ -403,7 +403,7 @@ _This scope holds `saas_applications` as **embedded_master**; the canonical stat
 | `smp-renewal-vendor:renew_legal_contract` | workflow-gate (lifecycle) | Transition `legal_contracts` into state `renewed` | ✓ |
 | `smp-renewal-vendor:start_renewal_task` | workflow-gate (lifecycle) | Transition `smp_renewal_tasks` into state `in_progress` | ✓ |
 | `smp-renewal-vendor:complete_renewal_task` | workflow-gate (lifecycle) | Transition `smp_renewal_tasks` into state `done` | ✓ |
-| `smp-renewal-vendor:cancel_renewal_task` | workflow-gate (lifecycle) | Transition `smp_renewal_tasks` into state `cancelled` | ✓ |
+| `smp-renewal-vendor:cancel_renewal_task` | workflow-gate (lifecycle) | Transition `smp_renewal_tasks` into state `canceled` | ✓ |
 | `smp-renewal-vendor:begin_negotiation` | workflow-gate (lifecycle) | Transition `smp_renewal_engagements` into state `negotiation` | ✓ |
 | `smp-renewal-vendor:decide_renewal` | workflow-gate (lifecycle) | Transition `smp_renewal_engagements` into state `decision` | ✓ |
 | `smp-renewal-vendor:execute_renewal` | workflow-gate (lifecycle) | Transition `smp_renewal_engagements` into state `executed` | ✓ |

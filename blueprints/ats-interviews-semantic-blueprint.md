@@ -240,7 +240,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | 2 | `in_progress` | - | - | - | - | Candidate is actively taking the assessment. |
 | 3 | `completed` | - | ✓ | - | - | Candidate finished the assessment and a score/result is recorded. |
 | 4 | `expired` | - | ✓ | - | - | Invitation lapsed before the candidate completed the assessment. |
-| 5 | `cancelled` | - | ✓ | - | - | Assessment withdrawn before completion. |
+| 5 | `canceled` | - | ✓ | - | - | Assessment withdrawn before completion. |
 
 ### `candidates` (Candidate)
 
@@ -269,7 +269,7 @@ _This scope holds `candidates` as **embedded_master**; the canonical state machi
 | 1 | `forming` | ✓ | - | - | - | Recruiter assembling the panel. |
 | 2 | `assembled` | - | - | - | - | All panel members confirmed; interview can proceed. |
 | 3 | `completed` | - | ✓ | - | - | Interview held; consolidated debrief done. |
-| 4 | `cancelled` | - | ✓ | - | - | Panel disbanded before interview. |
+| 4 | `canceled` | - | ✓ | - | - | Panel disbanded before interview. |
 
 ### `interview_scorecards` (Interview Scorecard)
 
@@ -284,7 +284,7 @@ _This scope holds `candidates` as **embedded_master**; the canonical state machi
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `available` | ✓ | - | - | - | Slot bookable. |
 | 2 | `booked` | - | - | - | - | Slot reserved for an interview. |
-| 3 | `released` | - | ✓ | - | - | Booking cancelled; slot freed. |
+| 3 | `released` | - | ✓ | - | - | Booking canceled; slot freed. |
 | 4 | `past` | - | ✓ | - | - | Slot expired without booking. |
 
 ### `interviews` (Interview)
@@ -295,7 +295,7 @@ _This scope holds `candidates` as **embedded_master**; the canonical state machi
 | 2 | `confirmed` | - | - | - | - | Candidate and panel confirmed attendance. |
 | 3 | `completed` | - | ✓ | - | - | Interview took place; scorecards are being collected. |
 | 4 | `no_show` | - | ✓ | - | - | Candidate or panel did not attend; interview did not occur. |
-| 5 | `cancelled` | - | ✓ | - | - | Interview cancelled before it took place. |
+| 5 | `canceled` | - | ✓ | - | - | Interview canceled before it took place. |
 | 6 | `rescheduled` | - | ✓ | - | - | Original slot abandoned in favor of a new scheduled interview record. |
 
 ### `job_applications` (Application)

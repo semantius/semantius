@@ -253,7 +253,7 @@ async function main() {
   if (sliceIds.length === 0) {
     halt(
       `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not deployed in this platform (${tenantOrg}). No live module is stamped settings.domain_code = ${view.code}, hosts its entities, or carries its catalog codes.`,
-      `Deploy the blueprint first, then re-run this skill. Blueprint: https://semantius.app/catalog/${view.code.toLowerCase()}/blueprint`,
+      `Deploy the blueprint first, then re-run this skill. Blueprint: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
     );
   }
 

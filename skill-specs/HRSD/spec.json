@@ -137,7 +137,7 @@
       "name": "hr_cases",
       "singular_label": "HR Case",
       "plural_label": "HR Cases",
-      "description": "Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analogue of ITSM service_requests, scoped to HR-owned workflows.",
+      "description": "Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows.",
       "is_canonical_bare_word": false,
       "pattern_flags": {
         "has_personal_content": true,

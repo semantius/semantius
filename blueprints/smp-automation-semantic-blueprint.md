@@ -121,7 +121,7 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | 30 | `it_approved` | - | - | ✓ | `smp-automation:it_approve_request` | - |
 | 40 | `fulfilled` | - | ✓ | ✓ | `smp-automation:fulfill_app_request` | - |
 | 50 | `denied` | - | ✓ | ✓ | `smp-automation:deny_app_request` | - |
-| 60 | `cancelled` | - | ✓ | ✓ | `smp-automation:cancel_app_request` | - |
+| 60 | `canceled` | - | ✓ | ✓ | `smp-automation:cancel_app_request` | - |
 
 ### `smp_automation_workflows` (Automation Workflow)
 
@@ -140,7 +140,7 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | 20 | `running` | - | - | - | - | - |
 | 30 | `succeeded` | - | ✓ | - | - | - |
 | 40 | `failed` | - | ✓ | - | - | - |
-| 50 | `cancelled` | - | ✓ | ✓ | `smp-automation:cancel_workflow_run` | - |
+| 50 | `canceled` | - | ✓ | ✓ | `smp-automation:cancel_workflow_run` | - |
 
 ## 8. Permissions and business rules (derived)
 
@@ -154,13 +154,13 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `smp-automation:activate_workflow` | workflow-gate (lifecycle) | Transition `smp_automation_workflows` into state `active` | ✓ |
 | `smp-automation:pause_workflow` | workflow-gate (lifecycle) | Transition `smp_automation_workflows` into state `paused` | ✓ |
 | `smp-automation:archive_workflow` | workflow-gate (lifecycle) | Transition `smp_automation_workflows` into state `archived` | ✓ |
-| `smp-automation:cancel_workflow_run` | workflow-gate (lifecycle) | Transition `smp_workflow_runs` into state `cancelled` | ✓ |
+| `smp-automation:cancel_workflow_run` | workflow-gate (lifecycle) | Transition `smp_workflow_runs` into state `canceled` | ✓ |
 | `smp-automation:submit_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `submitted` | ✓ |
 | `smp-automation:manager_approve_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `manager_approved` | ✓ |
 | `smp-automation:it_approve_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `it_approved` | ✓ |
 | `smp-automation:fulfill_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `fulfilled` | ✓ |
 | `smp-automation:deny_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `denied` | ✓ |
-| `smp-automation:cancel_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `cancelled` | ✓ |
+| `smp-automation:cancel_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `canceled` | ✓ |
 | `smp-automation:view_all_app_access_requests` | override (personal_content) | View all `smp_app_requests` rows beyond row-scope | ✓ |
 | `smp-automation:manage_all_app_access_requests` | override (personal_content) | Manage all `smp_app_requests` rows beyond row-scope | ✓ |
 | `smp-automation:submit_app_access_request` | override (submit_lock) | Submit and lock a `smp_app_requests` row (post-submit edits gated) | ✓ |

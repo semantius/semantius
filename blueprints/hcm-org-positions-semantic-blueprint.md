@@ -3,7 +3,7 @@ artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
 system_name: HCM-ORG-POSITIONS
-system_description: Organisation and Position Management
+system_description: Organization and Position Management
 tagline: "Design your organization: build the job catalog, define positions, and shape the org structure headcount planning runs on."
 description: |
   The org and positions module is where you model the shape of the organization rather than the people in it. Author and publish job profiles, approve and open positions against budgeted headcount, and maintain the org-unit hierarchy through creation, reorganization, merges, and closures.
@@ -18,11 +18,11 @@ persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANA
 created_at: 2026-06-17
 ---
 
-# Organisation and Position Management
+# Organization and Position Management
 
 ## 1. Overview
 
-Organisation design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics.
+Organization design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics.
 
 ## 2. Entity summary
 
@@ -31,9 +31,9 @@ Organisation design: org units, positions, and job profiles. Effective-dated org
 | Job Profiles | `job_profiles` | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. |
 | Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
 | Positions | `hcm_positions` | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. |
-| Cost Centers | `cost_centers` | Organisational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. |
+| Cost Centers | `cost_centers` | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. |
 | Financial Plans | `financial_plans` | Umbrella entity for financial planning artifacts: annual budget, rolling forecast, long-range plan (LRP). Carries planning period, version, approval state, and pointers to the line-item budgets, forecasts, and variances that compose it. Consumes workforce_cost_projections from SWP for the people-cost line. |
-| Job Requisitions | `job_requisitions` | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / cancelled). |
+| Job Requisitions | `job_requisitions` | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled). |
 
 ```mermaid
 flowchart TD
@@ -160,6 +160,9 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `headcount_plans` | authorizes | `job_requisitions` | one_to_many | required | none (required-if-present) | n/a | - |
 | `position_demand_forecasts` | triggers | `job_requisitions` | one_to_many | optional | none | n/a | - |
 | `dc_capacity_plans` | informs | `financial_plans` | one_to_many | optional | none | n/a | - |
+| `financial_plans` | includes | `financial_budgets` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `financial_plans` | includes | `financial_forecasts` | one_to_many | optional | none | n/a | - |
+| `financial_plans` | explores_via | `financial_scenarios` | one_to_many | optional | none | n/a | - |
 
 ## 6. Cross-domain context
 
@@ -293,7 +296,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | HCM-ORG-POSITIONS | HCM | HCM-CORE-WORKER | `employee.terminated` | `terminated` _(lifecycle)_ | `hcm_positions` | lifecycle_progression | low | Position transitions from filled to open as the incumbent terminates; org-position module recomputes vacancy and span-of-control rollups. |
 | HCM-ORG-POSITIONS | ATS | ATS-RECRUITMENT-PIPELINE | `headcount.approved` | `approved` _(state_change)_ | `job_requisitions` | event_stream | low | Headcount approval (often originating from HCM/SWP) confirmed back to HCM; gives ATS green light to source. |
 | HCM-ORG-POSITIONS | ATS | ATS-RECRUITMENT-PIPELINE | `requisition.filled` | `filled` _(state_change)_ | `job_requisitions` | event_stream | low | Requisition fill closes headcount slot; HCM headcount-plan updates. |
-| HCM-ORG-POSITIONS | EPM | EPM-PLAN-BUDGET | `financial_plan.approved` | _(state_change)_ | `financial_plans` | batch_sync | medium | Approved plans set headcount budgets visible in HCM and SWP. |
+| HCM-ORG-POSITIONS | EPM | EPM-PLAN-BUDGET | `financial_plan.approved` | `approved` _(state_change)_ | `financial_plans` | batch_sync | medium | Approved plans set headcount budgets visible in HCM and SWP. |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
 
@@ -348,7 +351,7 @@ _This scope holds `job_requisitions` as **consumer**; the canonical state machin
 | 3 | `open` | - | - | ✓ | `ats-recruitment-pipeline:approve_requisition` | Requisition approved and actively recruiting. |
 | 4 | `on_hold` | - | - | - | - | Recruiting temporarily paused (budget freeze, scope change). |
 | 5 | `filled` | - | ✓ | ✓ | `ats-recruitment-pipeline:close_requisition` | Requisition closed because the role was filled. |
-| 6 | `cancelled` | - | ✓ | - | - | Requisition closed without a hire. |
+| 6 | `canceled` | - | ✓ | - | - | Requisition closed without a hire. |
 
 ### `org_units` (Org Unit)
 

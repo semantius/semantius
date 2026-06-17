@@ -19,7 +19,7 @@ created_at: 2026-06-17
 
 ## 1. Overview
 
-Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organisations deploy the full modules and skip the starter.
+Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organizations deploy the full modules and skip the starter.
 
 ## 2. Entity summary
 
@@ -311,7 +311,7 @@ _This scope holds `customers` as **embedded_master**; the canonical state machin
 | 2 | `active` | - | - | - | - | Customer is engaged and in good standing. |
 | 3 | `inactive` | - | - | - | - | Customer is dormant but not churned. |
 | 3 | `past_due` | - | - | - | - | Customer carries an overdue invoice or failed payment. |
-| 4 | `cancelled` | - | - | - | - | Customer ended all subscriptions; no active billing. |
+| 4 | `canceled` | - | - | - | - | Customer ended all subscriptions; no active billing. |
 | 4 | `churned` | - | ✓ | - | - | Customer has terminated the relationship. |
 
 > ⚠ **state-machine shape:** state_order not unique/monotonic.
@@ -403,7 +403,7 @@ _This scope holds `service_work_orders` as **embedded_master**; the canonical st
 | 5 | `completed` | - | - | ✓ | `hvac-svc-mgmt:complete_service_work_order` | All work performed and signed off by the customer. |
 | 6 | `invoiced` | - | - | - | - | Work order has been billed to the customer. |
 | 7 | `closed` | - | ✓ | - | - | Work order finalized; no further action required. |
-| 8 | `cancelled` | - | ✓ | ✓ | `hvac-svc-mgmt:cancel_service_work_order` | Work order canceled before completion. |
+| 8 | `canceled` | - | ✓ | ✓ | `hvac-svc-mgmt:cancel_service_work_order` | Work order canceled before completion. |
 
 ## 8. Permissions and business rules (derived)
 
@@ -416,7 +416,7 @@ _This scope holds `service_work_orders` as **embedded_master**; the canonical st
 | `hvac-svc-mgmt:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `hvac-svc-mgmt:issue_invoice` | workflow-gate (lifecycle) | Transition `customer_invoices` into state `issued` | ✓ |
 | `hvac-svc-mgmt:complete_service_work_order` | workflow-gate (lifecycle) | Transition `service_work_orders` into state `completed` | ✓ |
-| `hvac-svc-mgmt:cancel_service_work_order` | workflow-gate (lifecycle) | Transition `service_work_orders` into state `cancelled` | ✓ |
+| `hvac-svc-mgmt:cancel_service_work_order` | workflow-gate (lifecycle) | Transition `service_work_orders` into state `canceled` | ✓ |
 | `hvac-svc-mgmt:activate_service_contract` | workflow-gate (lifecycle) | Transition `service_contracts` into state `active` | ✓ |
 | `hvac-svc-mgmt:activate_equipment` | workflow-gate (lifecycle) | Transition `installed_equipment` into state `active` | ✓ |
 | `hvac-svc-mgmt:mark_out_of_service` | workflow-gate (lifecycle) | Transition `installed_equipment` into state `out_of_service` | ✓ |

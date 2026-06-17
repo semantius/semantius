@@ -210,7 +210,7 @@ _This scope holds `job_offers` as **embedded_master**; the canonical state machi
 | 2 | `paperwork_in_flight` | - | - | - | - | I-9 / W-4 / direct-deposit / banking forms issued; awaiting candidate completion. Background check may run in parallel. |
 | 3 | `cleared` | - | - | - | - | All paperwork received and background check completed clear. Ready for HCM activation. |
 | 4 | `activated` | - | ✓ | ✓ | `ats-pre-employee-record:activate_pre_employee` | Reconciliation handoff fired to HCM (pre_employee.activated event). Canonical employees row created downstream; ATS record becomes read-only. |
-| 5 | `cancelled` | - | ✓ | - | - | Offer rescinded or candidate withdrew before activation. Record retained for audit. |
+| 5 | `canceled` | - | ✓ | - | - | Offer rescinded or candidate withdrew before activation. Record retained for audit. |
 
 ### `right_to_work_verifications` (Right to Work Verification)
 

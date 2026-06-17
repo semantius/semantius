@@ -53,16 +53,16 @@ Cross-functional task and project execution surface: work items with owners, due
 | Work Time Entries | `work_time_entries` | Non-billable time logged against a work item for effort tracking and capacity reporting. Billable worklog with rate, utilization, and invoice stays mastered in the services-billing domain and is consumed, not re-mastered, here. |
 | Work Views | `work_views` | Saved, named, shareable board / list / timeline / calendar view of work items with persisted filters, grouping, and sort. A configuration record, not a per-user UI toggle. |
 | Workloads | `work_user_workloads` | Per-user, per-period sum of allocated effort on work_items, with capacity ceiling. Backs the WORK-CAPACITY capability. Continuous-numeric, not state-driven. May expose individual workload. |
-| Business Value Assessments | `business_value_assessments` | Scoring model for prioritising portfolio items: NPV, strategic alignment, risk, dependencies, resource constraints. Ranked backlog. |
+| Business Value Assessments | `business_value_assessments` | Scoring model for prioritizing portfolio items: NPV, strategic alignment, risk, dependencies, resource constraints. Ranked backlog. |
 | Engagement Action Plans | `action_plans` | Team or manager action commitment in response to engagement_drivers result. Tracked to closure; recurring failure to act is itself an engagement signal. |
-| Feature Requests | `feature_requests` | Customer request for new capability; input to the prioritisation workflow. |
+| Feature Requests | `feature_requests` | Customer request for new capability; input to the prioritization workflow. |
 | Opportunities | `crm_opportunities` | Active sales deal - stage, amount, close date, probability, products/SKUs, competitor, decision criteria. Drives CPQ quote generation and closed-won triggers downstream subscription activation. |
 | Portfolios | `strategic_portfolios` | Container for strategic initiatives grouped by business unit, product line, or cost center; aggregate KPIs and investment rules. |
 | Product Releases | `product_releases` | Versioned software release; bundles features and defines delivery date and scope. |
 | Product Roadmaps | `product_roadmaps` | Timeline view of features grouped by release, product, or theme. Marquee PROD-MGMT capability. |
-| Project Assignments | `project_assignments` | Worker-to-project allocation with role, bill rate, cost rate, planned hours, period. Drives utilisation and resource-availability reporting. |
+| Project Assignments | `project_assignments` | Worker-to-project allocation with role, bill rate, cost rate, planned hours, period. Drives utilization and resource-availability reporting. |
 | Project Tasks | `project_tasks` | Decomposed unit of work inside a project: scope, dependencies, estimated hours, status. Drives time entry tagging and Earned Value calculation. |
-| Strategic Initiatives | `strategic_initiatives` | Multi-quarter / annual program aligned to corporate strategy; bundles related projects, has executive sponsor and benefits realisation plan. |
+| Strategic Initiatives | `strategic_initiatives` | Multi-quarter / annual program aligned to corporate strategy; bundles related projects, has executive sponsor and benefits realization plan. |
 
 ```mermaid
 flowchart TD
@@ -448,16 +448,16 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 | target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| WORK-MGMT-TASK-EXEC | SPM | SPM-DEMAND-MGMT | `business_value_assessment.completed` | _(lifecycle)_ | `business_value_assessments` | event_stream | medium | Approved initiatives cascade into team-level work items in WORK-MGMT. |
-| WORK-MGMT-TASK-EXEC | SPM | SPM-DEMAND-MGMT | `demand_intake.approved` | `reviewed` → `approved` _(state_change)_ | `strategic_initiatives` | api_call | high | SPM creates work_projects + kickoff work_items for charter and resourcing. |
-| WORK-MGMT-TASK-EXEC | SPM | SPM-PORTFOLIO-PLANNING | `strategic_portfolio.rebalanced` | `active` → `active` _(state_change)_ | `strategic_portfolios` | batch_sync | high | Re-prioritisation cascades to project priority updates; high-touch validation. |
+| WORK-MGMT-TASK-EXEC | SPM | SPM-DEMAND-MGMT | `business_value_assessment.completed` | `approved` _(lifecycle)_ | `business_value_assessments` | event_stream | medium | Approved initiatives cascade into team-level work items in WORK-MGMT. |
+| WORK-MGMT-TASK-EXEC | SPM | SPM-DEMAND-MGMT | `demand_intake.approved` | `screened` → `approved` _(state_change)_ | `strategic_initiatives` | api_call | high | SPM creates work_projects + kickoff work_items for charter and resourcing. |
+| WORK-MGMT-TASK-EXEC | SPM | SPM-PORTFOLIO-PLANNING | `strategic_portfolio.rebalanced` | `active` → `active` _(state_change)_ | `strategic_portfolios` | batch_sync | high | Re-prioritization cascades to project priority updates; high-touch validation. |
 | WORK-MGMT-TASK-EXEC | EMP-EXP | EMP-EXP-ACTION-PLANNING | `action_plan.completed` | _(state_change)_ | `action_plans` | api_call | medium | An engagement action plan transitions to completed in EMP-EXP. Subscribers in WORK-MGMT close the work_items that tracked each action item and roll up completion for reporting. Failure mode: action items may be closed in EMP-EXP without the linked work_items being closed in WORK-MGMT, leaving stale tasks. |
 | WORK-MGMT-TASK-EXEC | EMP-EXP | EMP-EXP-ACTION-PLANNING | `action_plan.created` | _(state_change)_ | `action_plans` | api_call | medium | Engagement action plans often tracked as work items in WORK-MGMT for execution visibility. |
 | WORK-MGMT-TASK-EXEC | PSA | PSA-PROJECT-DELIVERY | `project_task.completed` | _(lifecycle)_ | `project_tasks` | event_stream | low | PSA task completion mirrors into the WORK-MGMT board to keep team-level views current. |
 | WORK-MGMT-TASK-EXEC | PSA | PSA-RESOURCE-MGMT | `project_assignment.confirmed` | _(state_change)_ | `project_assignments` | event_stream | low | PSA seeds the WORK-MGMT project board with the newly-assigned resource so day-to-day task tracking can begin. |
 | WORK-MGMT-TASK-EXEC | PSA | PSA-RESOURCE-MGMT | `project_assignment.released` | _(state_change)_ | `project_assignments` | event_stream | low | A project assignment is released in PSA (consultant rolls off or capacity is freed). WORK-MGMT subscribers may close or reassign the work_items that were owned by the released assignee. Failure mode: orphaned work_items if the release event is missed and no reassignment happens. |
 | WORK-MGMT-TASK-EXEC | CRM | CRM-PIPELINE-MGT | `crm_opportunity.closed_won` | _(state_change)_ | `crm_opportunities` | api_call | high | Sales closes a deal in CRM; delivery / Customer Success spin up a kickoff project in their work-management tool. Custom iPaaS automations or hand-built webhooks bridge the two; payload mapping (opportunity products to project tasks, account stakeholders to project members) is bespoke per org. |
-| WORK-MGMT-TASK-EXEC | PROD-MGMT | PM-DISCOVERY | `feature_request.upvoted_threshold` | _(threshold)_ | `feature_requests` | event_stream | medium | Once demand-signal crosses the prioritisation threshold, an engineering work item / epic is created in WORK-MGMT. Many teams still do this by hand. |
+| WORK-MGMT-TASK-EXEC | PROD-MGMT | PM-DISCOVERY | `feature_request.upvoted_threshold` | _(threshold)_ | `feature_requests` | event_stream | medium | Once demand-signal crosses the prioritization threshold, an engineering work item / epic is created in WORK-MGMT. Many teams still do this by hand. |
 | WORK-MGMT-TASK-EXEC | PROD-MGMT | PM-ROADMAP-DELIVERY | `product_release.planned` | _(lifecycle)_ | `product_releases` | event_stream | low | WORK-MGMT creates the delivery workstream / release train for the planned release, with the scope and target date hydrated from PROD-MGMT. |
 | WORK-MGMT-TASK-EXEC | PROD-MGMT | PM-ROADMAP-DELIVERY | `product_release.rolled_back` | _(state_change)_ | `product_releases` | event_stream | medium | A product release is rolled back in PROD-MGMT (post-ship regression or incident). WORK-MGMT subscribers reopen the work_items that tracked the release and spawn remediation tasks. Failure mode: remediation tasks may not be scoped correctly if the rollback reason isn't propagated. |
 | WORK-MGMT-TASK-EXEC | PROD-MGMT | PM-ROADMAP-DELIVERY | `product_release.shipped` | _(lifecycle)_ | `product_releases` | event_stream | low | A product release ships in PROD-MGMT. WORK-MGMT subscribers close the work_items that tracked release-prep tasks and surface release notes against the project board. |
@@ -541,7 +541,7 @@ _This scope holds `product_releases` as **consumer**; the canonical state machin
 | 2 | `in_progress` | - | - | - | - | Release work in flight; features merging in. |
 | 3 | `shipped` | - | ✓ | ✓ | `pm-roadmap-delivery:shipped_product_release` | Release has gone live to the target audience. |
 | 4 | `rolled_back` | - | ✓ | ✓ | `pm-roadmap-delivery:rolled_back_product_release` | Release was pulled after shipping due to defects or business reasons. |
-| 5 | `cancelled` | - | ✓ | ✓ | `pm-roadmap-delivery:cancelled_product_release` | Release was cancelled before shipping. |
+| 5 | `canceled` | - | ✓ | ✓ | `pm-roadmap-delivery:canceled_product_release` | Release was canceled before shipping. |
 
 ### `product_roadmaps` (Product Roadmap)
 
@@ -574,7 +574,7 @@ _This scope holds `project_tasks` as **consumer**; the canonical state machine i
 | 2 | `in_progress` | - | - | ✓ | `psa-project-delivery:start_project_task` | Assignee has begun work on the task. |
 | 3 | `blocked` | - | - | ✓ | `psa-project-delivery:block_project_task` | Task cannot proceed: upstream dependency, approval, or external input outstanding. |
 | 4 | `completed` | - | ✓ | ✓ | `psa-project-delivery:complete_project_task` | Task delivered; rolls into milestone progress. |
-| 5 | `cancelled` | - | ✓ | ✓ | `psa-project-delivery:cancel_project_task` | Task abandoned (scope change, descope, redundancy). |
+| 5 | `canceled` | - | ✓ | ✓ | `psa-project-delivery:cancel_project_task` | Task abandoned (scope change, descope, redundancy). |
 
 ### `proofing_sessions` (Proofing Session)
 
@@ -617,7 +617,7 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `approved` | - | ✓ | ✓ | `work-mgmt-task-exec:approve_chain` | - |
 | 4 | `rejected` | - | ✓ | ✓ | `work-mgmt-task-exec:reject_chain` | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `work-mgmt-task-exec:cancel_approval_chain` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `work-mgmt-task-exec:cancel_approval_chain` | - |
 
 ### `work_approval_steps` (Approval Step)
 
@@ -645,7 +645,7 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 | 2 | `in_progress` | - | - | - | - | - |
 | 3 | `blocked` | - | - | - | - | - |
 | 4 | `done` | - | ✓ | - | - | - |
-| 5 | `cancelled` | - | ✓ | ✓ | `work-mgmt-task-exec:cancel_work_item` | - |
+| 5 | `canceled` | - | ✓ | ✓ | `work-mgmt-task-exec:cancel_work_item` | - |
 
 ### `work_milestones` (Milestone)
 
@@ -690,7 +690,7 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 | `work-mgmt-task-exec:read` | baseline-read | Read access to every entity in the module | ✓ |
 | `work-mgmt-task-exec:manage` | baseline-manage | Edit operational records | ✓ |
 | `work-mgmt-task-exec:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
-| `work-mgmt-task-exec:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `cancelled` | ✓ |
+| `work-mgmt-task-exec:cancel_work_item` | workflow-gate (lifecycle) | Transition `work_items` into state `canceled` | ✓ |
 | `work-mgmt-task-exec:complete_work_project` | workflow-gate (lifecycle) | Transition `work_projects` into state `completed` | ✓ |
 | `work-mgmt-task-exec:enable_work_automation` | workflow-gate (lifecycle) | Transition `work_automations` into state `enabled` | ✓ |
 | `work-mgmt-task-exec:disable_work_automation` | workflow-gate (lifecycle) | Transition `work_automations` into state `disabled` | ✓ |
@@ -700,7 +700,7 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 | `work-mgmt-task-exec:reject_step` | workflow-gate (lifecycle) | Transition `work_approval_steps` into state `rejected` | ✓ |
 | `work-mgmt-task-exec:approve_chain` | workflow-gate (lifecycle) | Transition `work_approval_chains` into state `approved` | ✓ |
 | `work-mgmt-task-exec:reject_chain` | workflow-gate (lifecycle) | Transition `work_approval_chains` into state `rejected` | ✓ |
-| `work-mgmt-task-exec:cancel_approval_chain` | workflow-gate (lifecycle) | Transition `work_approval_chains` into state `cancelled` | ✓ |
+| `work-mgmt-task-exec:cancel_approval_chain` | workflow-gate (lifecycle) | Transition `work_approval_chains` into state `canceled` | ✓ |
 | `work-mgmt-task-exec:publish_project_template` | workflow-gate (lifecycle) | Transition `work_project_templates` into state `published` | ✓ |
 | `work-mgmt-task-exec:publish_task_template` | workflow-gate (lifecycle) | Transition `work_task_templates` into state `published` | ✓ |
 | `work-mgmt-task-exec:approve_proofing_session` | workflow-gate (lifecycle) | Transition `proofing_sessions` into state `approved` | ✓ |

@@ -313,7 +313,7 @@ _This scope holds `real_estate_transactions` as **embedded_master**; the canonic
 | 5 | `compliance_review` | - | - | ✓ | `real-estate-agent:submit_for_compliance_review` | Broker / transaction coordinator reviewing transaction file for compliance (disclosure completeness, signature audit, trust-account accounting). Only realized when BROKERAGE-OPS module is deployed. |
 | 6 | `cleared_to_close` | - | - | ✓ | `real-estate-agent:approve_for_closing` | Broker signed off; closing date and location confirmed. Only realized when BROKERAGE-OPS module is deployed. |
 | 7 | `closed` | - | ✓ | ✓ | `real-estate-agent:close_transaction` | Deed recorded, funds disbursed via escrow; transaction complete. Commission splits become payable; downstream domains notified. |
-| 8 | `cancelled` | - | ✓ | ✓ | `real-estate-agent:cancel_transaction` | Transaction fell through (failed inspection beyond repair, financing denied, mutual cancellation, contingency invocation). Listing typically returns to active. |
+| 8 | `canceled` | - | ✓ | ✓ | `real-estate-agent:cancel_transaction` | Transaction fell through (failed inspection beyond repair, financing denied, mutual cancellation, contingency invocation). Listing typically returns to active. |
 
 ### `tour_appointments` (Tour Appointment)
 
@@ -324,7 +324,7 @@ _This scope holds `tour_appointments` as **embedded_master**; the canonical stat
 | 1 | `scheduled` | ✓ | - | - | - | Tour booked with prospect; access arrangements (lockbox code, listing-agent attendance) pending confirmation. |
 | 2 | `confirmed` | - | - | ✓ | `real-estate-agent:confirm_tour` | Prospect confirmed attendance; access arrangements finalized. |
 | 3 | `completed` | - | ✓ | ✓ | `real-estate-agent:complete_tour` | Tour took place; agent recorded notes and any buyer-feedback signals. |
-| 4 | `cancelled` | - | ✓ | ✓ | `real-estate-agent:cancel_tour` | Tour cancelled by either party before it took place. |
+| 4 | `canceled` | - | ✓ | ✓ | `real-estate-agent:cancel_tour` | Tour canceled by either party before it took place. |
 | 5 | `no_show` | - | ✓ | - | - | Prospect did not appear at the scheduled time. No explicit cancellation; agent marks after the fact. |
 
 ## 8. Permissions and business rules (derived)
@@ -352,10 +352,10 @@ _This scope holds `tour_appointments` as **embedded_master**; the canonical stat
 | `real-estate-agent:submit_for_compliance_review` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `compliance_review` | ✓ |
 | `real-estate-agent:approve_for_closing` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `cleared_to_close` | ✓ |
 | `real-estate-agent:close_transaction` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `closed` | ✓ |
-| `real-estate-agent:cancel_transaction` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `cancelled` | ✓ |
+| `real-estate-agent:cancel_transaction` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `canceled` | ✓ |
 | `real-estate-agent:confirm_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `confirmed` | ✓ |
 | `real-estate-agent:complete_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `completed` | ✓ |
-| `real-estate-agent:cancel_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `cancelled` | ✓ |
+| `real-estate-agent:cancel_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `canceled` | ✓ |
 | `real-estate-agent:deliver_disclosure` | workflow-gate (lifecycle) | Transition `disclosure_documents` into state `delivered` | ✓ |
 | `real-estate-agent:acknowledge_disclosure` | workflow-gate (lifecycle) | Transition `disclosure_documents` into state `acknowledged` | ✓ |
 | `real-estate-agent:view_all_contracts` | override (personal_content) | View all `legal_contracts` rows beyond row-scope | ✓ |

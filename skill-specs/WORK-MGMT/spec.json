@@ -446,7 +446,7 @@
           "permission_verb_override": "reject_chain"
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true,
           "requires_permission": true,
@@ -908,7 +908,7 @@
           "is_terminal": true
         },
         {
-          "name": "cancelled",
+          "name": "canceled",
           "order": 5,
           "is_terminal": true,
           "requires_permission": true,

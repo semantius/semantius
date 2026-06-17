@@ -96,7 +96,7 @@ flowchart TD
 | 3 | `asset_lifecycle_events` | `asset_lifecycle_events` | Asset Lifecycle Event | Asset Lifecycle Events | embedded_master | `itam-lifecycle` | Unified Asset Lifecycle Log | optional | - | operational_record | `:manage` | - |
 | 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
 | 5 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 | 7 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | consumer | `itom-infra-mon` | Infrastructure Monitoring and Event Management | optional | - | operational_workflow | `:manage` | - |
 | 8 | `error_groups` | `error_groups` | Error Group | Error Groups | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 | 9 | `service_level_objectives` | `service_level_objectives` | SLO | SLOs | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
@@ -317,7 +317,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | ITSM-INCIDENT-MGMT | WORK-MGMT | WORK-MGMT-TASK-EXEC | `work_item.status_changed` | `any` → `any` _(lifecycle)_ | `service_incidents` | api_call | high | Cross-functional WORK-MGMT items intersect with IT support requests: a marketing project task ('IT-provision new SaaS') needs to be linked to an ITSM request, with status mirrored both ways. Bidirectional sync is bespoke; off-the-shelf WORK-MGMT-to-ITSM connectors exist but require careful per-team configuration. |
 | ITSM-INCIDENT-MGMT | DLP | DLP-ENFORCEMENT-RUNTIME | `dlp_incident.blocked` | `confirmed` → `blocked` _(state_change)_ | `service_incidents` | event_stream | medium | DLP block creates security incident in ITSM. |
 | ITSM-INCIDENT-MGMT | FLEET-MAINT | _(domain-level)_ | `maintenance_defect.reported` | - | `service_incidents` | event_stream | medium | In-vehicle IT defects escalated to IT tickets. |
-| ITAM-LIFECYCLE | HCM | HCM-CORE-WORKER | `employee.terminated` | `terminated` _(lifecycle)_ | `asset_lifecycle_events` | api_call | high | Employee termination triggers asset-recall events: assigned laptops, mobile devices, badges, software licences must be reclaimed. High friction - recall rates rarely hit 100%, and the cost of unrecovered SaaS seats / laptops shows up in financial leakage reports. |
+| ITAM-LIFECYCLE | HCM | HCM-CORE-WORKER | `employee.terminated` | `terminated` _(lifecycle)_ | `asset_lifecycle_events` | api_call | high | Employee termination triggers asset-recall events: assigned laptops, mobile devices, badges, software licenses must be reclaimed. High friction - recall rates rarely hit 100%, and the cost of unrecovered SaaS seats / laptops shows up in financial leakage reports. |
 | CMDB-CORE | DISCOVERY | _(domain-level)_ | `ci.discovered` | `discovered` _(signal)_ | `configuration_items` | event_stream | low | Discovered devices reconcile against the existing CMDB and either match (update existing CI), promote (create new CI), or queue for manual review (ambiguous match). Low friction when DISCOVERY and CMDB are same-vendor; medium otherwise. |
 | CMDB-CORE | RMM | RMM-AGENT-MGMT | `ci_endpoint.discovered` | `discovered` _(signal)_ | `configuration_items` | api_call | high | RMM contributes CI attributes (OS, installed services, network config) to the CMDB. Failure modes: CMDB receives the same logical CI from multiple discovery sources (RMM, AD, agent-less scans, cloud APIs) with conflicting attribute values; reconciliation rules are CMDB-vendor-specific and rarely fully cover RMM's payload shape. |
 
@@ -367,7 +367,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | 3 | `in_progress` | - | - | - | - | Assignee is actively diagnosing or working the incident. |
 | 4 | `resolved` | - | - | ✓ | `itsm-incident-mgmt:resolved_incident` | Workaround or fix delivered; awaiting reporter confirmation. |
 | 5 | `closed` | - | ✓ | ✓ | `itsm-incident-mgmt:closed_incident` | Resolution confirmed; incident archived and SLA clock stopped. |
-| 6 | `cancelled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
+| 6 | `canceled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
 
 ## 8. Permissions and business rules (derived)
 

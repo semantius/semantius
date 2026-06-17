@@ -1,70 +1,35 @@
 ---
 export const prerender = true;
-import Layout from '~/layouts/Layout.astro';
-import Pagination from '~/components/common/Pagination.astro';
 import { getCollection } from 'astro:content';
-import type { GetStaticPathsOptions, Page } from 'astro';
-import type { CollectionEntry } from 'astro:content';
 
-export async function getStaticPaths({ paginate }: { paginate: GetStaticPathsOptions['paginate'] }) {
-	const allBlueprints = await getCollection('blueprints');
-	const sorted = allBlueprints.sort(
-		(a, b) => b.data.created_at.valueOf() - a.data.created_at.valueOf()
-	);
-	// Page 1 lives at /blueprints (see index.astro). This route only emits pages 2+.
-	return paginate(sorted, { pageSize: 4 }).filter(
-		(p: { params: { page: string | undefined } }) => p.params.page !== '1'
-	);
+// The blueprints listing is now a single domain-grouped page at /blueprints
+// (see ../index.astro). These /blueprints/page/N URLs used to paginate the
+// per-module blueprint grid (4 per page). They are kept only as redirects so
+// previously indexed URLs and external links collapse to the new single page
+// instead of 404ing. The page set mirrors the old last page (blueprint count
+// divided by the old page size of 4), starting at 2 because page 1 was
+// /blueprints itself.
+export async function getStaticPaths() {
+	const count = (await getCollection('blueprints')).length;
+	const oldLastPage = Math.max(1, Math.ceil(count / 4));
+	const paths = [];
+	for (let p = 2; p <= oldLastPage; p++) {
+		paths.push({ params: { page: String(p) } });
+	}
+	return paths;
 }
-
-const { page } = Astro.props as { page: Page<CollectionEntry<'blueprints'>> };
-
-const cards = page.data.map((blueprint) => ({
-	blueprint,
-	description: blueprint.data.description ?? blueprint.data.overview ?? '',
-}));
-
-const COLORS = ['#7B2020', '#1A3A5C', '#1A4A2E', '#7B3D10', '#4A1A6B', '#1A4A4A', '#5C3D10'];
-
-function randomColor(): string {
-	return COLORS[Math.floor(Math.random() * COLORS.length)];
-}
-
-const blueprintColors = page.data.map(() => randomColor());
 ---
 
-<Layout title={`Semantic Blueprints - Page ${page.currentPage}`} description="Semantic data blueprints you can adopt, customize, and build on.">
-	<section class="pt-32 pb-16">
-		<div class="max-w-6xl mx-auto px-6">
-			<h1 class="mb-10 text-center text-4xl font-display font-normal lg:text-[56px]">Semantic Blueprints</h1>
-
-			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pt-8">
-				{cards.map(({ blueprint, description }, i) => (
-					<div class="mb-8">
-						<a href={`/blueprints/${blueprint.data.system_slug}`} class="block">
-							<div
-								class="flex items-center justify-center rounded-lg h-45"
-								style={`background-color:${blueprintColors[i]}`}
-							>
-								<span class="px-6 text-center text-2xl font-semibold text-white">
-									{blueprint.data.system_name}
-								</span>
-							</div>
-						</a>
-						{description && (
-							<p class="mt-4 line-clamp-4 text-foreground/90">{description}</p>
-						)}
-						<a
-							class="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
-							href={`/blueprints/${blueprint.data.system_slug}`}
-						>
-							View Blueprint
-						</a>
-					</div>
-				))}
-			</div>
-
-			<Pagination section="blueprints" currentPage={page.currentPage} totalPages={page.lastPage} />
-		</div>
-	</section>
-</Layout>
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="refresh" content="0; url=/blueprints" />
+		<link rel="canonical" href="/blueprints" />
+		<meta name="robots" content="noindex" />
+		<title>Semantic Blueprints</title>
+	</head>
+	<body>
+		<p>This page has moved to <a href="/blueprints">/blueprints</a>.</p>
+	</body>
+</html>

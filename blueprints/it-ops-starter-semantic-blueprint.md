@@ -30,7 +30,7 @@ Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight sh
 | Incidents | `service_incidents` | Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents). |
 | SaaS Applications | `saas_applications` | Canonical SaaS app in the portfolio (collaboration, CRM, productivity, design, work-management tools). Carries vendor, category, criticality tier, sanctioned/shadow flag, and links to the active subscription. Distinct from SAM's software_titles which are typically installed (or hybrid). The flagship SMP entity. |
 | SaaS Subscriptions | `saas_subscriptions` | The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P). |
-| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfilment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
+| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
 | Software Licenses | `software_licenses` | License entitlement: vendor, title, purchased count, license model (per-user, per-device, concurrent, site, subscription), term, renewal date, governing contract. The legal right-to-use, distinct from actual installations. |
 | Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
 
@@ -258,7 +258,7 @@ _(none: no other module embeds this scope's masters; the canonical owners do.)_
 | ITSM-INCIDENT-MGMT | GRC | _(domain-level)_ | `control.failed` | `untested` → `fail` _(state_change)_ | `service_incidents` | api_call | high | Failed IT control → ITSM ticket; no feedback when ITSM closes ticket on GRC SLA. |
 | ITSM-INCIDENT-MGMT | GRC | _(domain-level)_ | `remediation_plan.created` | _(lifecycle)_ | `service_incidents` | event_stream | medium | Remediation ticket created in ITSM. |
 | ITSM-INCIDENT-MGMT | AUDIT | _(domain-level)_ | `audit_engagement.completed` | `in_progress` → `completed` _(lifecycle)_ | `service_incidents` | manual_handoff | high | IT audit outcomes trigger ITSM actions; requires human interpretation of scope/findings. |
-| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronisation back to HRSD. |
+| ITSM-SERVICE-REQUEST | HRSD | HRSD-EMPLOYEE-PORTAL | `case.it_assistance_required` | _(state_change)_ | `service_requests` | api_call | medium | HR case that needs IT action (lost laptop replacement, app access for a new role, account lockout) routes a service request into ITSM. Friction sits in the case-to-SR field mapping and status synchronization back to HRSD. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-ACCESS-REQUEST | `iga_access_request.approved` | _(state_change)_ | `service_incidents` | api_call | medium | Approved access requests with manual-fulfillment steps route to ITSM. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-AUTO-PROVISIONING | `iga_provisioning_event.completed` | _(state_change)_ | `service_incidents` | event_stream | medium | Provisioning event drives ITSM fulfillment-task closure where access tickets exist. |
 | ITSM-INCIDENT-MGMT | IGA | IGA-AUTO-PROVISIONING | `iga_provisioning_event.failed` | _(state_change)_ | `service_incidents` | api_call | high | Failed provisioning becomes ITSM incident/request for manual completion. Alert-without-feedback-loop friction shape. |
@@ -363,7 +363,7 @@ _This scope holds `saas_subscriptions` as **embedded_master**; the canonical sta
 | 20 | `active` | - | - | - | - | Contract executed; license consumption underway. |
 | 30 | `renewing` | - | - | ✓ | `it-ops-starter:initiate_renewal` | Within the renewal window (typically 90 days pre-expiry). Quantity and tier negotiation in progress. |
 | 40 | `renewed` | - | ✓ | ✓ | `it-ops-starter:approve_renewal` | Renewal executed; a new active term started. |
-| 50 | `cancelled` | - | ✓ | ✓ | `it-ops-starter:cancel_subscription` | Subscription terminated; deprovisioning workflow triggered. |
+| 50 | `canceled` | - | ✓ | ✓ | `it-ops-starter:cancel_subscription` | Subscription terminated; deprovisioning workflow triggered. |
 
 ### `service_incidents` (Incident)
 
@@ -376,7 +376,7 @@ _This scope holds `service_incidents` as **embedded_master**; the canonical stat
 | 3 | `in_progress` | - | - | - | - | Assignee is actively diagnosing or working the incident. |
 | 4 | `resolved` | - | - | ✓ | `it-ops-starter:resolved_incident` | Workaround or fix delivered; awaiting reporter confirmation. |
 | 5 | `closed` | - | ✓ | ✓ | `it-ops-starter:closed_incident` | Resolution confirmed; incident archived and SLA clock stopped. |
-| 6 | `cancelled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
+| 6 | `canceled` | - | ✓ | - | - | Incident withdrawn (duplicate, invalid, raised in error). |
 
 ### `service_requests` (Service Request)
 
@@ -389,7 +389,7 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | 3 | `fulfilling` | - | - | - | - | Fulfillment team is provisioning or executing the request. |
 | 4 | `fulfilled` | - | - | - | - | Item or access has been delivered to the requester. |
 | 5 | `closed` | - | ✓ | - | - | Request archived after requester confirmation. |
-| 6 | `cancelled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
+| 6 | `canceled` | - | ✓ | - | - | Request withdrawn or rejected before fulfillment. |
 
 ## 8. Permissions and business rules (derived)
 
@@ -410,7 +410,7 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | `it-ops-starter:deprovision_application` | workflow-gate (lifecycle) | Transition `saas_applications` into state `deprovisioned` | ✓ |
 | `it-ops-starter:initiate_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewing` | ✓ |
 | `it-ops-starter:approve_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewed` | ✓ |
-| `it-ops-starter:cancel_subscription` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `cancelled` | ✓ |
+| `it-ops-starter:cancel_subscription` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `canceled` | ✓ |
 | `it-ops-starter:submit_asset_contract` | override (submit_lock) | Submit and lock a `asset_contracts` row (post-submit edits gated) | ✓ |
 | `it-ops-starter:view_all_incidents` | override (personal_content) | View all `service_incidents` rows beyond row-scope | ✓ |
 | `it-ops-starter:manage_all_incidents` | override (personal_content) | Manage all `service_incidents` rows beyond row-scope | ✓ |

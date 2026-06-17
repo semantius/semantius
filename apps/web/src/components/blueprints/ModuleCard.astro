@@ -1,0 +1,38 @@
+---
+// A single module card linking to its blueprint at /blueprints/<code-lower>.
+// Shared by the /blueprints domain list and the /blueprints/<domain> landing
+// page so the card style stays consistent. headingTag keeps the heading
+// hierarchy correct in each context (h3 under the index's per-domain h2, h2
+// under the landing page's h1).
+interface ModuleData {
+	code: string;
+	name: string;
+	description: string;
+	catalog_description?: string;
+}
+interface Props {
+	module: ModuleData;
+	headingTag?: 'h2' | 'h3';
+}
+const { module, headingTag = 'h3' } = Astro.props;
+const Heading = headingTag;
+// Prefer the buyer-facing catalog copy; fall back to the technical description.
+const description = module.catalog_description ?? module.description;
+---
+
+<a
+	href={`/blueprints/${module.code.toLowerCase()}`}
+	class="group flex h-full flex-col rounded-lg border border-border p-6 transition-colors hover:border-primary/50 hover:bg-primary/5"
+>
+	<Heading class="text-lg font-semibold text-foreground group-hover:text-primary">
+		{module.name}
+	</Heading>
+	<p class="mt-2 line-clamp-4 text-sm text-foreground/80">{description}</p>
+	<span class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">
+		View Blueprint
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 transition-transform group-hover:translate-x-0.5">
+			<path d="M5 12h14" />
+			<path d="m12 5 7 7-7 7" />
+		</svg>
+	</span>
+</a>

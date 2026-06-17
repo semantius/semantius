@@ -82,7 +82,7 @@ flowchart TD
 | 4 | `service_releases` | `service_releases` | Service Release | Service Releases | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 5 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
 | 6 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organisation and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -241,7 +241,7 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | 5 | `review` | - | - | - | - | Post-implementation review (success, back-out, lessons). |
 | 6 | `closed` | - | ✓ | - | - | Change record finalized after PIR. |
 | 7 | `rejected` | - | ✓ | - | - | Approver rejected the change; will not be implemented. |
-| 8 | `cancelled` | - | ✓ | - | - | Change withdrawn by requester before approval/implementation. |
+| 8 | `canceled` | - | ✓ | - | - | Change withdrawn by requester before approval/implementation. |
 
 ## 8. Permissions and business rules (derived)
 
