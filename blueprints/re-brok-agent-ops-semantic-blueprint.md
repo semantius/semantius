@@ -1,14 +1,18 @@
 ---
 artifact: semantic-blueprint
-fact_sheet_version: "2.0"
+blueprint_version: "3.0"
+license: MIT
 system_name: RE-BROK-AGENT-OPS
 system_description: Real Estate Agent Operations
+tagline: Work every deal from lead to close in one place.
+description: Capture leads and turn them into listings, syndicate to the MLS, and schedule showings with access windows and follow-ups. Drive each transaction from accepted offer through inspection, financing, and contingencies to a clean close, with buyer and seller disclosures tracked at every step. The deployable unit for solo agents and small firms.
 system_slug: re-brok-agent-ops
 domain_modules:
   - re-brok-agent-ops
 domain_code: RE-BROKERAGE
-related_modules: [crm-acct-mgt, crm-lead-mgt, re-brok-brokerage-ops, real-estate-agent]
-created_at: 2026-05-27
+related_modules: [crm-acct-mgt, crm-activity, crm-lead-mgt, ma-campaign-authoring, ma-lead-scoring, re-brok-brokerage-ops, re-invest-portfolio-val, real-estate-agent]
+persona: []
+created_at: 2026-06-17
 ---
 
 # Real Estate Agent Operations
@@ -19,107 +23,127 @@ Agent-facing workflow from lead capture through closing. Lead nurture (writes ba
 
 ## 2. Entity summary
 
-| Name | Description |
-| --- | --- |
-| Disclosure Documents | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. |
-| Real Estate Listings | Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn). |
-| Real Estate Transactions | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. |
-| Tour Appointments | Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking. |
-| Contacts | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. |
-| Leads | Pre-qualification prospect record - source, score, status (new/working/qualified/disqualified/converted), assigned rep, conversion target (which contact + account it would become). MQL handoff from MA lands here. |
-| Commission Splits | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. |
+| Name | data_object | Description |
+| --- | --- | --- |
+| Disclosure Documents | `disclosure_documents` | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. |
+| Real Estate Listings | `real_estate_listings` | Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn). |
+| Real Estate Transactions | `real_estate_transactions` | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. |
+| Tour Appointments | `tour_appointments` | Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking. |
+| Commission Splits | `commission_splits` | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. |
+| Contacts | `crm_contacts` | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. |
+| Leads | `crm_leads` | Pre-qualification prospect record - source, score, status (new/working/qualified/disqualified/converted), assigned rep, conversion target (which contact + account it would become). MQL handoff from MA lands here. |
 
 ```mermaid
 flowchart TD
   classDef master fill:#d4f4dd,stroke:#27ae60,color:#0b3d20;
-  classDef contributor fill:#cfe8ff,stroke:#1976d2,color:#0d3a66;
-  classDef consumer fill:#e8def8,stroke:#7b1fa2,color:#3a155d;
+  classDef embedded_master fill:#fff4cc,stroke:#c79100,color:#5b4500;
   classDef platform_builtin fill:#e0e0e0,stroke:#424242,color:#1a1a1a;
   real_estate_listings["Real Estate Listings"]
   tour_appointments["Tour Appointments"]
   real_estate_transactions["Real Estate Transactions"]
-  disclosure_documents["Disclosure Documents"]
-  crm_leads["Leads"]
-  crm_contacts["Contacts"]
   commission_splits["Commission Splits"]
+  disclosure_documents["Disclosure Documents"]
+  crm_contacts["Contacts"]
+  crm_leads["Leads"]
   users["Users"]
   real_estate_listings -->|"generates"| real_estate_transactions
   real_estate_listings -->|"has tours"| tour_appointments
   real_estate_transactions -->|"requires disclosures"| disclosure_documents
   real_estate_transactions -->|"produces commission splits"| commission_splits
-  crm_contacts -->|"converted_from_lead (opt)"| crm_leads
+  crm_contacts -->|"converted_from_lead"| crm_leads
   real_estate_listings -->|"has listing agent"| users
   tour_appointments -->|"has showing agent"| users
   real_estate_transactions -->|"has listing-side agent"| users
-  real_estate_transactions -->|"has buyer-side agent (opt)"| users
+  real_estate_transactions -->|"has buyer-side agent"| users
   disclosure_documents -->|"has preparer"| users
   commission_splits -->|"has recipient agent"| users
   commission_splits -->|"has approving broker"| users
   users -->|"owns"| crm_leads
-  users -->|"owns (opt)"| crm_contacts
+  users -->|"owns"| crm_contacts
   class real_estate_listings master;
   class tour_appointments master;
   class real_estate_transactions master;
+  class commission_splits embedded_master;
   class disclosure_documents master;
-  class crm_leads contributor;
-  class crm_contacts contributor;
-  class commission_splits consumer;
+  class crm_contacts embedded_master;
+  class crm_leads embedded_master;
   class users platform_builtin;
   style commission_splits stroke-dasharray:5 5;
+  style disclosure_documents stroke-dasharray:5 5;
 ```
 
 ## 3. Entities catalog
 
-| # | data_object | role | mastered in | necessity | pattern flags | notes |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | `disclosure_documents` (Disclosure Documents) | master | - | required | personal_content, submit_lock, single_approver | - |
-| 2 | `real_estate_listings` (Real Estate Listings) | master | - | required | personal_content | - |
-| 3 | `real_estate_transactions` (Real Estate Transactions) | master | - | required | personal_content, submit_lock | - |
-| 4 | `tour_appointments` (Tour Appointments) | master | - | required | personal_content | - |
-| 5 | `crm_contacts` (Contacts) | contributor | `crm-acct-mgt` | required | personal_content | - |
-| 6 | `crm_leads` (Leads) | contributor | `crm-lead-mgt` | required | personal_content | - |
-| 7 | `commission_splits` (Commission Splits) | consumer | `re-brok-brokerage-ops` | optional | submit_lock, single_approver | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | master | - | - | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 2 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | embedded_master | `re-brok-brokerage-ops` | Brokerage Oversight and Commission Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 6 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
+| 7 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
-_(no industry-scoped aliases or non-synonym alias types loaded for this scope; generic synonyms are omitted as common knowledge.)_
+| data_object | alias | alias_type | preferred? | industry | notes |
+| --- | --- | --- | --- | --- | --- |
+| `real_estate_transactions` | Closing | industry_term | - | Real Estate | - |
+| `commission_splits` | Co-Op Commission | industry_term | - | Real Estate | - |
+| `real_estate_transactions` | Escrow | industry_term | - | Real Estate | - |
+| `real_estate_listings` | MLS Listing | industry_term | - | Real Estate | - |
+| `tour_appointments` | Open House Appointment | industry_term | - | Real Estate | - |
+| `disclosure_documents` | Seller Disclosures | industry_term | - | Real Estate | - |
+| `tour_appointments` | Showing | industry_term | - | Real Estate | - |
+| `disclosure_documents` | TDS | industry_term | - | Real Estate | - |
 
 ## 5. Relationships
 
 ### 5.1 Intra-scope edges
 
-| from | verb | to | cardinality | kind | necessity | owner_side | notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `real_estate_listings` | generates | `real_estate_transactions` | one_to_many | reference | required | target | - |
-| `real_estate_listings` | has tours | `tour_appointments` | one_to_many | reference | required | target | - |
-| `real_estate_transactions` | requires disclosures | `disclosure_documents` | one_to_many | composition | required | target | - |
-| `real_estate_transactions` | produces commission splits | `commission_splits` | one_to_many | composition | required | target | - |
-| `crm_contacts` | converted_from_lead | `crm_leads` | one_to_many | reference | optional | source | - |
+| from | verb | to | cardinality | kind | necessity | owner_side | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `real_estate_listings` | generates | `real_estate_transactions` | one_to_many | reference | required | target | restrict | reference | - |
+| `real_estate_listings` | has tours | `tour_appointments` | one_to_many | reference | required | target | restrict | reference | - |
+| `real_estate_transactions` | requires disclosures | `disclosure_documents` | one_to_many | composition | required | source | cascade | parent | - |
+| `real_estate_transactions` | produces commission splits | `commission_splits` | one_to_many | composition | required | source | cascade | parent | - |
+| `crm_contacts` | converted_from_lead | `crm_leads` | one_to_many | reference | optional | source | clear | reference | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
-| from | verb | to | cardinality | necessity | owner_side | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| `real_estate_listings` | has listing agent | `users` | many_to_many | required | source | - |
-| `tour_appointments` | has showing agent | `users` | many_to_many | required | source | - |
-| `real_estate_transactions` | has listing-side agent | `users` | many_to_many | required | source | - |
-| `real_estate_transactions` | has buyer-side agent | `users` | many_to_many | optional | source | - |
-| `disclosure_documents` | has preparer | `users` | many_to_many | required | source | - |
-| `commission_splits` | has recipient agent | `users` | many_to_many | required | source | - |
-| `commission_splits` | has approving broker | `users` | many_to_many | required | source | - |
-| `users` | owns | `crm_leads` | one_to_many | required | source | - |
-| `users` | owns | `crm_contacts` | one_to_many | optional | source | - |
+| from | verb | to | cardinality | necessity | owner_side | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `real_estate_listings` | has listing agent | `users` | many_to_many | required | source | restrict | reference | - |
+| `tour_appointments` | has showing agent | `users` | many_to_many | required | source | restrict | reference | - |
+| `real_estate_transactions` | has listing-side agent | `users` | many_to_many | required | source | restrict | reference | - |
+| `real_estate_transactions` | has buyer-side agent | `users` | many_to_many | optional | source | clear | reference | - |
+| `disclosure_documents` | has preparer | `users` | many_to_many | required | source | restrict | reference | - |
+| `commission_splits` | has recipient agent | `users` | many_to_many | required | source | restrict | reference | - |
+| `commission_splits` | has approving broker | `users` | many_to_many | required | source | restrict | reference | - |
+| `users` | owns | `crm_leads` | one_to_many | required | source | restrict | reference | - |
+| `users` | owns | `crm_contacts` | one_to_many | optional | source | clear | reference | - |
 
 ### 5.3 Cross-scope edges
 
-| from | verb | to | cardinality | necessity | notes |
-| --- | --- | --- | --- | --- | --- |
-| `customers` | has_contacts | `crm_contacts` | one_to_many | optional | - |
-| `customers` | converted_from_lead | `crm_leads` | one_to_many | optional | - |
-| `crm_opportunities` | converted_from_lead | `crm_leads` | one_to_many | optional | - |
-| `crm_opportunities` | involves_contacts | `crm_contacts` | many_to_many | optional | - |
-| `crm_contacts` | has_activities | `sales_activities` | one_to_many | optional | - |
-| `crm_leads` | has_activities | `sales_activities` | one_to_many | optional | - |
+#### 5.3a Outbound from this scope's masters and contributors
+
+_Edges this scope drives: the in-scope endpoint has `role` of `master` or `contributor`._
+
+_(none: no outbound cross-scope edges from this scope's masters or contributors)_
+
+#### 5.3b Context edges on embedded shells and consumed entities
+
+_Edges the canonical owner drives, shown for context: the in-scope endpoint has `role` of `embedded_master`, `consumer`, or `derived`._
+
+| from | verb | to | cardinality | necessity | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `customers` | has_contacts | `crm_contacts` | one_to_many | optional | none | n/a | - |
+| `customers` | converted_from_lead | `crm_leads` | one_to_many | optional | none | n/a | - |
+| `crm_opportunities` | converted_from_lead | `crm_leads` | one_to_many | optional | none | n/a | - |
+| `crm_opportunities` | involves_contacts | `crm_contacts` | many_to_many | optional | none | n/a | - |
+| `crm_contacts` | has_activities | `sales_activities` | one_to_many | optional | none | n/a | - |
+| `crm_leads` | has_activities | `sales_activities` | one_to_many | optional | none | n/a | - |
+| `contact_records` | enriches | `crm_contacts` | one_to_many | optional | none | n/a | - |
 
 ## 6. Cross-domain context
 
@@ -127,52 +151,66 @@ _(no industry-scoped aliases or non-synonym alias types loaded for this scope; g
 
 | data_object | other module / domain | role | necessity | notes |
 | --- | --- | --- | --- | --- |
-| `disclosure_documents` | RE-BROK-BROKERAGE-OPS (Brokerage Oversight and Commission Management) - RE-BROKERAGE | contributor | required | - |
-| `disclosure_documents` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) | embedded_master | required | - |
-| `real_estate_listings` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) | embedded_master | required | - |
-| `real_estate_transactions` | RE-BROK-BROKERAGE-OPS (Brokerage Oversight and Commission Management) - RE-BROKERAGE | contributor | required | - |
-| `real_estate_transactions` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) | embedded_master | required | - |
-| `tour_appointments` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) | embedded_master | required | - |
+| `disclosure_documents` | RE-BROK-BROKERAGE-OPS (Brokerage Oversight and Commission Management) - RE-BROKERAGE | embedded_master | required | - |
+| `disclosure_documents` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) - REAL-ESTATE-AGENT | embedded_master | required | - |
+| `real_estate_listings` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) - REAL-ESTATE-AGENT | embedded_master | required | - |
+| `real_estate_transactions` | RE-BROK-BROKERAGE-OPS (Brokerage Oversight and Commission Management) - RE-BROKERAGE | embedded_master | required | - |
+| `real_estate_transactions` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) - REAL-ESTATE-AGENT | embedded_master | required | - |
+| `tour_appointments` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) - REAL-ESTATE-AGENT | embedded_master | required | - |
 
 ### 6.2 Outbound handoffs (events this scope publishes)
 
-| source module | target domain | target module | trigger_event | payload | integration | friction | description |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| _(domain-level)_ | GRC | _(domain-level)_ | `real_estate_transaction.closed` | `disclosure_documents` | batch_sync | low | Disclosure-document completeness per closed transaction feeds brokerage-compliance audit and state-real-estate-commission requirements. |
-| _(domain-level)_ | RE-PROP-MGMT | _(domain-level)_ | `real_estate_transaction.closed` | `real_estate_transactions` | manual_handoff | high | Closed sale of a rental property results in a new landlord-of-record; the new owner's property-management platform must be configured (often manual handoff via email; the buyer's PM and the seller's brokerage are different vendors). |
-| _(domain-level)_ | RE-CRE | _(domain-level)_ | `listing.sold` | `real_estate_listings` | batch_sync | medium | Closed sale triggers commercial lease setup if multi-tenant. |
-| _(domain-level)_ | RE-CRE | _(domain-level)_ | `real_estate_transaction.closed` | `real_estate_transactions` | manual_handoff | high | Closed sale of a CRE asset transfers operations to the new owner's CRE platform; rent-roll, leases, and CAM history must be carried over (typically manual). |
-| _(domain-level)_ | RE-INVEST | _(domain-level)_ | `listing.sold` | `real_estate_listings` | manual_handoff | high | Sale closing triggers fund NAV and LP-reporting recalculation. |
+| source module | target domain | target module | trigger_event | transition | payload | integration | friction | description |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| RE-BROK-AGENT-OPS | GRC | _(domain-level)_ | `real_estate_transaction.closed` | `pending` → `closed` _(lifecycle)_ | `disclosure_documents` | batch_sync | low | Disclosure-document completeness per closed transaction feeds brokerage-compliance audit and state-real-estate-commission requirements. |
+| CRM-LEAD-MGT | CRM | CRM-ACTIVITY | `crm_lead.qualified` | _(state_change)_ | `crm_leads` | lifecycle_progression | low | - |
+| RE-BROK-AGENT-OPS | CRM | CRM-LEAD-MGT | `real_estate_listing.qualified` | `qualified` _(signal)_ | `crm_leads` | api_call | medium | Qualified buyer/seller leads flow into CRM-cluster contacts and the agent's CRM for nurture and conversion tracking. |
+| CRM-ACCT-MGT | MA | MA-CAMPAIGN-AUTHORING | `crm_contact.synced` | `synced` _(signal)_ | `crm_contacts` | batch_sync | medium | Contact updates in CRM (new contact, status change, opt-in change, account ownership) sync to MA so audience lists and campaigns stay current. Batch-sync is the typical pattern - real-time would be ideal but most stacks accept hourly or daily latency here. |
+| CRM-LEAD-MGT | SALES-ENG | _(domain-level)_ | `crm_lead.scored_above_threshold` | _(threshold)_ | `crm_leads` | event_stream | medium | A lead's predictive score has crossed the qualified-handoff threshold; SALES-ENG picks up for cadence enrollment. Failure modes: noisy scoring causes cadence whiplash; threshold tuned per segment but not surfaced. |
+| RE-BROK-AGENT-OPS | RE-BROKERAGE | RE-BROK-BROKERAGE-OPS | `real_estate_transaction.contingencies_cleared` | _(state_change)_ | `real_estate_transactions` | lifecycle_progression | low | Agent-side has cleared inspection, financing, and appraisal contingencies; broker oversight takes the transaction into compliance review before authorizing closing. |
+| RE-BROK-AGENT-OPS | RE-PROP-MGMT | _(domain-level)_ | `real_estate_transaction.closed` | `pending` → `closed` _(lifecycle)_ | `real_estate_transactions` | manual_handoff | high | Closed sale of a rental property results in a new landlord-of-record; the new owner's property-management platform must be configured (often manual handoff via email; the buyer's PM and the seller's brokerage are different vendors). |
+| RE-BROK-AGENT-OPS | RE-CRE | _(domain-level)_ | `listing.sold` | _(lifecycle)_ | `real_estate_listings` | batch_sync | medium | Closed sale triggers commercial lease setup if multi-tenant. |
+| RE-BROK-AGENT-OPS | RE-CRE | _(domain-level)_ | `real_estate_transaction.closed` | `pending` → `closed` _(lifecycle)_ | `real_estate_transactions` | manual_handoff | high | Closed sale of a CRE asset transfers operations to the new owner's CRE platform; rent-roll, leases, and CAM history must be carried over (typically manual). |
+| RE-BROK-AGENT-OPS | RE-INVEST | RE-INVEST-PORTFOLIO-VAL | `listing.sold` | _(lifecycle)_ | `real_estate_listings` | manual_handoff | high | Sale closing triggers fund NAV and LP-reporting recalculation. |
 
 ### 6.3 Inbound handoffs (events this scope reacts to)
 
-_(no inbound `handoffs` whose payload is in this scope.)_
+| target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CRM-LEAD-MGT | MA | MA-LEAD-SCORING | `crm_lead.qualified` | _(state_change)_ | `crm_leads` | event_stream | medium | MA-driven scoring crosses the MQL threshold; the lead routes to CRM with a recommended owner. Friction comes from definition drift - what counts as MQL, who owns routing, what happens to disqualified leads - and from the lead-to-contact-to-opportunity conversion chain inside CRM. |
+| CRM-LEAD-MGT | MA | MA-LEAD-SCORING | `crm_lead.scored_above_threshold` | _(threshold)_ | `crm_leads` | event_stream | low | Qualified leads routed to CRM for sales pickup. Tight integration on all major MA platforms. |
+| CRM-LEAD-MGT | MA | MA-LEAD-SCORING | `nurture.completed` | `completed` _(state_change)_ | `crm_leads` | api_call | low | Nurture journey completion (whether successful conversion or exit) updates lead status in CRM. Low friction in same-vendor all-in-one stacks; medium when MA and CRM are separate. |
+| CRM-LEAD-MGT | MA | MA-LEAD-SCORING | `nurture_journey.completed` | _(lifecycle)_ | `crm_leads` | api_call | low | Completed nurture without conversion returns the lead to CRM for re-routing or recycle. |
+| CRM-LEAD-MGT | PRM | _(domain-level)_ | `partner_referral.qualified` | `qualified` _(state_change)_ | `crm_leads` | api_call | medium | Partner-sourced referrals flow into CRM lead-routing. Failure modes: dedup against existing prospects; partner-attribution edge cases. |
+| CRM-LEAD-MGT | SMM | _(domain-level)_ | `social_lead.captured` | `captured` _(state_change)_ | `crm_leads` | api_call | medium | Social interaction with explicit intent, DM asking pricing, click-through on a lead-gen form, message-ad reply, converts into a CRM-mastered lead with handle, captured form data, and source attribution. Failure modes: handle-to-existing-contact reconciliation produces duplicate leads; form-data quality from social lead-gen ads is inconsistent across networks. |
+| RE-BROK-AGENT-OPS | RE-BROKERAGE | RE-BROK-BROKERAGE-OPS | `commission_split.paid` | _(lifecycle)_ | `commission_splits` | lifecycle_progression | low | Broker disbursed commission; agent-side surfaces the paid status for the recipient agent. |
+| RE-BROK-AGENT-OPS | RE-BROKERAGE | RE-BROK-BROKERAGE-OPS | `real_estate_transaction.cleared_to_close` | _(state_change)_ | `real_estate_transactions` | lifecycle_progression | low | Broker compliance review approved; transaction returns to agent-side for closing coordination. |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
 
 | data_object | role here | necessity | canonical owner(s) | slice notes |
 | --- | --- | --- | --- | --- |
-| `crm_contacts` | contributor | required | CRM-ACCT-MGT (CRM) | - |
-| `crm_leads` | contributor | required | CRM-LEAD-MGT (CRM) | - |
-| `commission_splits` | consumer | optional | RE-BROK-BROKERAGE-OPS (RE-BROKERAGE) | - |
+| `commission_splits` | embedded_master | optional | RE-BROK-BROKERAGE-OPS (RE-BROKERAGE) | - |
+| `crm_contacts` | embedded_master | required | CRM-ACCT-MGT (CRM) | - |
+| `crm_leads` | embedded_master | required | CRM-LEAD-MGT (CRM) | - |
 
-## 7. Lifecycle states (per touched entity)
+## 7. Lifecycle states
 
 ### `commission_splits` (Commission Split)
 
-_This scope holds `commission_splits` as **consumer**; the canonical state machine is owned by `RE-BROK-BROKERAGE-OPS`._
+_This scope holds `commission_splits` as **embedded_master**; the canonical state machine is owned by `RE-BROK-BROKERAGE-OPS`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `calculated` | ✓ | - | - | - | Split row auto-derived from transaction close (listing-side vs buyer-side splits, agent shares, franchise overrides). Pending review. |
-| 2 | `reviewed` | - | - | ✓ | `re-brok-brokerage-ops:review_commission_split` | Broker reviewed split accuracy against the listing agreement and brokerage policy; flagged any anomalies. |
-| 3 | `disputed` | - | - | ✓ | `re-brok-brokerage-ops:dispute_commission_split` | One participating agent contests the calculated split. Holds disbursement pending resolution; may return to reviewed after adjustment. |
-| 4 | `approved` | - | - | ✓ | `re-brok-brokerage-ops:approve_commission_split` | Broker approved the split for payment. Ready for disbursement. |
-| 5 | `paid` | - | ✓ | ✓ | `re-brok-brokerage-ops:disburse_commission` | Commission funds disbursed to participating agents and franchise; ledger entry recorded. |
+| 2 | `reviewed` | - | - | ✓ | `re-brok-agent-ops:review_commission_split` | Broker reviewed split accuracy against the listing agreement and brokerage policy; flagged any anomalies. |
+| 3 | `disputed` | - | - | ✓ | `re-brok-agent-ops:dispute_commission_split` | One participating agent contests the calculated split. Holds disbursement pending resolution; may return to reviewed after adjustment. |
+| 4 | `approved` | - | - | ✓ | `re-brok-agent-ops:approve_commission_split` | Broker approved the split for payment. Ready for disbursement. |
+| 5 | `paid` | - | ✓ | ✓ | `re-brok-agent-ops:disburse_commission` | Commission funds disbursed to participating agents and franchise; ledger entry recorded. |
 
 ### `crm_contacts` (Contact)
 
-_This scope holds `crm_contacts` as **contributor**; the canonical state machine is owned by `CRM-ACCT-MGT`._
+_This scope holds `crm_contacts` as **embedded_master**; the canonical state machine is owned by `CRM-ACCT-MGT`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -182,14 +220,14 @@ _This scope holds `crm_contacts` as **contributor**; the canonical state machine
 
 ### `crm_leads` (Lead)
 
-_This scope holds `crm_leads` as **contributor**; the canonical state machine is owned by `CRM-LEAD-MGT`._
+_This scope holds `crm_leads` as **embedded_master**; the canonical state machine is owned by `CRM-LEAD-MGT`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `new` | ✓ | - | - | - | Freshly captured lead awaiting triage. |
 | 2 | `working` | - | - | - | - | Sales rep is actively engaging the lead. |
 | 3 | `qualified` | - | - | - | - | Lead meets qualification criteria and is ready to convert. |
-| 4 | `converted` | - | ✓ | ✓ | `crm-lead-mgt:convert_lead` | Lead has been converted into a contact, account, and opportunity. |
+| 4 | `converted` | - | ✓ | ✓ | `re-brok-agent-ops:convert_lead` | Lead has been converted into a contact, account, and opportunity. |
 | 5 | `disqualified` | - | ✓ | - | - | Lead does not meet criteria; closed without conversion. |
 
 ### `disclosure_documents` (Disclosure Document)
@@ -244,6 +282,7 @@ _This scope holds `crm_leads` as **contributor**; the canonical state machine is
 | `re-brok-agent-ops:read` | baseline-read | Read access to every entity in the module | ✓ |
 | `re-brok-agent-ops:manage` | baseline-manage | Edit operational records | ✓ |
 | `re-brok-agent-ops:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
+| `re-brok-agent-ops:convert_lead` | workflow-gate (lifecycle) | Transition `crm_leads` into state `converted` | ✓ |
 | `re-brok-agent-ops:activate_listing` | workflow-gate (lifecycle) | Transition `real_estate_listings` into state `active` | ✓ |
 | `re-brok-agent-ops:mark_under_contract` | workflow-gate (lifecycle) | Transition `real_estate_listings` into state `under_contract` | ✓ |
 | `re-brok-agent-ops:close_listing` | workflow-gate (lifecycle) | Transition `real_estate_listings` into state `sold` | ✓ |
@@ -253,6 +292,10 @@ _This scope holds `crm_leads` as **contributor**; the canonical state machine is
 | `re-brok-agent-ops:clear_contingencies` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `contingencies_cleared` | ✓ |
 | `re-brok-agent-ops:close_transaction` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `closed` | ✓ |
 | `re-brok-agent-ops:cancel_transaction` | workflow-gate (lifecycle) | Transition `real_estate_transactions` into state `cancelled` | ✓ |
+| `re-brok-agent-ops:review_commission_split` | workflow-gate (lifecycle) | Transition `commission_splits` into state `reviewed` | ✓ |
+| `re-brok-agent-ops:dispute_commission_split` | workflow-gate (lifecycle) | Transition `commission_splits` into state `disputed` | ✓ |
+| `re-brok-agent-ops:approve_commission_split` | workflow-gate (lifecycle) | Transition `commission_splits` into state `approved` | ✓ |
+| `re-brok-agent-ops:disburse_commission` | workflow-gate (lifecycle) | Transition `commission_splits` into state `paid` | ✓ |
 | `re-brok-agent-ops:confirm_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `confirmed` | ✓ |
 | `re-brok-agent-ops:complete_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `completed` | ✓ |
 | `re-brok-agent-ops:cancel_tour` | workflow-gate (lifecycle) | Transition `tour_appointments` into state `cancelled` | ✓ |
@@ -265,9 +308,15 @@ _This scope holds `crm_leads` as **contributor**; the canonical state machine is
 | `re-brok-agent-ops:view_all_real_estate_transactions` | override (personal_content) | View all `real_estate_transactions` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_real_estate_transactions` | override (personal_content) | Manage all `real_estate_transactions` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:submit_real_estate_transaction` | override (submit_lock) | Submit and lock a `real_estate_transactions` row (post-submit edits gated) | ✓ |
+| `re-brok-agent-ops:submit_commission_split` | override (submit_lock) | Submit and lock a `commission_splits` row (post-submit edits gated) | ✓ |
 | `re-brok-agent-ops:view_all_disclosure_documents` | override (personal_content) | View all `disclosure_documents` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_disclosure_documents` | override (personal_content) | Manage all `disclosure_documents` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:submit_disclosure_document` | override (submit_lock) | Submit and lock a `disclosure_documents` row (post-submit edits gated) | ✓ |
+| `re-brok-agent-ops:view_all_contacts` | override (personal_content) | View all `crm_contacts` rows beyond row-scope | ✓ |
+| `re-brok-agent-ops:manage_all_contacts` | override (personal_content) | Manage all `crm_contacts` rows beyond row-scope | ✓ |
+| `re-brok-agent-ops:view_all_leads` | override (personal_content) | View all `crm_leads` rows beyond row-scope | ✓ |
+| `re-brok-agent-ops:manage_all_leads` | override (personal_content) | Manage all `crm_leads` rows beyond row-scope | ✓ |
+| `re-brok-agent-ops:submit_lead` | override (submit_lock) | Submit and lock a `crm_leads` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
@@ -277,6 +326,78 @@ _This scope holds `crm_leads` as **contributor**; the canonical state machine is
 | `tour_appointment_edit_scope` | `tour_appointments` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_tour_appointments` / `re-brok-agent-ops:manage_all_tour_appointments` |
 | `real_estate_transaction_edit_scope` | `real_estate_transactions` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_real_estate_transactions` / `re-brok-agent-ops:manage_all_real_estate_transactions` |
 | `submit_restricted_to_real_estate_transaction_owner` | `real_estate_transactions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_real_estate_transactions` |
+| `submit_restricted_to_commission_split_owner` | `commission_splits` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_commission_splits` |
+| `approve_commission_split_requires_approver` | `commission_splits` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-agent-ops:approve_commission_split` if surfaced as a lifecycle workflow gate). |
 | `disclosure_document_edit_scope` | `disclosure_documents` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_disclosure_documents` / `re-brok-agent-ops:manage_all_disclosure_documents` |
 | `submit_restricted_to_disclosure_document_owner` | `disclosure_documents` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_disclosure_documents` |
 | `approve_disclosure_document_requires_approver` | `disclosure_documents` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-agent-ops:approve_disclosure_document` if surfaced as a lifecycle workflow gate). |
+| `contact_edit_scope` | `crm_contacts` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_contacts` / `re-brok-agent-ops:manage_all_contacts` |
+| `lead_edit_scope` | `crm_leads` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_leads` / `re-brok-agent-ops:manage_all_leads` |
+| `submit_restricted_to_lead_owner` | `crm_leads` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_leads` |
+
+## 9. Roles, RACI, and responsibilities (derived)
+
+_Baseline roles, the permission hierarchy, and RACI realization are DERIVED from this scope's entity-type write tiers + `process_raci`; none of it is stored in the catalog (the deployer provisions it from this blueprint)._
+
+### 9.1 `RE-BROK-AGENT-OPS`
+
+**Baseline roles:**
+
+| role | baseline grant |
+| --- | --- |
+| `re-brok-agent-ops_viewer` | `re-brok-agent-ops:read` |
+| `re-brok-agent-ops_manager` | `re-brok-agent-ops:manage` |
+
+**Permission hierarchy:**
+
+| permission | includes |
+| --- | --- |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage` |
+| `re-brok-agent-ops:manage` | `re-brok-agent-ops:read` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:convert_lead` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:activate_listing` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:mark_under_contract` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:close_listing` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:withdraw_listing` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:schedule_inspection` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_financing` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:clear_contingencies` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:close_transaction` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:cancel_transaction` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:review_commission_split` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:dispute_commission_split` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:approve_commission_split` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:disburse_commission` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:confirm_tour` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:complete_tour` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:cancel_tour` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:deliver_disclosure` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:acknowledge_disclosure` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_real_estate_listings` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_real_estate_listings` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_tour_appointments` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_tour_appointments` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_real_estate_transactions` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_real_estate_transactions` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_real_estate_transaction` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_commission_split` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_disclosure_documents` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_disclosure_documents` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_disclosure_document` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_contacts` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_contacts` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_leads` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_leads` |
+| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_lead` |
+
+**RACI realization:**
+
+_(none: no process_raci assignments wired to this module's gated processes yet)_
+
+### 9.2 Functional ownership and default grants
+
+| responsibility | business function | default role | default tier |
+| --- | --- | --- | --- |
+| owner | Sales | `admin` | `:admin` |
+| contributor | Marketing | `manage` | `:manage` |
+| consumer | Accounting | `read` | `:read` |

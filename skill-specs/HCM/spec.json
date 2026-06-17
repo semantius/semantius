@@ -1,0 +1,1357 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "HCM",
+    "name": "Human Capital Management",
+    "description": "Core HR system of record covering worker data, organisation and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Run the single source of truth for your workforce, from the employee record to org structure, positions, and the full hire-to-retire lifecycle.",
+    "catalog_description": "Human Capital Management is the system of record for your people. Maintain every worker's core profile, employment contracts, and the org structure they sit in, then drive each change through a governed workflow: hiring, transfers, promotions, leaves of absence, and offboarding. Self-service lets employees and managers raise and track their own changes while HR retains approval control.\n\nBecause the worker record is authoritative, the lifecycle events you record here ripple cleanly downstream: a new hire provisions access and payroll, a termination recalls assets and closes accounts, a promotion updates compensation. You define jobs and positions once, plan headcount against them, and keep compliance evidence in step with the regulations that apply to your workforce."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Human Resources"
+    ],
+    "contributors": [
+      "Finance",
+      "IT Operations",
+      "Legal",
+      "Payroll"
+    ],
+    "consumers": [
+      "Executive",
+      "Governance, Risk and Compliance"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "APPROVAL-WORKFLOW",
+      "name": "Approval Workflow Orchestration",
+      "cross_cutting": true
+    },
+    {
+      "code": "CORE-HR",
+      "name": "Core HR Record",
+      "cross_cutting": false
+    },
+    {
+      "code": "HR-COMPLIANCE",
+      "name": "HR Regulatory Compliance",
+      "cross_cutting": false
+    },
+    {
+      "code": "OFFBOARDING",
+      "name": "Employee Offboarding",
+      "cross_cutting": true
+    },
+    {
+      "code": "ONBOARDING",
+      "name": "Employee Onboarding",
+      "cross_cutting": false
+    },
+    {
+      "code": "ORG-MGMT",
+      "name": "Organisation and Position Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "SELF-SERVICE-HR",
+      "name": "Employee and Manager Self-Service",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORKFORCE-PLAN",
+      "name": "Workforce Planning",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "HCM-CORE-WORKER",
+      "name": "Core Worker Record",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CORE-HR",
+        "HR-COMPLIANCE"
+      ],
+      "masters": [
+        "emergency_contacts",
+        "employee_dependents",
+        "employees",
+        "employment_contracts",
+        "employment_events",
+        "national_ids",
+        "work_eligibility_documents",
+        "worker_addresses"
+      ],
+      "embedded_masters": [
+        "locations"
+      ],
+      "consumers": [
+        "contingent_workers",
+        "onboarding_document_collections",
+        "pay_slips",
+        "people_kpis",
+        "project_assignments",
+        "project_resource_allocations",
+        "resource_skill_inventories",
+        "source_records",
+        "users"
+      ],
+      "description": "Core worker record: identity, employment lifecycle, contracts, and effective-dated employment events. The system-of-record layer for every employee."
+    },
+    {
+      "code": "HCM-LIFECYCLE-WORKFLOWS",
+      "name": "Employee Lifecycle Workflows",
+      "kind": "full",
+      "realizes_capabilities": [
+        "APPROVAL-WORKFLOW",
+        "OFFBOARDING",
+        "ONBOARDING",
+        "SELF-SERVICE-HR"
+      ],
+      "masters": [
+        "worker_change_requests"
+      ],
+      "embedded_masters": [
+        "pre_employees"
+      ],
+      "consumers": [
+        "absence_balances",
+        "absence_requests",
+        "candidate_assessments",
+        "candidates",
+        "compensation_plans",
+        "compliance_assignments",
+        "course_completions",
+        "employees",
+        "employment_events",
+        "engagement_drivers",
+        "hr_cases",
+        "job_offers",
+        "learning_records",
+        "legal_holds",
+        "life_events",
+        "merit_recommendations",
+        "performance_goals",
+        "skill_profiles",
+        "succession_plans",
+        "workforce_segments"
+      ],
+      "description": "Employee and manager self-service portal coordinating cross-domain lifecycle: onboarding intake from ATS, lifecycle change requests, leave/absence visibility, and offboarding handoffs to ITSM/IGA/PAYROLL. Workflow surface on top of HCM-CORE-WORKER and HCM-ORG-POSITIONS, no masters of its own."
+    },
+    {
+      "code": "HCM-ORG-POSITIONS",
+      "name": "Organisation and Position Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ORG-MGMT",
+        "WORKFORCE-PLAN"
+      ],
+      "masters": [
+        "hcm_positions",
+        "job_profiles",
+        "org_units"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "financial_plans",
+        "job_requisitions"
+      ],
+      "description": "Organisation design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "emergency_contacts",
+      "singular_label": "Emergency Contact",
+      "plural_label": "Emergency Contacts",
+      "description": "People to contact in an emergency for a worker, with priority ordering and relationship. Holds personal data on third parties beyond the employee.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "employee_dependents",
+      "singular_label": "Employee Dependent",
+      "plural_label": "Employee Dependents",
+      "description": "Spouse, children, and other dependents of a worker, held as person-level records on the worker. Benefits administration reads these for eligibility and beneficiary designation; the plan-enrollment record is held separately by benefits.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Dependents",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "employees",
+      "singular_label": "Employee",
+      "plural_label": "Employees",
+      "description": "Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "personnel",
+          "source": "synonym"
+        },
+        {
+          "name": "worker",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "on_leave",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "suspended",
+          "order": 4,
+          "requires_permission": true
+        },
+        {
+          "name": "terminated",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "employment_contracts",
+      "singular_label": "Employment Contract",
+      "plural_label": "Employment Contracts",
+      "description": "Contractual terms of employment: contract type (permanent, fixed-term, contractor, intern), start and end dates, governing jurisdiction, working hours, notice period, IP and non-compete clauses, references to the signed document. HCM masters; HRSD contributes when employee-relations cases reference contract terms.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "employment agreement",
+          "source": "synonym"
+        },
+        {
+          "name": "offer letter",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "signed",
+          "order": 4,
+          "requires_permission": true
+        },
+        {
+          "name": "terminated",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "superseded",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "employment_events",
+      "singular_label": "Employment Event",
+      "plural_label": "Employment Events",
+      "description": "Lifecycle event records for an employee: hire, promotion, transfer, leave start, leave return, comp change, termination. The audit history that drives plan-vs-actual analytics (PA consumer) and downstream system updates. HCM masters; PA derives metrics from the event stream.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "personnel action",
+          "source": "synonym"
+        },
+        {
+          "name": "worker lifecycle event",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "posted",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "rejected",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "reversed",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "hcm_positions",
+      "singular_label": "Position",
+      "plural_label": "Positions",
+      "description": "Approved slot in the org, a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "headcount slot",
+          "source": "synonym"
+        },
+        {
+          "name": "seat",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "proposed",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "open",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "filled",
+          "order": 4,
+          "requires_permission": true
+        },
+        {
+          "name": "frozen",
+          "order": 5,
+          "requires_permission": true
+        },
+        {
+          "name": "eliminated",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "job_profiles",
+      "singular_label": "Job Profile",
+      "plural_label": "Job Profiles",
+      "description": "Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "job catalog entry",
+          "source": "synonym"
+        },
+        {
+          "name": "role profile",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "active",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "retired",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "national_ids",
+      "singular_label": "National ID",
+      "plural_label": "National IDs",
+      "description": "Government-issued identity numbers for a worker, such as social security or national insurance numbers, held with restricted access and validity dates. Jurisdiction-specific.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Government ID",
+          "source": "synonym"
+        },
+        {
+          "name": "National Insurance Number",
+          "source": "synonym"
+        },
+        {
+          "name": "SSN",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "org_units",
+      "singular_label": "Org Unit",
+      "plural_label": "Org Units",
+      "description": "Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded).",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Organization",
+          "source": "synonym"
+        },
+        {
+          "name": "business unit",
+          "source": "synonym"
+        },
+        {
+          "name": "cost-bearing unit",
+          "source": "synonym"
+        },
+        {
+          "name": "department",
+          "source": "synonym"
+        },
+        {
+          "name": "division",
+          "source": "synonym"
+        },
+        {
+          "name": "organizational unit",
+          "source": "synonym"
+        },
+        {
+          "name": "team",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "reorganized",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "closed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "work_eligibility_documents",
+      "singular_label": "Work Eligibility Document",
+      "plural_label": "Work Eligibility Documents",
+      "description": "Right-to-work evidence for a worker: visa, work permit, or equivalent authorization, effective-dated with an expiry the system tracks. Jurisdiction-conditional and access-restricted. Distinct from the US-specific hiring I-9 record.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Right to Work Document",
+          "source": "synonym"
+        },
+        {
+          "name": "Visa",
+          "source": "synonym"
+        },
+        {
+          "name": "Work Permit",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending_verification",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "verified",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "expired",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "rejected",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "worker_addresses",
+      "singular_label": "Worker Address",
+      "plural_label": "Worker Addresses",
+      "description": "Home, work, and mailing addresses for a worker, effective-dated and typed by purpose, supporting multi-jurisdiction and country-variant formats.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "worker_change_requests",
+      "singular_label": "Worker Change Request",
+      "plural_label": "Worker Change Requests",
+      "description": "Self-service request raised by an employee or manager to change worker data (personal details, address, job, or org assignment), routed through an approval workflow before it commits to the worker record. The self-service surface's first-class request object.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Personal Data Change Request",
+          "source": "synonym"
+        },
+        {
+          "name": "Self-Service Request",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "requires_permission": true
+        },
+        {
+          "name": "applied",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "rejected",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "candidates",
+      "verb": "becomes",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "contingent_workers",
+      "verb": "converts_to",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "contingent_workers",
+      "verb": "reviewed_against",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "cost_centers",
+      "verb": "funds",
+      "to": "org_units",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "requests",
+      "to": "absence_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "triggers",
+      "to": "asset_lifecycle_events",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "applies_as",
+      "to": "candidates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "reflected on",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "emergency_contacts",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "employee_dependents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "signs",
+      "to": "employment_contracts",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "generates",
+      "to": "employment_events",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "flagged on",
+      "to": "engagement_drivers",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "reflected on",
+      "to": "engagement_drivers",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "fills",
+      "to": "hcm_positions",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "raises",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "spawns",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "updated by",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "reflects",
+      "to": "learning_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "declares",
+      "to": "life_events",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "updated by",
+      "to": "life_events",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "national_ids",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "finalized by",
+      "to": "onboarding_document_collections",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "holds",
+      "to": "skill_profiles",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "is_linked_to",
+      "to": "users",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "work_eligibility_documents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "worker_addresses",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "has",
+      "to": "worker_change_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employment_events",
+      "verb": "feeds",
+      "to": "people_kpis",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hcm_positions",
+      "verb": "requires",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hcm_positions",
+      "verb": "is_filled_by",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "hcm_positions",
+      "verb": "spawns",
+      "to": "job_requisitions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_profiles",
+      "verb": "defines",
+      "to": "hcm_positions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_profiles",
+      "verb": "expects",
+      "to": "skill_profiles",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "job_profiles",
+      "verb": "maps_to",
+      "to": "skill_profiles",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_holds",
+      "verb": "identifies_custodians_from",
+      "to": "employees",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "merit_recommendations",
+      "verb": "applies to",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "sponsors",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "engages",
+      "to": "contingent_workers",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "maps_to",
+      "to": "cost_centers",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "groups",
+      "to": "employees",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "org_units",
+      "verb": "is_scored_by",
+      "to": "engagement_drivers",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "contains",
+      "to": "hcm_positions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "org_units",
+      "verb": "rolls_up_to",
+      "to": "org_units",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "is_measured_by",
+      "to": "people_kpis",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "has members",
+      "to": "users",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "pre_employees",
+      "verb": "promotes to",
+      "to": "employees",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "employment_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "records",
+      "to": "employment_events",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "manages",
+      "to": "hcm_positions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "job_profiles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "leads",
+      "to": "org_units",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "verifies",
+      "to": "work_eligibility_documents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "requests",
+      "to": "worker_change_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10041",
+      "name": "Create organizational design"
+    },
+    {
+      "external_id": "10447",
+      "name": "Develop and maintain job descriptions"
+    },
+    {
+      "external_id": "10469",
+      "name": "Manage employee onboarding"
+    },
+    {
+      "external_id": "10497",
+      "name": "Administer Payroll"
+    },
+    {
+      "external_id": "10502",
+      "name": "Administer compensation and rewards to employees"
+    },
+    {
+      "external_id": "10505",
+      "name": "Administer benefit enrollment"
+    },
+    {
+      "external_id": "10513",
+      "name": "Manage separation"
+    },
+    {
+      "external_id": "10523",
+      "name": "Manage employee inquiry process"
+    },
+    {
+      "external_id": "10524",
+      "name": "Manage and maintain employee data"
+    },
+    {
+      "external_id": "10739",
+      "name": "Perform cost accounting and control"
+    },
+    {
+      "external_id": "16940",
+      "name": "Define employees competencies and skills"
+    },
+    {
+      "external_id": "17055",
+      "name": "Relocate employees and manage assignments"
+    },
+    {
+      "external_id": "21441",
+      "name": "Develop workforce analytics"
+    },
+    {
+      "external_id": "21693",
+      "name": "Perform strategic workforce planning"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "hcm",
+      "description": "Maintain the authoritative worker record (profiles, addresses, national IDs, emergency contacts, dependents, work-eligibility documents) and employment contracts; design the org structure with job profiles, positions, and org units; plan headcount against budgeted roles; and drive every people change through governed lifecycle workflows: hiring and onboarding, transfers, promotions, leaves, and offboarding. Let employees and managers raise and track self-service change requests while HR keeps approval control, and keep compliance evidence current.",
+      "trigger_keywords": "HRIS, HRMS, core HR, personnel file, employee data, reporting lines, span of control, FTE, new starter, leaver, termination, separation, joiner mover leaver, secondment, reorg, effective dating, approval routing, people operations, system of record",
+      "tools": [
+        {
+          "name": "create_asset_lifecycle_event",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_employment_event",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_position",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "notify_team",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "query_asset_lifecycle_events",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_candidate_assessments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_candidates",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_employees",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_employment_contracts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_employment_events",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_job_offers",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_job_profiles",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_job_requisitions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_org_units",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_positions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_pre_employees",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "sign_document",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "update_employee_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_position",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "HIRING-MANAGER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "HR-BUSINESS-PARTNER",
+      "business_function": "Human Resources",
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "HR-HRIS-ADMIN",
+      "business_function": "Human Resources",
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "interaction": "primary"
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "HR-ORG-DESIGN-ANALYST",
+      "business_function": "Human Resources",
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "HR-PEOPLE-OPS-SPECIALIST",
+      "business_function": "Human Resources",
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "interaction": "primary"
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "PEOPLE-MANAGER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "interaction": "secondary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

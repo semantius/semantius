@@ -1,0 +1,38 @@
+# Projection of live catalog DB values for the use-smp skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: SMP
+domain_code_lower: smp
+domain_name: "SaaS Management Platforms"
+module_slug: smp
+skill_name: use-smp
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "See every SaaS app your company pays for, cut wasted licenses, and never miss a renewal."
+catalog_description: |
+  Discover every SaaS application in use, sanctioned or not, see who owns each one, and track real usage against what you pay for. Reclaim idle licenses automatically, run renewals on a schedule instead of in a panic, and give employees a self-service catalog to request the apps they need. One place to manage your whole SaaS portfolio, from first sign-up to final offboarding.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Inventory every SaaS application the company pays for, including unsanctioned tools employees signed up for on their own, and tie each one to an owner, a contract, and real login activity. Track subscriptions and seat assignments against actual usage, flag underused or duplicate licenses, and recommend or trigger reclamation to recover wasted spend. Run renewals on a schedule with reminders and negotiation prep, assess vendor risk, allocate cost to departments, and let employees request access through a self-service app catalog. Automate joiner and leaver provisioning and route approval workflows across the portfolio. Use for: SMP, SaaS management platform, shadow IT, SaaS spend management, software spend optimization, idle seats, renewal calendar, app rationalization, deprovisioning, offboarding, usage telemetry, sanctioned apps, SaaS sprawl, seat right-sizing, software asset visibility."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - SaaS App Lifecycle Automation
+  - SaaS Application Discovery
+  - SaaS License Optimization
+  - SaaS Renewal Management
+  - Shadow IT Detection
+  - SaaS Usage Analytics
+  - SaaS Vendor Relationship Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-apm
+  - use-clm
+  - use-finops
+  - use-iga
+  - use-itsm
+  - use-s2p

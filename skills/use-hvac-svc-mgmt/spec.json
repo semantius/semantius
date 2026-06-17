@@ -1,0 +1,310 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "bundle": {
+    "code": "HVAC-SVC-MGMT",
+    "name": "HVAC Service Management (small-org starter)",
+    "kind": "industry_starter",
+    "domain_attached": false,
+    "tagline": "A ready-to-run home-services starter that takes an HVAC job from customer call to scheduled visit and invoice.",
+    "catalog_description": "This starter packages the field-service essentials a heating and cooling service business needs on day one. It bundles the customer and contact record, the installed equipment at each site, work orders and field visits, service contracts, and the quote-to-invoice path so a small team can book a call, schedule a technician, complete the job, and bill it without stitching tools together. It is a fast on-ramp to field service for trades operators who want the core workflow working immediately and can grow into the full modules later.",
+    "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organisations deploy the full modules and skip the starter.",
+    "host_domains": [
+      "CPQ",
+      "CRM",
+      "FIN",
+      "FSM",
+      "HAM",
+      "SUB-MGMT"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "FSM-DISPATCH-OPT",
+      "name": "Dispatch and Routing Optimization",
+      "cross_cutting": false
+    },
+    {
+      "code": "FSM-INSTALLED-BASE-MGT",
+      "name": "Installed Equipment Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "FSM-MOBILE-TECH",
+      "name": "Mobile Technician Enablement",
+      "cross_cutting": false
+    },
+    {
+      "code": "FSM-PARTS-LOGISTICS",
+      "name": "Field Parts and Truck Stock Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "FSM-PM-PLANNING",
+      "name": "Preventive Maintenance Planning",
+      "cross_cutting": false
+    },
+    {
+      "code": "FSM-SERVICE-CONTRACT-MGT",
+      "name": "Service Contract and SLA Management",
+      "cross_cutting": false
+    }
+  ],
+  "composes": [
+    {
+      "name": "crm_contacts",
+      "singular_label": "Contact",
+      "plural_label": "Contacts",
+      "role": "embedded_master",
+      "owning_domain": "CRM"
+    },
+    {
+      "name": "customer_invoices",
+      "singular_label": "Customer Invoice",
+      "plural_label": "Customer Invoices",
+      "role": "embedded_master",
+      "owning_domain": "SUB-MGMT"
+    },
+    {
+      "name": "customer_sites",
+      "singular_label": "Customer Site",
+      "plural_label": "Customer Sites",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "customers",
+      "singular_label": "Customer",
+      "plural_label": "Customers",
+      "role": "embedded_master",
+      "owning_domain": "CRM"
+    },
+    {
+      "name": "dispatch_records",
+      "singular_label": "Dispatch Record",
+      "plural_label": "Dispatch Records",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "field_visits",
+      "singular_label": "Field Visit",
+      "plural_label": "Field Visits",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "installed_equipment",
+      "singular_label": "Installed Equipment Unit",
+      "plural_label": "Installed Equipment",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "sales_quotes",
+      "singular_label": "Sales Quote",
+      "plural_label": "Sales Quotes",
+      "role": "embedded_master",
+      "owning_domain": "CPQ"
+    },
+    {
+      "name": "service_contracts",
+      "singular_label": "Service Contract",
+      "plural_label": "Service Contracts",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "service_pm_schedules",
+      "singular_label": "Service PM Schedule",
+      "plural_label": "Service PM Schedules",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "service_work_orders",
+      "singular_label": "Service Work Order",
+      "plural_label": "Service Work Orders",
+      "role": "embedded_master",
+      "owning_domain": "FSM"
+    },
+    {
+      "name": "spare_parts_inventory",
+      "singular_label": "Spare Part Inventory Item",
+      "plural_label": "Spare Part Inventory Items",
+      "role": "embedded_master",
+      "owning_domain": "HAM"
+    },
+    {
+      "name": "users",
+      "singular_label": "User",
+      "plural_label": "Users",
+      "role": "consumer",
+      "owning_domain": null
+    }
+  ],
+  "apqc_processes_touched": [],
+  "system_skill": {
+    "skill_grain": "domain",
+    "skill_name": "hvac-svc-mgmt",
+    "description": "Run a heating and cooling service shop end to end: log customer calls, track contacts and the equipment installed at each site, set preventive maintenance cadences, turn a quote into a work order, dispatch and schedule a technician for the visit, draft recurring maintenance agreements, draw down spare parts, and bill the completed job with an invoice. Confirm appointments and send maintenance reminders to customers.",
+    "trigger_keywords": "HVAC, furnace, air conditioning, AC, refrigeration, boiler, field service management, FSM, trades, contractor, home services, ticket, callout, route, truck roll, warranty, inventory, billing, quote-to-cash",
+    "tools": [
+      {
+        "name": "create_crm_contact",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_customer",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_customer_site",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_dispatch_record",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_field_visit",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_installed_equipment",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_sales_quote",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_service_contract",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_service_work_order",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "notify_person",
+        "kind": "side_effect",
+        "required": true
+      },
+      {
+        "name": "query_crm_contacts",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_customer_invoices",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_customer_sites",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_customers",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_dispatch_records",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_field_visits",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_installed_equipment",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_sales_quotes",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_service_contracts",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_service_pm_schedules",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_service_work_orders",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_spare_parts_inventory",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "update_service_work_order",
+        "kind": "mutate",
+        "required": true
+      }
+    ]
+  },
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

@@ -11,7 +11,7 @@ The platform exposes four extension points. Each one is a column on either an en
 | Purpose | Column |
 |---|---|
 | Derives values for the named fields on every insert/update, before the row is written. | `entities.computed_fields` |
-| Each rule must evaluate truthy or the write is rejected with the given message and code. | `entities.validation_rules` |
+| Each rule must evaluate truthy or the write (or delete) is rejected with the given message and code. | `entities.validation_rules` |
 | Per-row read filter, only rows where the rule evaluates truthy are visible to the caller. | `entities.select_rule` |
 | Controls field visibility in the UI, evaluated client-side against the current form values to show or hide the field. | `fields.input_type_rule` |
 
@@ -34,8 +34,9 @@ The four extension points map onto distinct stages of the request lifecycle:
 1. **Insert or update arrives** at the API. The platform loads the entity's `computed_fields` and runs them in declared order. Each derived value is written into the incoming row before validation, so later rules can reference it.
 2. **Validation** runs the entity's `validation_rules` against the merged row. Any rule that evaluates falsy (or that calls `throw_error` / `require_permission` and fails) rejects the write with the rule's `code` and `message`.
 3. **Persist.** The row is written.
-4. **Read** requests pass through the entity's `select_rule`. The platform evaluates the rule per row, with the row bound as the root context, and returns only rows where it evaluates truthy. This is row-level security expressed as data.
-5. **UI render.** When a form is built from the model, each field's `input_type_rule` is evaluated client-side against the current form values. Falsy hides the field, truthy shows it. This is purely a presentation concern and is never the authoritative gate: server-side validation always wins.
+4. **Delete** runs the entity's `validation_rules` against the row being removed, with `$mode` set to `"delete"` and `$old` bound to that row. Any rule that evaluates falsy aborts the delete; `computed_fields` still run but their output is discarded (there is no surviving row). This lets a rule guard against deletion, for example `{"!=": [{"var": "$mode"}, "delete"]}`.
+5. **Read** requests pass through the entity's `select_rule`. The platform evaluates the rule per row, with the row bound as the root context, and returns only rows where it evaluates truthy. This is row-level security expressed as data.
+6. **UI render.** When a form is built from the model, each field's `input_type_rule` is evaluated client-side against the current form values. Falsy hides the field, truthy shows it. This is purely a presentation concern and is never the authoritative gate: server-side validation always wins.
 
 ## Authoring rules
 

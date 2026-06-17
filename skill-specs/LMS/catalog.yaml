@@ -1,0 +1,41 @@
+# Projection of live catalog DB values for the use-lms skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: LMS
+domain_code_lower: lms
+domain_name: "Learning Management"
+module_slug: lms
+skill_name: use-lms
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Train your whole workforce and prove it, from first enrollment to audit-ready completion records."
+catalog_description: |
+  Run corporate learning end to end. Author and publish courses, deliver them online or in the classroom, and track every enrollment through to completion. Issue the certifications and badges that show who is qualified, and keep the evidence auditors and regulators ask for. Assign mandatory training automatically, chase overdue learners without manual follow-up, and feed completion signals to the HR, compliance, and identity systems that depend on them.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Author courses from lessons and assessments, publish new versions, and deliver self-paced training in the browser. Enroll learners and track each one through to completion, grade quizzes and exams, and post transcripts. Schedule instructor-led and virtual classroom sessions, book rooms, manage waitlists, and capture attendance. Assign mandatory compliance training, chase overdue learners, and keep audit-ready evidence for regulators. Issue certifications and badges, manage renewals and expiry, and let others verify them. Sequence learning paths tied to the skills a role needs, recommend the next course, and automate enrollments, reminders, and escalations. Handle learner consent and data-deletion requests. Use for: LMS, e-learning, SCORM, xAPI, Tin Can, cmi5, LRS, microlearning, blended learning, ILT, VILT, webinar, micro-credential, Open Badges, CEU, continuing education, recertification, OSHA, HIPAA, SOX, GDPR, anti-harassment, onboarding training, upskilling, reskilling, curriculum, course catalog, gradebook, proctoring, attestation, talent development, corporate L&D."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Certification Management
+  - Compliance Training
+  - Content Delivery and Tracking
+  - Course Authoring
+  - Learning Paths
+  - Credential Management
+  - Instructor-Led Training Delivery
+  - Learning Automation
+  - Learner Privacy Compliance
+  - Skills Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-grc
+  - use-hcm
+  - use-hrsd
+  - use-iga
+  - use-skills-mgmt
+  - use-talent-mgmt

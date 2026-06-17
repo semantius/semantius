@@ -1,0 +1,37 @@
+# Projection of live catalog DB values for the use-hvac-svc-mgmt skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: HVAC-SVC-MGMT
+domain_code_lower: hvac-svc-mgmt
+domain_name: "HVAC Service Management (small-org starter)"
+module_slug: hvac-svc-mgmt
+skill_name: use-hvac-svc-mgmt
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "A ready-to-run home-services starter that takes an HVAC job from customer call to scheduled visit and invoice."
+catalog_description: |
+  This starter packages the field-service essentials a heating and cooling service business needs on day one. It bundles the customer and contact record, the installed equipment at each site, work orders and field visits, service contracts, and the quote-to-invoice path so a small team can book a call, schedule a technician, complete the job, and bill it without stitching tools together. It is a fast on-ramp to field service for trades operators who want the core workflow working immediately and can grow into the full modules later.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Run a heating and cooling service shop end to end: log customer calls, track contacts and the equipment installed at each site, set preventive maintenance cadences, turn a quote into a work order, dispatch and schedule a technician for the visit, draft recurring maintenance agreements, draw down spare parts, and bill the completed job with an invoice. Confirm appointments and send maintenance reminders to customers. Use for: HVAC, furnace, air conditioning, refrigeration, boiler, field service management, FSM, trades, contractor, home services, ticket, callout, route, truck roll, warranty, inventory, billing, quote-to-cash."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Dispatch and Routing Optimization
+  - Installed Equipment Management
+  - Mobile Technician Enablement
+  - Field Parts and Truck Stock Management
+  - Preventive Maintenance Planning
+  - Service Contract and SLA Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-cpq
+  - use-crm
+  - use-fin
+  - use-fsm
+  - use-ham
+  - use-sub-mgmt

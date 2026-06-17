@@ -1,0 +1,1177 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "ITSM",
+    "name": "IT Service Management",
+    "description": "Workflows for managing IT requests, incidents, problems, changes, and knowledge in support of internal business users.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Run a responsive IT service desk that resolves incidents, fulfills requests, and ships changes without breaking the business.",
+    "catalog_description": "IT Service Management gives your service desk one place to capture, route, and resolve everything your workforce throws at it: outages, password resets, new-laptop requests, recurring problems, and risky changes. Tickets follow a clear lifecycle from intake to closure, with priority routing, approvals, and SLA timers built in, so nothing slips and the right person always owns the next step.\n\nThe suite spans incident, request, problem, change, knowledge, and service-level management, plus an agent workspace that pulls the full picture together. Self-service portals and a curated knowledge base deflect routine work, while problem and change workflows keep the underlying environment stable. The result is faster resolution, fewer repeat issues, and a measurable service experience your users and auditors can both trust."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "IT Service Desk"
+    ],
+    "contributors": [
+      "IT Operations",
+      "Security"
+    ],
+    "consumers": [
+      "Finance",
+      "Human Resources"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "AI-TRIAGE-CLASSIFICATION",
+      "name": "AI Triage and Classification",
+      "cross_cutting": true
+    },
+    {
+      "code": "APPROVAL-WORKFLOW",
+      "name": "Approval Workflow Orchestration",
+      "cross_cutting": true
+    },
+    {
+      "code": "ITSM-ASSIGN",
+      "name": "Skill-Based Assignment",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-CATALOG",
+      "name": "Service Catalog Authoring",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-CHANGE",
+      "name": "Change Enablement and CAB Workflow",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-CHARGEBACK",
+      "name": "Service Cost and Chargeback",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-EVENT",
+      "name": "Event and Alert Handling",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-INCIDENT",
+      "name": "Incident Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-MAJOR-INCIDENT",
+      "name": "Major Incident Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-PROBLEM",
+      "name": "Problem Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-RELEASE",
+      "name": "Release Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-REPORTING",
+      "name": "ITSM Reporting and Continuous Improvement",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-REQUEST",
+      "name": "Service Request Fulfilment",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-STD-CHANGE",
+      "name": "Standard Change Catalog",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-VIRTUAL-AGENT",
+      "name": "Virtual Agent and Conversational ITSM",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-WALKUP",
+      "name": "Walk-Up and Onsite Support",
+      "cross_cutting": false
+    },
+    {
+      "code": "ITSM-WORKSPACE",
+      "name": "Agent Workspace and Routing",
+      "cross_cutting": false
+    },
+    {
+      "code": "KNOWLEDGE-MGMT",
+      "name": "Knowledge Management",
+      "cross_cutting": true
+    },
+    {
+      "code": "SELF-SERVICE-PORTAL",
+      "name": "Self-Service Portal",
+      "cross_cutting": true
+    },
+    {
+      "code": "SLA-MGMT",
+      "name": "SLA and OLA Management",
+      "cross_cutting": true
+    }
+  ],
+  "modules": [
+    {
+      "code": "ITSM-AGENT-WORKSPACE",
+      "name": "Agent Workspace and Reporting",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ITSM-REPORTING",
+        "ITSM-VIRTUAL-AGENT",
+        "ITSM-WALKUP",
+        "ITSM-WORKSPACE"
+      ],
+      "masters": [
+        "virtual_agent_conversations",
+        "walkup_visits"
+      ],
+      "embedded_masters": [
+        "locations",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "Unified agent experience: workspace, walk-up support, virtual agent / conversational ITSM, and continuous-improvement reporting."
+    },
+    {
+      "code": "ITSM-CHANGE-MGMT",
+      "name": "Change and Release Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "APPROVAL-WORKFLOW",
+        "ITSM-CHANGE",
+        "ITSM-RELEASE",
+        "ITSM-STD-CHANGE"
+      ],
+      "masters": [
+        "cab_meetings",
+        "change_collisions",
+        "service_changes",
+        "service_releases"
+      ],
+      "embedded_masters": [
+        "configuration_items",
+        "locations",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "Change request capture, CAB workflow, approval routing, release planning, and standard-change catalog."
+    },
+    {
+      "code": "ITSM-EVENT-MGMT",
+      "name": "Event and Alert Handling",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ITSM-EVENT"
+      ],
+      "masters": [],
+      "embedded_masters": [
+        "monitoring_alerts"
+      ],
+      "consumers": [],
+      "description": "Reactive event filtering, deduplication, and routing into the incident workflow. Bridge between observability platforms and ITSM."
+    },
+    {
+      "code": "ITSM-INCIDENT-MGMT",
+      "name": "Incident Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "AI-TRIAGE-CLASSIFICATION",
+        "ITSM-ASSIGN",
+        "ITSM-INCIDENT",
+        "ITSM-MAJOR-INCIDENT"
+      ],
+      "masters": [
+        "service_incidents",
+        "service_outages"
+      ],
+      "embedded_masters": [
+        "asset_lifecycle_events",
+        "configuration_items",
+        "locations",
+        "org_units"
+      ],
+      "consumers": [
+        "error_groups",
+        "monitoring_alerts",
+        "service_level_objectives"
+      ],
+      "description": "Capture, triage, route, and resolve service-disrupting incidents. Includes major-incident command, AI-assisted classification, and skill-based assignment."
+    },
+    {
+      "code": "ITSM-KNOWLEDGE",
+      "name": "Knowledge Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "KNOWLEDGE-MGMT"
+      ],
+      "masters": [
+        "knowledge_articles"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Authoring, review, publication, and consumption of knowledge articles supporting ITSM agents and self-service portals."
+    },
+    {
+      "code": "ITSM-PROBLEM-MGMT",
+      "name": "Problem Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ITSM-PROBLEM"
+      ],
+      "masters": [
+        "service_problems"
+      ],
+      "embedded_masters": [
+        "configuration_items",
+        "locations",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "Root-cause analysis, known-error tracking, and corrective action for recurring or major incidents."
+    },
+    {
+      "code": "ITSM-SERVICE-REQUEST",
+      "name": "Service Request Fulfillment",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ITSM-CATALOG",
+        "ITSM-REQUEST",
+        "SELF-SERVICE-PORTAL"
+      ],
+      "masters": [
+        "service_catalog_items",
+        "service_offerings",
+        "service_requests"
+      ],
+      "embedded_masters": [
+        "configuration_items",
+        "locations",
+        "onboarding_tasks",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "End-user-driven request workflow, including catalog authoring, request routing, approvals, and self-service portal."
+    },
+    {
+      "code": "ITSM-SLA-MGMT",
+      "name": "SLA and Chargeback Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "ITSM-CHARGEBACK",
+        "SLA-MGMT"
+      ],
+      "masters": [
+        "service_slas"
+      ],
+      "embedded_masters": [
+        "cost_centers",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "SLA / OLA definitions, breach tracking, escalation rules, service-cost tracking, and chargeback to consuming business units."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "cab_meetings",
+      "singular_label": "CAB Meeting",
+      "plural_label": "CAB Meetings",
+      "description": "A Change Advisory Board meeting record: agenda, attendees, the changes reviewed, decisions, and minutes. The first-class artifact of the CAB review step in change management.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "change_collisions",
+      "singular_label": "Change Collision",
+      "plural_label": "Change Collisions",
+      "description": "A detected conflict between overlapping changes or a change scheduled inside a blackout window. Records the colliding changes, the window in question, and the resolution. Surfaces scheduling conflicts before they reach implementation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "knowledge_articles",
+      "singular_label": "Knowledge Article",
+      "plural_label": "Knowledge Articles",
+      "description": "KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "KB article",
+          "source": "synonym"
+        },
+        {
+          "name": "knowledge base article",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 2
+        },
+        {
+          "name": "published",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "publish_article"
+        },
+        {
+          "name": "retired",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "service_catalog_items",
+      "singular_label": "Service Catalog Item",
+      "plural_label": "Service Catalog Items",
+      "description": "Definition of what can be requested: the form schema, fulfilment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "catalog item",
+          "source": "synonym"
+        },
+        {
+          "name": "catalog offering",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish_catalog_item"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire_catalog_item"
+        }
+      ]
+    },
+    {
+      "name": "service_changes",
+      "singular_label": "Change",
+      "plural_label": "Changes",
+      "description": "Planned modification to a service or configuration item. Carries change type (standard, normal, emergency), risk score, CAB approval state, implementation window, and back-out plan. The boundary object between ITSM and CMDB, CIs are updated as a result of an executed change.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "RFC",
+          "source": "synonym"
+        },
+        {
+          "name": "change request",
+          "source": "synonym"
+        },
+        {
+          "name": "change ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "approve_change"
+        },
+        {
+          "name": "implementing",
+          "order": 4
+        },
+        {
+          "name": "review",
+          "order": 5
+        },
+        {
+          "name": "closed",
+          "order": 6,
+          "is_terminal": true
+        },
+        {
+          "name": "rejected",
+          "order": 7,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 8,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "service_incidents",
+      "singular_label": "Incident",
+      "plural_label": "Incidents",
+      "description": "Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "incident ticket",
+          "source": "synonym"
+        },
+        {
+          "name": "ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "new",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "assigned",
+          "order": 2
+        },
+        {
+          "name": "in_progress",
+          "order": 3
+        },
+        {
+          "name": "resolved",
+          "order": 4,
+          "requires_permission": true
+        },
+        {
+          "name": "closed",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "cancelled",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "service_offerings",
+      "singular_label": "Service Offering",
+      "plural_label": "Service Offerings",
+      "description": "The back-end service definition (commitments, supported configurations, and fulfillment details) split from its user-facing catalog item presentation. One offering can back several catalog items, and a catalog item can present one offering.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "service_outages",
+      "singular_label": "Service Outage",
+      "plural_label": "Service Outages",
+      "description": "A customer-facing outage or status record, separate from the internal incident. Captures the affected service, the public status (investigating, identified, monitoring, resolved), start and end times, and the customer-facing message. Distinct from the internal incident work item.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "service_problems",
+      "singular_label": "Problem",
+      "plural_label": "Problems",
+      "description": "Root-cause record for one or more incidents that recur or share a pattern. Carries known-error workaround, permanent fix candidate, and links to the change that will resolve it. Problem management is a discipline mature ITSM tools support but most orgs underuse.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "known error",
+          "source": "synonym"
+        },
+        {
+          "name": "problem ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "identified",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "analyzed",
+          "order": 2
+        },
+        {
+          "name": "known_error",
+          "order": 3
+        },
+        {
+          "name": "resolved",
+          "order": 4,
+          "requires_permission": true
+        },
+        {
+          "name": "closed",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "service_releases",
+      "singular_label": "Service Release",
+      "plural_label": "Service Releases",
+      "description": "A release or deployment record that bundles one or more changes into a single shippable unit. Carries the release window, the included changes, deployment status, and rollback plan. Distinct from a single change ticket.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "service_requests",
+      "singular_label": "Service Request",
+      "plural_label": "Service Requests",
+      "description": "Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents, incidents are reactive, service requests are proactive. The fulfilment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "request fulfillment",
+          "source": "synonym"
+        },
+        {
+          "name": "service ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "submitted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "requires_permission": true
+        },
+        {
+          "name": "fulfilling",
+          "order": 3
+        },
+        {
+          "name": "fulfilled",
+          "order": 4
+        },
+        {
+          "name": "closed",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "service_slas",
+      "singular_label": "SLA",
+      "plural_label": "SLAs",
+      "description": "Service-level agreement record: response-time, resolution-time, and availability targets per priority / category / customer tier. SLAs attach to incidents, service requests, and changes; breach metrics roll up to operational KPIs.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SLA",
+          "source": "synonym"
+        },
+        {
+          "name": "service level agreement",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "virtual_agent_conversations",
+      "singular_label": "Virtual Agent Conversation",
+      "plural_label": "Virtual Agent Conversations",
+      "description": "A chatbot or virtual-agent conversation transcript: the turn-by-turn exchange, the resolved intent, any deflection or escalation to a human agent, and the ticket it produced. Backs the Virtual Agent capability.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "walkup_visits",
+      "singular_label": "Walk-Up Visit",
+      "plural_label": "Walk-Up Visits",
+      "description": "A walk-up or onsite check-in record: the visitor, the reason for the visit, queue position, estimated service time, and outcome. Backs the Walk-Up capability. The kiosk is treated as a location attribute, not a separate entity.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "configuration_items",
+      "verb": "changed_by",
+      "to": "service_changes",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "configuration_items",
+      "verb": "triggers",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "onboarding_tasks",
+      "verb": "emits",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "onboarding_tasks",
+      "verb": "emits",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_catalog_items",
+      "verb": "spawns",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_changes",
+      "verb": "generates",
+      "to": "asset_lifecycle_events",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_changes",
+      "verb": "impacts",
+      "to": "configuration_items",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "service_changes",
+      "verb": "updates",
+      "to": "configuration_items",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_changes",
+      "verb": "is_approved_by",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_incidents",
+      "verb": "references",
+      "to": "configuration_items",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_incidents",
+      "verb": "correlates_to",
+      "to": "error_groups",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_incidents",
+      "verb": "resolved_with",
+      "to": "knowledge_articles",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_incidents",
+      "verb": "correlates_to",
+      "to": "monitoring_alerts",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_problems",
+      "verb": "documented_in",
+      "to": "knowledge_articles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_problems",
+      "verb": "results_in",
+      "to": "service_changes",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_problems",
+      "verb": "is investigated by",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_requests",
+      "verb": "routes_to",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_requests",
+      "verb": "triggers",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "service_slas",
+      "verb": "governs incident",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "service_slas",
+      "verb": "aligns_with",
+      "to": "service_level_objectives",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "service_slas",
+      "verb": "governs request",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "approved",
+      "to": "knowledge_articles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored",
+      "to": "knowledge_articles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored articles",
+      "to": "knowledge_articles",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "authors",
+      "to": "knowledge_articles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owned catalog items",
+      "to": "service_catalog_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owned changes",
+      "to": "service_changes",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigned incidents",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "reported incidents",
+      "to": "service_incidents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owned problems",
+      "to": "service_problems",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigned requests",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "fulfills",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "requests",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "submitted requests",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owned SLAs",
+      "to": "service_slas",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "20756",
+      "name": "Manage IT user identity and authorization"
+    },
+    {
+      "external_id": "20829",
+      "name": "Define IT change/release standards"
+    },
+    {
+      "external_id": "20898",
+      "name": "Maintain service support knowledge repository"
+    },
+    {
+      "external_id": "20918",
+      "name": "Maintain IT asset records"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "itsm",
+      "description": "Log and resolve IT incidents and outages, fulfill service requests from a catalog, run problem investigations with root-cause analysis, and move changes and releases through approvals, CAB review, and collision checks. Prioritize and assign work by SLA timers and agent skills, deflect routine questions through a self-service portal and knowledge base, handle inbound events and alerts, and report on resolution times and service quality.",
+      "trigger_keywords": "help desk, helpdesk, ITIL, ticketing, ticket queue, password reset, MTTR, change advisory board, escalation, RCA, runbook, major incident, on-call",
+      "tools": [
+        {
+          "name": "approve_change",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_service_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "archive_knowledge_article",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "classify_text",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "create_change_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_incident",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_knowledge_article",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_problem",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_service_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_sla",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "generate_text",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "notify_team",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "post_chat_message",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "publish_article",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "publish_catalog_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_changes",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_configuration_items",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_incidents",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_knowledge_articles",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_problems",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_service_catalog_items",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_service_requests",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_slas",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "retire_catalog_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_change_status",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_incident_status",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_problem_status",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_sla",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

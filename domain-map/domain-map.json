@@ -1,0 +1,4375 @@
+{
+  "domains": [
+    {
+      "code": "ATS",
+      "name": "Applicant Tracking and Recruiting",
+      "description": "Requisition management, candidate sourcing, interview workflows, and offer management. AI-assisted matching and screening overlays are increasingly bundled.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-09",
+      "business_functions": [
+        {
+          "name": "Recruiting",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Human Resources",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Legal",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Finance",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "ATS-BACKGROUND-CHECKS",
+          "name": "Background Checks",
+          "description": "Pre-employment background-check orchestration with adverse-action workflow. Coordinates external vendor handoffs and gates offer-to-firm conversion on clearance. Requires an external `send_email` tool for FCRA adverse-action notices.",
+          "personas": [
+            {
+              "code": "LEGAL-COMPLIANCE-SPECIALIST",
+              "name": "Compliance Specialist",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_employee_relations",
+              "name": "Manage employee relations",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "gate"
+            },
+            {
+              "key": "obtain_candidate_background",
+              "name": "Obtain candidate background information",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "HRSD-CASE-MGMT"]
+        },
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "name": "Candidate CRM",
+          "description": "The candidate-relationship backbone of an ATS, masters candidates (including the `prospect` lifecycle state), recruitment sources, agencies, and events. Structurally the same shape as standalone candidate-CRM products. Folds the AI-RECRUIT capability (resume parsing, ML matching, screening assistants) since those tools operate on `candidates` and are tightly bound to candidate workflows.",
+          "personas": [
+            {
+              "code": "HIRING-MANAGER",
+              "name": "Hiring Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LEGAL-COMPLIANCE-SPECIALIST",
+              "name": "Compliance Specialist",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-COORDINATOR",
+              "name": "Recruiting Coordinator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-SOURCER",
+              "name": "Sourcer",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "administer_benefit_enrollment",
+              "name": "Administer benefit enrollment",
+              "via": "handoff"
+            },
+            {
+              "key": "hire_candidate",
+              "name": "Hire candidate",
+              "via": "gate"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "handoff"
+            },
+            {
+              "key": "recruit_source_candidates",
+              "name": "Recruit/Source candidates",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-BACKGROUND-CHECKS", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "ATS-RECRUITMENT-PIPELINE", "ATS-REFERRALS", "ATS-TALENT-POOLS", "HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HIRING-STARTER"]
+        },
+        {
+          "code": "ATS-INTERVIEWS",
+          "name": "Interviews",
+          "description": "Interview scheduling, panel coordination, scorecards, and structured assessments. Realizes INTERVIEW-MGMT. Realizes the `interviewing` lifecycle state on `job_applications` (state pruned when this module is not installed).",
+          "personas": [
+            {
+              "code": "HIRING-MANAGER",
+              "name": "Hiring Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-COORDINATOR",
+              "name": "Recruiting Coordinator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "conduct_customer_tests",
+              "name": "Conduct customer tests and interviews",
+              "via": "handoff"
+            },
+            {
+              "key": "interview_candidates",
+              "name": "Interview candidates",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-RECRUITMENT-PIPELINE", "HCM-LIFECYCLE-WORKFLOWS", "HIRING-STARTER"]
+        },
+        {
+          "code": "ATS-OFFERS",
+          "name": "Offers",
+          "description": "Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool, drops module Semantius coverage to ~83%.",
+          "personas": [
+            {
+              "code": "HIRING-MANAGER",
+              "name": "Hiring Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-COORDINATOR",
+              "name": "Recruiting Coordinator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "administer_benefit_enrollment",
+              "name": "Administer benefit enrollment",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_salary_compensation",
+              "name": "Develop salary/compensation structure and plan",
+              "via": "handoff"
+            },
+            {
+              "key": "draw_up_make_offer",
+              "name": "Draw up and make offer",
+              "via": "gate"
+            },
+            {
+              "key": "hire_candidate",
+              "name": "Hire candidate",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_onboarding_10469",
+              "name": "Manage employee onboarding",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_competitive_analysis_10500",
+              "name": "Perform competitive analysis of benefits and rewards",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-BACKGROUND-CHECKS", "ATS-CANDIDATE-CRM", "ATS-PRE-EMPLOYEE-RECORD", "ATS-RECRUITMENT-PIPELINE", "HCM-LIFECYCLE-WORKFLOWS", "HIRING-STARTER"]
+        },
+        {
+          "code": "ATS-PRE-EMPLOYEE-RECORD",
+          "name": "Pre-Employee Record",
+          "description": "The bridge between offer-accepted and start-date: ATS owns the pre-employee lifecycle stage (paperwork in flight, pre-boarding tasks open, background check pending). Realizes the `hired` state on `job_applications`. Publishes the `pre_employee.activated` event that hands the canonical reconciliation to HCM-mastered `employees`. Formerly NEW-HIRE-HANDOFF, renamed per §7.1 because HCM canonically masters `employees`.",
+          "personas": [
+            {
+              "code": "RECRUITING-COORDINATOR",
+              "name": "Recruiting Coordinator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "hire_candidate",
+              "name": "Hire candidate",
+              "via": "gate"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-BACKGROUND-CHECKS", "ATS-CANDIDATE-CRM", "ATS-OFFERS", "HCM-LIFECYCLE-WORKFLOWS"]
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "name": "Recruitment Pipeline",
+          "description": "Requisitions → postings → applications with pipeline-stage lifecycle. Realizes REQ-MGMT and CANDIDATE-EXP (application flow slice). Embedded-masters `candidates`, optionally `hcm_positions` and `org_units` for canonical position/org context.",
+          "personas": [
+            {
+              "code": "HIRING-MANAGER",
+              "name": "Hiring Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LEGAL-COMPLIANCE-SPECIALIST",
+              "name": "Compliance Specialist",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-COORDINATOR",
+              "name": "Recruiting Coordinator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "RECRUITING-SOURCER",
+              "name": "Sourcer",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "conduct_customer_tests",
+              "name": "Conduct customer tests and interviews",
+              "via": "handoff"
+            },
+            {
+              "key": "create_organizational_design",
+              "name": "Create organizational design",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_maintain_job",
+              "name": "Develop and maintain job descriptions",
+              "via": "handoff"
+            },
+            {
+              "key": "identify_select_assign_resources",
+              "name": "Identify, select, and assign resources",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_requisitions",
+              "name": "Manage employee requisitions",
+              "via": "gate"
+            },
+            {
+              "key": "manage_separation",
+              "name": "Manage separation",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_strategic_workforce",
+              "name": "Perform strategic workforce planning",
+              "via": "handoff"
+            },
+            {
+              "key": "recruit_source_candidates",
+              "name": "Recruit/Source candidates",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-TALENT-POOLS", "HCM-CORE-WORKER", "HCM-ORG-POSITIONS", "HIRING-STARTER"]
+        },
+        {
+          "code": "ATS-REFERRALS",
+          "name": "Employee Referrals",
+          "description": "Employee-driven candidate sourcing with referral-bonus tracking (`candidate_referrals`). Embedded-masters `candidates`. Cross-domain handoffs to PAYROLL (bonus payout) and EMP-EXP (engagement signal).",
+          "personas": [
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-SOURCER",
+              "name": "Sourcer",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_employee_referral",
+              "name": "Manage employee referral programs",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM"]
+        },
+        {
+          "code": "ATS-TALENT-POOLS",
+          "name": "Talent Pools",
+          "description": "Curated candidate groupings for nurture and pipeline-building (`talent_pools`). Embedded-masters `candidates`; deployed alone, materializes a thin candidate shell. Mirrors standalone talent-acquisition CRM products.",
+          "personas": [
+            {
+              "code": "RECRUITING-MANAGER",
+              "name": "Recruiting Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-RECRUITER",
+              "name": "Recruiter",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "RECRUITING-SOURCER",
+              "name": "Sourcer",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-RECRUITMENT-PIPELINE"]
+        },
+        {
+          "code": "HIRING-STARTER",
+          "name": "Hiring Starter",
+          "description": "Entry-tier deployable for a basic hiring workflow: post jobs, capture applications, run interviews, generate offers. Embeds the canonical masters from the full ATS modules and inherits their lifecycle states. Ships three baseline permissions and one system skill; no workflow gates, no requisition approvals, no background-check orchestration, no pre-employee reconciliation. Upgrades to the full ATS surface without tenant data migration via the embedded-master demotion path.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-RECRUITMENT-PIPELINE"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "HIRING-MANAGER",
+          "name": "Hiring Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COMPLIANCE-SPECIALIST",
+          "name": "Compliance Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-COORDINATOR",
+          "name": "Recruiting Coordinator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-MANAGER",
+          "name": "Recruiting Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-RECRUITER",
+          "name": "Recruiter",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-SOURCER",
+          "name": "Sourcer",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "HIRING-MANAGER",
+          "name": "Hiring Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COMPLIANCE-SPECIALIST",
+          "name": "Compliance Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-COORDINATOR",
+          "name": "Recruiting Coordinator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-MANAGER",
+          "name": "Recruiting Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-RECRUITER",
+          "name": "Recruiter",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "RECRUITING-SOURCER",
+          "name": "Sourcer",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "administer_benefit_enrollment",
+          "name": "Administer benefit enrollment",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_customer_tests",
+          "name": "Conduct customer tests and interviews",
+          "via": "handoff"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_salary_compensation",
+          "name": "Develop salary/compensation structure and plan",
+          "via": "handoff"
+        },
+        {
+          "key": "draw_up_make_offer",
+          "name": "Draw up and make offer",
+          "via": "gate"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "via": "gate"
+        },
+        {
+          "key": "identify_select_assign_resources",
+          "name": "Identify, select, and assign resources",
+          "via": "handoff"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_referral",
+          "name": "Manage employee referral programs",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_relations",
+          "name": "Manage employee relations",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "via": "gate"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "via": "gate"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "handoff"
+        },
+        {
+          "key": "obtain_candidate_background",
+          "name": "Obtain candidate background information",
+          "via": "gate"
+        },
+        {
+          "key": "perform_competitive_analysis_10500",
+          "name": "Perform competitive analysis of benefits and rewards",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_strategic_workforce",
+          "name": "Perform strategic workforce planning",
+          "via": "handoff"
+        },
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "via": "gate"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "administer_benefit_enrollment",
+          "name": "Administer benefit enrollment",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_customer_tests",
+          "name": "Conduct customer tests and interviews",
+          "via": "handoff"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_salary_compensation",
+          "name": "Develop salary/compensation structure and plan",
+          "via": "handoff"
+        },
+        {
+          "key": "draw_up_make_offer",
+          "name": "Draw up and make offer",
+          "via": "gate"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "via": "gate"
+        },
+        {
+          "key": "identify_select_assign_resources",
+          "name": "Identify, select, and assign resources",
+          "via": "handoff"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_referral",
+          "name": "Manage employee referral programs",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_relations",
+          "name": "Manage employee relations",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "via": "gate"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "via": "gate"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "handoff"
+        },
+        {
+          "key": "obtain_candidate_background",
+          "name": "Obtain candidate background information",
+          "via": "gate"
+        },
+        {
+          "key": "perform_competitive_analysis_10500",
+          "name": "Perform competitive analysis of benefits and rewards",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_strategic_workforce",
+          "name": "Perform strategic workforce planning",
+          "via": "handoff"
+        },
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "via": "gate"
+        }
+      ],
+      "related_domains": ["HCM", "HRSD"]
+    },
+    {
+      "code": "CLM",
+      "name": "Contract Lifecycle Management",
+      "description": "Authoring, negotiation, execution, and post-signature management of contracts.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-11",
+      "business_functions": [
+        {
+          "name": "Contract Operations",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Procurement",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Sales",
+          "responsibility": "contributor"
+        }
+      ],
+      "modules": [
+        {
+          "code": "CLM-AUTHORING",
+          "name": "Contract Authoring",
+          "description": "Template-driven contract drafting with the approved clause library. Masters contract_templates and contract_clauses; produces draft legal_contracts that flow into CLM-NEGOTIATION. Realizes CLM-CONTRACT-AUTHORING and CLM-CLAUSE-LIBRARY-MGMT.",
+          "personas": [
+            {
+              "code": "CONTRACT-OPS-MANAGER",
+              "name": "Contract Operations Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "CONTRACT-OPS-SPECIALIST",
+              "name": "Contract Operations Specialist",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LEGAL-COUNSEL",
+              "name": "Legal Counsel",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PROCUREMENT-CONTRACT-LIAISON",
+              "name": "Procurement Contract Liaison",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "develop_manage_sales_proposals",
+              "name": "Develop and manage sales proposals, bids, and quotes",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_legal_ethical_issues",
+              "name": "Manage legal and ethical issues",
+              "via": "handoff"
+            },
+            {
+              "key": "provide_legal_advice_counseling",
+              "name": "Provide legal advice/counseling",
+              "via": "gate"
+            },
+            {
+              "key": "provide_sourcing_governance",
+              "name": "Provide sourcing governance",
+              "via": "handoff"
+            },
+            {
+              "key": "resolve_customer_problems",
+              "name": "Resolve customer problems, requests, and inquiries",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["CLM-NEGOTIATION"]
+        },
+        {
+          "code": "CLM-NEGOTIATION",
+          "name": "Negotiation and Redlining",
+          "description": "Track-changes negotiation with counterparty exchange, version comparison, and clause-risk detection. Consumes legal_contracts and contract_clauses; gates the in_negotiation -> approved lifecycle transition. Requires sign_document for signature workflow; coverage drops below 100% on the sign_document leg.",
+          "personas": [
+            {
+              "code": "CONTRACT-OPS-MANAGER",
+              "name": "Contract Operations Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LEGAL-COUNSEL",
+              "name": "Legal Counsel",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PROCUREMENT-CONTRACT-LIAISON",
+              "name": "Procurement Contract Liaison",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "negotiate_document_agreements",
+              "name": "Negotiate and document agreements/contracts",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["CLM-AUTHORING", "CLM-REPOSITORY"]
+        },
+        {
+          "code": "CLM-OBLIGATION-MGMT",
+          "name": "Obligation Management",
+          "description": "Register, tracking, and alerting for contract obligations (deliverables, SLA milestones, payment terms). Masters contract_obligations. Publishes obligation.due and obligation.breached events that fan out to OP-RES / GRC.",
+          "personas": [
+            {
+              "code": "CONTRACT-OPS-MANAGER",
+              "name": "Contract Operations Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "CONTRACT-OPS-SPECIALIST",
+              "name": "Contract Operations Specialist",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "evaluate_enterprise_regulatory",
+              "name": "Evaluate enterprise regulatory and compliance obligations",
+              "via": "gate"
+            },
+            {
+              "key": "prepare_periodic_financial",
+              "name": "Prepare periodic financial forecasts",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["CLM-REPOSITORY"]
+        },
+        {
+          "code": "CLM-RENEWAL",
+          "name": "Renewal Management",
+          "description": "Date-based renewal alerting, auto-renewal-clause detection, and renewal execution. Consumes legal_contracts; publishes renewal.30_day_warning and legal_contract.renewed. Distinct from amendments which run through CLM-REPOSITORY.",
+          "personas": [
+            {
+              "code": "CONTRACT-OPS-MANAGER",
+              "name": "Contract Operations Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "CONTRACT-OPS-SPECIALIST",
+              "name": "Contract Operations Specialist",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_contracts",
+              "name": "Manage contracts",
+              "via": "gate"
+            },
+            {
+              "key": "negotiate_document_agreements",
+              "name": "Negotiate and document agreements/contracts",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["CLM-REPOSITORY"]
+        },
+        {
+          "code": "CLM-REPOSITORY",
+          "name": "Contract Repository",
+          "description": "Executed-contract index. Masters legal_contracts (post-signature) and signature_records. Contributes terms to saas_subscriptions and software_licenses (the buyer-side records that consume contract terms). The system of record for the active, expired, renewed, and terminated lifecycle states.",
+          "personas": [
+            {
+              "code": "CONTRACT-OPS-MANAGER",
+              "name": "Contract Operations Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "CONTRACT-OPS-SPECIALIST",
+              "name": "Contract Operations Specialist",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LEGAL-COUNSEL",
+              "name": "Legal Counsel",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "PROCUREMENT-CONTRACT-LIAISON",
+              "name": "Procurement Contract Liaison",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "develop_manage_sales_proposals",
+              "name": "Develop and manage sales proposals, bids, and quotes",
+              "via": "handoff"
+            },
+            {
+              "key": "evaluate_manage_financial",
+              "name": "Evaluate and manage financial performance",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_contracts",
+              "name": "Manage contracts",
+              "via": "gate"
+            },
+            {
+              "key": "manage_customers_accounts",
+              "name": "Manage customers and accounts",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_demand_products",
+              "name": "Manage demand for products",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_operate_service_delivery",
+              "name": "Manage and Operate Service Delivery System",
+              "via": "handoff"
+            },
+            {
+              "key": "negotiate_document_agreements",
+              "name": "Negotiate and document agreements/contracts",
+              "via": "handoff"
+            },
+            {
+              "key": "provide_sourcing_governance",
+              "name": "Provide sourcing governance",
+              "via": "handoff"
+            },
+            {
+              "key": "service_products",
+              "name": "Service products",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["CLM-NEGOTIATION", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "HCM-ORG-POSITIONS", "LMS-COMPLIANCE-TRAINING", "REAL-ESTATE-AGENT", "SMP-RENEWAL-VENDOR", "TRAINING-RECORDS-STARTER"]
+        },
+        {
+          "code": "REAL-ESTATE-AGENT",
+          "name": "Real Estate Agent (solo / small firm bundle)",
+          "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "CONTRACT-OPS-MANAGER",
+          "name": "Contract Operations Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "CONTRACT-OPS-SPECIALIST",
+          "name": "Contract Operations Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COUNSEL",
+          "name": "Legal Counsel",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PROCUREMENT-CONTRACT-LIAISON",
+          "name": "Procurement Contract Liaison",
+          "interaction_level": "secondary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "CONTRACT-OPS-MANAGER",
+          "name": "Contract Operations Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "CONTRACT-OPS-SPECIALIST",
+          "name": "Contract Operations Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COUNSEL",
+          "name": "Legal Counsel",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PROCUREMENT-CONTRACT-LIAISON",
+          "name": "Procurement Contract Liaison",
+          "interaction_level": "secondary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "develop_manage_sales_proposals",
+          "name": "Develop and manage sales proposals, bids, and quotes",
+          "via": "handoff"
+        },
+        {
+          "key": "evaluate_enterprise_regulatory",
+          "name": "Evaluate enterprise regulatory and compliance obligations",
+          "via": "gate"
+        },
+        {
+          "key": "evaluate_manage_financial",
+          "name": "Evaluate and manage financial performance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_contracts",
+          "name": "Manage contracts",
+          "via": "gate"
+        },
+        {
+          "key": "manage_customers_accounts",
+          "name": "Manage customers and accounts",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_legal_ethical_issues",
+          "name": "Manage legal and ethical issues",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_operate_service_delivery",
+          "name": "Manage and Operate Service Delivery System",
+          "via": "handoff"
+        },
+        {
+          "key": "market_sell_products_services",
+          "name": "Market and Sell Products and Services",
+          "via": "handoff"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "via": "gate"
+        },
+        {
+          "key": "prepare_periodic_financial",
+          "name": "Prepare periodic financial forecasts",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "via": "gate"
+        },
+        {
+          "key": "provide_sourcing_governance",
+          "name": "Provide sourcing governance",
+          "via": "handoff"
+        },
+        {
+          "key": "resolve_customer_problems",
+          "name": "Resolve customer problems, requests, and inquiries",
+          "via": "handoff"
+        },
+        {
+          "key": "service_products",
+          "name": "Service products",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "develop_manage_sales_proposals",
+          "name": "Develop and manage sales proposals, bids, and quotes",
+          "via": "handoff"
+        },
+        {
+          "key": "evaluate_enterprise_regulatory",
+          "name": "Evaluate enterprise regulatory and compliance obligations",
+          "via": "gate"
+        },
+        {
+          "key": "evaluate_manage_financial",
+          "name": "Evaluate and manage financial performance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_contracts",
+          "name": "Manage contracts",
+          "via": "gate"
+        },
+        {
+          "key": "manage_customers_accounts",
+          "name": "Manage customers and accounts",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_legal_ethical_issues",
+          "name": "Manage legal and ethical issues",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_operate_service_delivery",
+          "name": "Manage and Operate Service Delivery System",
+          "via": "handoff"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "via": "gate"
+        },
+        {
+          "key": "prepare_periodic_financial",
+          "name": "Prepare periodic financial forecasts",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "via": "gate"
+        },
+        {
+          "key": "provide_sourcing_governance",
+          "name": "Provide sourcing governance",
+          "via": "handoff"
+        },
+        {
+          "key": "resolve_customer_problems",
+          "name": "Resolve customer problems, requests, and inquiries",
+          "via": "handoff"
+        },
+        {
+          "key": "service_products",
+          "name": "Service products",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["HCM", "LMS", "RE-BROKERAGE", "REAL-ESTATE-AGENT", "SMP"]
+    },
+    {
+      "code": "HCM",
+      "name": "Human Capital Management",
+      "description": "Core HR system of record covering worker data, organisation and position management, self-service, and lifecycle workflows. The HRIS / system-of-record layer of the HR stack.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-09",
+      "business_functions": [
+        {
+          "name": "Human Resources",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Finance",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "IT Operations",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Legal",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Payroll",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Executive",
+          "responsibility": "consumer"
+        },
+        {
+          "name": "Governance, Risk and Compliance",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "HCM-CORE-WORKER",
+          "name": "Core Worker Record",
+          "description": "Core worker record: identity, employment lifecycle, contracts, and effective-dated employment events. The system-of-record layer for every employee.",
+          "personas": [
+            {
+              "code": "HR-BUSINESS-PARTNER",
+              "name": "HR Business Partner",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-HRIS-ADMIN",
+              "name": "HRIS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HR-ORG-DESIGN-ANALYST",
+              "name": "Organization Design Analyst",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-PEOPLE-OPS-SPECIALIST",
+              "name": "People Operations Specialist",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "administer_benefit_enrollment",
+              "name": "Administer benefit enrollment",
+              "via": "handoff"
+            },
+            {
+              "key": "administer_compensation_rewards",
+              "name": "Administer compensation and rewards to employees",
+              "via": "handoff"
+            },
+            {
+              "key": "administer_payroll",
+              "name": "Administer Payroll",
+              "via": "handoff"
+            },
+            {
+              "key": "define_employees_competencies",
+              "name": "Define employees competencies and skills",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_workforce_analytics",
+              "name": "Develop workforce analytics",
+              "via": "handoff"
+            },
+            {
+              "key": "maintain_master_data",
+              "name": "Maintain master data",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_assistance",
+              "name": "Manage employee assistance and retention",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_inquiry_process",
+              "name": "Manage employee inquiry process",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_onboarding_10469",
+              "name": "Manage employee onboarding",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_leave_absence",
+              "name": "Manage leave of absence",
+              "via": "gate"
+            },
+            {
+              "key": "manage_maintain_employee_data",
+              "name": "Manage and maintain employee data",
+              "via": "gate"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_separation",
+              "name": "Manage separation",
+              "via": "gate"
+            },
+            {
+              "key": "perform_strategic_workforce",
+              "name": "Perform strategic workforce planning",
+              "via": "handoff"
+            },
+            {
+              "key": "relocate_employees_manage",
+              "name": "Relocate employees and manage assignments",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-RECRUITMENT-PIPELINE", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS", "HRSD-CASE-MGMT", "HRSD-EMPLOYEE-PORTAL", "ITSM-SERVICE-REQUEST", "LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY", "LMS-CREDENTIALS", "LMS-CT-GDPR", "LMS-ILT-DELIVERY", "LMS-PATHS"]
+        },
+        {
+          "code": "HCM-LIFECYCLE-WORKFLOWS",
+          "name": "Employee Lifecycle Workflows",
+          "description": "Employee and manager self-service portal coordinating cross-domain lifecycle: onboarding intake from ATS, lifecycle change requests, leave/absence visibility, and offboarding handoffs to ITSM/IGA/PAYROLL. Workflow surface on top of HCM-CORE-WORKER and HCM-ORG-POSITIONS, no masters of its own.",
+          "personas": [
+            {
+              "code": "HR-BUSINESS-PARTNER",
+              "name": "HR Business Partner",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-HRIS-ADMIN",
+              "name": "HRIS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HR-ORG-DESIGN-ANALYST",
+              "name": "Organization Design Analyst",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-PEOPLE-OPS-SPECIALIST",
+              "name": "People Operations Specialist",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "administer_benefit_enrollment",
+              "name": "Administer benefit enrollment",
+              "via": "handoff"
+            },
+            {
+              "key": "administer_compensation_rewards",
+              "name": "Administer compensation and rewards to employees",
+              "via": "handoff"
+            },
+            {
+              "key": "analyze_report_paid_unpaid_leave",
+              "name": "Analyze and report paid and unpaid leave",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_conduct_manage_employee",
+              "name": "Develop, conduct, and manage employee training programs",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_succession_plan",
+              "name": "Develop succession plan",
+              "via": "handoff"
+            },
+            {
+              "key": "hire_candidate",
+              "name": "Hire candidate",
+              "via": "handoff"
+            },
+            {
+              "key": "interview_candidates",
+              "name": "Interview candidates",
+              "via": "handoff"
+            },
+            {
+              "key": "investigate_legal_aspects",
+              "name": "Investigate legal aspects",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_assistance",
+              "name": "Manage employee assistance and retention",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_career",
+              "name": "Manage employee career development",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_inquiry_process",
+              "name": "Manage employee inquiry process",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_performance",
+              "name": "Manage employee performance",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_leave_absence",
+              "name": "Manage leave of absence",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_maintain_employee_data",
+              "name": "Manage and maintain employee data",
+              "via": "gate"
+            },
+            {
+              "key": "manage_new_hire_re_hire",
+              "name": "Manage new hire/re-hire",
+              "via": "handoff"
+            },
+            {
+              "key": "monitor_evaluate_learning",
+              "name": "Monitor and evaluate learning programs",
+              "via": "handoff"
+            },
+            {
+              "key": "review_compensation_plan",
+              "name": "Review compensation plan",
+              "via": "handoff"
+            },
+            {
+              "key": "train_employees_appropriate",
+              "name": "Train employees on appropriate regulatory requirements",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "HCM-CORE-WORKER", "HRSD-CASE-MGMT", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY"]
+        },
+        {
+          "code": "HCM-ORG-POSITIONS",
+          "name": "Organisation and Position Management",
+          "description": "Organisation design: org units, positions, and job profiles. Effective-dated org structure with position approval workflow, job-profile authority, and the hierarchical backbone every downstream HR system reads. Foundation for workforce planning and span-of-control analytics.",
+          "personas": [
+            {
+              "code": "HIRING-MANAGER",
+              "name": "Hiring Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-BUSINESS-PARTNER",
+              "name": "HR Business Partner",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HR-HRIS-ADMIN",
+              "name": "HRIS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HR-ORG-DESIGN-ANALYST",
+              "name": "Organization Design Analyst",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HR-PEOPLE-OPS-SPECIALIST",
+              "name": "People Operations Specialist",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "administer_compensation_rewards",
+              "name": "Administer compensation and rewards to employees",
+              "via": "handoff"
+            },
+            {
+              "key": "conduct_organization",
+              "name": "Conduct organization restructuring opportunities",
+              "via": "gate"
+            },
+            {
+              "key": "create_organizational_design",
+              "name": "Create organizational design",
+              "via": "gate"
+            },
+            {
+              "key": "define_employees_competencies",
+              "name": "Define employees competencies and skills",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_maintain_job",
+              "name": "Develop and maintain job descriptions",
+              "via": "gate"
+            },
+            {
+              "key": "manage_employee_requisitions",
+              "name": "Manage employee requisitions",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_cost_accounting_control",
+              "name": "Perform cost accounting and control",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_strategic_workforce",
+              "name": "Perform strategic workforce planning",
+              "via": "handoff"
+            },
+            {
+              "key": "prepare_periodic_budgets_plans",
+              "name": "Prepare periodic budgets and plans",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-RECRUITMENT-PIPELINE", "CLM-REPOSITORY", "HCM-CORE-WORKER", "ITSM-AGENT-WORKSPACE", "ITSM-CHANGE-MGMT", "ITSM-INCIDENT-MGMT", "ITSM-PROBLEM-MGMT", "ITSM-SERVICE-REQUEST", "ITSM-SLA-MGMT", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY", "LMS-ILT-DELIVERY", "LMS-PATHS", "SMP-RENEWAL-VENDOR"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "HIRING-MANAGER",
+          "name": "Hiring Manager",
+          "interaction_level": "secondary"
+        },
+        {
+          "code": "HR-BUSINESS-PARTNER",
+          "name": "HR Business Partner",
+          "interaction_level": "secondary"
+        },
+        {
+          "code": "HR-HRIS-ADMIN",
+          "name": "HRIS Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HR-ORG-DESIGN-ANALYST",
+          "name": "Organization Design Analyst",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HR-PEOPLE-OPS-SPECIALIST",
+          "name": "People Operations Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PEOPLE-MANAGER",
+          "name": "People Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "HIRING-MANAGER",
+          "name": "Hiring Manager",
+          "interaction_level": "secondary"
+        },
+        {
+          "code": "HR-BUSINESS-PARTNER",
+          "name": "HR Business Partner",
+          "interaction_level": "secondary"
+        },
+        {
+          "code": "HR-HRIS-ADMIN",
+          "name": "HRIS Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HR-ORG-DESIGN-ANALYST",
+          "name": "Organization Design Analyst",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HR-PEOPLE-OPS-SPECIALIST",
+          "name": "People Operations Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PEOPLE-MANAGER",
+          "name": "People Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "administer_benefit_enrollment",
+          "name": "Administer benefit enrollment",
+          "via": "handoff"
+        },
+        {
+          "key": "administer_compensation_rewards",
+          "name": "Administer compensation and rewards to employees",
+          "via": "handoff"
+        },
+        {
+          "key": "administer_payroll",
+          "name": "Administer Payroll",
+          "via": "handoff"
+        },
+        {
+          "key": "analyze_report_paid_unpaid_leave",
+          "name": "Analyze and report paid and unpaid leave",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_employee_engagement",
+          "name": "Conduct employee engagement surveys",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_health_safety",
+          "name": "Conduct health and safety and environmental audits",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_organization",
+          "name": "Conduct organization restructuring opportunities",
+          "via": "gate"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "via": "gate"
+        },
+        {
+          "key": "define_employees_competencies",
+          "name": "Define employees competencies and skills",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "via": "gate"
+        },
+        {
+          "key": "develop_succession_plan",
+          "name": "Develop succession plan",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_workforce_analytics",
+          "name": "Develop workforce analytics",
+          "via": "handoff"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "via": "handoff"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "via": "handoff"
+        },
+        {
+          "key": "investigate_legal_aspects",
+          "name": "Investigate legal aspects",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_master_data",
+          "name": "Maintain master data",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_career",
+          "name": "Manage employee career development",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_performance",
+          "name": "Manage employee performance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "via": "gate"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "gate"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_regulatory_compliance",
+          "name": "Manage regulatory compliance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_safety_security_access",
+          "name": "Manage safety, security, and access to sites",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "gate"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_cost_accounting_control",
+          "name": "Perform cost accounting and control",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_strategic_workforce",
+          "name": "Perform strategic workforce planning",
+          "via": "handoff"
+        },
+        {
+          "key": "prepare_periodic_budgets_plans",
+          "name": "Prepare periodic budgets and plans",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_workspace_facilities",
+          "name": "Provide workspace and facilities",
+          "via": "handoff"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "via": "gate"
+        },
+        {
+          "key": "review_compensation_plan",
+          "name": "Review compensation plan",
+          "via": "handoff"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "administer_benefit_enrollment",
+          "name": "Administer benefit enrollment",
+          "via": "handoff"
+        },
+        {
+          "key": "administer_compensation_rewards",
+          "name": "Administer compensation and rewards to employees",
+          "via": "handoff"
+        },
+        {
+          "key": "administer_payroll",
+          "name": "Administer Payroll",
+          "via": "handoff"
+        },
+        {
+          "key": "analyze_report_paid_unpaid_leave",
+          "name": "Analyze and report paid and unpaid leave",
+          "via": "handoff"
+        },
+        {
+          "key": "conduct_organization",
+          "name": "Conduct organization restructuring opportunities",
+          "via": "gate"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "via": "gate"
+        },
+        {
+          "key": "define_employees_competencies",
+          "name": "Define employees competencies and skills",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "via": "gate"
+        },
+        {
+          "key": "develop_succession_plan",
+          "name": "Develop succession plan",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_workforce_analytics",
+          "name": "Develop workforce analytics",
+          "via": "handoff"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "via": "handoff"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "via": "handoff"
+        },
+        {
+          "key": "investigate_legal_aspects",
+          "name": "Investigate legal aspects",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_master_data",
+          "name": "Maintain master data",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_career",
+          "name": "Manage employee career development",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_performance",
+          "name": "Manage employee performance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "via": "gate"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "gate"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "gate"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_cost_accounting_control",
+          "name": "Perform cost accounting and control",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_strategic_workforce",
+          "name": "Perform strategic workforce planning",
+          "via": "handoff"
+        },
+        {
+          "key": "prepare_periodic_budgets_plans",
+          "name": "Prepare periodic budgets and plans",
+          "via": "handoff"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "via": "gate"
+        },
+        {
+          "key": "review_compensation_plan",
+          "name": "Review compensation plan",
+          "via": "handoff"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["ATS", "CLM", "HRSD", "ITSM", "LMS", "SMP"]
+    },
+    {
+      "code": "HRSD",
+      "name": "HR Service Delivery",
+      "description": "Employee case management, knowledge, journeys, and document management for the HR function.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-09",
+      "business_functions": [
+        {
+          "name": "HR Service Delivery",
+          "responsibility": "owner"
+        },
+        {
+          "name": "IT Operations",
+          "responsibility": "contributor"
+        }
+      ],
+      "modules": [
+        {
+          "code": "HRSD-CASE-MGMT",
+          "name": "HR Case Management",
+          "description": "Core HR case management surface: HR cases, case taxonomy, triage, approval routing, and AI-assisted classification. Masters hr_cases and case_categories. The execution backbone of any HRSD deployment.",
+          "personas": [
+            {
+              "code": "HRSD-CASE-AGENT",
+              "name": "HR Case Agent",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HRSD-KNOWLEDGE-MANAGER",
+              "name": "HR Knowledge Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HRSD-SERVICE-MANAGER",
+              "name": "HR Service Manager",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "define_content_taxonomies",
+              "name": "Define content taxonomies",
+              "via": "handoff"
+            },
+            {
+              "key": "deliver_employee_benefits",
+              "name": "Deliver employee benefits program",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_conduct_manage_employee",
+              "name": "Develop, conduct, and manage employee training programs",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_manage_enterprise_wide",
+              "name": "Develop and manage enterprise-wide knowledge management (KM) capability",
+              "via": "handoff"
+            },
+            {
+              "key": "harvest_knowledge",
+              "name": "Harvest knowledge",
+              "via": "handoff"
+            },
+            {
+              "key": "maintain_service_support_20898",
+              "name": "Maintain service support knowledge repository",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_assistance",
+              "name": "Manage employee assistance and retention",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_inquiry_process",
+              "name": "Manage employee inquiry process",
+              "via": "gate"
+            },
+            {
+              "key": "manage_employee_onboarding_10469",
+              "name": "Manage employee onboarding",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_relations",
+              "name": "Manage employee relations",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_maintain_employee_data",
+              "name": "Manage and maintain employee data",
+              "via": "handoff"
+            },
+            {
+              "key": "respond_employee_payroll",
+              "name": "Respond to employee payroll inquiries",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["ATS-BACKGROUND-CHECKS", "HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HRSD-EMPLOYEE-PORTAL", "HRSD-KNOWLEDGE", "ITSM-KNOWLEDGE", "LMS-COMPLIANCE-TRAINING"]
+        },
+        {
+          "code": "HRSD-EMPLOYEE-PORTAL",
+          "name": "Employee Self-Service Portal",
+          "description": "Employee self-service intake surface: catalog browse, request submission, knowledge search, and case status. Workflow layer on top of HRSD-CASE-MGMT, no masters of its own. Hands intake off to case-mgmt and can route IT-flavored requests through to ITSM.",
+          "personas": [
+            {
+              "code": "HRSD-CASE-AGENT",
+              "name": "HR Case Agent",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HRSD-SERVICE-MANAGER",
+              "name": "HR Service Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "provide_it_resolution",
+              "name": "Provide IT resolution capabilities",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "HRSD-CASE-MGMT", "ITSM-KNOWLEDGE", "ITSM-SERVICE-REQUEST"]
+        },
+        {
+          "code": "HRSD-KNOWLEDGE",
+          "name": "HR Knowledge",
+          "description": "HR knowledge surface: HR-audience articles, FAQs, and policy explainers. Consumes the cross-cutting knowledge_articles entity (mastered by ITSM/KMS) and feeds back authoring suggestions when cases are resolved.",
+          "personas": [
+            {
+              "code": "HRSD-CASE-AGENT",
+              "name": "HR Case Agent",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "HRSD-KNOWLEDGE-MANAGER",
+              "name": "HR Knowledge Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "HRSD-SERVICE-MANAGER",
+              "name": "HR Service Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["HRSD-CASE-MGMT", "ITSM-KNOWLEDGE"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "HRSD-CASE-AGENT",
+          "name": "HR Case Agent",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HRSD-KNOWLEDGE-MANAGER",
+          "name": "HR Knowledge Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HRSD-SERVICE-MANAGER",
+          "name": "HR Service Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "HRSD-CASE-AGENT",
+          "name": "HR Case Agent",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HRSD-KNOWLEDGE-MANAGER",
+          "name": "HR Knowledge Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "HRSD-SERVICE-MANAGER",
+          "name": "HR Service Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "define_content_taxonomies",
+          "name": "Define content taxonomies",
+          "via": "handoff"
+        },
+        {
+          "key": "deliver_employee_benefits",
+          "name": "Deliver employee benefits program",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_manage_enterprise_wide",
+          "name": "Develop and manage enterprise-wide knowledge management (KM) capability",
+          "via": "handoff"
+        },
+        {
+          "key": "harvest_knowledge",
+          "name": "Harvest knowledge",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_service_support_20898",
+          "name": "Maintain service support knowledge repository",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_relations",
+          "name": "Manage employee relations",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_it_resolution",
+          "name": "Provide IT resolution capabilities",
+          "via": "handoff"
+        },
+        {
+          "key": "respond_employee_payroll",
+          "name": "Respond to employee payroll inquiries",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "define_content_taxonomies",
+          "name": "Define content taxonomies",
+          "via": "handoff"
+        },
+        {
+          "key": "deliver_employee_benefits",
+          "name": "Deliver employee benefits program",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_manage_enterprise_wide",
+          "name": "Develop and manage enterprise-wide knowledge management (KM) capability",
+          "via": "handoff"
+        },
+        {
+          "key": "harvest_knowledge",
+          "name": "Harvest knowledge",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_service_support_20898",
+          "name": "Maintain service support knowledge repository",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "gate"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_relations",
+          "name": "Manage employee relations",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_it_resolution",
+          "name": "Provide IT resolution capabilities",
+          "via": "handoff"
+        },
+        {
+          "key": "respond_employee_payroll",
+          "name": "Respond to employee payroll inquiries",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["ATS", "HCM", "ITSM", "LMS"]
+    },
+    {
+      "code": "HVAC-SVC-MGMT",
+      "name": "HVAC Service Management (small-org starter)",
+      "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organizations deploy the full modules and skip the starter.",
+      "domain_kind": "bundle",
+      "catalog_release": "2026-06-16",
+      "business_functions": [],
+      "modules": [
+        {
+          "code": "HVAC-SVC-MGMT",
+          "name": "HVAC Service Management (small-org starter)",
+          "description": "Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single-install deployable covering customer accounts and contacts (CRM), service dispatch and field execution (FSM-DISPATCH-OPS), installed equipment register and PM cadence (FSM-INSTALLED-BASE), recurring maintenance agreements (FSM-SERVICE-CONTRACTS), quote-to-invoice (CPQ + SUB-MGMT), and parts inventory (HAM). Larger organisations deploy the full modules and skip the starter.",
+          "personas": [],
+          "processes": [],
+          "related_modules": []
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [],
+      "module_processes": [],
+      "related_domains": []
+    },
+    {
+      "code": "INTRANET-GOV",
+      "name": "Intranet Governance",
+      "description": "Platform-agnostic inventory, accountable ownership, recertification, content lifecycle, quality and accessibility governance, and improvement planning over content held in an organization's existing intranets. The accountability layer over the intranet platform(s) already in place, not a publishing platform itself. Distinct from Employee Communications & Intranet (the publishing platform), Web Content Operations & Governance (external / customer-facing audience), and Collaboration Governance (Microsoft 365 container and tenant governance).",
+      "domain_kind": "emerging_market",
+      "catalog_release": "2026-06-16",
+      "business_functions": [
+        {
+          "name": "Human Resources",
+          "responsibility": "owner"
+        },
+        {
+          "name": "IT Operations",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Marketing Communications",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Executive",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "INTGOV-GOVERNANCE",
+          "name": "Ownership, Lifecycle and Planning",
+          "description": "Accountable ownership assignments, recertification attestations, and the improvement backlog.",
+          "personas": [
+            {
+              "code": "CONTENT-OWNER",
+              "name": "Content Owner",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+              "name": "Digital Workplace Governance Lead",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "ITOPS-INTRANET-ADMIN",
+              "name": "Intranet Platform Administrator",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "",
+              "name": "Recertify Intranet Content",
+              "via": "gate"
+            },
+            {
+              "key": "track_content_non_compliance",
+              "name": "Track content non-compliance resolution",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["INTGOV-INVENTORY", "WORK-MGMT-TASK-EXEC"]
+        },
+        {
+          "code": "INTGOV-INVENTORY",
+          "name": "Inventory and Sources",
+          "description": "Connector registry, cross-platform content inventory, content-type policy, and health scoring.",
+          "personas": [
+            {
+              "code": "CONTENT-OWNER",
+              "name": "Content Owner",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+              "name": "Digital Workplace Governance Lead",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "ITOPS-INTRANET-ADMIN",
+              "name": "Intranet Platform Administrator",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["INTGOV-GOVERNANCE"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "CONTENT-OWNER",
+          "name": "Content Owner",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+          "name": "Digital Workplace Governance Lead",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "ITOPS-INTRANET-ADMIN",
+          "name": "Intranet Platform Administrator",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "CONTENT-OWNER",
+          "name": "Content Owner",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+          "name": "Digital Workplace Governance Lead",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "ITOPS-INTRANET-ADMIN",
+          "name": "Intranet Platform Administrator",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "",
+          "name": "Recertify Intranet Content",
+          "via": "gate"
+        },
+        {
+          "key": "track_content_non_compliance",
+          "name": "Track content non-compliance resolution",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "",
+          "name": "Recertify Intranet Content",
+          "via": "gate"
+        },
+        {
+          "key": "track_content_non_compliance",
+          "name": "Track content non-compliance resolution",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["WORK-MGMT"]
+    },
+    {
+      "code": "IT-OPS-STARTER",
+      "name": "IT Operations Starter",
+      "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+      "domain_kind": "bundle",
+      "catalog_release": "2026-06-16",
+      "business_functions": [],
+      "modules": [
+        {
+          "code": "IT-OPS-STARTER",
+          "name": "IT Operations Starter",
+          "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [],
+      "module_processes": [],
+      "related_domains": ["ITSM", "SMP"]
+    },
+    {
+      "code": "ITSM",
+      "name": "IT Service Management",
+      "description": "Workflows for managing IT requests, incidents, problems, changes, and knowledge in support of internal business users.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-16",
+      "business_functions": [
+        {
+          "name": "IT Service Desk",
+          "responsibility": "owner"
+        },
+        {
+          "name": "IT Operations",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Security",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Finance",
+          "responsibility": "consumer"
+        },
+        {
+          "name": "Human Resources",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "IT-OPS-STARTER",
+          "name": "IT Operations Starter",
+          "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
+        },
+        {
+          "code": "ITSM-AGENT-WORKSPACE",
+          "name": "Agent Workspace and Reporting",
+          "description": "Unified agent experience: workspace, walk-up support, virtual agent / conversational ITSM, and continuous-improvement reporting.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["HCM-ORG-POSITIONS"]
+        },
+        {
+          "code": "ITSM-CHANGE-MGMT",
+          "name": "Change and Release Management",
+          "description": "Change request capture, CAB workflow, approval routing, release planning, and standard-change catalog.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "define_it_change_release",
+              "name": "Define IT change/release standards",
+              "via": "handoff"
+            },
+            {
+              "key": "document_it_change_release",
+              "name": "Document IT change/release outcome",
+              "via": "handoff"
+            },
+            {
+              "key": "implement_enforce_change_control",
+              "name": "Implement and enforce change control procedures",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-ORG-POSITIONS"]
+        },
+        {
+          "code": "ITSM-EVENT-MGMT",
+          "name": "Event and Alert Handling",
+          "description": "Reactive event filtering, deduplication, and routing into the incident workflow. Bridge between observability platforms and ITSM.",
+          "personas": [],
+          "processes": [],
+          "related_modules": []
+        },
+        {
+          "code": "ITSM-INCIDENT-MGMT",
+          "name": "Incident Management",
+          "description": "Capture, triage, route, and resolve service-disrupting incidents. Includes major-incident command, AI-assisted classification, and skill-based assignment.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "create_remediation_plans",
+              "name": "Create remediation plans",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_execute_it_resilience",
+              "name": "Develop and execute IT resilience and continuity operations",
+              "via": "handoff"
+            },
+            {
+              "key": "eliminate_quality_reliability",
+              "name": "Eliminate quality and reliability problems",
+              "via": "handoff"
+            },
+            {
+              "key": "maintain_it_asset_records",
+              "name": "Maintain IT asset records",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_change_deployment_control",
+              "name": "Manage change deployment control",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_financial_resources",
+              "name": "Manage Financial Resources",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_infrastructure_20915",
+              "name": "Manage infrastructure configuration",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_internal_controls",
+              "name": "Manage internal controls",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_it_user_identity",
+              "name": "Manage IT user identity and authorization",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_projects",
+              "name": "Manage projects",
+              "via": "handoff"
+            },
+            {
+              "key": "operate_it_user_support",
+              "name": "Operate IT user support",
+              "via": "handoff"
+            },
+            {
+              "key": "operate_monitor_online_systems",
+              "name": "Operate and monitor online systems",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_asset_maintenance",
+              "name": "Perform asset maintenance",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_corrective_asset",
+              "name": "Perform corrective asset maintenance and repairs",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_preventative_asset",
+              "name": "Perform preventative asset maintenance",
+              "via": "handoff"
+            },
+            {
+              "key": "perform_root_cause_analysis_12046",
+              "name": "Perform root cause analysis",
+              "via": "handoff"
+            },
+            {
+              "key": "report_audit_findings",
+              "name": "Report audit findings",
+              "via": "handoff"
+            },
+            {
+              "key": "resolve_it_issues_requests",
+              "name": "Resolve IT issues/requests",
+              "via": "handoff"
+            },
+            {
+              "key": "triage_it_service_delivery",
+              "name": "Triage IT service delivery incidents",
+              "via": "handoff"
+            },
+            {
+              "key": "triage_sla_compliance_issues",
+              "name": "Triage SLA compliance issues",
+              "via": "handoff"
+            },
+            {
+              "key": "verify_change_release",
+              "name": "Verify change/release implementation success",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-ORG-POSITIONS", "IT-OPS-STARTER", "ITSM-STARTER", "SMP-DISCOVERY", "WORK-MGMT-TASK-EXEC"]
+        },
+        {
+          "code": "ITSM-KNOWLEDGE",
+          "name": "Knowledge Management",
+          "description": "Authoring, review, publication, and consumption of knowledge articles supporting ITSM agents and self-service portals.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "maintain_service_support_20898",
+              "name": "Maintain service support knowledge repository",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HRSD-CASE-MGMT", "HRSD-EMPLOYEE-PORTAL", "HRSD-KNOWLEDGE", "ITSM-STARTER"]
+        },
+        {
+          "code": "ITSM-PROBLEM-MGMT",
+          "name": "Problem Management",
+          "description": "Root-cause analysis, known-error tracking, and corrective action for recurring or major incidents.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "perform_root_cause_analysis_12046",
+              "name": "Perform root cause analysis",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-ORG-POSITIONS"]
+        },
+        {
+          "code": "ITSM-SERVICE-REQUEST",
+          "name": "Service Request Fulfillment",
+          "description": "End-user-driven request workflow, including catalog authoring, request routing, approvals, and self-service portal.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "administer_it_licenses_user",
+              "name": "Administer IT licenses/user agreements",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_onboarding_10469",
+              "name": "Manage employee onboarding",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_it_user_identity",
+              "name": "Manage IT user identity and authorization",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_separation",
+              "name": "Manage separation",
+              "via": "handoff"
+            },
+            {
+              "key": "plan_budget_it_license_usage",
+              "name": "Plan and budget IT license usage volumes",
+              "via": "handoff"
+            },
+            {
+              "key": "provide_it_resolution",
+              "name": "Provide IT resolution capabilities",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "HCM-ORG-POSITIONS", "HRSD-EMPLOYEE-PORTAL", "IT-OPS-STARTER", "ITSM-STARTER"]
+        },
+        {
+          "code": "ITSM-SLA-MGMT",
+          "name": "SLA and Chargeback Management",
+          "description": "SLA / OLA definitions, breach tracking, escalation rules, service-cost tracking, and chargeback to consuming business units.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["HCM-ORG-POSITIONS", "ITSM-STARTER"]
+        },
+        {
+          "code": "ITSM-STARTER",
+          "name": "IT Service Desk Starter",
+          "description": "Single-domain starter kit for a small IT team that wants a lightweight service desk without the full ITSM suite or any asset estate. Embeds lightweight shells of ITSM's own records: incidents and service requests (the required helpdesk core), plus an optional request catalog, knowledge base, and SLA clocks. Problem, change, release, and event handling stay in the full itsm-* modules you turn on when you outgrow the desk; assets are out of scope (IT-OPS-STARTER and HAM). The embedded shells demote to the canonical itsm-* masters when those modules install alongside. The narrow, single-domain complement to IT-OPS-STARTER.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-KNOWLEDGE", "ITSM-SERVICE-REQUEST", "ITSM-SLA-MGMT"]
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [
+        {
+          "key": "administer_it_licenses_user",
+          "name": "Administer IT licenses/user agreements",
+          "via": "handoff"
+        },
+        {
+          "key": "create_remediation_plans",
+          "name": "Create remediation plans",
+          "via": "handoff"
+        },
+        {
+          "key": "define_it_change_release",
+          "name": "Define IT change/release standards",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_execute_it_resilience",
+          "name": "Develop and execute IT resilience and continuity operations",
+          "via": "handoff"
+        },
+        {
+          "key": "document_it_change_release",
+          "name": "Document IT change/release outcome",
+          "via": "handoff"
+        },
+        {
+          "key": "eliminate_quality_reliability",
+          "name": "Eliminate quality and reliability problems",
+          "via": "handoff"
+        },
+        {
+          "key": "implement_enforce_change_control",
+          "name": "Implement and enforce change control procedures",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_it_asset_records",
+          "name": "Maintain IT asset records",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_service_support_20898",
+          "name": "Maintain service support knowledge repository",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_change_deployment_control",
+          "name": "Manage change deployment control",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_financial_resources",
+          "name": "Manage Financial Resources",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_infrastructure_20915",
+          "name": "Manage infrastructure configuration",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_internal_controls",
+          "name": "Manage internal controls",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "handoff"
+        },
+        {
+          "key": "operate_it_user_support",
+          "name": "Operate IT user support",
+          "via": "handoff"
+        },
+        {
+          "key": "operate_monitor_online_systems",
+          "name": "Operate and monitor online systems",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_asset_maintenance",
+          "name": "Perform asset maintenance",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_corrective_asset",
+          "name": "Perform corrective asset maintenance and repairs",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_preventative_asset",
+          "name": "Perform preventative asset maintenance",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_root_cause_analysis_12046",
+          "name": "Perform root cause analysis",
+          "via": "handoff"
+        },
+        {
+          "key": "plan_budget_it_license_usage",
+          "name": "Plan and budget IT license usage volumes",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_it_resolution",
+          "name": "Provide IT resolution capabilities",
+          "via": "handoff"
+        },
+        {
+          "key": "report_audit_findings",
+          "name": "Report audit findings",
+          "via": "handoff"
+        },
+        {
+          "key": "resolve_it_issues_requests",
+          "name": "Resolve IT issues/requests",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_it_service_delivery",
+          "name": "Triage IT service delivery incidents",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_sla_compliance_issues",
+          "name": "Triage SLA compliance issues",
+          "via": "handoff"
+        },
+        {
+          "key": "verify_change_release",
+          "name": "Verify change/release implementation success",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "administer_it_licenses_user",
+          "name": "Administer IT licenses/user agreements",
+          "via": "handoff"
+        },
+        {
+          "key": "create_remediation_plans",
+          "name": "Create remediation plans",
+          "via": "handoff"
+        },
+        {
+          "key": "define_it_change_release",
+          "name": "Define IT change/release standards",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_execute_it_resilience",
+          "name": "Develop and execute IT resilience and continuity operations",
+          "via": "handoff"
+        },
+        {
+          "key": "document_it_change_release",
+          "name": "Document IT change/release outcome",
+          "via": "handoff"
+        },
+        {
+          "key": "eliminate_quality_reliability",
+          "name": "Eliminate quality and reliability problems",
+          "via": "handoff"
+        },
+        {
+          "key": "implement_enforce_change_control",
+          "name": "Implement and enforce change control procedures",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_it_asset_records",
+          "name": "Maintain IT asset records",
+          "via": "handoff"
+        },
+        {
+          "key": "maintain_service_support_20898",
+          "name": "Maintain service support knowledge repository",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_change_deployment_control",
+          "name": "Manage change deployment control",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_financial_resources",
+          "name": "Manage Financial Resources",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_infrastructure_20915",
+          "name": "Manage infrastructure configuration",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_internal_controls",
+          "name": "Manage internal controls",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "via": "handoff"
+        },
+        {
+          "key": "operate_it_user_support",
+          "name": "Operate IT user support",
+          "via": "handoff"
+        },
+        {
+          "key": "operate_monitor_online_systems",
+          "name": "Operate and monitor online systems",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_asset_maintenance",
+          "name": "Perform asset maintenance",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_corrective_asset",
+          "name": "Perform corrective asset maintenance and repairs",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_preventative_asset",
+          "name": "Perform preventative asset maintenance",
+          "via": "handoff"
+        },
+        {
+          "key": "perform_root_cause_analysis_12046",
+          "name": "Perform root cause analysis",
+          "via": "handoff"
+        },
+        {
+          "key": "plan_budget_it_license_usage",
+          "name": "Plan and budget IT license usage volumes",
+          "via": "handoff"
+        },
+        {
+          "key": "provide_it_resolution",
+          "name": "Provide IT resolution capabilities",
+          "via": "handoff"
+        },
+        {
+          "key": "report_audit_findings",
+          "name": "Report audit findings",
+          "via": "handoff"
+        },
+        {
+          "key": "resolve_it_issues_requests",
+          "name": "Resolve IT issues/requests",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_it_service_delivery",
+          "name": "Triage IT service delivery incidents",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_sla_compliance_issues",
+          "name": "Triage SLA compliance issues",
+          "via": "handoff"
+        },
+        {
+          "key": "verify_change_release",
+          "name": "Verify change/release implementation success",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["HCM", "HRSD", "IT-OPS-STARTER", "SMP", "WORK-MGMT"]
+    },
+    {
+      "code": "LMS",
+      "name": "Learning Management",
+      "description": "Course authoring, content delivery, compliance training, certifications, and learning paths for employees and extended audiences.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-09",
+      "business_functions": [
+        {
+          "name": "Learning and Development",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Governance, Risk and Compliance",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Legal",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Manufacturing Operations",
+          "responsibility": "consumer"
+        },
+        {
+          "name": "Sales",
+          "responsibility": "consumer"
+        },
+        {
+          "name": "Software Engineering",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "LMS-AUTOMATION",
+          "name": "Learning Automation",
+          "description": "Horizontal automation surface across LMS deployment: dynamic audience segments, automated training assignment rules, reusable notification templates, learner notification log, manager-directed nudges for overdue training, and escalation policies. Cuts across LMS-COURSE-DELIVERY, LMS-COMPLIANCE-TRAINING, LMS-PATHS, and LMS-CREDENTIALS.",
+          "personas": [
+            {
+              "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+              "name": "Compliance Training Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["HCM-CORE-WORKER", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY", "LMS-CREDENTIALS"]
+        },
+        {
+          "code": "LMS-COMPLIANCE-TRAINING",
+          "name": "Compliance Training",
+          "description": "Mandatory regulatory training assignment, tracking, and certification: sexual harassment training (CA SB-1343), HIPAA, OSHA, anti-bribery, SOX, GDPR, AML. Masters `compliance_assignments` and `learner_certifications`. Realizes COMPLIANCE-TRAIN and CERT-MGMT. Distinct from general LMS course delivery: assignments are mandatory and time-bound, lifecycle includes `overdue`/`waived`/`expired` states with regulator-evidence retention, and ownership typically sits with GRC/Compliance, not L&D.",
+          "personas": [
+            {
+              "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+              "name": "Compliance Training Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LEGAL-COMPLIANCE-SPECIALIST",
+              "name": "Compliance Specialist",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "develop_conduct_manage_employee",
+              "name": "Develop, conduct, and manage employee training programs",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_certifications_skills",
+              "name": "Manage certifications and skills",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_inquiry_process",
+              "name": "Manage employee inquiry process",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_onboarding_10469",
+              "name": "Manage employee onboarding",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_examinations",
+              "name": "Manage examinations and certifications",
+              "via": "gate"
+            },
+            {
+              "key": "train_employees_appropriate",
+              "name": "Train employees on appropriate regulatory requirements",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["CLM-REPOSITORY", "HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS", "HRSD-CASE-MGMT", "LMS-AUTOMATION", "LMS-COURSE-DELIVERY", "LMS-CREDENTIALS", "LMS-CT-GDPR", "LMS-ILT-DELIVERY", "TRAINING-RECORDS-STARTER"]
+        },
+        {
+          "code": "LMS-COURSE-DELIVERY",
+          "name": "Course Delivery",
+          "description": "The core LMS workflow: course authoring, content delivery, enrollment, completion tracking, and transcript posting. Masters `courses`, `course_enrollments`, `learning_records`. Realizes COURSE-AUTHOR and CONTENT-DELIVERY capabilities. The backbone module every LMS deployment installs first; the other LMS modules embedded_master courses to reference content.",
+          "personas": [
+            {
+              "code": "LD-INSTRUCTIONAL-DESIGNER",
+              "name": "Instructional Designer",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LD-INSTRUCTOR",
+              "name": "Instructor",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "develop_conduct_manage_employee",
+              "name": "Develop, conduct, and manage employee training programs",
+              "via": "gate"
+            },
+            {
+              "key": "evaluate_training_effectiveness",
+              "name": "Evaluate training effectiveness",
+              "via": "gate"
+            },
+            {
+              "key": "manage_maintain_employee_data",
+              "name": "Manage and maintain employee data",
+              "via": "handoff"
+            },
+            {
+              "key": "monitor_evaluate_learning",
+              "name": "Monitor and evaluate learning programs",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS", "LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-CREDENTIALS", "LMS-CT-GDPR", "LMS-ILT-DELIVERY", "LMS-PATHS"]
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "name": "Credentials, Badges and Continuing Education",
+          "description": "Catalog and lifecycle for certifications, micro-credential badges, and continuing-education credits. Masters learner_certifications (re-mastered from LMS-COMPLIANCE-TRAINING) since professional development, FINRA CE, internal product certifications, and Open-Badges micro-credentials all live here, not just compliance training. Compliance training embeds learner_certifications for the regulated-training certification workflow.",
+          "personas": [
+            {
+              "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+              "name": "Compliance Training Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-INSTRUCTIONAL-DESIGNER",
+              "name": "Instructional Designer",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-INSTRUCTOR",
+              "name": "Instructor",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "align_learning_programs",
+              "name": "Align learning programs with competencies and skills",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_examinations",
+              "name": "Manage examinations and certifications",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY", "LMS-PATHS", "TRAINING-RECORDS-STARTER"]
+        },
+        {
+          "code": "LMS-CT-GDPR",
+          "name": "Learner Data Privacy",
+          "description": "Learner data privacy substrate that compliance training depends on: GDPR Article 6/7 consent capture, Article 15 subject access requests, and Article 17 right-to-erasure processing for training data. Carved out from LMS-COMPLIANCE-TRAINING because privacy obligations apply across the LMS even where statutory training is out of scope.",
+          "personas": [
+            {
+              "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+              "name": "Compliance Training Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LEGAL-COMPLIANCE-SPECIALIST",
+              "name": "Compliance Specialist",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_regulatory_compliance",
+              "name": "Manage regulatory compliance",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY"]
+        },
+        {
+          "code": "LMS-ILT-DELIVERY",
+          "name": "Instructor-Led and Virtual-Instructor-Led Training",
+          "description": "Scheduled course delivery: offerings and sessions, instructor assignments, attendance capture (OSHA evidence substrate), waitlist management, virtual-classroom integration, and per-session resources. Structurally distinct from evergreen e-learning in LMS-COURSE-DELIVERY because it carries its own cardinality (course -> many offerings -> many sessions), its own roles (instructors are not learners), and its own per-session compliance footprint.",
+          "personas": [
+            {
+              "code": "LD-INSTRUCTIONAL-DESIGNER",
+              "name": "Instructional Designer",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-INSTRUCTOR",
+              "name": "Instructor",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_training_schedule",
+              "name": "Manage training schedule",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "HCM-ORG-POSITIONS", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY"]
+        },
+        {
+          "code": "LMS-PATHS",
+          "name": "Learning Paths",
+          "description": "Authors and assigns sequenced learning paths inside the LMS. Masters learning_paths; consumes skill_profiles (mastered by SKILLS-MGMT after migration) to recommend paths against skill gaps.",
+          "personas": [
+            {
+              "code": "LD-INSTRUCTIONAL-DESIGNER",
+              "name": "Instructional Designer",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PEOPLE-MANAGER",
+              "name": "People Manager",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "align_learning_programs",
+              "name": "Align learning programs with competencies and skills",
+              "via": "gate"
+            },
+            {
+              "key": "develop_employee_career_plans",
+              "name": "Develop employee career plans and career paths",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["HCM-CORE-WORKER", "HCM-ORG-POSITIONS", "LMS-COURSE-DELIVERY", "LMS-CREDENTIALS"]
+        },
+        {
+          "code": "TRAINING-RECORDS-STARTER",
+          "name": "Training Records (Compliance Documentation Starter)",
+          "description": "Deployable starter kit for small and mid-market organizations that outsource training delivery to external vendors (EasyLlama, Traliant, Ethena, NAVEX, KnowBe4) and need to retain audit-ready evidence in their own catalog. Embeds compliance assignments, training evidence records, learner certifications, signature records, and per-regulation training records from the full LMS-COMPLIANCE-TRAINING and LMS-CREDENTIALS modules; deploys standalone without requiring the full LMS substrate. Buyer persona: HR Director or Compliance Officer at a 50 to 500 person organization. When the org later adopts the full LMS, embedded shells deterministically demote to consumer.",
+          "personas": [
+            {
+              "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+              "name": "Compliance Training Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "LD-LEARNING-ADMIN",
+              "name": "Learning Administrator",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["CLM-REPOSITORY", "LMS-COMPLIANCE-TRAINING", "LMS-CREDENTIALS"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+          "name": "Compliance Training Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-INSTRUCTIONAL-DESIGNER",
+          "name": "Instructional Designer",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-INSTRUCTOR",
+          "name": "Instructor",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-LEARNING-ADMIN",
+          "name": "Learning Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COMPLIANCE-SPECIALIST",
+          "name": "Compliance Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PEOPLE-MANAGER",
+          "name": "People Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+          "name": "Compliance Training Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-INSTRUCTIONAL-DESIGNER",
+          "name": "Instructional Designer",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-INSTRUCTOR",
+          "name": "Instructor",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LD-LEARNING-ADMIN",
+          "name": "Learning Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "LEGAL-COMPLIANCE-SPECIALIST",
+          "name": "Compliance Specialist",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PEOPLE-MANAGER",
+          "name": "People Manager",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "align_learning_programs",
+          "name": "Align learning programs with competencies and skills",
+          "via": "gate"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "gate"
+        },
+        {
+          "key": "develop_employee_career_plans",
+          "name": "Develop employee career plans and career paths",
+          "via": "gate"
+        },
+        {
+          "key": "evaluate_training_effectiveness",
+          "name": "Evaluate training effectiveness",
+          "via": "gate"
+        },
+        {
+          "key": "manage_certifications_skills",
+          "name": "Manage certifications and skills",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_examinations",
+          "name": "Manage examinations and certifications",
+          "via": "gate"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_regulatory_compliance",
+          "name": "Manage regulatory compliance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_training_schedule",
+          "name": "Manage training schedule",
+          "via": "gate"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "via": "handoff"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "via": "gate"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "align_learning_programs",
+          "name": "Align learning programs with competencies and skills",
+          "via": "gate"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "via": "gate"
+        },
+        {
+          "key": "develop_employee_career_plans",
+          "name": "Develop employee career plans and career paths",
+          "via": "gate"
+        },
+        {
+          "key": "evaluate_training_effectiveness",
+          "name": "Evaluate training effectiveness",
+          "via": "gate"
+        },
+        {
+          "key": "manage_certifications_skills",
+          "name": "Manage certifications and skills",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_onboarding_10469",
+          "name": "Manage employee onboarding",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_examinations",
+          "name": "Manage examinations and certifications",
+          "via": "gate"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_regulatory_compliance",
+          "name": "Manage regulatory compliance",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_training_schedule",
+          "name": "Manage training schedule",
+          "via": "gate"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "via": "handoff"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "via": "gate"
+        }
+      ],
+      "related_domains": ["CLM", "HCM", "HRSD"]
+    },
+    {
+      "code": "RE-BROKERAGE",
+      "name": "Real Estate Brokerage and Agent Operations",
+      "description": "Lead capture, transaction management (offer→close), MLS syndication, commission splits, tour scheduling, and broker CRM for residential and commercial brokerages. Buyer is the brokerage / individual agent (per-seat pricing) or the franchise (enterprise pricing). Distinct from generic CRM (deal model is the property transaction, not the sales opportunity; commissions are split across cooperating brokerages by MLS rules).",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-16",
+      "business_functions": [
+        {
+          "name": "Sales",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Marketing",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Accounting",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "RE-BROK-AGENT-OPS",
+          "name": "Real Estate Agent Operations",
+          "description": "Agent-facing workflow from lead capture through closing. Lead nurture (writes back into CRM contributor flow), listing creation and MLS syndication, tour scheduling and execution, transaction management (offer to escrow to contingencies to close), and buyer/seller disclosure handling. The deployable unit for solo agents and small firms; agents in larger brokerages work here while broker oversight runs in BROKERAGE-OPS.",
+          "personas": [],
+          "processes": [
+            {
+              "key": "close_sale",
+              "name": "Close the sale",
+              "via": "handoff"
+            },
+            {
+              "key": "negotiate_document_agreements",
+              "name": "Negotiate and document agreements/contracts",
+              "via": "handoff"
+            },
+            {
+              "key": "submit_regulatory_reports",
+              "name": "Submit regulatory reports",
+              "via": "handoff"
+            },
+            {
+              "key": "validate_qualify_leads",
+              "name": "Validate and qualify leads/opportunities",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["RE-BROK-BROKERAGE-OPS", "REAL-ESTATE-AGENT"]
+        },
+        {
+          "code": "RE-BROK-BROKERAGE-OPS",
+          "name": "Brokerage Oversight and Commission Management",
+          "description": "Broker-level oversight on top of agent operations. Multi-agent commission-split engine with franchise overrides and per-agent caps, broker compliance review of transactions and disclosures, trust-account / escrow oversight, broker-level MLS conformance review. Only deployed when the brokerage has grown past informal-broker-supervision scale (typically 10+ agents).",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["RE-BROK-AGENT-OPS"]
+        },
+        {
+          "code": "REAL-ESTATE-AGENT",
+          "name": "Real Estate Agent (solo / small firm bundle)",
+          "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [
+        {
+          "key": "close_sale",
+          "name": "Close the sale",
+          "via": "handoff"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "via": "handoff"
+        },
+        {
+          "key": "submit_regulatory_reports",
+          "name": "Submit regulatory reports",
+          "via": "handoff"
+        },
+        {
+          "key": "validate_qualify_leads",
+          "name": "Validate and qualify leads/opportunities",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "close_sale",
+          "name": "Close the sale",
+          "via": "handoff"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "via": "handoff"
+        },
+        {
+          "key": "submit_regulatory_reports",
+          "name": "Submit regulatory reports",
+          "via": "handoff"
+        },
+        {
+          "key": "validate_qualify_leads",
+          "name": "Validate and qualify leads/opportunities",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["CLM", "REAL-ESTATE-AGENT"]
+    },
+    {
+      "code": "REAL-ESTATE-AGENT",
+      "name": "Real Estate Agent (solo / small firm bundle)",
+      "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+      "domain_kind": "bundle",
+      "catalog_release": "2026-06-16",
+      "business_functions": [],
+      "modules": [
+        {
+          "code": "REAL-ESTATE-AGENT",
+          "name": "Real Estate Agent (solo / small firm bundle)",
+          "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [],
+      "module_processes": [],
+      "related_domains": ["CLM", "RE-BROKERAGE"]
+    },
+    {
+      "code": "SMP",
+      "name": "SaaS Management Platforms",
+      "description": "Discovery, optimisation, lifecycle management, and renewal management for the company's SaaS portfolio. Distinct from classic SAM which focuses on installed software licences.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-16",
+      "business_functions": [
+        {
+          "name": "IT Asset Management",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Finance",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Procurement",
+          "responsibility": "contributor"
+        }
+      ],
+      "modules": [
+        {
+          "code": "IT-OPS-STARTER",
+          "name": "IT Operations Starter",
+          "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
+        },
+        {
+          "code": "SMP-AUTOMATION",
+          "name": "SMP Automation and Self-Service Requests",
+          "description": "Declarative automation workflows, workflow run history, and employee-facing self-service app-access requests. The automation surface of an SMP deployment.",
+          "personas": [
+            {
+              "code": "IT-SAAS-ADMIN",
+              "name": "SaaS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+              "name": "SaaS Portfolio Manager",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_infrastructure_resource",
+              "name": "Manage infrastructure resource administration",
+              "via": "gate"
+            },
+            {
+              "key": "manage_it_user_identity",
+              "name": "Manage IT user identity and authorization",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["SMP-DISCOVERY", "SMP-OPTIMIZATION"]
+        },
+        {
+          "code": "SMP-DISCOVERY",
+          "name": "SMP Discovery and Catalog",
+          "description": "Discovery of sanctioned and shadow SaaS, app inventory, ownership, integrations, lifecycle staging, catalog publication, and operational signal/alerts. The discovery substrate of an SMP deployment.",
+          "personas": [
+            {
+              "code": "IT-SAAS-ADMIN",
+              "name": "SaaS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+              "name": "SaaS Portfolio Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+              "name": "SaaS Renewal Owner",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "manage_corporate_credit_cards",
+              "name": "Manage corporate credit cards",
+              "via": "gate"
+            },
+            {
+              "key": "manage_infrastructure_resource",
+              "name": "Manage infrastructure resource administration",
+              "via": "gate"
+            },
+            {
+              "key": "manage_it_portfolio_strategy",
+              "name": "Manage IT portfolio strategy",
+              "via": "gate"
+            },
+            {
+              "key": "manage_it_user_identity",
+              "name": "Manage IT user identity and authorization",
+              "via": "gate"
+            },
+            {
+              "key": "optimize_it_resource_allocation",
+              "name": "Optimize IT resource allocation",
+              "via": "handoff"
+            },
+            {
+              "key": "process_review_requisitions",
+              "name": "Process/Review requisitions",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["IT-OPS-STARTER", "ITSM-INCIDENT-MGMT", "SMP-AUTOMATION", "SMP-OPTIMIZATION", "SMP-RENEWAL-VENDOR"]
+        },
+        {
+          "code": "SMP-OPTIMIZATION",
+          "name": "SMP License Optimization",
+          "description": "Usage analytics, license rightsizing, reclamation actions, per-app cost benchmarks, and optimization recommendations. The cost-and-utilization substrate of an SMP deployment.",
+          "personas": [
+            {
+              "code": "IT-SAAS-ADMIN",
+              "name": "SaaS Administrator",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+              "name": "SaaS Portfolio Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+              "name": "SaaS Renewal Owner",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "optimize_it_resource_allocation",
+              "name": "Optimize IT resource allocation",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["SMP-AUTOMATION", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
+        },
+        {
+          "code": "SMP-RENEWAL-VENDOR",
+          "name": "SMP Renewal and Vendor Management",
+          "description": "Renewal pipeline tracking, vendor relationship management, contract coordination with procurement and legal, spend allocation, and per-SaaS vendor-risk attestation. The commercial layer of an SMP deployment.",
+          "personas": [
+            {
+              "code": "IT-SAAS-ADMIN",
+              "name": "SaaS Administrator",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+              "name": "SaaS Portfolio Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+              "name": "SaaS Renewal Owner",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "create_manage_support_services",
+              "name": "Create and manage support services/solutions",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_demand_products",
+              "name": "Manage demand for products",
+              "via": "gate"
+            },
+            {
+              "key": "optimize_it_resource_allocation",
+              "name": "Optimize IT resource allocation",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["CLM-REPOSITORY", "HCM-ORG-POSITIONS", "IT-OPS-STARTER", "SMP-DISCOVERY", "SMP-OPTIMIZATION"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "IT-SAAS-ADMIN",
+          "name": "SaaS Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "name": "SaaS Portfolio Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+          "name": "SaaS Renewal Owner",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "IT-SAAS-ADMIN",
+          "name": "SaaS Administrator",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "name": "SaaS Portfolio Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+          "name": "SaaS Renewal Owner",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "create_manage_support_services",
+          "name": "Create and manage support services/solutions",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_corporate_credit_cards",
+          "name": "Manage corporate credit cards",
+          "via": "gate"
+        },
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "via": "gate"
+        },
+        {
+          "key": "manage_infrastructure_resource",
+          "name": "Manage infrastructure resource administration",
+          "via": "gate"
+        },
+        {
+          "key": "manage_it_portfolio_strategy",
+          "name": "Manage IT portfolio strategy",
+          "via": "gate"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "via": "gate"
+        },
+        {
+          "key": "optimize_it_resource_allocation",
+          "name": "Optimize IT resource allocation",
+          "via": "gate"
+        },
+        {
+          "key": "process_review_requisitions",
+          "name": "Process/Review requisitions",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "create_manage_support_services",
+          "name": "Create and manage support services/solutions",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_corporate_credit_cards",
+          "name": "Manage corporate credit cards",
+          "via": "gate"
+        },
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "via": "gate"
+        },
+        {
+          "key": "manage_infrastructure_resource",
+          "name": "Manage infrastructure resource administration",
+          "via": "gate"
+        },
+        {
+          "key": "manage_it_portfolio_strategy",
+          "name": "Manage IT portfolio strategy",
+          "via": "gate"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "via": "gate"
+        },
+        {
+          "key": "optimize_it_resource_allocation",
+          "name": "Optimize IT resource allocation",
+          "via": "gate"
+        },
+        {
+          "key": "process_review_requisitions",
+          "name": "Process/Review requisitions",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["CLM", "HCM", "IT-OPS-STARTER", "ITSM"]
+    },
+    {
+      "code": "WORK-MGMT",
+      "name": "Work Management",
+      "description": "Task, project, and workflow management for cross-functional work: assignments with owners and due dates, dependencies, statuses, dashboards, automations, and goal/OKR tracking. Bought by PMOs, BizOps, marketing, and any team running structured work that isn't engineering-specific. Distinct from SPM (top-down portfolio investment decision, CIO/EPMO buyer), from PSA (services billing/utilization for revenue-generating projects), and from dedicated software-engineering sprint tooling (developer-specific dev workflow).",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-16",
+      "business_functions": [
+        {
+          "name": "Business Operations",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Customer Success",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Marketing",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Product Management",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Sales",
+          "responsibility": "consumer"
+        }
+      ],
+      "modules": [
+        {
+          "code": "WORK-MGMT-GOALS-OKR",
+          "name": "Team-Execution Goals and OKRs",
+          "description": "Team-execution OKR tracking surface: objectives with key results that link to work items for automatic progress rollup, weekly check-in cadences, scoring, and closure. Deploys alongside the task-execution module for full integration, or standalone with a thin embedded work-item shell for KR linking.",
+          "personas": [
+            {
+              "code": "OKR-OWNER",
+              "name": "OKR Owner",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+              "name": "Work Program Lead",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "develop_set_organizational",
+              "name": "Develop and set organizational objectives",
+              "via": "gate"
+            }
+          ],
+          "related_modules": ["WORK-MGMT-TASK-EXEC"]
+        },
+        {
+          "code": "WORK-MGMT-INTAKE",
+          "name": "Request Intake",
+          "description": "Structured request-intake surface: form definitions, form submissions, routing rules. Pre-task surface that converts a submission into a work_item in the target TASK-EXEC project. Backs the WORK-INTAKE-FORMS capability with entities. Vendor reference: Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms.",
+          "personas": [
+            {
+              "code": "MARKETING-CAMPAIGN-MANAGER",
+              "name": "Campaign Manager",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "OPERATIONS-WORK-CONTRIBUTOR",
+              "name": "Work Contributor",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+              "name": "Work Program Lead",
+              "interaction_level": "secondary"
+            }
+          ],
+          "processes": [],
+          "related_modules": ["WORK-MGMT-TASK-EXEC"]
+        },
+        {
+          "code": "WORK-MGMT-TASK-EXEC",
+          "name": "Task and Project Execution",
+          "description": "Cross-functional task and project execution surface: work items with owners, due dates, dependencies, statuses, and assignments; project containers with timelines, dashboards, and board views; user-authored automation rules that fire on item state changes. The deployable substrate every team-based work-management product orbits.",
+          "personas": [
+            {
+              "code": "MARKETING-CAMPAIGN-MANAGER",
+              "name": "Campaign Manager",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "OKR-OWNER",
+              "name": "OKR Owner",
+              "interaction_level": "secondary"
+            },
+            {
+              "code": "OPERATIONS-WORK-CONTRIBUTOR",
+              "name": "Work Contributor",
+              "interaction_level": "primary"
+            },
+            {
+              "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+              "name": "Work Program Lead",
+              "interaction_level": "primary"
+            }
+          ],
+          "processes": [
+            {
+              "key": "create_manage_resource_plan",
+              "name": "Create and manage resource plan",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_manage_execution_roadmap",
+              "name": "Develop and manage execution roadmap",
+              "via": "handoff"
+            },
+            {
+              "key": "develop_promotional_category",
+              "name": "Develop promotional and category management calendars (trade marketing calendars)",
+              "via": "handoff"
+            },
+            {
+              "key": "eliminate_quality_reliability",
+              "name": "Eliminate quality and reliability problems",
+              "via": "handoff"
+            },
+            {
+              "key": "execute_it_service_solution_20808",
+              "name": "Execute IT service/solution creation and testing",
+              "via": "handoff"
+            },
+            {
+              "key": "implement_software_change",
+              "name": "Implement software change/release",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_employee_assistance",
+              "name": "Manage employee assistance and retention",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_leads_opportunities",
+              "name": "Manage leads/opportunities",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_portfolio",
+              "name": "Manage portfolio",
+              "via": "handoff"
+            },
+            {
+              "key": "manage_projects",
+              "name": "Manage projects",
+              "via": "gate"
+            },
+            {
+              "key": "manage_service_solution_20822",
+              "name": "Manage service/solution operations",
+              "via": "handoff"
+            },
+            {
+              "key": "prioritize_select_new_product",
+              "name": "Prioritize and select new product/service concepts",
+              "via": "handoff"
+            },
+            {
+              "key": "reengineer_business_processes",
+              "name": "Reengineer business processes and systems",
+              "via": "handoff"
+            },
+            {
+              "key": "release_resources",
+              "name": "Release resources",
+              "via": "handoff"
+            },
+            {
+              "key": "track_content_non_compliance",
+              "name": "Track content non-compliance resolution",
+              "via": "handoff"
+            },
+            {
+              "key": "triage_it_service_delivery",
+              "name": "Triage IT service delivery incidents",
+              "via": "handoff"
+            },
+            {
+              "key": "verify_change_release",
+              "name": "Verify change/release implementation success",
+              "via": "handoff"
+            }
+          ],
+          "related_modules": ["INTGOV-GOVERNANCE", "ITSM-INCIDENT-MGMT", "WORK-MGMT-GOALS-OKR", "WORK-MGMT-INTAKE"]
+        }
+      ],
+      "personas": [
+        {
+          "code": "MARKETING-CAMPAIGN-MANAGER",
+          "name": "Campaign Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OKR-OWNER",
+          "name": "OKR Owner",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OPERATIONS-WORK-CONTRIBUTOR",
+          "name": "Work Contributor",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+          "name": "Work Program Lead",
+          "interaction_level": "primary"
+        }
+      ],
+      "module_personas": [
+        {
+          "code": "MARKETING-CAMPAIGN-MANAGER",
+          "name": "Campaign Manager",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OKR-OWNER",
+          "name": "OKR Owner",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OPERATIONS-WORK-CONTRIBUTOR",
+          "name": "Work Contributor",
+          "interaction_level": "primary"
+        },
+        {
+          "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+          "name": "Work Program Lead",
+          "interaction_level": "primary"
+        }
+      ],
+      "processes": [
+        {
+          "key": "create_manage_resource_plan",
+          "name": "Create and manage resource plan",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_manage_execution_roadmap",
+          "name": "Develop and manage execution roadmap",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_promotional_category",
+          "name": "Develop promotional and category management calendars (trade marketing calendars)",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_set_organizational",
+          "name": "Develop and set organizational objectives",
+          "via": "gate"
+        },
+        {
+          "key": "eliminate_quality_reliability",
+          "name": "Eliminate quality and reliability problems",
+          "via": "handoff"
+        },
+        {
+          "key": "execute_it_service_solution_20808",
+          "name": "Execute IT service/solution creation and testing",
+          "via": "handoff"
+        },
+        {
+          "key": "implement_software_change",
+          "name": "Implement software change/release",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_leads_opportunities",
+          "name": "Manage leads/opportunities",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_portfolio",
+          "name": "Manage portfolio",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "via": "gate"
+        },
+        {
+          "key": "manage_service_solution_20822",
+          "name": "Manage service/solution operations",
+          "via": "handoff"
+        },
+        {
+          "key": "prioritize_select_new_product",
+          "name": "Prioritize and select new product/service concepts",
+          "via": "handoff"
+        },
+        {
+          "key": "reengineer_business_processes",
+          "name": "Reengineer business processes and systems",
+          "via": "handoff"
+        },
+        {
+          "key": "release_resources",
+          "name": "Release resources",
+          "via": "handoff"
+        },
+        {
+          "key": "track_content_non_compliance",
+          "name": "Track content non-compliance resolution",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_it_service_delivery",
+          "name": "Triage IT service delivery incidents",
+          "via": "handoff"
+        },
+        {
+          "key": "verify_change_release",
+          "name": "Verify change/release implementation success",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [
+        {
+          "key": "create_manage_resource_plan",
+          "name": "Create and manage resource plan",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_manage_execution_roadmap",
+          "name": "Develop and manage execution roadmap",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_promotional_category",
+          "name": "Develop promotional and category management calendars (trade marketing calendars)",
+          "via": "handoff"
+        },
+        {
+          "key": "develop_set_organizational",
+          "name": "Develop and set organizational objectives",
+          "via": "gate"
+        },
+        {
+          "key": "eliminate_quality_reliability",
+          "name": "Eliminate quality and reliability problems",
+          "via": "handoff"
+        },
+        {
+          "key": "execute_it_service_solution_20808",
+          "name": "Execute IT service/solution creation and testing",
+          "via": "handoff"
+        },
+        {
+          "key": "implement_software_change",
+          "name": "Implement software change/release",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_employee_assistance",
+          "name": "Manage employee assistance and retention",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_leads_opportunities",
+          "name": "Manage leads/opportunities",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_portfolio",
+          "name": "Manage portfolio",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "via": "gate"
+        },
+        {
+          "key": "manage_service_solution_20822",
+          "name": "Manage service/solution operations",
+          "via": "handoff"
+        },
+        {
+          "key": "prioritize_select_new_product",
+          "name": "Prioritize and select new product/service concepts",
+          "via": "handoff"
+        },
+        {
+          "key": "reengineer_business_processes",
+          "name": "Reengineer business processes and systems",
+          "via": "handoff"
+        },
+        {
+          "key": "release_resources",
+          "name": "Release resources",
+          "via": "handoff"
+        },
+        {
+          "key": "track_content_non_compliance",
+          "name": "Track content non-compliance resolution",
+          "via": "handoff"
+        },
+        {
+          "key": "triage_it_service_delivery",
+          "name": "Triage IT service delivery incidents",
+          "via": "handoff"
+        },
+        {
+          "key": "verify_change_release",
+          "name": "Verify change/release implementation success",
+          "via": "handoff"
+        }
+      ],
+      "related_domains": ["INTRANET-GOV", "ITSM"]
+    }
+  ]
+}

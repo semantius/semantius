@@ -11,16 +11,25 @@ Semantius extends the [standard JsonLogic spec](https://jsonlogic.com/operations
 
 ## Built-in variables
 
-These variables are automatically available inside `computed_fields` and `validation_rules` expressions. Access them with the standard `var` operator, e.g. `{"var": "$now"}`.
+These variables are automatically available inside `computed_fields`, `validation_rules`, and `select_rule` expressions. Access them with the standard `var` operator, e.g. `{"var": "$now"}`.
 
 | Variable | Description |
 |---|---|
 | `$today` | The current server date (no time component). Useful for date comparisons such as "expires before today". |
 | `$now` | The current server timestamp. Useful for stamping fields like `submitted_at` or comparing against a deadline. |
 | `$user_id` | The id of the currently authenticated user. `null` when the expression runs outside a user session (for example during a background job). |
-| `$old` | A snapshot of the record's previous state on update. `null` on insert. Use it to compare new vs. old values, e.g. `{"!=": [{"var": "status"}, {"var": "$old.status"}]}`. |
+| `$old` | A snapshot of the record's previous state, available on **update and delete** (where it holds the row being removed). `null` on insert. Use it to compare new vs. old values, e.g. `{"!=": [{"var": "status"}, {"var": "$old.status"}]}`. |
+| `$mode` | The operation being performed: `"insert"`, `"update"`, or `"delete"`. Use it to scope a rule to a particular operation — for example, forbid deletion with `{"!=": [{"var": "$mode"}, "delete"]}`. |
 
 > Built-in variables are scoped to the record being evaluated. They are not written back to the record, they exist only for the duration of the expression.
+
+### Availability by context
+
+`computed_fields` and `validation_rules` run during a mutation and see all five variables. `select_rule` runs during a read and sees only `$today`, `$now`, and `$user_id`. `$old` and `$mode` are not bound in a select rule — a read has no previous image and is not a mutation, so they would be meaningless there.
+
+### Evaluation on delete
+
+`validation_rules` also run on **delete**, evaluated against the row being removed (bound as the root context, with `$old` set to that same row and `$mode` equal to `"delete"`). A rule that evaluates falsy aborts the delete, so a rule such as `{"!=": [{"var": "$mode"}, "delete"]}` forbids deletion outright. `computed_fields` still run on delete, but their output is discarded — there is no surviving row to write it to.
 
 ---
 

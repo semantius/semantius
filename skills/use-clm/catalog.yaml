@@ -1,0 +1,46 @@
+# Projection of live catalog DB values for the use-clm skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: CLM
+domain_code_lower: clm
+domain_name: "Contract Lifecycle Management"
+module_slug: clm
+skill_name: use-clm
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Draft, negotiate, sign, and track every contract from first draft through renewal in one place."
+catalog_description: |
+  Manage the entire life of a contract without losing the thread. Author new agreements from a library of pre-approved clauses and templates, route them through legal and business review, and capture redlines as counterparties negotiate. When terms are settled, send for electronic signature and store the executed document in a searchable repository.
+
+  After signing, the work continues: track the obligations each contract creates, get ahead of due dates and renewals, and know the moment a commitment is satisfied, breached, or waived. Every contract stays current, every deadline stays visible, and the organization always knows what it has agreed to.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Draft new contracts from a library of approved clauses and templates, route each agreement through legal and business review, and capture redlines as counterparties negotiate. Send for electronic signature, store the executed document in a searchable repository, then extract the obligations and milestones each contract creates and alert ahead of upcoming due dates and renewals. Use for: CLM, contract lifecycle management, e-sign, NDA, MSA, SOW, statement of work, master service agreement, non-disclosure agreement, evergreen, auto-renewal, expiration, breach, waiver, amendment, addendum, contract analytics, legal ops, deal desk, executed contract."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Approval Workflow Orchestration
+  - AI Clause-Risk Detection
+  - Clause Library Management
+  - Contract Authoring
+  - Contract Repository
+  - Obligation Extraction
+  - Redlining and Negotiation
+  - Renewal Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-agency-mgmt
+  - use-ap-auto
+  - use-cpq
+  - use-crm
+  - use-csm
+  - use-fin
+  - use-grc
+  - use-psa
+  - use-s2p
+  - use-smp
+  - use-sub-mgmt

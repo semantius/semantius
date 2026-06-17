@@ -1,0 +1,43 @@
+# Projection of live catalog DB values for the use-ats skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: ATS
+domain_code_lower: ats
+domain_name: "Applicant Tracking and Recruiting"
+module_slug: ats
+skill_name: use-ats
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Hire faster with a connected pipeline from sourcing through offer acceptance."
+catalog_description: |
+  Track every candidate from first contact through hire. Manage job requisitions, posting distribution, application intake, interview scheduling, scorecard collection, and offer generation in one connected pipeline.
+
+  When a candidate accepts an offer, the workflow hands off cleanly to onboarding so your new hire's first day doesn't start from a blank page. Built-in support for EEOC-compliant funnel analytics, requisition approval routing, and offer-letter version control.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Open and route job requisitions for approval, post openings to job boards, and capture applications. Source candidates, build talent pools, and run outreach and referral campaigns. Move applicants through pipeline stages, schedule interviews, collect scorecards, and run assessments. Generate and version offer letters, route them for approval, and send them for e-signature. Order background and drug screenings with FCRA disclosures and adverse-action notices, then hand accepted hires to onboarding. Track EEO and OFCCP funnel analytics and disposition reasons. Use for: ATS, applicant tracking system, recruiting, recruitment, hiring, talent acquisition, sourcing, headhunting, resume, CV, careers page, candidate experience, nurture, recruiter CRM, interview kit, hiring panel, hiring manager, time-to-fill, offer management, salary, comp, drug test, EEOC, diversity, compliance, new hire, pre-employee, requisition approval."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - AI-Driven Matching and Screening
+  - Background Screening
+  - Candidate Experience
+  - Interview Management
+  - Offer Management
+  - Requisition Management
+  - Candidate Sourcing
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-ben-admin
+  - use-comp-mgmt
+  - use-hcm
+  - use-hrsd
+  - use-onboarding
+  - use-pa
+  - use-payroll
+  - use-swp
+  - use-talent-mgmt

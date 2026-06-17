@@ -1,0 +1,2004 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "SMP",
+    "name": "SaaS Management Platforms",
+    "description": "Discovery, optimisation, lifecycle management, and renewal management for the company's SaaS portfolio. Distinct from classic SAM which focuses on installed software licences.",
+    "parent_domain_code": "ITAM",
+    "certification_required": false,
+    "catalog_tagline": "See every SaaS app your company pays for, cut wasted licenses, and never miss a renewal.",
+    "catalog_description": "Discover every SaaS application in use, sanctioned or not, see who owns each one, and track real usage against what you pay for. Reclaim idle licenses automatically, run renewals on a schedule instead of in a panic, and give employees a self-service catalog to request the apps they need. One place to manage your whole SaaS portfolio, from first sign-up to final offboarding."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "IT Asset Management"
+    ],
+    "contributors": [
+      "Finance",
+      "Procurement"
+    ],
+    "consumers": []
+  },
+  "capabilities": [
+    {
+      "code": "SMP-APP-LIFECYCLE",
+      "name": "SaaS App Lifecycle Automation",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-DISCOVERY",
+      "name": "SaaS Application Discovery",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-LICENSE-OPT",
+      "name": "SaaS License Optimization",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-RENEWAL-MGMT",
+      "name": "SaaS Renewal Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-SHADOW-IT",
+      "name": "Shadow IT Detection",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-USAGE-ANALYTICS",
+      "name": "SaaS Usage Analytics",
+      "cross_cutting": false
+    },
+    {
+      "code": "SMP-VENDOR-MGMT",
+      "name": "SaaS Vendor Relationship Management",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "SMP-AUTOMATION",
+      "name": "SMP Automation and Self-Service Requests",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SMP-APP-LIFECYCLE",
+        "SMP-WORKFLOW-AUTOMATION"
+      ],
+      "masters": [
+        "smp_app_requests",
+        "smp_automation_workflows",
+        "smp_workflow_runs"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Declarative automation workflows, workflow run history, and employee-facing self-service app-access requests. The automation surface of an SMP deployment."
+    },
+    {
+      "code": "SMP-DISCOVERY",
+      "name": "SMP Discovery and Catalog",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SMP-DISCOVERY",
+        "SMP-SHADOW-IT"
+      ],
+      "masters": [
+        "saas_applications",
+        "shadow_it_apps",
+        "smp_alerts",
+        "smp_app_catalog_listings",
+        "smp_app_integrations",
+        "smp_app_lifecycle_stages",
+        "smp_app_owners"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Discovery of sanctioned and shadow SaaS, app inventory, ownership, integrations, lifecycle staging, catalog publication, and operational signal/alerts. The discovery substrate of an SMP deployment."
+    },
+    {
+      "code": "SMP-OPTIMIZATION",
+      "name": "SMP License Optimization",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SMP-LICENSE-OPT",
+        "SMP-USAGE-ANALYTICS"
+      ],
+      "masters": [
+        "saas_usage_metrics",
+        "smp_app_benchmarks",
+        "smp_license_seat_assignments",
+        "smp_optimization_recommendations",
+        "smp_reclamation_actions"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Usage analytics, license rightsizing, reclamation actions, per-app cost benchmarks, and optimization recommendations. The cost-and-utilization substrate of an SMP deployment."
+    },
+    {
+      "code": "SMP-RENEWAL-VENDOR",
+      "name": "SMP Renewal and Vendor Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SMP-RENEWAL-MGMT",
+        "SMP-VENDOR-MGMT"
+      ],
+      "masters": [
+        "saas_subscriptions",
+        "smp_renewal_engagements",
+        "smp_renewal_tasks",
+        "smp_spend_allocations",
+        "smp_vendor_negotiations",
+        "smp_vendor_risk_assessments"
+      ],
+      "embedded_masters": [
+        "legal_contracts",
+        "org_units",
+        "saas_applications"
+      ],
+      "consumers": [],
+      "description": "Renewal pipeline tracking, vendor relationship management, contract coordination with procurement and legal, spend allocation, and per-SaaS vendor-risk attestation. The commercial layer of an SMP deployment."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "saas_applications",
+      "singular_label": "SaaS Application",
+      "plural_label": "SaaS Applications",
+      "description": "Canonical SaaS app in the portfolio (collaboration, CRM, productivity, design, work-management tools). Carries vendor, category, criticality tier, sanctioned/shadow flag, and links to the active subscription. Distinct from SAM's software_titles which are typically installed (or hybrid). The flagship SMP entity.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Cloud App",
+          "source": "synonym"
+        },
+        {
+          "name": "SaaS Tool",
+          "source": "synonym"
+        },
+        {
+          "name": "Web App",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "discovered",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "triaged",
+          "order": 20
+        },
+        {
+          "name": "sanctioned",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "sanction_application"
+        },
+        {
+          "name": "deprecated",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "deprecate_application"
+        },
+        {
+          "name": "deprovisioned",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deprovision_application"
+        }
+      ]
+    },
+    {
+      "name": "saas_subscriptions",
+      "singular_label": "SaaS Subscription",
+      "plural_label": "SaaS Subscriptions",
+      "description": "The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SaaS Agreement",
+          "source": "synonym"
+        },
+        {
+          "name": "SaaS Contract",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 20
+        },
+        {
+          "name": "renewing",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "initiate_renewal"
+        },
+        {
+          "name": "renewed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_renewal"
+        },
+        {
+          "name": "cancelled",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_subscription"
+        }
+      ]
+    },
+    {
+      "name": "saas_usage_metrics",
+      "singular_label": "SaaS Usage Metric",
+      "plural_label": "SaaS Usage Metrics",
+      "description": "Per-app per-user activity metrics: logins, time-in-app, feature usage, last-active date. The basis for license right-sizing, renewal-tier decisions, and shadow-IT vs sanctioned-app analysis.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "shadow_it_apps",
+      "singular_label": "Shadow IT App",
+      "plural_label": "Shadow IT Apps",
+      "description": "SaaS app discovered in use but not officially sanctioned. Found via expense data (corporate card SaaS charges), SSO logs (unsanctioned login), browser extensions, network traffic, or signup-with-corporate-email detection. The thing finance, security, IT, and SMP all want to see but historically nobody owns end-to-end.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Rogue SaaS",
+          "source": "synonym"
+        },
+        {
+          "name": "Unsanctioned App",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "discovered",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "triaged",
+          "order": 20
+        },
+        {
+          "name": "sanctioned_promoted",
+          "order": 30,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "promote_shadow_app"
+        },
+        {
+          "name": "blocked",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "block_shadow_app"
+        }
+      ]
+    },
+    {
+      "name": "smp_alerts",
+      "singular_label": "SaaS Alert",
+      "plural_label": "SaaS Alerts",
+      "description": "System-raised anomaly on the SaaS portfolio: shadow-IT signup detected, license-overage projected, renewal window opening, integration token expiring, vendor-risk score change. Distinct from monitoring_alerts (OBS/AIOPS infrastructure-grain). BetterCloud Alert Center and Torii Alerts are the flagship surfaces.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Portfolio Alert",
+          "source": "synonym"
+        },
+        {
+          "name": "SaaS Anomaly",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "raised",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "acknowledged",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "acknowledge_alert"
+        },
+        {
+          "name": "triaged",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "triage_alert"
+        },
+        {
+          "name": "resolved",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "resolve_alert"
+        },
+        {
+          "name": "suppressed",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "suppress_alert"
+        }
+      ]
+    },
+    {
+      "name": "smp_app_benchmarks",
+      "singular_label": "SaaS App Benchmark",
+      "plural_label": "SaaS App Benchmarks",
+      "description": "Per-app utilization and cost-per-seat benchmark vs an industry peer-set. Snapshot record per measurement period; carries headcount cohort, peer-percentile, and outlier flag. Productiv Benchmarks + Zylo Industry Benchmarks are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Industry Benchmark",
+          "source": "synonym"
+        },
+        {
+          "name": "Peer Benchmark",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "smp_app_catalog_listings",
+      "singular_label": "App Catalog Listing",
+      "plural_label": "App Catalog Listings",
+      "description": "Curated, published listing of a sanctioned SaaS application that employees can browse and request access to. Carries description, owner, request route, SSO availability, approval workflow. Distinct from saas_applications (the discovered inventory of what's running); the catalog is the publication of what's offered. LeanIX, Torii, BetterCloud flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "App Catalog Entry",
+          "source": "synonym"
+        },
+        {
+          "name": "Self-Service Listing",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "publish_catalog_listing"
+        },
+        {
+          "name": "deprecated",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "deprecate_catalog_listing"
+        },
+        {
+          "name": "unlisted",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "unlist_catalog_listing"
+        }
+      ]
+    },
+    {
+      "name": "smp_app_integrations",
+      "singular_label": "SaaS App Integration",
+      "plural_label": "SaaS App Integrations",
+      "description": "Discovered or configured connection between SMP and a SaaS application's APIs (SSO source, SCIM source, finance source, usage source). Per-app per-tenant, with auth state and last-sync time. Distinct from IPAAS integration_connectors (platform-grain vendor-connector definitions); BetterCloud's App Integrations flagship surface.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "App Connector",
+          "source": "synonym"
+        },
+        {
+          "name": "Data Source",
+          "source": "synonym"
+        },
+        {
+          "name": "SaaS Connector",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "configured",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "connected",
+          "order": 20
+        },
+        {
+          "name": "degraded",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "mark_integration_degraded"
+        },
+        {
+          "name": "disconnected",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "disconnect_integration"
+        },
+        {
+          "name": "archived",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive_integration"
+        }
+      ]
+    },
+    {
+      "name": "smp_app_lifecycle_stages",
+      "singular_label": "App Lifecycle Stage",
+      "plural_label": "App Lifecycle Stages",
+      "description": "Portfolio-rationalization stage of a SaaS application (Evaluate, Pilot, Sanctioned, Sunset, Retired). Distinct from saas_applications.record_status (discovered, sanctioned, deprecated, deprovisioned), which tracks discovery state. The stage set follows the industry-standard TIME portfolio taxonomy (Tolerate, Invest, Migrate, Eliminate).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Portfolio Stage",
+          "source": "synonym"
+        },
+        {
+          "name": "TIME Stage",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "evaluate",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "pilot",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "promote_to_pilot"
+        },
+        {
+          "name": "sanctioned",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "promote_to_sanctioned"
+        },
+        {
+          "name": "sunset",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "sunset_app"
+        },
+        {
+          "name": "retired",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire_app"
+        }
+      ]
+    },
+    {
+      "name": "smp_app_owners",
+      "singular_label": "SaaS App Owner",
+      "plural_label": "SaaS App Owners",
+      "description": "Typed role assignment of a user to a SaaS application (business owner, IT owner, finance owner, security owner). Not a flat FK on saas_applications because one app may have multiple typed owners; modeled by Productiv and LeanIX as a first-class junction.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "App Steward",
+          "source": "synonym"
+        },
+        {
+          "name": "Application Owner",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "active",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "revoked",
+          "order": 20,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "revoke_app_owner"
+        }
+      ]
+    },
+    {
+      "name": "smp_app_requests",
+      "singular_label": "App Access Request",
+      "plural_label": "App Access Requests",
+      "description": "Employee request for access to a SaaS application via the published catalog. Routes through manager + IT approval, then hands off to IGA for entitlement provisioning. App-grain (pre-IGA-handoff); distinct from iga_access_requests (entitlement-grain) and itsm_service_requests (generic catalog). Torii App Catalog requests + BetterCloud Self-Service Requests are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Self-Service App Request",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "submitted",
+          "order": 10,
+          "is_initial": true,
+          "requires_permission": true,
+          "permission_verb_override": "submit_app_request"
+        },
+        {
+          "name": "manager_approved",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "manager_approve_request"
+        },
+        {
+          "name": "it_approved",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "it_approve_request"
+        },
+        {
+          "name": "fulfilled",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "fulfill_app_request"
+        },
+        {
+          "name": "denied",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deny_app_request"
+        },
+        {
+          "name": "cancelled",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_app_request"
+        }
+      ]
+    },
+    {
+      "name": "smp_automation_workflows",
+      "singular_label": "Automation Workflow",
+      "plural_label": "Automation Workflows",
+      "description": "Declarative orchestration: trigger + steps (provision in SaaS app, send notification, file offboarding action, request approval, escalate). BetterCloud Workflows + Torii Workflows are the flagship product surface. Distinct from iga_access_requests (request-side) and integration_recipes (generic iPaaS).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Automation Playbook",
+          "source": "synonym"
+        },
+        {
+          "name": "SaaS Workflow",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "activate_workflow"
+        },
+        {
+          "name": "paused",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "pause_workflow"
+        },
+        {
+          "name": "archived",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive_workflow"
+        }
+      ]
+    },
+    {
+      "name": "smp_license_seat_assignments",
+      "singular_label": "SMP License Seat Assignment",
+      "plural_label": "SMP License Seat Assignments",
+      "description": "SMP's view of a user-to-app license seat: who holds a seat at which tier, cost-per-seat, utilization signal, last active. Drives reclamation and rightsizing. Correlates with an iga_user_entitlement record (the governance view of the same access fact); the two routinely diverge.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "License Assignment",
+          "source": "synonym"
+        },
+        {
+          "name": "User Provisioning Record",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "provisioned",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 20
+        },
+        {
+          "name": "idle",
+          "order": 30
+        },
+        {
+          "name": "reclaimed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reclaim_seat_assignment"
+        }
+      ]
+    },
+    {
+      "name": "smp_optimization_recommendations",
+      "singular_label": "Optimization Recommendation",
+      "plural_label": "Optimization Recommendations",
+      "description": "System-generated rightsizing or consolidation proposal against a SaaS subscription or application. Carries savings_estimate, rationale, recommendation type (downgrade tier, reduce seats, consolidate apps), status. Productiv Recommendations + Zylo Savings Opportunities are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Rightsizing Recommendation",
+          "source": "synonym"
+        },
+        {
+          "name": "Savings Opportunity",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "reviewed",
+          "order": 20
+        },
+        {
+          "name": "accepted",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "accept_recommendation"
+        },
+        {
+          "name": "in_progress",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "start_recommendation"
+        },
+        {
+          "name": "realized",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "realize_recommendation"
+        },
+        {
+          "name": "dismissed",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "dismiss_recommendation"
+        }
+      ]
+    },
+    {
+      "name": "smp_reclamation_actions",
+      "singular_label": "Reclamation Action",
+      "plural_label": "Reclamation Actions",
+      "description": "Executed reclamation against an smp_license_seat_assignment (revoke, downgrade, reassign) with savings_realized linkage. Tracks the operational payoff of the optimization workflow. BetterCloud License Recovery + Torii Reclaim workflows are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "License Recovery Action",
+          "source": "synonym"
+        },
+        {
+          "name": "Reclaim Workflow",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "identified",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "notified",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "notify_user_of_reclamation"
+        },
+        {
+          "name": "grace_period",
+          "order": 30
+        },
+        {
+          "name": "reclaimed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "execute_reclamation"
+        },
+        {
+          "name": "restored",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "restore_reclamation"
+        },
+        {
+          "name": "cancelled",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_reclamation"
+        }
+      ]
+    },
+    {
+      "name": "smp_renewal_engagements",
+      "singular_label": "Renewal Engagement",
+      "plural_label": "Renewal Engagements",
+      "description": "Lifecycle envelope per renewal cycle: timeline, owner, vendor proposals received, BATNA notes, decisions taken. Buyer-side analogue of CRM opportunities; distinct in that the buyer drives the negotiation. Productiv Renewal Pipeline + Zylo Renewal Workbench are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Renewal Cycle",
+          "source": "synonym"
+        },
+        {
+          "name": "Renewal Pipeline Record",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "discovery",
+          "order": 20
+        },
+        {
+          "name": "negotiation",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "begin_negotiation"
+        },
+        {
+          "name": "decision",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "decide_renewal"
+        },
+        {
+          "name": "executed",
+          "order": 50,
+          "requires_permission": true,
+          "permission_verb_override": "execute_renewal"
+        },
+        {
+          "name": "closed",
+          "order": 60,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "smp_renewal_tasks",
+      "singular_label": "Renewal Task",
+      "plural_label": "Renewal Tasks",
+      "description": "Workstream task within a SaaS renewal cycle (renewal window notice, owner assignment, decision: renew/renegotiate/consolidate/cancel). Productiv, Zylo, Flexera Renewal workspace surfaces.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Renewal Work Item",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "start_renewal_task"
+        },
+        {
+          "name": "blocked",
+          "order": 30
+        },
+        {
+          "name": "done",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete_renewal_task"
+        },
+        {
+          "name": "cancelled",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_renewal_task"
+        }
+      ]
+    },
+    {
+      "name": "smp_spend_allocations",
+      "singular_label": "SaaS Spend Allocation",
+      "plural_label": "SaaS Spend Allocations",
+      "description": "Chargeback split of a SaaS subscription across cost centers, business units, or projects, with allocation method (per-seat, per-headcount, fixed-percentage) and effective window. Zylo Cost Center Allocation + Flexera Chargeback Allocations are the flagship. Distinct from FINOPS cost_allocations (cloud-only).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Chargeback Allocation",
+          "source": "synonym"
+        },
+        {
+          "name": "Cost Center Split",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "activate_allocation"
+        },
+        {
+          "name": "adjusted",
+          "order": 30
+        },
+        {
+          "name": "closed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_allocation"
+        }
+      ]
+    },
+    {
+      "name": "smp_vendor_negotiations",
+      "singular_label": "Vendor Negotiation",
+      "plural_label": "Vendor Negotiations",
+      "description": "Quote, counter-quote, and discount-applied artifact tied to a renewal engagement. Decision-provenance record for how the final commercial terms were reached; contributor into CLM at execution time. Productiv Negotiation Intelligence + Zylo negotiation insights are the flagship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Quote Negotiation",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "opened",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "counter_offered",
+          "order": 20
+        },
+        {
+          "name": "at_impasse",
+          "order": 30
+        },
+        {
+          "name": "agreed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "agree_negotiation"
+        },
+        {
+          "name": "abandoned",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "abandon_negotiation"
+        }
+      ]
+    },
+    {
+      "name": "smp_vendor_risk_assessments",
+      "singular_label": "Vendor Risk Assessment",
+      "plural_label": "Vendor Risk Assessments",
+      "description": "SaaS-specific vendor-risk scorecard: SOC 2 attestation status, ISO 27001, DPA review, subprocessor disclosures, breach history, posture score. Per-SaaS-application (Slack vs Salesforce risk profiles differ from the same vendor). Flexera Vendor Risk Scorecard is the flagship; pure-plays defer most risk surfaces to GRC.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SaaS Risk Posture",
+          "source": "synonym"
+        },
+        {
+          "name": "Vendor Risk Scorecard",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scoped",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "start_risk_review"
+        },
+        {
+          "name": "information_requested",
+          "order": 30
+        },
+        {
+          "name": "completed",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "complete_risk_review"
+        },
+        {
+          "name": "expired",
+          "order": 50,
+          "is_terminal": true
+        },
+        {
+          "name": "remediation_required",
+          "order": 60,
+          "requires_permission": true,
+          "permission_verb_override": "flag_remediation"
+        }
+      ]
+    },
+    {
+      "name": "smp_workflow_runs",
+      "singular_label": "Workflow Run",
+      "plural_label": "Workflow Runs",
+      "description": "Execution log per automation workflow invocation. Carries trigger source, input payload, step-by-step status, output, duration, and error if failed.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Run Log",
+          "source": "synonym"
+        },
+        {
+          "name": "Workflow Execution",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "queued",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "running",
+          "order": 20
+        },
+        {
+          "name": "succeeded",
+          "order": 30,
+          "is_terminal": true
+        },
+        {
+          "name": "failed",
+          "order": 40,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_workflow_run"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "legal_contracts",
+      "verb": "activates",
+      "to": "saas_subscriptions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "renewal_warns",
+      "to": "saas_subscriptions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_applications",
+      "verb": "has",
+      "to": "saas_subscriptions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_applications",
+      "verb": "measured_by",
+      "to": "saas_usage_metrics",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "raised_for",
+      "to": "smp_alerts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_applications",
+      "verb": "benchmarks_for",
+      "to": "smp_app_benchmarks",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "publishes",
+      "to": "smp_app_catalog_listings",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "integrates_with",
+      "to": "smp_app_integrations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "tracks_stage",
+      "to": "smp_app_lifecycle_stages",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "owns",
+      "to": "smp_app_owners",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "automates_app",
+      "to": "smp_automation_workflows",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_applications",
+      "verb": "assigned_via",
+      "to": "smp_license_seat_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_applications",
+      "verb": "recommends_for_app",
+      "to": "smp_optimization_recommendations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_applications",
+      "verb": "assesses_app",
+      "to": "smp_vendor_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_subscriptions",
+      "verb": "grants",
+      "to": "smp_license_seat_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_subscriptions",
+      "verb": "recommends_for_sub",
+      "to": "smp_optimization_recommendations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "saas_subscriptions",
+      "verb": "engagement_for",
+      "to": "smp_renewal_engagements",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_subscriptions",
+      "verb": "tasks_for",
+      "to": "smp_renewal_tasks",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "saas_subscriptions",
+      "verb": "allocates",
+      "to": "smp_spend_allocations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "shadow_it_apps",
+      "verb": "promotes_to",
+      "to": "saas_applications",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "shadow_it_apps",
+      "verb": "raised_for_shadow",
+      "to": "smp_alerts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "smp_app_catalog_listings",
+      "verb": "requests_listing",
+      "to": "smp_app_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "smp_automation_workflows",
+      "verb": "runs_for",
+      "to": "smp_workflow_runs",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "smp_license_seat_assignments",
+      "verb": "reclaims_seat",
+      "to": "smp_reclamation_actions",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "smp_renewal_engagements",
+      "verb": "negotiated_under",
+      "to": "smp_vendor_negotiations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "saas_applications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "manages",
+      "to": "saas_subscriptions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "generates",
+      "to": "saas_usage_metrics",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "triggered",
+      "to": "shadow_it_apps",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "triages",
+      "to": "smp_alerts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "curates",
+      "to": "smp_app_catalog_listings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "configures",
+      "to": "smp_app_integrations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "assigned_owner",
+      "to": "smp_app_owners",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "requested_by",
+      "to": "smp_app_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "authors",
+      "to": "smp_automation_workflows",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "granted",
+      "to": "smp_license_seat_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "reviews",
+      "to": "smp_optimization_recommendations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "executes",
+      "to": "smp_reclamation_actions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "leads",
+      "to": "smp_renewal_engagements",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owned_by_user",
+      "to": "smp_renewal_tasks",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "negotiates",
+      "to": "smp_vendor_negotiations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "assesses",
+      "to": "smp_vendor_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": true
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10222",
+      "name": "Manage demand for products"
+    },
+    {
+      "external_id": "10292",
+      "name": "Process/Review requisitions"
+    },
+    {
+      "external_id": "20660",
+      "name": "Manage IT portfolio strategy"
+    },
+    {
+      "external_id": "20688",
+      "name": "Optimize IT resource allocation"
+    },
+    {
+      "external_id": "20756",
+      "name": "Manage IT user identity and authorization"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "smp",
+      "description": "Inventory every SaaS application the company pays for, including unsanctioned tools employees signed up for on their own, and tie each one to an owner, a contract, and real login activity. Track subscriptions and seat assignments against actual usage, flag underused or duplicate licenses, and recommend or trigger reclamation to recover wasted spend. Run renewals on a schedule with reminders and negotiation prep, assess vendor risk, allocate cost to departments, and let employees request access through a self-service app catalog. Automate joiner and leaver provisioning and route approval workflows across the portfolio.",
+      "trigger_keywords": "SMP, SaaS management platform, shadow IT, SaaS spend management, software spend optimization, idle seats, renewal calendar, app rationalization, deprovisioning, offboarding, usage telemetry, sanctioned apps, SaaS sprawl, seat right-sizing, software asset visibility",
+      "tools": [
+        {
+          "name": "abandon_negotiation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "accept_recommendation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "acknowledge_alert",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_allocation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_workflow",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "agree_negotiation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_renewal",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "archive_integration",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "archive_workflow",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_app_owner",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "begin_negotiation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "block_shadow_app",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_app_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_reclamation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_renewal_task",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_subscription",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_workflow_run",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "close_allocation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_renewal_task",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_risk_review",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "configure_app_integration",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "decide_renewal",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deny_app_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deprecate_catalog_listing",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deprovision_application",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "disconnect_integration",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "dismiss_recommendation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "execute_reclamation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "execute_renewal",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "flag_remediation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "fulfill_app_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "initiate_renewal",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "it_approve_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "manager_approve_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "mark_integration_degraded",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "notify_user_of_reclamation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "pause_workflow",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "promote_shadow_app",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "promote_to_pilot",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "promote_to_sanctioned",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "publish_catalog_listing",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_legal_contracts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_purchase_orders",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_saas_applications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_saas_subscriptions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_saas_usage_metrics",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_shadow_it_apps",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_alerts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_benchmarks",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_catalog_listings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_integrations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_lifecycle_stages",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_owners",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_app_requests",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_automation_workflows",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_license_seat_assignments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_optimization_recommendations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_reclamation_actions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_renewal_engagements",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_renewal_tasks",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_spend_allocations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_vendor_negotiations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_vendor_risk_assessments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_smp_workflow_runs",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "realize_recommendation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "reclaim_seat_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "refresh_app_benchmark",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "resolve_alert",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "restore_reclamation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "retire_app",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "revoke_app_owner",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sanction_application",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sign_document",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "start_recommendation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "start_renewal_task",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "start_risk_review",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "submit_app_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sunset_app",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "suppress_alert",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "triage_alert",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "unlist_catalog_listing",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "IT-SAAS-ADMIN",
+      "business_function": "IT Operations",
+      "modules": [
+        {
+          "code": "SMP-AUTOMATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-DISCOVERY",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-OPTIMIZATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-RENEWAL-VENDOR",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+      "business_function": "IT Asset Management",
+      "modules": [
+        {
+          "code": "SMP-AUTOMATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-DISCOVERY",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-OPTIMIZATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "SMP-RENEWAL-VENDOR",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+      "business_function": "Procurement",
+      "modules": [
+        {
+          "code": "SMP-DISCOVERY",
+          "interaction": "secondary"
+        },
+        {
+          "code": "SMP-OPTIMIZATION",
+          "interaction": "secondary"
+        },
+        {
+          "code": "SMP-RENEWAL-VENDOR",
+          "interaction": "primary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

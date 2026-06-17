@@ -1,0 +1,30 @@
+# Projection of live catalog DB values for the use-it-ops-starter skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: IT-OPS-STARTER
+domain_code_lower: it-ops-starter
+domain_name: "IT Operations Starter"
+module_slug: it-ops-starter
+skill_name: use-it-ops-starter
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets."
+catalog_description: |
+  One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Manage IT for a small team from one place: log and resolve helpdesk tickets and service requests, track hardware and who has each device, inventory SaaS apps and their subscriptions, watch upcoming renewal dates, keep the contracts and on-prem licenses behind them, and alert owners before anything lapses. Look up a device, an app, a subscription, or a contract, record a new ticket or request, and flag renewals that are coming due. Use for: IT asset management, ITAM, ITSM, help desk, ticketing, incident, MSP, CMDB, asset register, software asset management, SAM, license compliance, vendor agreement, autorenewal, SaaS spend, shadow IT, seat count, end of life, warranty, procurement, sysadmin, IT operations."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names: []
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-ham
+  - use-itam
+  - use-itsm
+  - use-sam
+  - use-smp

@@ -1,0 +1,36 @@
+# Projection of live catalog DB values for the use-re-brokerage skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: RE-BROKERAGE
+domain_code_lower: re-brokerage
+domain_name: "Real Estate Brokerage and Agent Operations"
+module_slug: re-brokerage
+skill_name: use-re-brokerage
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Run the brokerage from first lead to closed deal."
+catalog_description: |
+  Capture and nurture buyer and seller leads, publish listings to the MLS, schedule and track tours, and move every offer through escrow, contingencies, and closing. Calculate cooperating-broker and internal agent commission splits, keep state-mandated disclosures complete for compliance, and hand the closed transaction off to property management and accounting. Built for the way agents and brokers actually work a deal, not a generic sales pipeline.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Capture and route incoming buyer and seller leads across a brokerage's agents, manage property listings and syndicate them to the MLS, schedule showings and tours, and carry each deal from offer through contingencies and closing while keeping state-mandated disclosures complete. Calculate how the gross commission splits between cooperating brokerages and across the listing and selling agents, track each agent's pipeline, and hand the closed file to accounting. Use for: real estate CRM, escrow, transaction coordination, IDX, dual agency, co-broke, split plan, open house, deal desk, settlement statement, earnest money, comparative market analysis, franchise brokerage."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Real Estate Agent CRM
+  - Brokerage Commission Splits
+  - Real Estate Lead Capture and Routing
+  - MLS and Listing Syndication
+  - Showing and Tour Scheduling
+  - Real Estate Transaction Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-crm
+  - use-grc
+  - use-re-cre
+  - use-re-invest
+  - use-re-prop-mgmt

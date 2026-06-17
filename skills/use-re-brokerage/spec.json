@@ -1,0 +1,673 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "RE-BROKERAGE",
+    "name": "Real Estate Brokerage and Agent Operations",
+    "description": "Lead capture, transaction management (offer→close), MLS syndication, commission splits, tour scheduling, and broker CRM for residential and commercial brokerages. Buyer is the brokerage / individual agent (per-seat pricing) or the franchise (enterprise pricing). Distinct from generic CRM (deal model is the property transaction, not the sales opportunity; commissions are split across cooperating brokerages by MLS rules).",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Run the brokerage from first lead to closed deal.",
+    "catalog_description": "Capture and nurture buyer and seller leads, publish listings to the MLS, schedule and track tours, and move every offer through escrow, contingencies, and closing. Calculate cooperating-broker and internal agent commission splits, keep state-mandated disclosures complete for compliance, and hand the closed transaction off to property management and accounting. Built for the way agents and brokers actually work a deal, not a generic sales pipeline."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Sales"
+    ],
+    "contributors": [
+      "Marketing"
+    ],
+    "consumers": [
+      "Accounting"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "RE-BROK-AGENT-CRM",
+      "name": "Real Estate Agent CRM",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-COMMISSION",
+      "name": "Brokerage Commission Splits",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-LEAD-CAPTURE",
+      "name": "Real Estate Lead Capture and Routing",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-MLS-SYNDICATION",
+      "name": "MLS and Listing Syndication",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-TOUR-SCHED",
+      "name": "Showing and Tour Scheduling",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-TRANS-MGMT",
+      "name": "Real Estate Transaction Management",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "RE-BROK-AGENT-OPS",
+      "name": "Real Estate Agent Operations",
+      "kind": "full",
+      "realizes_capabilities": [
+        "RE-BROK-AGENT-CRM",
+        "RE-BROK-LEAD-CAPTURE",
+        "RE-BROK-MLS-SYNDICATION",
+        "RE-BROK-TOUR-SCHED",
+        "RE-BROK-TRANS-MGMT"
+      ],
+      "masters": [
+        "disclosure_documents",
+        "real_estate_listings",
+        "real_estate_transactions",
+        "tour_appointments"
+      ],
+      "embedded_masters": [
+        "commission_splits",
+        "crm_contacts",
+        "crm_leads"
+      ],
+      "consumers": [],
+      "description": "Agent-facing workflow from lead capture through closing. Lead nurture (writes back into CRM contributor flow), listing creation and MLS syndication, tour scheduling and execution, transaction management (offer to escrow to contingencies to close), and buyer/seller disclosure handling. The deployable unit for solo agents and small firms; agents in larger brokerages work here while broker oversight runs in BROKERAGE-OPS."
+    },
+    {
+      "code": "RE-BROK-BROKERAGE-OPS",
+      "name": "Brokerage Oversight and Commission Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "RE-BROK-COMMISSION",
+        "RE-BROK-MLS-SYNDICATION",
+        "RE-BROK-TRANS-MGMT"
+      ],
+      "masters": [
+        "commission_splits"
+      ],
+      "embedded_masters": [
+        "disclosure_documents",
+        "real_estate_transactions"
+      ],
+      "consumers": [],
+      "description": "Broker-level oversight on top of agent operations. Multi-agent commission-split engine with franchise overrides and per-agent caps, broker compliance review of transactions and disclosures, trust-account / escrow oversight, broker-level MLS conformance review. Only deployed when the brokerage has grown past informal-broker-supervision scale (typically 10+ agents)."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "commission_splits",
+      "singular_label": "Commission Split",
+      "plural_label": "Commission Splits",
+      "description": "Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "Agent Commission",
+          "source": "synonym"
+        },
+        {
+          "name": "Co-Op Commission",
+          "source": "industry_term"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "calculated",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "reviewed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "review_commission_split"
+        },
+        {
+          "name": "disputed",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "dispute_commission_split"
+        },
+        {
+          "name": "approved",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "approve_commission_split"
+        },
+        {
+          "name": "paid",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "disburse_commission"
+        }
+      ]
+    },
+    {
+      "name": "disclosure_documents",
+      "singular_label": "Disclosure Document",
+      "plural_label": "Disclosure Documents",
+      "description": "State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "Property Disclosures",
+          "source": "synonym"
+        },
+        {
+          "name": "Seller Disclosures",
+          "source": "industry_term"
+        },
+        {
+          "name": "TDS",
+          "source": "industry_term"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "delivered",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "deliver_disclosure"
+        },
+        {
+          "name": "acknowledged",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "acknowledge_disclosure"
+        },
+        {
+          "name": "rejected",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "real_estate_listings",
+      "singular_label": "Real Estate Listing",
+      "plural_label": "Real Estate Listings",
+      "description": "Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "MLS Listing",
+          "source": "industry_term"
+        },
+        {
+          "name": "Property Listing",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate_listing"
+        },
+        {
+          "name": "under_contract",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "mark_under_contract"
+        },
+        {
+          "name": "sold",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_listing"
+        },
+        {
+          "name": "withdrawn",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "withdraw_listing"
+        },
+        {
+          "name": "expired",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "real_estate_transactions",
+      "singular_label": "Real Estate Transaction",
+      "plural_label": "Real Estate Transactions",
+      "description": "Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Closing",
+          "source": "industry_term"
+        },
+        {
+          "name": "Escrow",
+          "source": "industry_term"
+        },
+        {
+          "name": "Real Estate Deal",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "opened",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "inspection",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "schedule_inspection"
+        },
+        {
+          "name": "financing",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "submit_financing"
+        },
+        {
+          "name": "contingencies_cleared",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "clear_contingencies"
+        },
+        {
+          "name": "compliance_review",
+          "order": 5,
+          "requires_permission": true,
+          "permission_verb_override": "submit_for_compliance_review"
+        },
+        {
+          "name": "cleared_to_close",
+          "order": 6,
+          "requires_permission": true,
+          "permission_verb_override": "approve_for_closing"
+        },
+        {
+          "name": "closed",
+          "order": 7,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_transaction"
+        },
+        {
+          "name": "cancelled",
+          "order": 8,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_transaction"
+        }
+      ]
+    },
+    {
+      "name": "tour_appointments",
+      "singular_label": "Tour Appointment",
+      "plural_label": "Tour Appointments",
+      "description": "Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Open House Appointment",
+          "source": "industry_term"
+        },
+        {
+          "name": "Showing",
+          "source": "industry_term"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "confirmed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "confirm_tour"
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete_tour"
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_tour"
+        },
+        {
+          "name": "no_show",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "commission_splits",
+      "verb": "has approving broker",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "commission_splits",
+      "verb": "has recipient agent",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "disclosure_documents",
+      "verb": "has preparer",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_listings",
+      "verb": "generates",
+      "to": "real_estate_transactions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_listings",
+      "verb": "has tours",
+      "to": "tour_appointments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_listings",
+      "verb": "has listing agent",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_transactions",
+      "verb": "produces commission splits",
+      "to": "commission_splits",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_transactions",
+      "verb": "requires disclosures",
+      "to": "disclosure_documents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "real_estate_transactions",
+      "verb": "has buyer-side agent",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "real_estate_transactions",
+      "verb": "has listing-side agent",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "tour_appointments",
+      "verb": "has showing agent",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10192",
+      "name": "Close the sale"
+    },
+    {
+      "external_id": "11052",
+      "name": "Negotiate and document agreements/contracts"
+    },
+    {
+      "external_id": "18115",
+      "name": "Validate and qualify leads/opportunities"
+    },
+    {
+      "external_id": "20114",
+      "name": "Submit regulatory reports"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "re-brokerage",
+      "description": "Capture and route incoming buyer and seller leads across a brokerage's agents, manage property listings and syndicate them to the MLS, schedule showings and tours, and carry each deal from offer through contingencies and closing while keeping state-mandated disclosures complete. Calculate how the gross commission splits between cooperating brokerages and across the listing and selling agents, track each agent's pipeline, and hand the closed file to accounting.",
+      "trigger_keywords": "real estate CRM, escrow, transaction coordination, IDX, dual agency, co-broke, split plan, open house, deal desk, settlement statement, earnest money, comparative market analysis, franchise brokerage",
+      "tools": [
+        {
+          "name": "create_commission_split",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_disclosure_document",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_real_estate_listing",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_real_estate_transaction",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_tour_appointment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "generate_text",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "match_listing_to_buyer_preferences",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "notify_team",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "query_commission_splits",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_contacts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_disclosure_documents",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_leads",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_real_estate_listings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_real_estate_transactions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_tour_appointments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "sign_document",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "syndicate_to_mls",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "update_commission_split",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_contact",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_disclosure_document",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_lead",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_real_estate_listing",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_real_estate_transaction",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_tour_appointment",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

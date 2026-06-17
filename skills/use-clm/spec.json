@@ -1,0 +1,1352 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "CLM",
+    "name": "Contract Lifecycle Management",
+    "description": "Authoring, negotiation, execution, and post-signature management of contracts.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Draft, negotiate, sign, and track every contract from first draft through renewal in one place.",
+    "catalog_description": "Manage the entire life of a contract without losing the thread. Author new agreements from a library of pre-approved clauses and templates, route them through legal and business review, and capture redlines as counterparties negotiate. When terms are settled, send for electronic signature and store the executed document in a searchable repository.\n\nAfter signing, the work continues: track the obligations each contract creates, get ahead of due dates and renewals, and know the moment a commitment is satisfied, breached, or waived. Every contract stays current, every deadline stays visible, and the organization always knows what it has agreed to."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Contract Operations"
+    ],
+    "contributors": [
+      "Procurement",
+      "Sales"
+    ],
+    "consumers": []
+  },
+  "capabilities": [
+    {
+      "code": "APPROVAL-WORKFLOW",
+      "name": "Approval Workflow Orchestration",
+      "cross_cutting": true
+    },
+    {
+      "code": "CLM-AI-RISK-DETECTION",
+      "name": "AI Clause-Risk Detection",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-CLAUSE-LIBRARY-MGMT",
+      "name": "Clause Library Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-CONTRACT-AUTHORING",
+      "name": "Contract Authoring",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-CONTRACT-REPOSITORY",
+      "name": "Contract Repository",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-OBLIGATION-EXTRACTION",
+      "name": "Obligation Extraction",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-REDLINING-NEGOTIATION",
+      "name": "Redlining and Negotiation",
+      "cross_cutting": false
+    },
+    {
+      "code": "CLM-RENEWAL-MGMT",
+      "name": "Renewal Management",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "CLM-AUTHORING",
+      "name": "Contract Authoring",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CLM-CLAUSE-LIBRARY-MGMT",
+        "CLM-CONTRACT-AUTHORING"
+      ],
+      "masters": [
+        "clause_libraries",
+        "contract_clauses",
+        "contract_templates"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "contract_drafts",
+        "sourcing_events"
+      ],
+      "description": "Template-driven contract drafting with the approved clause library. Masters contract_templates and contract_clauses; produces draft legal_contracts that flow into CLM-NEGOTIATION. Realizes CLM-CONTRACT-AUTHORING and CLM-CLAUSE-LIBRARY-MGMT."
+    },
+    {
+      "code": "CLM-NEGOTIATION",
+      "name": "Negotiation and Redlining",
+      "kind": "full",
+      "realizes_capabilities": [
+        "APPROVAL-WORKFLOW",
+        "CLM-AI-RISK-DETECTION",
+        "CLM-REDLINING-NEGOTIATION"
+      ],
+      "masters": [
+        "contract_negotiation_threads",
+        "contract_risk_assessments",
+        "negotiation_playbooks"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Track-changes negotiation with counterparty exchange, version comparison, and clause-risk detection. Consumes legal_contracts and contract_clauses; gates the in_negotiation -> approved lifecycle transition. Requires sign_document for signature workflow; coverage drops below 100% on the sign_document leg."
+    },
+    {
+      "code": "CLM-OBLIGATION-MGMT",
+      "name": "Obligation Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CLM-OBLIGATION-EXTRACTION"
+      ],
+      "masters": [
+        "contract_milestones",
+        "contract_obligations"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Register, tracking, and alerting for contract obligations (deliverables, SLA milestones, payment terms). Masters contract_obligations. Publishes obligation.due and obligation.breached events that fan out to OP-RES / GRC."
+    },
+    {
+      "code": "CLM-RENEWAL",
+      "name": "Renewal Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CLM-RENEWAL-MGMT"
+      ],
+      "masters": [
+        "contract_renewal_records"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Date-based renewal alerting, auto-renewal-clause detection, and renewal execution. Consumes legal_contracts; publishes renewal.30_day_warning and legal_contract.renewed. Distinct from amendments which run through CLM-REPOSITORY."
+    },
+    {
+      "code": "CLM-REPOSITORY",
+      "name": "Contract Repository",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CLM-CONTRACT-REPOSITORY"
+      ],
+      "masters": [
+        "contract_amendments",
+        "contract_counterparties",
+        "data_protection_addenda",
+        "legal_contracts",
+        "signature_records"
+      ],
+      "embedded_masters": [
+        "org_units"
+      ],
+      "consumers": [
+        "envelopes"
+      ],
+      "description": "Executed-contract index. Masters legal_contracts (post-signature) and signature_records. Contributes terms to saas_subscriptions and software_licenses (the buyer-side records that consume contract terms). The system of record for the active, expired, renewed, and terminated lifecycle states."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "clause_libraries",
+      "singular_label": "Clause Library",
+      "plural_label": "Clause Libraries",
+      "description": "A versioned, governed collection of approved contract clauses, often organized by jurisdiction or contract type, that authors draw from.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "clause bank",
+          "source": "synonym"
+        },
+        {
+          "name": "clause set",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "contract_amendments",
+      "singular_label": "Contract Amendment",
+      "plural_label": "Contract Amendments",
+      "description": "A formal change to the terms of an executed contract, tracked as its own record with an approval and signature trail.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "amendment",
+          "source": "synonym"
+        },
+        {
+          "name": "change order",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafting",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20
+        },
+        {
+          "name": "approved",
+          "order": 30,
+          "requires_permission": true
+        },
+        {
+          "name": "executed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "contract_clauses",
+      "singular_label": "Contract Clause",
+      "plural_label": "Contract Clauses",
+      "description": "Reusable clause library: preferred and fallback language for indemnification, IP, termination, SLA, payment terms, data-protection, AI-use, audit rights. Drives consistency in authoring and accelerates negotiation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "clause",
+          "source": "synonym"
+        },
+        {
+          "name": "provision",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20
+        },
+        {
+          "name": "approved",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "approve_contract_clause"
+        },
+        {
+          "name": "published",
+          "order": 40
+        },
+        {
+          "name": "deprecated",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deprecate_contract_clause"
+        }
+      ]
+    },
+    {
+      "name": "contract_counterparties",
+      "singular_label": "Contract Counterparty",
+      "plural_label": "Contract Counterparties",
+      "description": "The external party to a contract, held as its own record because a counterparty is not always a CRM account or supplier and may sign many contracts.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "contracting party",
+          "source": "synonym"
+        },
+        {
+          "name": "counterparty",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "contract_milestones",
+      "singular_label": "Contract Milestone",
+      "plural_label": "Contract Milestones",
+      "description": "A date-driven checkpoint in a contract (for example a delivery date or review date), distinct from a deliverable obligation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "contract checkpoint",
+          "source": "synonym"
+        },
+        {
+          "name": "milestone",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "reached",
+          "order": 20,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "missed",
+          "order": 30,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "contract_negotiation_threads",
+      "singular_label": "Negotiation Thread",
+      "plural_label": "Negotiation Threads",
+      "description": "A structured thread of negotiation rounds and counterparty exchanges on a contract, separate from the clauses and the contract itself.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "negotiation round",
+          "source": "synonym"
+        },
+        {
+          "name": "redline thread",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_discussion",
+          "order": 20
+        },
+        {
+          "name": "resolved",
+          "order": 30,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "contract_obligations",
+      "singular_label": "Contract Obligation",
+      "plural_label": "Contract Obligations",
+      "description": "Specific performance, payment, delivery, reporting, or compliance commitment extracted from a contract, each with its own owner, due date, and status. Post-signature obligation tracking is where contracts deliver (or fail to deliver) value.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SLA commitment",
+          "source": "synonym"
+        },
+        {
+          "name": "commitment",
+          "source": "synonym"
+        },
+        {
+          "name": "obligation",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 20
+        },
+        {
+          "name": "due",
+          "order": 30
+        },
+        {
+          "name": "satisfied",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_contract_obligation"
+        },
+        {
+          "name": "breached",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "mark_obligation_breached"
+        },
+        {
+          "name": "waived",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "waive_contract_obligation"
+        }
+      ]
+    },
+    {
+      "name": "contract_renewal_records",
+      "singular_label": "Contract Renewal Record",
+      "plural_label": "Contract Renewal Records",
+      "description": "A record of a single renewal of an existing contract, capturing the renewed term, pricing, and outcome distinct from the original agreement.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "renewal",
+          "source": "synonym"
+        },
+        {
+          "name": "renewal record",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 20
+        },
+        {
+          "name": "renewed",
+          "order": 30,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "lapsed",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "contract_risk_assessments",
+      "singular_label": "Contract Risk Assessment",
+      "plural_label": "Contract Risk Assessments",
+      "description": "A structured assessment of the legal or commercial risk in a contract or clause, produced during review and dispositioned by a reviewer.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "compliance score",
+          "source": "synonym"
+        },
+        {
+          "name": "risk score",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "flagged",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "under_review",
+          "order": 20
+        },
+        {
+          "name": "accepted",
+          "order": 30,
+          "is_terminal": true,
+          "requires_permission": true
+        },
+        {
+          "name": "mitigated",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "contract_templates",
+      "singular_label": "Contract Template",
+      "plural_label": "Contract Templates",
+      "description": "Pre-approved drafts (NDA, MSA, DPA, SOW, order form) assembled from the clause library, used to author new contracts. Carries versioning, approval state, and risk-tier classification.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "template",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20
+        },
+        {
+          "name": "approved",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "approve_contract_template"
+        },
+        {
+          "name": "published",
+          "order": 40
+        },
+        {
+          "name": "deprecated",
+          "order": 50,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deprecate_contract_template"
+        }
+      ]
+    },
+    {
+      "name": "data_protection_addenda",
+      "singular_label": "Data Protection Addendum",
+      "plural_label": "Data Protection Addenda",
+      "description": "A data processing addendum attached to a contract that governs how personal data is handled, with its own approval and renewal cycle.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "DPA",
+          "source": "synonym"
+        },
+        {
+          "name": "data processing addendum",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafting",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 20,
+          "requires_permission": true
+        },
+        {
+          "name": "expired",
+          "order": 30,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "legal_contracts",
+      "singular_label": "Contract",
+      "plural_label": "Contracts",
+      "description": "Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object, CLM owns the document, S2P and SMP contribute context.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "MSA",
+          "source": "synonym"
+        },
+        {
+          "name": "agreement",
+          "source": "synonym"
+        },
+        {
+          "name": "contract",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20
+        },
+        {
+          "name": "in_negotiation",
+          "order": 30
+        },
+        {
+          "name": "approved",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "approve_legal_contract"
+        },
+        {
+          "name": "out_for_signature",
+          "order": 50
+        },
+        {
+          "name": "signed",
+          "order": 60,
+          "requires_permission": true,
+          "permission_verb_override": "execute_legal_contract"
+        },
+        {
+          "name": "active",
+          "order": 70
+        },
+        {
+          "name": "amended",
+          "order": 75,
+          "requires_permission": true,
+          "permission_verb_override": "amend_legal_contract"
+        },
+        {
+          "name": "expired",
+          "order": 80,
+          "is_terminal": true
+        },
+        {
+          "name": "terminated",
+          "order": 90,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "terminate_legal_contract"
+        },
+        {
+          "name": "renewed",
+          "order": 100,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "renew_legal_contract"
+        }
+      ]
+    },
+    {
+      "name": "negotiation_playbooks",
+      "singular_label": "Negotiation Playbook",
+      "plural_label": "Negotiation Playbooks",
+      "description": "A set of negotiation rules and fallback positions that guide how clauses may be redlined and what concessions are pre-approved.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "negotiation guide",
+          "source": "synonym"
+        },
+        {
+          "name": "playbook",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "signature_records",
+      "singular_label": "Signature Record",
+      "plural_label": "Signature Records",
+      "description": "E-signature envelope: signing audit trail, IP addresses, external e-signature provider envelope and document reference IDs, and the signed PDF artifact. Distinct from contracts, one contract may have many signature events (counterpart, amendment, renewal).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "execution record",
+          "source": "synonym"
+        },
+        {
+          "name": "signature",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 20
+        },
+        {
+          "name": "in_progress",
+          "order": 30
+        },
+        {
+          "name": "completed",
+          "order": 40,
+          "is_terminal": true
+        },
+        {
+          "name": "declined",
+          "order": 50,
+          "is_terminal": true
+        },
+        {
+          "name": "voided",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "void_signature_record"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "clause_libraries",
+      "verb": "contains",
+      "to": "contract_clauses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "contract_counterparties",
+      "verb": "is party to",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "contract_drafts",
+      "verb": "drafts",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "contract_templates",
+      "verb": "defines",
+      "to": "contract_clauses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "contract_templates",
+      "verb": "published_to",
+      "to": "contract_drafts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "contract_templates",
+      "verb": "seeds",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "envelopes",
+      "verb": "yields",
+      "to": "signature_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "is amended by",
+      "to": "contract_amendments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "contains",
+      "to": "contract_clauses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "has milestone",
+      "to": "contract_milestones",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "is negotiated in",
+      "to": "contract_negotiation_threads",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "imposes",
+      "to": "contract_obligations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "is renewed by",
+      "to": "contract_renewal_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "is assessed by",
+      "to": "contract_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "has data protection addendum",
+      "to": "data_protection_addenda",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "legal_contracts",
+      "verb": "witnessed_by",
+      "to": "signature_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "negotiation_playbooks",
+      "verb": "defines positions for",
+      "to": "contract_clauses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "sourcing_events",
+      "verb": "originates",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "contract_amendments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approved",
+      "to": "contract_clauses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "contract_milestones",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "participates in",
+      "to": "contract_negotiation_threads",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "is obligation owner for",
+      "to": "contract_obligations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "contract_renewal_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "reviews",
+      "to": "contract_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approved",
+      "to": "contract_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "contract_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "data_protection_addenda",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approved",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "drafted",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "legal_contracts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "signed",
+      "to": "signature_records",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10183",
+      "name": "Manage customers and accounts"
+    },
+    {
+      "external_id": "10218",
+      "name": "Service products"
+    },
+    {
+      "external_id": "10222",
+      "name": "Manage demand for products"
+    },
+    {
+      "external_id": "10395",
+      "name": "Resolve customer problems, requests, and inquiries"
+    },
+    {
+      "external_id": "11052",
+      "name": "Negotiate and document agreements/contracts"
+    },
+    {
+      "external_id": "20722",
+      "name": "Evaluate enterprise regulatory and compliance obligations"
+    },
+    {
+      "external_id": "21634",
+      "name": "Manage and Operate Service Delivery System"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "clm",
+      "description": "Draft new contracts from a library of approved clauses and templates, route each agreement through legal and business review, and capture redlines as counterparties negotiate. Send for electronic signature, store the executed document in a searchable repository, then extract the obligations and milestones each contract creates and alert ahead of upcoming due dates and renewals.",
+      "trigger_keywords": "CLM, contract lifecycle management, e-sign, NDA, MSA, SOW, statement of work, master service agreement, non-disclosure agreement, evergreen, auto-renewal, expiration, breach, waiver, amendment, addendum, contract analytics, legal ops, deal desk, executed contract",
+      "tools": [
+        {
+          "name": "amend_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_contract_clause",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_contract_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "close_contract_obligation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_contract_clause",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_contract_obligation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_contract_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_signature_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deprecate_contract_clause",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deprecate_contract_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "detect_clause_risk",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "execute_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "extract_obligations",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "generate_redline",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "mark_obligation_breached",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "publish_contract_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_contract_clauses",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_contract_drafts",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_contract_obligations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_contract_templates",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_envelopes",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_legal_contracts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_signature_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_sourcing_events",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "renew_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sign_document",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "terminate_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_contract_clause",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_contract_obligation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_contract_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_legal_contract",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "void_signature_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "waive_contract_obligation",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "CONTRACT-OPS-MANAGER",
+      "business_function": "Contract Operations",
+      "modules": [
+        {
+          "code": "CLM-AUTHORING",
+          "interaction": "secondary"
+        },
+        {
+          "code": "CLM-NEGOTIATION",
+          "interaction": "secondary"
+        },
+        {
+          "code": "CLM-OBLIGATION-MGMT",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-RENEWAL",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-REPOSITORY",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "CONTRACT-OPS-SPECIALIST",
+      "business_function": "Contract Operations",
+      "modules": [
+        {
+          "code": "CLM-AUTHORING",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-OBLIGATION-MGMT",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-RENEWAL",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-REPOSITORY",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "LEGAL-COUNSEL",
+      "business_function": "Legal",
+      "modules": [
+        {
+          "code": "CLM-AUTHORING",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-NEGOTIATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "CLM-REPOSITORY",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "PROCUREMENT-CONTRACT-LIAISON",
+      "business_function": "Procurement",
+      "modules": [
+        {
+          "code": "CLM-AUTHORING",
+          "interaction": "secondary"
+        },
+        {
+          "code": "CLM-NEGOTIATION",
+          "interaction": "secondary"
+        },
+        {
+          "code": "CLM-REPOSITORY",
+          "interaction": "secondary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

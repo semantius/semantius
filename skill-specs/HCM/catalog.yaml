@@ -1,0 +1,54 @@
+# Projection of live catalog DB values for the use-hcm skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: HCM
+domain_code_lower: hcm
+domain_name: "Human Capital Management"
+module_slug: hcm
+skill_name: use-hcm
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Run the single source of truth for your workforce, from the employee record to org structure, positions, and the full hire-to-retire lifecycle."
+catalog_description: |
+  Human Capital Management is the system of record for your people. Maintain every worker's core profile, employment contracts, and the org structure they sit in, then drive each change through a governed workflow: hiring, transfers, promotions, leaves of absence, and offboarding. Self-service lets employees and managers raise and track their own changes while HR retains approval control.
+
+  Because the worker record is authoritative, the lifecycle events you record here ripple cleanly downstream: a new hire provisions access and payroll, a termination recalls assets and closes accounts, a promotion updates compensation. You define jobs and positions once, plan headcount against them, and keep compliance evidence in step with the regulations that apply to your workforce.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Maintain the authoritative worker record (profiles, addresses, national IDs, emergency contacts, dependents, work-eligibility documents) and employment contracts; design the org structure with job profiles, positions, and org units; plan headcount against budgeted roles; and drive every people change through governed lifecycle workflows: hiring and onboarding, transfers, promotions, leaves, and offboarding. Let employees and managers raise and track self-service change requests while HR keeps approval control, and keep compliance evidence current. Use for: HRIS, HRMS, core HR, personnel file, employee data, reporting lines, span of control, FTE, new starter, leaver, termination, separation, joiner mover leaver, secondment, reorg, effective dating, approval routing, people operations, system of record."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Approval Workflow Orchestration
+  - Core HR Record
+  - HR Regulatory Compliance
+  - Employee Offboarding
+  - Employee Onboarding
+  - Organisation and Position Management
+  - Employee and Manager Self-Service
+  - Workforce Planning
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-agency-mgmt
+  - use-ats
+  - use-ben-admin
+  - use-comp-mgmt
+  - use-expense
+  - use-fin
+  - use-hrsd
+  - use-iga
+  - use-itam
+  - use-itsm
+  - use-lms
+  - use-onboarding
+  - use-pa
+  - use-payroll
+  - use-psa
+  - use-skills-mgmt
+  - use-swp
+  - use-talent-mgmt
+  - use-wfm

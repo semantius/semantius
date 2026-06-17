@@ -1,0 +1,2069 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "WORK-MGMT",
+    "name": "Work Management",
+    "description": "Task, project, and workflow management for cross-functional work: assignments with owners and due dates, dependencies, statuses, dashboards, automations, and goal/OKR tracking. Bought by PMOs, BizOps, marketing, and any team running structured work that isn't engineering-specific. Distinct from SPM (top-down portfolio investment decision, CIO/EPMO buyer), from PSA (services billing/utilization for revenue-generating projects), and from dedicated software-engineering sprint tooling (developer-specific dev workflow).",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Run every team's projects, tasks, and goals in one place, from first request to finished work.",
+    "catalog_description": "Bring structured work out of scattered spreadsheets and inboxes. Create projects, break them into assignable tasks with owners and due dates, map dependencies, and watch progress on boards, timelines, and dashboards that update as the work moves.\n\nSet team objectives and key results, then connect them to the tasks that move them so progress rolls up automatically. Standardize repeatable work with templates, and let automations handle status changes, reminders, and routing.\n\nBuilt for operations, marketing, and any team running cross-functional work that needs one shared view of who is doing what, by when."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Business Operations"
+    ],
+    "contributors": [
+      "Customer Success",
+      "Marketing",
+      "Product Management"
+    ],
+    "consumers": [
+      "Sales"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "APPROVAL-WORKFLOW",
+      "name": "Approval Workflow Orchestration",
+      "cross_cutting": true
+    },
+    {
+      "code": "CREATIVE-REVIEW",
+      "name": "Creative Proofing and Approval",
+      "cross_cutting": true
+    },
+    {
+      "code": "GOAL-MGMT",
+      "name": "Goals and OKR Management",
+      "cross_cutting": true
+    },
+    {
+      "code": "WORK-CAPACITY",
+      "name": "Resource Capacity and Workload Visibility",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORK-DASHBOARDS",
+      "name": "Cross-Project Dashboards",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORK-DEPS-SCHED",
+      "name": "Dependency-Based Scheduling and Gantt",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORK-INTAKE-FORMS",
+      "name": "Request Intake and Form Routing",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORK-TASK-MGMT",
+      "name": "Task Management and Assignment",
+      "cross_cutting": false
+    },
+    {
+      "code": "WORK-WORKFLOW-AUTO",
+      "name": "Workflow Automation",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "WORK-MGMT-GOALS-OKR",
+      "name": "Team-Execution Goals and OKRs",
+      "kind": "full",
+      "realizes_capabilities": [
+        "GOAL-MGMT"
+      ],
+      "masters": [
+        "okr_check_ins",
+        "okr_key_results",
+        "okr_objectives",
+        "work_goal_links"
+      ],
+      "embedded_masters": [
+        "work_items"
+      ],
+      "consumers": [],
+      "description": "Team-execution OKR tracking surface: objectives with key results that link to work items for automatic progress rollup, weekly check-in cadences, scoring, and closure. Deploys alongside the task-execution module for full integration, or standalone with a thin embedded work-item shell for KR linking."
+    },
+    {
+      "code": "WORK-MGMT-INTAKE",
+      "name": "Request Intake",
+      "kind": "full",
+      "realizes_capabilities": [
+        "WORK-INTAKE-FORMS"
+      ],
+      "masters": [
+        "work_form_submissions",
+        "work_forms"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Structured request-intake surface: form definitions, form submissions, routing rules. Pre-task surface that converts a submission into a work_item in the target TASK-EXEC project. Backs the WORK-INTAKE-FORMS capability with entities. Vendor reference: Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms."
+    },
+    {
+      "code": "WORK-MGMT-TASK-EXEC",
+      "name": "Task and Project Execution",
+      "kind": "full",
+      "realizes_capabilities": [
+        "APPROVAL-WORKFLOW",
+        "CREATIVE-REVIEW",
+        "WORK-CAPACITY",
+        "WORK-DASHBOARDS",
+        "WORK-DEPS-SCHED",
+        "WORK-TASK-MGMT",
+        "WORK-WORKFLOW-AUTO"
+      ],
+      "masters": [
+        "proofing_annotations",
+        "proofing_sessions",
+        "work_approval_chains",
+        "work_approval_steps",
+        "work_automations",
+        "work_custom_field_values",
+        "work_custom_fields",
+        "work_dashboards",
+        "work_dependencies",
+        "work_item_attachments",
+        "work_item_comments",
+        "work_item_tags",
+        "work_items",
+        "work_milestones",
+        "work_portfolios",
+        "work_project_templates",
+        "work_projects",
+        "work_sections",
+        "work_status_updates",
+        "work_statuses",
+        "work_tags",
+        "work_task_templates",
+        "work_time_entries",
+        "work_user_workloads",
+        "work_views"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "action_plans",
+        "business_value_assessments",
+        "crm_opportunities",
+        "feature_requests",
+        "product_releases",
+        "product_roadmaps",
+        "project_assignments",
+        "project_tasks",
+        "strategic_initiatives",
+        "strategic_portfolios"
+      ],
+      "description": "Cross-functional task and project execution surface: work items with owners, due dates, dependencies, statuses, and assignments; project containers with timelines, dashboards, and board views; user-authored automation rules that fire on item state changes. The deployable substrate every team-based work-management product orbits."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "okr_check_ins",
+      "singular_label": "OKR Check-in",
+      "plural_label": "OKR Check-ins",
+      "description": "Periodic status update on an okr_objective or key_result during the active cycle. Cadence-of-record (weekly/bi-weekly) for OKR programs. May discuss individual performance, flagged as personal content.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "check_in",
+          "source": "synonym"
+        },
+        {
+          "name": "goal_update",
+          "source": "synonym"
+        },
+        {
+          "name": "status_check_in",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "okr_key_results",
+      "singular_label": "Key Result",
+      "plural_label": "Key Results",
+      "description": "Measurable result attached to an okr_objective. The unit of scoring on OKR programs, vendors universally model KR as first-class (Asana, Monday, ClickUp, Workfront).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "KR",
+          "source": "synonym"
+        },
+        {
+          "name": "key_result",
+          "source": "synonym"
+        },
+        {
+          "name": "subgoal",
+          "source": "synonym"
+        },
+        {
+          "name": "target",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "committed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "commit_okr_key_result"
+        },
+        {
+          "name": "in_progress",
+          "order": 3
+        },
+        {
+          "name": "at_risk",
+          "order": 4
+        },
+        {
+          "name": "achieved",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "achieve_okr_key_result"
+        },
+        {
+          "name": "missed",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "miss_okr_key_result"
+        }
+      ]
+    },
+    {
+      "name": "okr_objectives",
+      "singular_label": "Objective / OKR",
+      "plural_label": "Objective / OKRs",
+      "description": "Hierarchical objective with measurable key results, weighted progress rollup from child objectives or linked work_items, owner accountability, and cadence (quarterly/annual). Mastered by three distinct domains: WORK-MGMT (team-level execution OKRs), SPM (strategic portfolio OKRs), TALENT-MGMT (individual performance-management OKRs). Same primitive, three different lifecycles and review processes, canonical Signal-1 multi-master.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "OKR",
+          "source": "synonym"
+        },
+        {
+          "name": "goal",
+          "source": "synonym"
+        },
+        {
+          "name": "objective",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "committed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "commit_okr_objective"
+        },
+        {
+          "name": "in_progress",
+          "order": 3
+        },
+        {
+          "name": "scored",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "score_okr_objective"
+        },
+        {
+          "name": "closed",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "proofing_annotations",
+      "singular_label": "Proofing Annotation",
+      "plural_label": "Proofing Annotations",
+      "description": "Markup comment placed on a region of a proof during a proofing session, with the reviewer, location, and resolution state.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "annotation",
+          "source": "synonym"
+        },
+        {
+          "name": "markup",
+          "source": "synonym"
+        },
+        {
+          "name": "proof_comment",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "proofing_sessions",
+      "singular_label": "Proofing Session",
+      "plural_label": "Proofing Sessions",
+      "description": "Review-and-approval cycle on a creative asset or document attached to a work item. Reviewers mark up the proof and decide approve or request-changes; backs the creative-review capability.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "approval_round",
+          "source": "synonym"
+        },
+        {
+          "name": "creative_review",
+          "source": "synonym"
+        },
+        {
+          "name": "proof",
+          "source": "synonym"
+        },
+        {
+          "name": "review_round",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 2
+        },
+        {
+          "name": "changes_requested",
+          "order": 3
+        },
+        {
+          "name": "approved",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_proofing_session"
+        },
+        {
+          "name": "rejected",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_proofing_session"
+        }
+      ]
+    },
+    {
+      "name": "work_approval_chains",
+      "singular_label": "Approval Chain",
+      "plural_label": "Approval Chains",
+      "description": "Ordered or parallel set of work_approval_steps gating a work_item or work_project transition. Backs the APPROVAL-WORKFLOW capability (cross-cutting; this is the WORK-MGMT realization).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "approval_chain",
+          "source": "synonym"
+        },
+        {
+          "name": "approval_route",
+          "source": "synonym"
+        },
+        {
+          "name": "approval_workflow",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "initiated",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_chain"
+        },
+        {
+          "name": "rejected",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_chain"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_approval_chain"
+        }
+      ]
+    },
+    {
+      "name": "work_approval_steps",
+      "singular_label": "Approval Step",
+      "plural_label": "Approval Steps",
+      "description": "Single approval gate on a work_item or work_project, performed by a designated approver. Belongs to a work_approval_chain. Per-step states: pending / approved / rejected / expired.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "approval_node",
+          "source": "synonym"
+        },
+        {
+          "name": "approval_step",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_step"
+        },
+        {
+          "name": "rejected",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_step"
+        },
+        {
+          "name": "expired",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_automations",
+      "singular_label": "Work Automation",
+      "plural_label": "Work Automations",
+      "description": "Trigger-action rule defined per board/project: status change, due date, assignment, form submission as triggers; multi-step actions with conditions, time delays, and external integrations. The user-authored behavior layer on top of the data primitives.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "recipe",
+          "source": "synonym"
+        },
+        {
+          "name": "rule",
+          "source": "synonym"
+        },
+        {
+          "name": "workflow",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "enabled",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "enable_work_automation"
+        },
+        {
+          "name": "disabled",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "disable_work_automation"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_custom_field_values",
+      "singular_label": "Custom Field Value",
+      "plural_label": "Custom Field Values",
+      "description": "Per-work_item value for a work_custom_field. Junction-style master: tuple (work_item, work_custom_field, value). Monday column_values, Asana custom_field_values, Smartsheet cells.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "cell",
+          "source": "synonym"
+        },
+        {
+          "name": "column_value",
+          "source": "synonym"
+        },
+        {
+          "name": "custom_value",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_custom_fields",
+      "singular_label": "Custom Field",
+      "plural_label": "Custom Fields",
+      "description": "User-defined field attached to a work_project or workspace, typed (text, number, date, select, etc.). Applies to all work_items in scope. Monday columns / Asana custom fields / ClickUp custom fields / Workfront / Smartsheet column types.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "column",
+          "source": "synonym"
+        },
+        {
+          "name": "column_type",
+          "source": "synonym"
+        },
+        {
+          "name": "custom_field",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_dashboards",
+      "singular_label": "Work Dashboard",
+      "plural_label": "Work Dashboards",
+      "description": "Saved, shareable cross-project dashboard composed of configurable widgets that summarize work progress, workload, and goal status. Backs the cross-project dashboards capability.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "dashboard",
+          "source": "synonym"
+        },
+        {
+          "name": "overview",
+          "source": "synonym"
+        },
+        {
+          "name": "report_view",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_dependencies",
+      "singular_label": "Work Dependency",
+      "plural_label": "Work Dependencies",
+      "description": "Typed dependency between two work_items: predecessor/successor with type (FS finish-to-start, SS start-to-start, FF finish-to-finish, SF start-to-finish). Backs the WORK-DEPS-SCHED capability. Modeled by Asana, Monday, ClickUp, Workfront, Smartsheet.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "dependency",
+          "source": "synonym"
+        },
+        {
+          "name": "predecessor",
+          "source": "synonym"
+        },
+        {
+          "name": "successor",
+          "source": "synonym"
+        },
+        {
+          "name": "task_dependency",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_form_submissions",
+      "singular_label": "Form Submission",
+      "plural_label": "Form Submissions",
+      "description": "Submitted instance of a work_form. Carries field values, submitter, timestamp. Converts to a work_item via routing rules. May contain personal content from form fields (requester name/email).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "form_submission",
+          "source": "synonym"
+        },
+        {
+          "name": "request",
+          "source": "synonym"
+        },
+        {
+          "name": "submission",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "submitted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "triaged",
+          "order": 2
+        },
+        {
+          "name": "converted",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "convert_form_submission"
+        },
+        {
+          "name": "rejected",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_form_submission"
+        }
+      ]
+    },
+    {
+      "name": "work_forms",
+      "singular_label": "Form",
+      "plural_label": "Forms",
+      "description": "Structured intake form definition: schema (fields, validation), target project, routing rules. Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "form",
+          "source": "synonym"
+        },
+        {
+          "name": "intake_form",
+          "source": "synonym"
+        },
+        {
+          "name": "request_queue",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish_work_form"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_goal_links",
+      "singular_label": "Work-to-Goal Link",
+      "plural_label": "Work-to-Goal Links",
+      "description": "Contribution link between a work item or project and an okr_objective so that goal progress can roll up from the work that drives it.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "alignment",
+          "source": "synonym"
+        },
+        {
+          "name": "contribution_link",
+          "source": "synonym"
+        },
+        {
+          "name": "goal_link",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_item_attachments",
+      "singular_label": "Item Attachment",
+      "plural_label": "Item Attachments",
+      "description": "File or external link attached to a work_item. May reference embedded content or platform-managed storage.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "attachment",
+          "source": "synonym"
+        },
+        {
+          "name": "document",
+          "source": "synonym"
+        },
+        {
+          "name": "file",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_item_comments",
+      "singular_label": "Item Comment",
+      "plural_label": "Item Comments",
+      "description": "Threaded comment on a work_item. Asana stories / Monday updates / ClickUp comments / Workfront updates / Smartsheet conversations. May include personal or sensitive content.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "comment",
+          "source": "synonym"
+        },
+        {
+          "name": "conversation",
+          "source": "synonym"
+        },
+        {
+          "name": "story",
+          "source": "synonym"
+        },
+        {
+          "name": "update",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_item_tags",
+      "singular_label": "Item Tag Assignment",
+      "plural_label": "Item Tag Assignments",
+      "description": "Junction master between work_items and work_tags. Carries no qualifier of its own; existence asserts the tag is applied.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "tag_assignment",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_items",
+      "singular_label": "Work Item",
+      "plural_label": "Work Items",
+      "description": "Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "card",
+          "source": "synonym"
+        },
+        {
+          "name": "task",
+          "source": "synonym"
+        },
+        {
+          "name": "ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "blocked",
+          "order": 3
+        },
+        {
+          "name": "done",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel_work_item"
+        }
+      ]
+    },
+    {
+      "name": "work_milestones",
+      "singular_label": "Milestone",
+      "plural_label": "Milestones",
+      "description": "Zero-duration gate within a work_project marking a meaningful transition. Distinct from a regular work_item by gate semantics (passed/missed). Asana, Monday, ClickUp, Workfront, Smartsheet all model.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "gate",
+          "source": "synonym"
+        },
+        {
+          "name": "milestone",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "reached",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reach_work_milestone"
+        },
+        {
+          "name": "missed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "miss_work_milestone"
+        }
+      ]
+    },
+    {
+      "name": "work_portfolios",
+      "singular_label": "Work Portfolio",
+      "plural_label": "Work Portfolios",
+      "description": "Team-level grouping of related projects for cross-project status roll-up. Distinct from the top-down strategic portfolio mastered in the strategic-portfolio domain.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "portfolio",
+          "source": "synonym"
+        },
+        {
+          "name": "program",
+          "source": "synonym"
+        },
+        {
+          "name": "project_group",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_project_templates",
+      "singular_label": "Project Template",
+      "plural_label": "Project Templates",
+      "description": "Reusable work_project blueprint with seeded sections, items, custom fields, and automations. Universal across all 5 flagships; central to enterprise rollout patterns.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "project_template",
+          "source": "synonym"
+        },
+        {
+          "name": "template",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish_project_template"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_projects",
+      "singular_label": "Work Project",
+      "plural_label": "Work Projects",
+      "description": "Container of work_items, regardless of platform-specific terminology (project, board, sheet, space/list). Has timeline, status, owner, members, dashboards, and embedded views.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "board",
+          "source": "synonym"
+        },
+        {
+          "name": "project",
+          "source": "synonym"
+        },
+        {
+          "name": "workspace",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "planning",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "on_hold",
+          "order": 3
+        },
+        {
+          "name": "completed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete_work_project"
+        },
+        {
+          "name": "archived",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_sections",
+      "singular_label": "Section",
+      "plural_label": "Sections",
+      "description": "Container within a work_project that groups work_items for board/list views. Asana sections / Monday groups / ClickUp statuses-as-columns / Workfront statuses / Smartsheet parent rows.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "group",
+          "source": "synonym"
+        },
+        {
+          "name": "section",
+          "source": "synonym"
+        },
+        {
+          "name": "status_column",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_status_updates",
+      "singular_label": "Work Status Update",
+      "plural_label": "Work Status Updates",
+      "description": "Logged status-change event on a work item or project capturing the prior status, the new status, who changed it, and when.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "status_change",
+          "source": "synonym"
+        },
+        {
+          "name": "status_log",
+          "source": "synonym"
+        },
+        {
+          "name": "update",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_statuses",
+      "singular_label": "Work Status",
+      "plural_label": "Work Statuses",
+      "description": "Configurable status value in a project's or team's status taxonomy, with its category (not started, in progress, done) and display order.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "stage",
+          "source": "synonym"
+        },
+        {
+          "name": "status",
+          "source": "synonym"
+        },
+        {
+          "name": "status_option",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_tags",
+      "singular_label": "Tag",
+      "plural_label": "Tags",
+      "description": "Free-form label attached to work_items for cross-cutting categorization (priority, theme, status). Many-to-many to work_items via work_item_tags.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "label",
+          "source": "synonym"
+        },
+        {
+          "name": "tag",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_task_templates",
+      "singular_label": "Task Template",
+      "plural_label": "Task Templates",
+      "description": "Reusable work_item blueprint with seeded assignee role, due-date offset, subtasks, and custom field defaults. Used for recurring or templated work creation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "task_template",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish_task_template"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "work_time_entries",
+      "singular_label": "Work Time Entry",
+      "plural_label": "Work Time Entries",
+      "description": "Non-billable time logged against a work item for effort tracking and capacity reporting. Billable worklog with rate, utilization, and invoice stays mastered in the services-billing domain and is consumed, not re-mastered, here.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "effort_entry",
+          "source": "synonym"
+        },
+        {
+          "name": "logged_time",
+          "source": "synonym"
+        },
+        {
+          "name": "time_log",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_user_workloads",
+      "singular_label": "Workload",
+      "plural_label": "Workloads",
+      "description": "Per-user, per-period sum of allocated effort on work_items, with capacity ceiling. Backs the WORK-CAPACITY capability. Continuous-numeric, not state-driven. May expose individual workload.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "capacity_allocation",
+          "source": "synonym"
+        },
+        {
+          "name": "workload",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "work_views",
+      "singular_label": "Work View",
+      "plural_label": "Work Views",
+      "description": "Saved, named, shareable board / list / timeline / calendar view of work items with persisted filters, grouping, and sort. A configuration record, not a per-user UI toggle.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "board",
+          "source": "synonym"
+        },
+        {
+          "name": "layout",
+          "source": "synonym"
+        },
+        {
+          "name": "saved_view",
+          "source": "synonym"
+        },
+        {
+          "name": "view",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "action_plans",
+      "verb": "spawns",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "okr_check_ins",
+      "verb": "references",
+      "to": "okr_key_results",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "okr_check_ins",
+      "verb": "belongs_to",
+      "to": "okr_objectives",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "okr_key_results",
+      "verb": "belongs_to",
+      "to": "okr_objectives",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "okr_objectives",
+      "verb": "advanced_by",
+      "to": "strategic_initiatives",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "okr_objectives",
+      "verb": "tracked_by",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "proofing_annotations",
+      "verb": "belongs_to",
+      "to": "proofing_sessions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "proofing_sessions",
+      "verb": "belongs_to",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "strategic_initiatives",
+      "verb": "portfolio rollup from",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored_check_ins",
+      "to": "okr_check_ins",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_key_results",
+      "to": "okr_key_results",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns OKR",
+      "to": "okr_objectives",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "authored_annotations",
+      "to": "proofing_annotations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_proofing_sessions",
+      "to": "proofing_sessions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "initiated_chains",
+      "to": "work_approval_chains",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves_steps",
+      "to": "work_approval_steps",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored automations",
+      "to": "work_automations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "created_custom_fields",
+      "to": "work_custom_fields",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_dashboards",
+      "to": "work_dashboards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "submitted_forms",
+      "to": "work_form_submissions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "created_forms",
+      "to": "work_forms",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "uploaded_attachments",
+      "to": "work_item_attachments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored_comments",
+      "to": "work_item_comments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigned items",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "created items",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owns_milestones",
+      "to": "work_milestones",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_portfolios",
+      "to": "work_portfolios",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored_project_templates",
+      "to": "work_project_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns projects",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "created_sections",
+      "to": "work_sections",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "made_status_updates",
+      "to": "work_status_updates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored_task_templates",
+      "to": "work_task_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "logged_time",
+      "to": "work_time_entries",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_views",
+      "to": "work_views",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_approval_chains",
+      "verb": "gates",
+      "to": "work_items",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_approval_chains",
+      "verb": "gates_project",
+      "to": "work_projects",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_approval_steps",
+      "verb": "belongs_to",
+      "to": "work_approval_chains",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_automations",
+      "verb": "mirrors_to",
+      "to": "product_roadmaps",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_automations",
+      "verb": "feeds",
+      "to": "project_tasks",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_automations",
+      "verb": "rolls_up_into",
+      "to": "strategic_portfolios",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_automations",
+      "verb": "drives",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_automations",
+      "verb": "applies_to",
+      "to": "work_projects",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_custom_field_values",
+      "verb": "valued_for",
+      "to": "work_custom_fields",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_custom_field_values",
+      "verb": "set_on",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_custom_fields",
+      "verb": "applies_to",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_dashboards",
+      "verb": "summarizes",
+      "to": "work_projects",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_dependencies",
+      "verb": "blocks",
+      "to": "work_items",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "work_form_submissions",
+      "verb": "submitted_against",
+      "to": "work_forms",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_form_submissions",
+      "verb": "converts_to",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_forms",
+      "verb": "routes_to",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_goal_links",
+      "verb": "links_to",
+      "to": "okr_objectives",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_goal_links",
+      "verb": "links",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_item_attachments",
+      "verb": "belongs_to",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_item_comments",
+      "verb": "belongs_to",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_item_tags",
+      "verb": "tagged_on",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_item_tags",
+      "verb": "references_tag",
+      "to": "work_tags",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_items",
+      "verb": "depends_on",
+      "to": "work_items",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_items",
+      "verb": "placed_in",
+      "to": "work_sections",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_milestones",
+      "verb": "belongs_to",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_portfolios",
+      "verb": "groups",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_project_templates",
+      "verb": "seeds",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_projects",
+      "verb": "aligned_to",
+      "to": "okr_objectives",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "work_projects",
+      "verb": "contains",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_sections",
+      "verb": "belongs_to",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_status_updates",
+      "verb": "records_change_on",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_statuses",
+      "verb": "is_status_of",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_task_templates",
+      "verb": "seeds_item",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "work_time_entries",
+      "verb": "logged_against",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "work_user_workloads",
+      "verb": "rolls_up",
+      "to": "work_items",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "work_views",
+      "verb": "scopes",
+      "to": "work_projects",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10042",
+      "name": "Develop and set organizational objectives"
+    },
+    {
+      "external_id": "16410",
+      "name": "Manage projects"
+    },
+    {
+      "external_id": "20005",
+      "name": "Develop and manage execution roadmap"
+    },
+    {
+      "external_id": "20903",
+      "name": "Triage IT service delivery incidents"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "work-mgmt",
+      "description": "Plan projects and break them into assignable tasks with owners, due dates, and statuses; map dependencies and milestones on boards, lists, calendars, and timelines; and show who is doing what by when across teams. Set objectives and key results, link them to the work that moves them, and log check-ins so progress rolls up. Stand up request intake forms and route submissions, run approval and proofing reviews, automate status changes and reminders, balance workload against capacity, and report on cross-project dashboards.",
+      "trigger_keywords": "work management, project tracker, task tracker, to-do list, kanban, swimlane, Gantt, roadmap, sprint backlog, burndown, milestone tracking, dependency mapping, ticket queue, request queue, work intake, OKR, KPI, goal tracking, timesheets, resource allocation, capacity planning, workload balancing, creative markup, proofing, approval workflow, status rollup, cross-project dashboards, PMO, BizOps, marketing ops, operations team",
+      "tools": [
+        {
+          "name": "approve_work_approval_step",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "convert_form_submission_to_work_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_okr_check_in",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_okr_key_result",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_okr_objective",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_work_form",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_work_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_work_project",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "query_okr_check_ins",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_okr_key_results",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_okr_objectives",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_approval_chains",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_approval_steps",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_automations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_custom_fields",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_work_dependencies",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_form_submissions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_forms",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_item_comments",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_work_items",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_milestones",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_projects",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_sections",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_work_user_workloads",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "update_okr_objective",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_work_automation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_work_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_work_project",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "MARKETING-CAMPAIGN-MANAGER",
+      "business_function": "Marketing",
+      "modules": [
+        {
+          "code": "WORK-MGMT-INTAKE",
+          "interaction": "secondary"
+        },
+        {
+          "code": "WORK-MGMT-TASK-EXEC",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "OKR-OWNER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "WORK-MGMT-GOALS-OKR",
+          "interaction": "primary"
+        },
+        {
+          "code": "WORK-MGMT-TASK-EXEC",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "OPERATIONS-WORK-CONTRIBUTOR",
+      "business_function": "Business Operations",
+      "modules": [
+        {
+          "code": "WORK-MGMT-INTAKE",
+          "interaction": "secondary"
+        },
+        {
+          "code": "WORK-MGMT-TASK-EXEC",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+      "business_function": "Business Operations",
+      "modules": [
+        {
+          "code": "WORK-MGMT-GOALS-OKR",
+          "interaction": "secondary"
+        },
+        {
+          "code": "WORK-MGMT-INTAKE",
+          "interaction": "secondary"
+        },
+        {
+          "code": "WORK-MGMT-TASK-EXEC",
+          "interaction": "primary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

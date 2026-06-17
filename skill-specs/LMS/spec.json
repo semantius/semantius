@@ -1,0 +1,4434 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "LMS",
+    "name": "Learning Management",
+    "description": "Course authoring, content delivery, compliance training, certifications, and learning paths for employees and extended audiences.",
+    "parent_domain_code": "HCM",
+    "certification_required": false,
+    "catalog_tagline": "Train your whole workforce and prove it, from first enrollment to audit-ready completion records.",
+    "catalog_description": "Run corporate learning end to end. Author and publish courses, deliver them online or in the classroom, and track every enrollment through to completion. Issue the certifications and badges that show who is qualified, and keep the evidence auditors and regulators ask for. Assign mandatory training automatically, chase overdue learners without manual follow-up, and feed completion signals to the HR, compliance, and identity systems that depend on them."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Learning and Development"
+    ],
+    "contributors": [
+      "Governance, Risk and Compliance",
+      "Legal"
+    ],
+    "consumers": [
+      "Manufacturing Operations",
+      "Sales",
+      "Software Engineering"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "CERT-MGMT",
+      "name": "Certification Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "COMPLIANCE-TRAIN",
+      "name": "Compliance Training",
+      "cross_cutting": true
+    },
+    {
+      "code": "CONTENT-DELIVERY",
+      "name": "Content Delivery and Tracking",
+      "cross_cutting": false
+    },
+    {
+      "code": "COURSE-AUTHOR",
+      "name": "Course Authoring",
+      "cross_cutting": false
+    },
+    {
+      "code": "LEARNING-PATH",
+      "name": "Learning Paths",
+      "cross_cutting": false
+    },
+    {
+      "code": "LMS-CREDENTIAL-MGMT",
+      "name": "Credential Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "LMS-ILT-DELIVERY",
+      "name": "Instructor-Led Training Delivery",
+      "cross_cutting": false
+    },
+    {
+      "code": "LMS-LEARNING-AUTOMATION",
+      "name": "Learning Automation",
+      "cross_cutting": false
+    },
+    {
+      "code": "LMS-PRIVACY-COMPLIANCE",
+      "name": "Learner Privacy Compliance",
+      "cross_cutting": false
+    },
+    {
+      "code": "SKILLS-MGMT",
+      "name": "Skills Management",
+      "cross_cutting": true
+    }
+  ],
+  "modules": [
+    {
+      "code": "LMS-AUTOMATION",
+      "name": "Learning Automation",
+      "kind": "full",
+      "realizes_capabilities": [
+        "LMS-LEARNING-AUTOMATION"
+      ],
+      "masters": [
+        "audiences",
+        "automated_enrollment_rules",
+        "escalation_rules",
+        "learner_notifications",
+        "manager_nudges",
+        "notification_templates",
+        "reminder_schedules"
+      ],
+      "embedded_masters": [
+        "compliance_assignments",
+        "courses",
+        "employees",
+        "learner_certifications"
+      ],
+      "consumers": [
+        "users"
+      ],
+      "description": "Horizontal automation surface across LMS deployment: dynamic audience segments, automated training assignment rules, reusable notification templates, learner notification log, manager-directed nudges for overdue training, and escalation policies. Cuts across LMS-COURSE-DELIVERY, LMS-COMPLIANCE-TRAINING, LMS-PATHS, and LMS-CREDENTIALS."
+    },
+    {
+      "code": "LMS-COMPLIANCE-TRAINING",
+      "name": "Compliance Training",
+      "kind": "full",
+      "realizes_capabilities": [
+        "COMPLIANCE-TRAIN"
+      ],
+      "masters": [
+        "compliance_assignments",
+        "compliance_audit_records",
+        "compliance_regulations",
+        "compliance_training_campaigns",
+        "fda_part11_audit_trails",
+        "gxp_training_signoffs",
+        "harassment_training_acknowledgements",
+        "phishing_simulation_results",
+        "phishing_simulations",
+        "recertification_schedules",
+        "regulator_filing_exports",
+        "training_evidence_records"
+      ],
+      "embedded_masters": [
+        "cost_centers",
+        "courses",
+        "employees",
+        "hcm_positions",
+        "learner_certifications",
+        "org_units",
+        "signature_records"
+      ],
+      "consumers": [
+        "onboarding_tasks",
+        "policy_attestations"
+      ],
+      "description": "Mandatory regulatory training assignment, tracking, and certification: sexual harassment training (CA SB-1343), HIPAA, OSHA, anti-bribery, SOX, GDPR, AML. Masters `compliance_assignments` and `learner_certifications`. Realizes COMPLIANCE-TRAIN and CERT-MGMT. Distinct from general LMS course delivery: assignments are mandatory and time-bound, lifecycle includes `overdue`/`waived`/`expired` states with regulator-evidence retention, and ownership typically sits with GRC/Compliance, not L&D."
+    },
+    {
+      "code": "LMS-COURSE-DELIVERY",
+      "name": "Course Delivery",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CONTENT-DELIVERY",
+        "COURSE-AUTHOR"
+      ],
+      "masters": [
+        "assessment_attempts",
+        "assessment_questions",
+        "cmi5_assignable_units",
+        "course_assessments",
+        "course_catalogs",
+        "course_categories",
+        "course_completions",
+        "course_discussions",
+        "course_enrollments",
+        "course_modules",
+        "course_ratings",
+        "course_reviews",
+        "course_tags",
+        "course_versions",
+        "courses",
+        "learning_content_assets",
+        "learning_records",
+        "lessons",
+        "lrs_statement_endpoints",
+        "observation_checklist_results",
+        "observation_checklists",
+        "question_banks",
+        "quiz_responses",
+        "scorm_packages",
+        "xapi_statements"
+      ],
+      "embedded_masters": [
+        "cost_centers",
+        "employees",
+        "hcm_positions",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "The core LMS workflow: course authoring, content delivery, enrollment, completion tracking, and transcript posting. Masters `courses`, `course_enrollments`, `learning_records`. Realizes COURSE-AUTHOR and CONTENT-DELIVERY capabilities. The backbone module every LMS deployment installs first; the other LMS modules embedded_master courses to reference content."
+    },
+    {
+      "code": "LMS-CREDENTIALS",
+      "name": "Credentials, Badges and Continuing Education",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CERT-MGMT",
+        "LMS-CREDENTIAL-MGMT"
+      ],
+      "masters": [
+        "certificate_templates",
+        "certification_definitions",
+        "certification_renewals",
+        "ceu_records",
+        "continuing_education_credits",
+        "credential_badges",
+        "credential_verifications",
+        "finra_ce_records",
+        "learner_badges",
+        "learner_certifications"
+      ],
+      "embedded_masters": [
+        "course_enrollments",
+        "courses",
+        "employees"
+      ],
+      "consumers": [],
+      "description": "Catalog and lifecycle for certifications, micro-credential badges, and continuing-education credits. Masters learner_certifications (re-mastered from LMS-COMPLIANCE-TRAINING) since professional development, FINRA CE, internal product certifications, and Open-Badges micro-credentials all live here, not just compliance training. Compliance training embeds learner_certifications for the regulated-training certification workflow."
+    },
+    {
+      "code": "LMS-CT-GDPR",
+      "name": "Learner Data Privacy",
+      "kind": "full",
+      "realizes_capabilities": [
+        "LMS-PRIVACY-COMPLIANCE"
+      ],
+      "masters": [
+        "data_deletion_requests",
+        "gdpr_consent_records",
+        "subject_access_requests"
+      ],
+      "embedded_masters": [
+        "employees"
+      ],
+      "consumers": [
+        "records_retention_policies",
+        "users"
+      ],
+      "description": "Learner data privacy substrate that compliance training depends on: GDPR Article 6/7 consent capture, Article 15 subject access requests, and Article 17 right-to-erasure processing for training data. Carved out from LMS-COMPLIANCE-TRAINING because privacy obligations apply across the LMS even where statutory training is out of scope."
+    },
+    {
+      "code": "LMS-ILT-DELIVERY",
+      "name": "Instructor-Led and Virtual-Instructor-Led Training",
+      "kind": "full",
+      "realizes_capabilities": [
+        "LMS-ILT-DELIVERY"
+      ],
+      "masters": [
+        "course_offerings",
+        "course_resources",
+        "course_sessions",
+        "instructor_assignments",
+        "instructors",
+        "session_attendances",
+        "session_cancellations",
+        "session_rosters",
+        "training_room_bookings",
+        "virtual_classroom_meetings",
+        "waitlist_entries"
+      ],
+      "embedded_masters": [
+        "course_enrollments",
+        "courses",
+        "employees",
+        "locations",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "Scheduled course delivery: offerings and sessions, instructor assignments, attendance capture (OSHA evidence substrate), waitlist management, virtual-classroom integration, and per-session resources. Structurally distinct from evergreen e-learning in LMS-COURSE-DELIVERY because it carries its own cardinality (course -> many offerings -> many sessions), its own roles (instructors are not learners), and its own per-session compliance footprint."
+    },
+    {
+      "code": "LMS-PATHS",
+      "name": "Learning Paths",
+      "kind": "full",
+      "realizes_capabilities": [
+        "LEARNING-PATH"
+      ],
+      "masters": [
+        "curricula",
+        "learning_path_assignments",
+        "learning_path_steps",
+        "learning_paths",
+        "learning_plans",
+        "learning_recommendations",
+        "prerequisite_rules",
+        "skill_targets"
+      ],
+      "embedded_masters": [
+        "course_enrollments",
+        "employees",
+        "hcm_positions",
+        "job_profiles",
+        "learner_certifications",
+        "org_units"
+      ],
+      "consumers": [
+        "performance_goals",
+        "skill_profiles",
+        "skills_gap_analyses"
+      ],
+      "description": "Authors and assigns sequenced learning paths inside the LMS. Masters learning_paths; consumes skill_profiles (mastered by SKILLS-MGMT after migration) to recommend paths against skill gaps."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "assessment_attempts",
+      "singular_label": "Assessment Attempt",
+      "plural_label": "Assessment Attempts",
+      "description": "Per-learner per-attempt audit row: start time, score, pass/fail, time-on-task. FINRA / Part 11 evidence substrate.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "exam attempt",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "in_progress",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "submit"
+        },
+        {
+          "name": "graded",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "grade"
+        },
+        {
+          "name": "passed",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "failed",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "assessment_questions",
+      "singular_label": "Assessment Question",
+      "plural_label": "Assessment Questions",
+      "description": "Item-bank entry: question stem, choices, scoring, and metadata for randomization.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "audiences",
+      "singular_label": "Audience",
+      "plural_label": "Audiences",
+      "description": "Dynamic learner segment defined by attributes (department, location, role) and used by auto-enrollment and notification rules.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "dynamic group",
+          "source": "synonym"
+        },
+        {
+          "name": "learner segment",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "automated_enrollment_rules",
+      "singular_label": "Automated Enrollment Rule",
+      "plural_label": "Automated Enrollment Rules",
+      "description": "Rule engine entry that auto-enrols learners into courses or paths based on audience membership and lifecycle events.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "auto-assign rule",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate"
+        },
+        {
+          "name": "paused",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "pause"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "certificate_templates",
+      "singular_label": "Certificate Template",
+      "plural_label": "Certificate Templates",
+      "description": "PDF / image template used to issue a certificate to a learner; carries layout and dynamic fields.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "certification_definitions",
+      "singular_label": "Certification Definition",
+      "plural_label": "Certification Definitions",
+      "description": "Catalog of certification types: name, issuing authority, validity period, recertification policy, prerequisite courses.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "certification template",
+          "source": "synonym"
+        },
+        {
+          "name": "certification type",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "certification_renewals",
+      "singular_label": "Certification Renewal",
+      "plural_label": "Certification Renewals",
+      "description": "Renewal cycle of an existing certification, distinct from initial issuance.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "due",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "submit"
+        },
+        {
+          "name": "renewed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "renew"
+        }
+      ]
+    },
+    {
+      "name": "ceu_records",
+      "singular_label": "CEU Record",
+      "plural_label": "CEU Records",
+      "description": "Earned-credit ledger row per learner; CEU evidence for state-CE, NASBA, and similar professional licensure reporting.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "CE credit ledger entry",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "filed",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "file"
+        },
+        {
+          "name": "voided",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "void"
+        }
+      ]
+    },
+    {
+      "name": "cmi5_assignable_units",
+      "singular_label": "cmi5 Assignable Unit",
+      "plural_label": "cmi5 Assignable Units",
+      "description": "cmi5 (ADL) assignable unit launched against an LRS; modern course-package standard supplanting SCORM.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "compliance_assignments",
+      "singular_label": "Compliance Training Assignment",
+      "plural_label": "Compliance Training Assignments",
+      "description": "Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "mandatory training assignment",
+          "source": "synonym"
+        },
+        {
+          "name": "regulatory training",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "assigned",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "overdue",
+          "order": 4
+        },
+        {
+          "name": "waived",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "waive"
+        },
+        {
+          "name": "expired",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "expire"
+        }
+      ]
+    },
+    {
+      "name": "compliance_audit_records",
+      "singular_label": "Compliance Audit Record",
+      "plural_label": "Compliance Audit Records",
+      "description": "Regulator-facing audit trail row capturing who did what training when, with version and evidence reference. Distinct from learning_records: audit-purpose subset, retention-locked.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "training audit row",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "submitted",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "submit"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "compliance_regulations",
+      "singular_label": "Compliance Regulation",
+      "plural_label": "Compliance Regulations",
+      "description": "Tenant-scoped reference table of statutes a tenant is subject to (jurisdiction, citation, retention period). Each tenant activates only its applicable subset; the regulation field on training_evidence_records is an FK into this table, and the active rows gate which compliance evidence applies.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "compliance_training_campaigns",
+      "singular_label": "Compliance Training Campaign",
+      "plural_label": "Compliance Training Campaigns",
+      "description": "Campaign container that bundles assignments by audience and due-date: annual code-of-conduct cycle, harassment refresh, security awareness wave.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "annual training cycle",
+          "source": "synonym"
+        },
+        {
+          "name": "training wave",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "scheduled",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "schedule"
+        },
+        {
+          "name": "running",
+          "order": 3
+        },
+        {
+          "name": "completed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel"
+        }
+      ]
+    },
+    {
+      "name": "continuing_education_credits",
+      "singular_label": "Continuing Education Credit",
+      "plural_label": "Continuing Education Credits",
+      "description": "CEU credit-value master: credit hours, accrediting body, eligible courses.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_assessments",
+      "singular_label": "Course Assessment",
+      "plural_label": "Course Assessments",
+      "description": "Quiz or exam definition associated with a course or lesson; carries passing score and attempt policy.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "course exam",
+          "source": "synonym"
+        },
+        {
+          "name": "course quiz",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "course_catalogs",
+      "singular_label": "Course Catalog",
+      "plural_label": "Course Catalogs",
+      "description": "Scoped catalog view: subset of courses surfaced to a specific audience, branch, or domain.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "learning catalog",
+          "source": "synonym"
+        },
+        {
+          "name": "training catalog",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_categories",
+      "singular_label": "Course Category",
+      "plural_label": "Course Categories",
+      "description": "Hierarchical taxonomy for catalog browsing and reporting.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_completions",
+      "singular_label": "Course Completion",
+      "plural_label": "Course Completions",
+      "description": "Terminal completion record per learner per course version. Distinct from learning_records (event log).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "training completion",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "voided",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "void"
+        }
+      ]
+    },
+    {
+      "name": "course_discussions",
+      "singular_label": "Course Discussion",
+      "plural_label": "Course Discussions",
+      "description": "Forum-style discussion thread attached to a course or lesson; collaborative-learning surface.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "closed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "close"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "course_enrollments",
+      "singular_label": "Course Enrollment",
+      "plural_label": "Course Enrollments",
+      "description": "Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "learner enrollment",
+          "source": "synonym"
+        },
+        {
+          "name": "training registration",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "enrolled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "failed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "fail"
+        },
+        {
+          "name": "expired",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "expire"
+        },
+        {
+          "name": "withdrawn",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "withdraw"
+        }
+      ]
+    },
+    {
+      "name": "course_modules",
+      "singular_label": "Course Module",
+      "plural_label": "Course Modules",
+      "description": "Intra-course composition unit grouping related lessons; supports completion tracking at sub-course granularity.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "course unit",
+          "source": "synonym"
+        },
+        {
+          "name": "training module",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_offerings",
+      "singular_label": "Course Offering",
+      "plural_label": "Course Offerings",
+      "description": "Scheduled instance of a course: date range, location, capacity, language, delivery mode.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "class instance",
+          "source": "synonym"
+        },
+        {
+          "name": "training event",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "open_for_enrollment",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "open"
+        },
+        {
+          "name": "in_progress",
+          "order": 3
+        },
+        {
+          "name": "completed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel"
+        }
+      ]
+    },
+    {
+      "name": "course_ratings",
+      "singular_label": "Course Rating",
+      "plural_label": "Course Ratings",
+      "description": "Numeric rating (typically 1-5) per learner per course; aggregate analytics surface.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_resources",
+      "singular_label": "Course Resource",
+      "plural_label": "Course Resources",
+      "description": "Handout, supplementary material, or pre-read attached to an offering or session.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_reviews",
+      "singular_label": "Course Review",
+      "plural_label": "Course Reviews",
+      "description": "Learner-authored qualitative review of a course post-completion.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "submitted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "flagged",
+          "order": 3
+        },
+        {
+          "name": "removed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "remove"
+        }
+      ]
+    },
+    {
+      "name": "course_sessions",
+      "singular_label": "Course Session",
+      "plural_label": "Course Sessions",
+      "description": "Individual session within a multi-day offering; carries per-session attendance and instructor assignment.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "class session",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel"
+        }
+      ]
+    },
+    {
+      "name": "course_tags",
+      "singular_label": "Course Tag",
+      "plural_label": "Course Tags",
+      "description": "Free-form taxonomy alongside categories; supports faceted search.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "course_versions",
+      "singular_label": "Course Version",
+      "plural_label": "Course Versions",
+      "description": "Versioned snapshot of a course's content lineage. Required for compliance retention: regulators ask which version of training each learner completed.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "course revision",
+          "source": "synonym"
+        },
+        {
+          "name": "training version",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 2
+        },
+        {
+          "name": "published",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "courses",
+      "singular_label": "Course",
+      "plural_label": "Courses",
+      "description": "Atomic learning unit: e-learning module, video, live session, blended programme, external content. Carries content reference, duration, format, language, prerequisites, certification award.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "learning module",
+          "source": "synonym"
+        },
+        {
+          "name": "training course",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 2
+        },
+        {
+          "name": "published",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "credential_badges",
+      "singular_label": "Credential Badge",
+      "plural_label": "Credential Badges",
+      "description": "Open Badges / micro-credential definition: criteria, image, issuer, expiration policy. Distinct from visitor_badges (physical access).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Open Badge",
+          "source": "synonym"
+        },
+        {
+          "name": "micro-credential",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "credential_verifications",
+      "singular_label": "Credential Verification",
+      "plural_label": "Credential Verifications",
+      "description": "Third-party verification handshake for an issued badge or credential (Open Badges 3.0).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "requested",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "verified",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "verify"
+        },
+        {
+          "name": "rejected",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject"
+        }
+      ]
+    },
+    {
+      "name": "curricula",
+      "singular_label": "Curriculum",
+      "plural_label": "Curricula",
+      "description": "Grouped paths and courses targeting a role, function, or compliance scope. Used by Workday and Cornerstone as the primary noun for role-based learning.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "curriculum program",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "data_deletion_requests",
+      "singular_label": "Data Deletion Request",
+      "plural_label": "Data Deletion Requests",
+      "description": "GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfilment status.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "right to erasure request",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "received",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "fulfilled",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "fulfill"
+        },
+        {
+          "name": "declined",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "decline"
+        }
+      ]
+    },
+    {
+      "name": "escalation_rules",
+      "singular_label": "Escalation Rule",
+      "plural_label": "Escalation Rules",
+      "description": "Policy that escalates overdue training through manager, skip-level, HR Business Partner, or compliance officer.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate"
+        },
+        {
+          "name": "paused",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "pause"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "fda_part11_audit_trails",
+      "singular_label": "FDA Part 11 Audit Trail",
+      "plural_label": "FDA Part 11 Audit Trails",
+      "description": "21 CFR Part 11 audit trail row for GxP-relevant training; tamper-evident, retention-locked.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "finra_ce_records",
+      "singular_label": "FINRA CE Record",
+      "plural_label": "FINRA CE Records",
+      "description": "FINRA Rule 1240 continuing-education ledger row per registered representative; regulator-evidence retention.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "FINRA continuing education entry",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "filed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "file"
+        },
+        {
+          "name": "voided",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "void"
+        }
+      ]
+    },
+    {
+      "name": "gdpr_consent_records",
+      "singular_label": "GDPR Consent Record",
+      "plural_label": "GDPR Consent Records",
+      "description": "GDPR Article 6 / 7 consent capture for learner training data: purpose, lawful basis, granted timestamp, withdrawal timestamp.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "consent receipt",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "granted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "withdraw"
+        },
+        {
+          "name": "expired",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "gxp_training_signoffs",
+      "singular_label": "GxP Training Signoff",
+      "plural_label": "GxP Training Signoffs",
+      "description": "Witnessed e-signature binding learner, course, content version and timestamp for FDA 21 CFR Part 11 life-sciences training.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "signed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "sign"
+        },
+        {
+          "name": "locked",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "lock"
+        }
+      ]
+    },
+    {
+      "name": "harassment_training_acknowledgements",
+      "singular_label": "Harassment Training Acknowledgement",
+      "plural_label": "Harassment Training Acknowledgements",
+      "description": "Statutory acknowledgement of harassment training completion per CA SB-1343, NY 201-g, IL 2-109; carries signed timestamp and IP.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SB-1343 acknowledgement",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "acknowledged",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "acknowledge"
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "instructor_assignments",
+      "singular_label": "Instructor Assignment",
+      "plural_label": "Instructor Assignments",
+      "description": "Junction assigning an instructor to a session or offering, with role (primary / assistant / observer).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "assigned",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "confirmed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "confirm"
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel"
+        }
+      ]
+    },
+    {
+      "name": "instructors",
+      "singular_label": "Instructor",
+      "plural_label": "Instructors",
+      "description": "Instructor master separate from employees; covers internal trainers, contracted SMEs, and external vendor instructors.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "facilitator",
+          "source": "synonym"
+        },
+        {
+          "name": "trainer",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate"
+        },
+        {
+          "name": "inactive",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deactivate"
+        }
+      ]
+    },
+    {
+      "name": "learner_badges",
+      "singular_label": "Learner Badge",
+      "plural_label": "Learner Badges",
+      "description": "Earned-badge junction per learner per badge; carries earn date, evidence URL, and verification token.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "earned badge",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "earned",
+          "order": 1,
+          "is_initial": true,
+          "is_terminal": true
+        },
+        {
+          "name": "revoked",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "revoke"
+        }
+      ]
+    },
+    {
+      "name": "learner_certifications",
+      "singular_label": "Certification",
+      "plural_label": "Certifications",
+      "description": "Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "credential",
+          "source": "synonym"
+        },
+        {
+          "name": "training certificate",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "issued",
+          "order": 1,
+          "is_initial": true,
+          "requires_permission": true,
+          "permission_verb_override": "issue"
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "renewing",
+          "order": 3
+        },
+        {
+          "name": "renewed",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "renew"
+        },
+        {
+          "name": "expired",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "revoked",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "revoke"
+        }
+      ]
+    },
+    {
+      "name": "learner_notifications",
+      "singular_label": "Learner Notification",
+      "plural_label": "Learner Notifications",
+      "description": "Per-learner sent-notification log row for reminders, nudges, completions, and escalations.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "reminder log",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "queued",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "send"
+        },
+        {
+          "name": "delivered",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "failed",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "learning_content_assets",
+      "singular_label": "Learning Content Asset",
+      "plural_label": "Learning Content Assets",
+      "description": "Reusable content asset (video, PDF, image, audio) referenced by lessons and modules.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "uploaded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "deprecated",
+          "order": 3
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "learning_path_assignments",
+      "singular_label": "Learning Path Assignment",
+      "plural_label": "Learning Path Assignments",
+      "description": "Path-to-learner assignment row distinct from course_enrollments; tracks overall path progress and completion percentage.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "path enrollment",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "assigned",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "expired",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "learning_path_steps",
+      "singular_label": "Learning Path Step",
+      "plural_label": "Learning Path Steps",
+      "description": "Ordered step inside a learning path: pointer to a course, sub-path, or external resource with sequencing rules.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "learning_paths",
+      "singular_label": "Learning Path",
+      "plural_label": "Learning Paths",
+      "description": "Curated sequence of courses targeting a role, skill, or certification. Drives ordered enrolment and progress tracking across multiple courses.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "curriculum",
+          "source": "synonym"
+        },
+        {
+          "name": "development path",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "learning_plans",
+      "singular_label": "Learning Plan",
+      "plural_label": "Learning Plans",
+      "description": "Personalized plan composed of multiple paths or courses, often manager-curated or AI-recommended against skill gaps.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "individual development plan",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate"
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "complete"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "learning_recommendations",
+      "singular_label": "Learning Recommendation",
+      "plural_label": "Learning Recommendations",
+      "description": "Per-learner suggested content generated from skill gaps and role profile.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "generated",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "accepted",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "accept"
+        },
+        {
+          "name": "dismissed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "dismiss"
+        }
+      ]
+    },
+    {
+      "name": "learning_records",
+      "singular_label": "Learning Record",
+      "plural_label": "Learning Records",
+      "description": "Granular completion event for a course or activity, often xAPI / SCORM / cmi5 statement: actor, verb, object, result, timestamp. Feeds skill_profiles and certifications.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "learning activity record",
+          "source": "synonym"
+        },
+        {
+          "name": "transcript entry",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "voided",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "void"
+        }
+      ]
+    },
+    {
+      "name": "lessons",
+      "singular_label": "Lesson",
+      "plural_label": "Lessons",
+      "description": "Leaf consumable inside a course module: video, document, SCORM block, or live activity.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "topic",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "lrs_statement_endpoints",
+      "singular_label": "LRS Statement Endpoint",
+      "plural_label": "LRS Statement Endpoints",
+      "description": "External Learning Record Store endpoints xAPI statements are routed to.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "manager_nudges",
+      "singular_label": "Manager Nudge",
+      "plural_label": "Manager Nudges",
+      "description": "Manager-directed reminder triggered when a direct report has overdue or upcoming training.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "manager prompt",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "send"
+        },
+        {
+          "name": "acknowledged",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "dismissed",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "notification_templates",
+      "singular_label": "Notification Template",
+      "plural_label": "Notification Templates",
+      "description": "Reusable email / in-app / chat template with merge fields, used by automation rules and manager nudges.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "observation_checklist_results",
+      "singular_label": "Observation Checklist Result",
+      "plural_label": "Observation Checklist Results",
+      "description": "A learner's scored result against an observation checklist, with observer signoff.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "in_progress",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "submit"
+        },
+        {
+          "name": "signed_off",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "sign_off"
+        }
+      ]
+    },
+    {
+      "name": "observation_checklists",
+      "singular_label": "Observation Checklist",
+      "plural_label": "Observation Checklists",
+      "description": "On-the-job competency checklist an observer scores against; field-skill assessment.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish"
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire"
+        }
+      ]
+    },
+    {
+      "name": "phishing_simulation_results",
+      "singular_label": "Phishing Simulation Result",
+      "plural_label": "Phishing Simulation Results",
+      "description": "Per-recipient outcome of a phishing simulation (clicked, reported, ignored).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "phishing_simulations",
+      "singular_label": "Phishing Simulation",
+      "plural_label": "Phishing Simulations",
+      "description": "Configured simulated-phishing campaign for security-awareness training (PCI DSS 12.6).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "launched",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "launch"
+        },
+        {
+          "name": "closed",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close"
+        }
+      ]
+    },
+    {
+      "name": "prerequisite_rules",
+      "singular_label": "Prerequisite Rule",
+      "plural_label": "Prerequisite Rules",
+      "description": "Gating logic that controls path progression: required completions, scores, certifications, or competencies.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "question_banks",
+      "singular_label": "Question Bank",
+      "plural_label": "Question Banks",
+      "description": "Reusable pools of assessment questions independent of any single assessment, drawn from for randomized quizzes and recertification exams.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "quiz_responses",
+      "singular_label": "Quiz Response",
+      "plural_label": "Quiz Responses",
+      "description": "Item-level learner response capture for psychometric analysis and per-question review.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "recertification_schedules",
+      "singular_label": "Recertification Schedule",
+      "plural_label": "Recertification Schedules",
+      "description": "Periodic recurrence configuration that drives FINRA / BSA-AML / HIPAA / OSHA refresh assignment cycles.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "regulator_filing_exports",
+      "singular_label": "Regulator Filing Export",
+      "plural_label": "Regulator Filing Exports",
+      "description": "Export artifact for regulator submissions: OSHA 300, FINRA CE filings, state-CE rollups.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "compliance filing",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "finalized",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "finalize"
+        },
+        {
+          "name": "filed",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "file"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "reminder_schedules",
+      "singular_label": "Reminder Schedule",
+      "plural_label": "Reminder Schedules",
+      "description": "Configured nudge cadence driving automated learner and manager reminders.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "scorm_packages",
+      "singular_label": "SCORM Package",
+      "plural_label": "SCORM Packages",
+      "description": "SCORM / AICC / cmi5 content package import; carries content interop manifest and runtime state.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "AICC package",
+          "source": "synonym"
+        },
+        {
+          "name": "cmi5 package",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "uploaded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        },
+        {
+          "name": "active",
+          "order": 3
+        },
+        {
+          "name": "deprecated",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "deprecate"
+        }
+      ]
+    },
+    {
+      "name": "session_attendances",
+      "singular_label": "Session Attendance",
+      "plural_label": "Session Attendances",
+      "description": "Per-session attendance roster row per learner. OSHA-mandated evidence for required workplace training.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "attendance roster",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "recorded",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "validated",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "validate"
+        }
+      ]
+    },
+    {
+      "name": "session_cancellations",
+      "singular_label": "Session Cancellation",
+      "plural_label": "Session Cancellations",
+      "description": "Cancellation or no-show record for an ILT session, driving waitlist promotion.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "session_rosters",
+      "singular_label": "Session Roster",
+      "plural_label": "Session Rosters",
+      "description": "Pre-session enrollment snapshot for an ILT session; attendance proof basis.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "skill_targets",
+      "singular_label": "Skill Target",
+      "plural_label": "Skill Targets",
+      "description": "A learning-path step bound to a skill plus a target proficiency threshold.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "subject_access_requests",
+      "singular_label": "Subject Access Request",
+      "plural_label": "Subject Access Requests",
+      "description": "GDPR Article 15 subject-access-request ticket: requester, scope, fulfilment status, regulator deadline.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "SAR ticket",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "received",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "fulfilled",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "fulfill"
+        },
+        {
+          "name": "closed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close"
+        }
+      ]
+    },
+    {
+      "name": "training_evidence_records",
+      "singular_label": "Training Evidence Record",
+      "plural_label": "Training Evidence Records",
+      "description": "Inspection-ready evidence package: signed roster, certificate hash, content version, signature record reference. Generated for regulator submission.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "compliance evidence package",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "finalized",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "finalize"
+        },
+        {
+          "name": "submitted",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "submit"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "training_room_bookings",
+      "singular_label": "Training Room Booking",
+      "plural_label": "Training Room Bookings",
+      "description": "Reservation of a physical or virtual room and resources for an instructor-led session.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "requested",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "confirmed",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "confirm"
+        },
+        {
+          "name": "released",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "release"
+        }
+      ]
+    },
+    {
+      "name": "virtual_classroom_meetings",
+      "singular_label": "Virtual Classroom Meeting",
+      "plural_label": "Virtual Classroom Meetings",
+      "description": "Linkage to an external video meeting (Zoom / Teams / Webex) for a virtual session; carries join URL and recording reference.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "VILT session",
+          "source": "synonym"
+        },
+        {
+          "name": "webinar instance",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "cancel"
+        }
+      ]
+    },
+    {
+      "name": "waitlist_entries",
+      "singular_label": "Waitlist Entry",
+      "plural_label": "Waitlist Entries",
+      "description": "Capacity overflow queue for a course offering; priority order and notify-on-seat-open policy.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "waiting",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "promoted",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "promote"
+        },
+        {
+          "name": "expired",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "xapi_statements",
+      "singular_label": "xAPI Statement",
+      "plural_label": "xAPI Statements",
+      "description": "Experience-API event log row capturing actor-verb-object learning activity inside or outside the LMS.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "experience API statement",
+          "source": "synonym"
+        },
+        {
+          "name": "learning record store entry",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "assessment_attempts",
+      "verb": "produces",
+      "to": "quiz_responses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "audiences",
+      "verb": "targeted_by",
+      "to": "automated_enrollment_rules",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "automated_enrollment_rules",
+      "verb": "creates",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "automated_enrollment_rules",
+      "verb": "creates",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "certificate_templates",
+      "verb": "renders",
+      "to": "learner_certifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "certification_definitions",
+      "verb": "instantiated_as",
+      "to": "learner_certifications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "compliance_assignments",
+      "verb": "evidences",
+      "to": "compliance_audit_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_assignments",
+      "verb": "produces",
+      "to": "fda_part11_audit_trails",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_assignments",
+      "verb": "acknowledged_via",
+      "to": "harassment_training_acknowledgements",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_assignments",
+      "verb": "escalates_via",
+      "to": "manager_nudges",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_audit_records",
+      "verb": "rolled_into",
+      "to": "training_evidence_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_regulations",
+      "verb": "is_evidenced_by",
+      "to": "training_evidence_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "compliance_training_campaigns",
+      "verb": "generates",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "continuing_education_credits",
+      "verb": "earned_in",
+      "to": "ceu_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "cost_centers",
+      "verb": "funds",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_assessments",
+      "verb": "attempted_by",
+      "to": "assessment_attempts",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_assessments",
+      "verb": "contains",
+      "to": "assessment_questions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_catalogs",
+      "verb": "lists",
+      "to": "courses",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "course_completions",
+      "verb": "records_completion_of",
+      "to": "course_versions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "course_enrollments",
+      "verb": "yields",
+      "to": "course_completions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_enrollments",
+      "verb": "produces",
+      "to": "learning_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "course_modules",
+      "verb": "contains",
+      "to": "lessons",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_offerings",
+      "verb": "comprises",
+      "to": "course_sessions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_offerings",
+      "verb": "queues",
+      "to": "waitlist_entries",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_sessions",
+      "verb": "provides",
+      "to": "course_resources",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "course_sessions",
+      "verb": "staffed_by",
+      "to": "instructor_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_sessions",
+      "verb": "records",
+      "to": "session_attendances",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_sessions",
+      "verb": "delivered_via",
+      "to": "virtual_classroom_meetings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_versions",
+      "verb": "contains",
+      "to": "course_modules",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "course_versions",
+      "verb": "imports",
+      "to": "scorm_packages",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "grants",
+      "to": "certification_definitions",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "fulfills",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "yields_credits_via",
+      "to": "continuing_education_credits",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "classified_as",
+      "to": "course_categories",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "discussed_in",
+      "to": "course_discussions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "enrolled_via",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "courses",
+      "verb": "scheduled_as",
+      "to": "course_offerings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "rated_via",
+      "to": "course_ratings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "reviewed_via",
+      "to": "course_reviews",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "tagged_with",
+      "to": "course_tags",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "has_version",
+      "to": "course_versions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "courses",
+      "verb": "grants",
+      "to": "learner_certifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "courses",
+      "verb": "sequenced_into",
+      "to": "learning_paths",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "credential_badges",
+      "verb": "awarded_as",
+      "to": "learner_badges",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "curricula",
+      "verb": "comprises",
+      "to": "learning_paths",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "data_deletion_requests",
+      "verb": "voids",
+      "to": "gdpr_consent_records",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "reflected on",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "enrolls_in",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "learns_via",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "reflects",
+      "to": "learning_records",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "escalation_rules",
+      "verb": "produces",
+      "to": "manager_nudges",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hcm_positions",
+      "verb": "requires",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "instructors",
+      "verb": "fulfills",
+      "to": "instructor_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_profiles",
+      "verb": "maps_to",
+      "to": "courses",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "job_profiles",
+      "verb": "requires",
+      "to": "learning_paths",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "learning_path_steps",
+      "verb": "references",
+      "to": "courses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "learning_path_steps",
+      "verb": "gated_by",
+      "to": "prerequisite_rules",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "learning_paths",
+      "verb": "assigned_via",
+      "to": "learning_path_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "learning_paths",
+      "verb": "contains",
+      "to": "learning_path_steps",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "learning_plans",
+      "verb": "composes",
+      "to": "learning_paths",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "lessons",
+      "verb": "uses",
+      "to": "learning_content_assets",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "notification_templates",
+      "verb": "renders",
+      "to": "learner_notifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "onboarding_tasks",
+      "verb": "spawns",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "org_units",
+      "verb": "sponsors",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "recertification_schedules",
+      "verb": "triggers",
+      "to": "compliance_training_campaigns",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "skill_profiles",
+      "verb": "updated by",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "skill_profiles",
+      "verb": "updated by",
+      "to": "learner_certifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "skills_gap_analyses",
+      "verb": "prescribes",
+      "to": "learning_paths",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "subject_access_requests",
+      "verb": "discloses",
+      "to": "gdpr_consent_records",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "training_evidence_records",
+      "verb": "supplies",
+      "to": "regulator_filing_exports",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "attempts",
+      "to": "assessment_attempts",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "member_of",
+      "to": "audiences",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "earns_credit",
+      "to": "ceu_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "must complete",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "compliance_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "completes",
+      "to": "course_completions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "posts_in",
+      "to": "course_discussions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigns",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "enrolls in",
+      "to": "course_enrollments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "rates_via",
+      "to": "course_ratings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authors",
+      "to": "course_reviews",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authors",
+      "to": "courses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "courses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "files_deletion_request",
+      "to": "data_deletion_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "audit_trailed_in",
+      "to": "fda_part11_audit_trails",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "logs_ce",
+      "to": "finra_ce_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "grants_consent_in",
+      "to": "gdpr_consent_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "acknowledges",
+      "to": "harassment_training_acknowledgements",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "fulfills_assignment",
+      "to": "instructor_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "instructs_as",
+      "to": "instructors",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "earns_badge",
+      "to": "learner_badges",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "holds",
+      "to": "learner_certifications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "notified_via",
+      "to": "learner_notifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigned_path",
+      "to": "learning_path_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "curates",
+      "to": "learning_paths",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns_plan",
+      "to": "learning_plans",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "earns",
+      "to": "learning_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "nudges",
+      "to": "manager_nudges",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "answers",
+      "to": "quiz_responses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "attends",
+      "to": "session_attendances",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "files_sar",
+      "to": "subject_access_requests",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "waitlisted_for",
+      "to": "waitlist_entries",
+      "cardinality": "one_to_many",
+      "required": true
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10491",
+      "name": "Align learning programs with competencies and skills"
+    },
+    {
+      "external_id": "10493",
+      "name": "Develop, conduct, and manage employee training programs"
+    },
+    {
+      "external_id": "10523",
+      "name": "Manage employee inquiry process"
+    },
+    {
+      "external_id": "12772",
+      "name": "Train employees on appropriate regulatory requirements"
+    },
+    {
+      "external_id": "16463",
+      "name": "Manage regulatory compliance"
+    },
+    {
+      "external_id": "20020",
+      "name": "Manage certifications and skills"
+    },
+    {
+      "external_id": "20125",
+      "name": "Manage examinations and certifications"
+    },
+    {
+      "external_id": "21436",
+      "name": "Monitor and evaluate learning programs"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "lms",
+      "description": "Author courses from lessons and assessments, publish new versions, and deliver self-paced training in the browser. Enroll learners and track each one through to completion, grade quizzes and exams, and post transcripts. Schedule instructor-led and virtual classroom sessions, book rooms, manage waitlists, and capture attendance. Assign mandatory compliance training, chase overdue learners, and keep audit-ready evidence for regulators. Issue certifications and badges, manage renewals and expiry, and let others verify them. Sequence learning paths tied to the skills a role needs, recommend the next course, and automate enrollments, reminders, and escalations. Handle learner consent and data-deletion requests.",
+      "trigger_keywords": "LMS, e-learning, SCORM, xAPI, Tin Can, cmi5, LRS, microlearning, blended learning, ILT, VILT, webinar, micro-credential, Open Badges, CEU, continuing education, recertification, OSHA, HIPAA, SOX, GDPR, anti-harassment, onboarding training, upskilling, reskilling, curriculum, course catalog, gradebook, proctoring, attestation, talent development, corporate L&D",
+      "tools": [
+        {
+          "name": "acknowledge_manager_nudge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_automated_enrollment_rule",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_escalation_rule",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_instructor",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_learning_plan",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_compliance_training",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_instructor_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_learning_path",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_learning_path_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "award_learner_badge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_course_offering",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_course_session",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_enrollment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "cancel_virtual_classroom_meeting",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "close_subject_access_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_compliance_training",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_compliance_training_campaign",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_course",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_course_offering",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_course_session",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_learning_path_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "complete_learning_plan",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "confirm_instructor_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_audience",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_automated_enrollment_rule",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_certification_definition",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_course",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_course_assessment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_course_module",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_course_version",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_credential_badge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_escalation_rule",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_learning_path",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_lesson",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_notification_template",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "deactivate_instructor",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "decline_data_deletion_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "enroll_in_course",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "expire_certification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "file_ceu_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "file_finra_ce_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "file_regulator_filing_export",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "finalize_training_evidence_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "fulfill_data_deletion_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "fulfill_subject_access_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "grade_assessment_attempt",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "grant_gdpr_consent_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "ingest_xapi_statement",
+          "kind": "inbound",
+          "required": true
+        },
+        {
+          "name": "issue_certification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "launch_compliance_training_campaign",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "open_course_offering",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "pause_automated_enrollment_rule",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "publish_certification_definition",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "publish_course_assessment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "publish_course_version",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "publish_credential_badge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_assessment_attempts",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_assessment_questions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_audiences",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_automated_enrollment_rules",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_certificate_templates",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_certification_definitions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_certifications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_ceu_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_compliance_assignments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_compliance_audit_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_compliance_training_campaigns",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_continuing_education_credits",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_assessments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_catalogs",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_categories",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_completions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_discussions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_enrollments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_modules",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_offerings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_ratings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_resources",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_reviews",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_sessions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_tags",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_course_versions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_courses",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_credential_badges",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_curricula",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_data_deletion_requests",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_escalation_rules",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_fda_part11_audit_trails",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_finra_ce_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_gdpr_consent_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_harassment_training_acknowledgements",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_instructor_assignments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_instructors",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learner_badges",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learner_notifications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_content_assets",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_path_assignments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_path_steps",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_paths",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_plans",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_learning_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_lessons",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_manager_nudges",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_notification_templates",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_prerequisite_rules",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_quiz_responses",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_recertification_schedules",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_regulator_filing_exports",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_scorm_packages",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_session_attendances",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_skill_profiles",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_subject_access_requests",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_training_evidence_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_virtual_classroom_meetings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_waitlist_entries",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_xapi_statements",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "receive_data_deletion_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "receive_subject_access_request",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_ceu_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_compliance_audit_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_course_completion",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_fda_part11_audit_trail",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_finra_ce_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_session_attendance",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "record_skill_assessment",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "retire_certification_definition",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "retire_course_version",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "revoke_learner_badge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "schedule_course_offering",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "schedule_virtual_classroom_meeting",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "send_learner_notification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "send_manager_nudge",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sign_harassment_training_acknowledgement",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "submit_assessment_attempt",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "submit_compliance_audit_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "submit_training_evidence_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_course",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_skill_profile",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "upload_learning_content_asset",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "upload_scorm_package",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "validate_ceu_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "validate_finra_ce_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "validate_scorm_package",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "validate_session_attendance",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "void_course_completion",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "waive_compliance_assignment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "withdraw_gdpr_consent_record",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+      "business_function": "Governance, Risk and Compliance",
+      "modules": [
+        {
+          "code": "LMS-AUTOMATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-COMPLIANCE-TRAINING",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-CT-GDPR",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "LD-INSTRUCTIONAL-DESIGNER",
+      "business_function": "Learning and Development",
+      "modules": [
+        {
+          "code": "LMS-COURSE-DELIVERY",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-ILT-DELIVERY",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-PATHS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "LD-INSTRUCTOR",
+      "business_function": "Learning and Development",
+      "modules": [
+        {
+          "code": "LMS-COURSE-DELIVERY",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-ILT-DELIVERY",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "LD-LEARNING-ADMIN",
+      "business_function": "Learning and Development",
+      "modules": [
+        {
+          "code": "LMS-AUTOMATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-COMPLIANCE-TRAINING",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-COURSE-DELIVERY",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-ILT-DELIVERY",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-PATHS",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "LEGAL-COMPLIANCE-SPECIALIST",
+      "business_function": "Legal",
+      "modules": [
+        {
+          "code": "LMS-COMPLIANCE-TRAINING",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-CT-GDPR",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "PEOPLE-MANAGER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "LMS-AUTOMATION",
+          "interaction": "primary"
+        },
+        {
+          "code": "LMS-COMPLIANCE-TRAINING",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-CREDENTIALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "LMS-PATHS",
+          "interaction": "primary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

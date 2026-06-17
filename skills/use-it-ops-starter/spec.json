@@ -1,0 +1,173 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "bundle": {
+    "code": "IT-OPS-STARTER",
+    "name": "IT Operations Starter",
+    "kind": "industry_starter",
+    "domain_attached": false,
+    "tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
+    "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
+    "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
+    "host_domains": [
+      "HAM",
+      "ITAM",
+      "ITSM",
+      "SAM",
+      "SMP"
+    ]
+  },
+  "capabilities": [],
+  "composes": [
+    {
+      "name": "asset_contracts",
+      "singular_label": "Asset Contract",
+      "plural_label": "Asset Contracts",
+      "role": "embedded_master",
+      "owning_domain": "ITAM"
+    },
+    {
+      "name": "hardware_assets",
+      "singular_label": "Hardware Asset",
+      "plural_label": "Hardware Assets",
+      "role": "embedded_master",
+      "owning_domain": "HAM"
+    },
+    {
+      "name": "saas_applications",
+      "singular_label": "SaaS Application",
+      "plural_label": "SaaS Applications",
+      "role": "embedded_master",
+      "owning_domain": "SMP"
+    },
+    {
+      "name": "saas_subscriptions",
+      "singular_label": "SaaS Subscription",
+      "plural_label": "SaaS Subscriptions",
+      "role": "embedded_master",
+      "owning_domain": "SMP"
+    },
+    {
+      "name": "service_incidents",
+      "singular_label": "Incident",
+      "plural_label": "Incidents",
+      "role": "embedded_master",
+      "owning_domain": "ITSM"
+    },
+    {
+      "name": "service_requests",
+      "singular_label": "Service Request",
+      "plural_label": "Service Requests",
+      "role": "embedded_master",
+      "owning_domain": "ITSM"
+    },
+    {
+      "name": "software_licenses",
+      "singular_label": "Software License",
+      "plural_label": "Software Licenses",
+      "role": "embedded_master",
+      "owning_domain": "SAM"
+    },
+    {
+      "name": "users",
+      "singular_label": "User",
+      "plural_label": "Users",
+      "role": "consumer",
+      "owning_domain": null
+    }
+  ],
+  "apqc_processes_touched": [],
+  "system_skill": {
+    "skill_grain": "domain",
+    "skill_name": "it-ops-starter",
+    "description": "Manage IT for a small team from one place: log and resolve helpdesk tickets and service requests, track hardware and who has each device, inventory SaaS apps and their subscriptions, watch upcoming renewal dates, keep the contracts and on-prem licenses behind them, and alert owners before anything lapses. Look up a device, an app, a subscription, or a contract, record a new ticket or request, and flag renewals that are coming due.",
+    "trigger_keywords": "IT asset management, ITAM, ITSM, help desk, ticketing, incident, MSP, CMDB, asset register, software asset management, SAM, license compliance, vendor agreement, autorenewal, SaaS spend, shadow IT, seat count, end of life, warranty, procurement, sysadmin, IT operations",
+    "tools": [
+      {
+        "name": "create_service_request",
+        "kind": "mutate",
+        "required": false
+      },
+      {
+        "name": "notify_person",
+        "kind": "side_effect",
+        "required": false
+      },
+      {
+        "name": "query_asset_contracts",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_hardware_assets",
+        "kind": "query",
+        "required": false
+      },
+      {
+        "name": "query_incidents",
+        "kind": "query",
+        "required": false
+      },
+      {
+        "name": "query_saas_applications",
+        "kind": "query",
+        "required": false
+      },
+      {
+        "name": "query_saas_subscriptions",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_service_requests",
+        "kind": "query",
+        "required": false
+      },
+      {
+        "name": "query_software_licenses",
+        "kind": "query",
+        "required": false
+      }
+    ]
+  },
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

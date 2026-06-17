@@ -1,0 +1,36 @@
+# Projection of live catalog DB values for the use-real-estate-agent skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: REAL-ESTATE-AGENT
+domain_code_lower: real-estate-agent
+domain_name: "Real Estate Agent (solo / small firm bundle)"
+module_slug: real-estate-agent
+skill_name: use-real-estate-agent
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "A working surface for the real-estate agent."
+catalog_description: |
+  Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Capture and qualify buyer and seller leads, keep client contacts organized, create and publish property listings, schedule and track showings, and carry each deal from offer through closing with disclosures and signed purchase agreements. Send client updates and reminders, request e-signatures on agreements, and optionally draft listing descriptions, generate follow-up messages, and match listings to buyer preferences. Use for: MLS, open house, property tour, home sale, escrow, commission, real estate CRM."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Contract Repository
+  - Account and Contact Management
+  - Lead Management
+  - Real Estate Agent CRM
+  - Real Estate Lead Capture and Routing
+  - MLS and Listing Syndication
+  - Showing and Tour Scheduling
+  - Real Estate Transaction Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-clm
+  - use-crm
+  - use-re-brokerage

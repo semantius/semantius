@@ -1,0 +1,44 @@
+# Projection of live catalog DB values for the use-work-mgmt skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: WORK-MGMT
+domain_code_lower: work-mgmt
+domain_name: "Work Management"
+module_slug: work-mgmt
+skill_name: use-work-mgmt
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Run every team's projects, tasks, and goals in one place, from first request to finished work."
+catalog_description: |
+  Bring structured work out of scattered spreadsheets and inboxes. Create projects, break them into assignable tasks with owners and due dates, map dependencies, and watch progress on boards, timelines, and dashboards that update as the work moves.
+
+  Set team objectives and key results, then connect them to the tasks that move them so progress rolls up automatically. Standardize repeatable work with templates, and let automations handle status changes, reminders, and routing.
+
+  Built for operations, marketing, and any team running cross-functional work that needs one shared view of who is doing what, by when.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Plan projects and break them into assignable tasks with owners, due dates, and statuses; map dependencies and milestones on boards, lists, calendars, and timelines; and show who is doing what by when across teams. Set objectives and key results, link them to the work that moves them, and log check-ins so progress rolls up. Stand up request intake forms and route submissions, run approval and proofing reviews, automate status changes and reminders, balance workload against capacity, and report on cross-project dashboards. Use for: work management, project tracker, task tracker, to-do list, kanban, swimlane, Gantt, roadmap, sprint backlog, burndown, milestone tracking, dependency mapping, ticket queue, request queue, work intake, OKR, KPI, goal tracking, timesheets, resource allocation, capacity planning, workload balancing, creative markup, approval workflow, status rollup, PMO, BizOps, marketing ops, operations team."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Approval Workflow Orchestration
+  - Creative Proofing and Approval
+  - Goals and OKR Management
+  - Resource Capacity and Workload Visibility
+  - Cross-Project Dashboards
+  - Dependency-Based Scheduling and Gantt
+  - Request Intake and Form Routing
+  - Task Management and Assignment
+  - Workflow Automation
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-itsm
+  - use-prod-mgmt
+  - use-psa
+  - use-spm
+  - use-talent-mgmt
+  - use-wsc

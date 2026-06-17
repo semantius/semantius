@@ -1,0 +1,516 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "INTRANET-GOV",
+    "name": "Intranet Governance",
+    "description": "Platform-agnostic inventory, accountable ownership, recertification, content lifecycle, quality and accessibility governance, and improvement planning over content held in an organization's existing intranets. The accountability layer over the intranet platform(s) already in place, not a publishing platform itself. Distinct from Employee Communications & Intranet (the publishing platform), Web Content Operations & Governance (external / customer-facing audience), and Collaboration Governance (Microsoft 365 container and tenant governance).",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Know what is in every intranet, who owns it, and whether it is still true, without replacing the intranet you have.",
+    "catalog_description": "Map every page, hub, library, and form across the intranets you already run, then make someone accountable for each one. Assign owners and review cadences, run recertification cycles so content gets confirmed current or flagged stale, and turn what you find into a prioritized improvement backlog. Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress as governed sources and govern them from one place. Built for the digital-workplace and internal-comms teams who inherit stale, abandoned, unowned content nobody trusts. It is an accountability layer over your existing intranets, not another intranet to migrate to."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Human Resources",
+      "IT Operations"
+    ],
+    "contributors": [
+      "Marketing Communications"
+    ],
+    "consumers": [
+      "Executive"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "INTGOV-A11Y",
+      "name": "Accessibility Governance",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-ATTEST",
+      "name": "Ownership Attestation and Recertification",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-CONNECT",
+      "name": "Source Connectors",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-INV",
+      "name": "Content Inventory and Mapping",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-LIFE",
+      "name": "Content Lifecycle and Review",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-OWN",
+      "name": "Ownership Accountability",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-PLAN",
+      "name": "Improvement Planning and Backlog",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTGOV-QUAL",
+      "name": "Content Quality Scanning",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "INTGOV-GOVERNANCE",
+      "name": "Ownership, Lifecycle and Planning",
+      "kind": "full",
+      "realizes_capabilities": [
+        "INTGOV-ATTEST",
+        "INTGOV-LIFE",
+        "INTGOV-OWN",
+        "INTGOV-PLAN"
+      ],
+      "masters": [
+        "intranet_content_attestations",
+        "intranet_content_ownership_assignments"
+      ],
+      "embedded_masters": [
+        "work_items"
+      ],
+      "consumers": [
+        "users"
+      ],
+      "description": "Accountable ownership assignments, recertification attestations, and the improvement backlog."
+    },
+    {
+      "code": "INTGOV-INVENTORY",
+      "name": "Inventory and Sources",
+      "kind": "full",
+      "realizes_capabilities": [
+        "INTGOV-A11Y",
+        "INTGOV-CONNECT",
+        "INTGOV-INV",
+        "INTGOV-QUAL"
+      ],
+      "masters": [
+        "connected_intranets",
+        "intranet_content_health_scores",
+        "intranet_content_inventory_records",
+        "intranet_content_types"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Connector registry, cross-platform content inventory, content-type policy, and health scoring."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "connected_intranets",
+      "singular_label": "Connected Intranet",
+      "plural_label": "Connected Intranets",
+      "description": "A source intranet platform under governance (the connector target): platform type, base URL, auth, crawl schedule, and status.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "content source",
+          "source": "synonym"
+        },
+        {
+          "name": "governed source",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "intranet_content_attestations",
+      "singular_label": "Content Attestation",
+      "plural_label": "Content Attestations",
+      "description": "A recertification record: an owner attests that a piece of content is current, or flags it stale for remediation or archival.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "content recertification",
+          "source": "synonym"
+        },
+        {
+          "name": "content review",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "attested_current",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "attest"
+        },
+        {
+          "name": "flagged_stale",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "flag_stale"
+        },
+        {
+          "name": "remediated",
+          "order": 4
+        },
+        {
+          "name": "archived",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "archive"
+        }
+      ]
+    },
+    {
+      "name": "intranet_content_health_scores",
+      "singular_label": "Content Health Score",
+      "plural_label": "Content Health Scores",
+      "description": "Derived freshness, quality, accessibility, and ownership-coverage score per inventory record.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "intranet_content_inventory_records",
+      "singular_label": "Content Inventory Record",
+      "plural_label": "Content Inventory Records",
+      "description": "A discovered or registered piece of intranet content (page, hub, space, library, form) across connected intranets, with source, type, last-modified, owner, and governance status.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "content inventory",
+          "source": "synonym"
+        },
+        {
+          "name": "content register",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "intranet_content_ownership_assignments",
+      "singular_label": "Content Ownership Assignment",
+      "plural_label": "Content Ownership Assignments",
+      "description": "Assignment of an accountable owner and backup to an inventory record, with the review cadence the owner is responsible for.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "content stewardship",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "intranet_content_types",
+      "singular_label": "Intranet Content Type",
+      "plural_label": "Intranet Content Types",
+      "description": "A governed content-type definition (policy, news post, hub, library, form, FAQ) carrying its default review cadence, criticality, and retention rule.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "connected_intranets",
+      "verb": "contains",
+      "to": "intranet_content_inventory_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "intranet_content_inventory_records",
+      "verb": "is attested by",
+      "to": "intranet_content_attestations",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "intranet_content_inventory_records",
+      "verb": "is scored by",
+      "to": "intranet_content_health_scores",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "intranet_content_inventory_records",
+      "verb": "is governed by",
+      "to": "intranet_content_ownership_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "intranet_content_inventory_records",
+      "verb": "spawns improvement",
+      "to": "work_items",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "intranet_content_types",
+      "verb": "classifies",
+      "to": "intranet_content_inventory_records",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "attests",
+      "to": "intranet_content_attestations",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "is accountable owner on",
+      "to": "intranet_content_ownership_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "21669",
+      "name": "Track content non-compliance resolution"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "intranet-gov",
+      "description": "Inventory the pages, hubs, libraries, and forms across the intranets an organization already runs, assign accountable owners to each one, and run recertification attestations so content is confirmed current or flagged stale. Score content health, check accessibility, manage review cadences, and turn findings into a prioritized improvement backlog. Govern the existing intranet platforms in place rather than replacing them.",
+      "trigger_keywords": "digital workplace, internal communications, content governance, content audit, governance, compliance, abandoned, orphaned, link rot, broken links, WCAG, ADA, Section 508, sunset, sprawl, taxonomy, findability, knowledge base hygiene, employee portal",
+      "tools": [
+        {
+          "name": "archive_content",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "assign_content_owner",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "attest_content",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "crawl_intranet_source",
+          "kind": "fetch",
+          "required": true
+        },
+        {
+          "name": "create_work_item",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "flag_content_stale",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "query_connected_intranets",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_intranet_content_attestations",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_intranet_content_health_scores",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_intranet_content_inventory_records",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_intranet_content_ownership_assignments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_intranet_content_types",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_work_items",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "register_connected_intranet",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "request_content_attestation",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "scan_content_accessibility",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "scan_content_quality",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "update_intranet_content_inventory_record",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_intranet_content_type",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "CONTENT-OWNER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "INTGOV-GOVERNANCE",
+          "interaction": "primary"
+        },
+        {
+          "code": "INTGOV-INVENTORY",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "INTGOV-GOVERNANCE",
+          "interaction": "primary"
+        },
+        {
+          "code": "INTGOV-INVENTORY",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "ITOPS-INTRANET-ADMIN",
+      "business_function": "IT Operations",
+      "modules": [
+        {
+          "code": "INTGOV-GOVERNANCE",
+          "interaction": "secondary"
+        },
+        {
+          "code": "INTGOV-INVENTORY",
+          "interaction": "primary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

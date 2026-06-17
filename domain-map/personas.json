@@ -1,0 +1,986 @@
+{
+  "personas": [
+    {
+      "code": "CONTENT-OWNER",
+      "name": "Content Owner",
+      "description": "Accountable owner for specific pieces of intranet content; responds to recertification attestations and remediates or archives stale content.",
+      "business_function_id": null,
+      "business_function": null,
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["INTGOV-GOVERNANCE", "INTGOV-INVENTORY"],
+      "domains": ["INTRANET-GOV"],
+      "processes": [
+        {
+          "key": "",
+          "name": "Recertify Intranet Content",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "CONTRACT-OPS-MANAGER",
+      "name": "Contract Operations Manager",
+      "description": "Accountable for the contract lifecycle end to end: owns the repository, signs off on approvals and executions, drives obligation tracking and renewals, and keeps authoring and negotiation moving across the team.",
+      "business_function_id": 74,
+      "business_function": "Contract Operations",
+      "record_status": "new",
+      "module_count": 5,
+      "domain_count": 1,
+      "modules": ["CLM-AUTHORING", "CLM-NEGOTIATION", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "CLM-REPOSITORY"],
+      "domains": ["CLM"],
+      "processes": [
+        {
+          "key": "evaluate_enterprise_regulatory",
+          "name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_contracts",
+          "name": "Manage contracts",
+          "raci": "accountable"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "raci": "accountable"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "CONTRACT-OPS-SPECIALIST",
+      "name": "Contract Operations Specialist",
+      "description": "Runs the day-to-day contract workflow: assembles drafts from approved templates, shepherds signature envelopes, tracks obligations to closure, and processes renewals ahead of expiry.",
+      "business_function_id": 74,
+      "business_function": "Contract Operations",
+      "record_status": "new",
+      "module_count": 4,
+      "domain_count": 1,
+      "modules": ["CLM-AUTHORING", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "CLM-REPOSITORY"],
+      "domains": ["CLM"],
+      "processes": [
+        {
+          "key": "evaluate_enterprise_regulatory",
+          "name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_contracts",
+          "name": "Manage contracts",
+          "raci": "responsible"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "raci": "informed"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "code": "DIGITAL-WORKPLACE-GOV-LEAD",
+      "name": "Digital Workplace Governance Lead",
+      "description": "Owns the intranet governance program across all connected sources: sets policy, oversees recertification, and is accountable for content currency and accountability coverage.",
+      "business_function_id": null,
+      "business_function": null,
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["INTGOV-GOVERNANCE", "INTGOV-INVENTORY"],
+      "domains": ["INTRANET-GOV"],
+      "processes": [
+        {
+          "key": "",
+          "name": "Recertify Intranet Content",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "GRC-COMPLIANCE-TRAINING-MANAGER",
+      "name": "Compliance Training Manager",
+      "description": "Runs regulatory and policy training programs end to end: schedules compliance campaigns, tracks assignment completion, assembles training evidence, manages recertification, and produces regulator filings.",
+      "business_function_id": 31,
+      "business_function": "Governance, Risk and Compliance",
+      "record_status": "new",
+      "module_count": 5,
+      "domain_count": 1,
+      "modules": ["LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-CREDENTIALS", "LMS-CT-GDPR", "TRAINING-RECORDS-STARTER"],
+      "domains": ["LMS"],
+      "processes": [
+        {
+          "key": "manage_examinations",
+          "name": "Manage examinations and certifications",
+          "raci": "accountable"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "raci": "accountable"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "HIRING-MANAGER",
+      "name": "Hiring Manager",
+      "description": "The role owning the open position. Cross-functional (sits in the hiring department, not Recruiting): defines the req, interviews, decides the hire, approves the offer.",
+      "business_function_id": null,
+      "business_function": null,
+      "record_status": "new",
+      "module_count": 5,
+      "domain_count": 2,
+      "modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-RECRUITMENT-PIPELINE", "HCM-ORG-POSITIONS"],
+      "domains": ["ATS", "HCM"],
+      "processes": [
+        {
+          "key": "draw_up_make_offer",
+          "name": "Draw up and make offer",
+          "raci": "accountable"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "raci": "accountable"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "raci": "responsible"
+        },
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "code": "HR-BUSINESS-PARTNER",
+      "name": "HR Business Partner",
+      "description": "Advises managers on org changes, workforce moves, and employee relations. Accountable for sensitive lifecycle changes in their business unit and consulted on position and reorganization decisions.",
+      "business_function_id": 3,
+      "business_function": "Human Resources",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS"],
+      "domains": ["HCM"],
+      "processes": [
+        {
+          "key": "conduct_organization",
+          "name": "Conduct organization restructuring opportunities",
+          "raci": "accountable"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "raci": "accountable"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "raci": "accountable"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "code": "HR-HRIS-ADMIN",
+      "name": "HRIS Administrator",
+      "description": "Administers the HCM system of record: configures and maintains worker data, the org-unit structure, the job and position catalog, and the lifecycle workflow configuration. Holds admin authority across all HCM modules.",
+      "business_function_id": 3,
+      "business_function": "Human Resources",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS"],
+      "domains": ["HCM"],
+      "processes": [
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "raci": "informed"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "raci": "informed"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "raci": "informed"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "code": "HR-ORG-DESIGN-ANALYST",
+      "name": "Organization Design Analyst",
+      "description": "Models the organization: authors and publishes job profiles, defines and approves positions against budgeted headcount, and maintains the org-unit hierarchy through reorganizations.",
+      "business_function_id": 3,
+      "business_function": "Human Resources",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS"],
+      "domains": ["HCM"],
+      "processes": [
+        {
+          "key": "conduct_organization",
+          "name": "Conduct organization restructuring opportunities",
+          "raci": "responsible"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "raci": "responsible"
+        },
+        {
+          "key": "develop_maintain_job",
+          "name": "Develop and maintain job descriptions",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "HR-PEOPLE-OPS-SPECIALIST",
+      "name": "People Operations Specialist",
+      "description": "Executes the day-to-day worker lifecycle: processes hires into active workers, transfers and other employment events, leaves of absence, contract changes, and terminations. The transactional HR operator.",
+      "business_function_id": 3,
+      "business_function": "Human Resources",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS"],
+      "domains": ["HCM"],
+      "processes": [
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "raci": "responsible"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "HRSD-CASE-AGENT",
+      "name": "HR Case Agent",
+      "description": "Frontline HR service agent: picks up employee cases from the portal queue, triages and classifies them, works them to resolution, and attaches knowledge. Reopens closed cases when something changes.",
+      "business_function_id": 76,
+      "business_function": "HR Service Delivery",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HRSD-CASE-MGMT", "HRSD-EMPLOYEE-PORTAL", "HRSD-KNOWLEDGE"],
+      "domains": ["HRSD"],
+      "processes": [
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "HRSD-KNOWLEDGE-MANAGER",
+      "name": "HR Knowledge Manager",
+      "description": "Owns the HR knowledge base: curates and publishes articles, organizes them by case category, and promotes resolved cases into reusable knowledge to deflect future requests.",
+      "business_function_id": 76,
+      "business_function": "HR Service Delivery",
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["HRSD-CASE-MGMT", "HRSD-KNOWLEDGE"],
+      "domains": ["HRSD"],
+      "processes": [
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "code": "HRSD-SERVICE-MANAGER",
+      "name": "HR Service Manager",
+      "description": "Accountable for HR service delivery output: owns the case queue, SLAs, routing rules, and the approval gate. Oversees workload, aging, and escalations across the case workflow and the employee portal.",
+      "business_function_id": 76,
+      "business_function": "HR Service Delivery",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["HRSD-CASE-MGMT", "HRSD-EMPLOYEE-PORTAL", "HRSD-KNOWLEDGE"],
+      "domains": ["HRSD"],
+      "processes": [
+        {
+          "key": "manage_employee_inquiry_process",
+          "name": "Manage employee inquiry process",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "IT-SAAS-ADMIN",
+      "name": "SaaS Administrator",
+      "description": "IT Operations persona that runs day-to-day SaaS administration: discovering and triaging applications, managing integrations and owners, optimizing license usage and reclamation, and operating automation workflows and self-service requests.",
+      "business_function_id": 27,
+      "business_function": "IT Operations",
+      "record_status": "new",
+      "module_count": 4,
+      "domain_count": 1,
+      "modules": ["SMP-AUTOMATION", "SMP-DISCOVERY", "SMP-OPTIMIZATION", "SMP-RENEWAL-VENDOR"],
+      "domains": ["SMP"],
+      "processes": [
+        {
+          "key": "manage_corporate_credit_cards",
+          "name": "Manage corporate credit cards",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_corporate_credit_cards",
+          "name": "Manage corporate credit cards",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_infrastructure_resource",
+          "name": "Manage infrastructure resource administration",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_infrastructure_resource",
+          "name": "Manage infrastructure resource administration",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_it_user_identity",
+          "name": "Manage IT user identity and authorization",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "ITAM-SAAS-PORTFOLIO-MANAGER",
+      "name": "SaaS Portfolio Manager",
+      "description": "IT Asset Management persona that governs the SaaS portfolio end to end across discovery, optimization, renewal, and automation; the cross-module owner accountable for portfolio cost, compliance, and lifecycle.",
+      "business_function_id": 84,
+      "business_function": "IT Asset Management",
+      "record_status": "new",
+      "module_count": 4,
+      "domain_count": 1,
+      "modules": ["SMP-AUTOMATION", "SMP-DISCOVERY", "SMP-OPTIMIZATION", "SMP-RENEWAL-VENDOR"],
+      "domains": ["SMP"],
+      "processes": [
+        {
+          "key": "manage_it_portfolio_strategy",
+          "name": "Manage IT portfolio strategy",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_it_portfolio_strategy",
+          "name": "Manage IT portfolio strategy",
+          "raci": "responsible"
+        },
+        {
+          "key": "optimize_it_resource_allocation",
+          "name": "Optimize IT resource allocation",
+          "raci": "accountable"
+        },
+        {
+          "key": "optimize_it_resource_allocation",
+          "name": "Optimize IT resource allocation",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "ITOPS-INTRANET-ADMIN",
+      "name": "Intranet Platform Administrator",
+      "description": "Connects and maintains intranet sources, runs crawls and scans, and keeps the inventory and connectors healthy.",
+      "business_function_id": 27,
+      "business_function": "IT Operations",
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["INTGOV-GOVERNANCE", "INTGOV-INVENTORY"],
+      "domains": ["INTRANET-GOV"],
+      "processes": [
+        {
+          "key": "",
+          "name": "Recertify Intranet Content",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "code": "LD-INSTRUCTIONAL-DESIGNER",
+      "name": "Instructional Designer",
+      "description": "Authors and versions courses, lessons, content assets, and assessments; publishes new training and retires outdated material across self-paced and instructor-led delivery.",
+      "business_function_id": 11,
+      "business_function": "Learning and Development",
+      "record_status": "new",
+      "module_count": 4,
+      "domain_count": 1,
+      "modules": ["LMS-COURSE-DELIVERY", "LMS-CREDENTIALS", "LMS-ILT-DELIVERY", "LMS-PATHS"],
+      "domains": ["LMS"],
+      "processes": [
+        {
+          "key": "align_learning_programs",
+          "name": "Align learning programs with competencies and skills",
+          "raci": "consulted"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "raci": "responsible"
+        },
+        {
+          "key": "evaluate_training_effectiveness",
+          "name": "Evaluate training effectiveness",
+          "raci": "responsible"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "LD-INSTRUCTOR",
+      "name": "Instructor",
+      "description": "Delivers instructor-led and virtual instructor-led sessions: runs scheduled offerings, records attendance, grades assessments, and supports learners through completion and certification.",
+      "business_function_id": 11,
+      "business_function": "Learning and Development",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["LMS-COURSE-DELIVERY", "LMS-CREDENTIALS", "LMS-ILT-DELIVERY"],
+      "domains": ["LMS"],
+      "processes": [
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "raci": "consulted"
+        },
+        {
+          "key": "evaluate_training_effectiveness",
+          "name": "Evaluate training effectiveness",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_examinations",
+          "name": "Manage examinations and certifications",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_training_schedule",
+          "name": "Manage training schedule",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "LD-LEARNING-ADMIN",
+      "name": "Learning Administrator",
+      "description": "Owns day-to-day operation of the learning platform: maintains the course catalog, manages enrollments and learning paths, configures automation and audiences, and administers credentials and continuing education.",
+      "business_function_id": 11,
+      "business_function": "Learning and Development",
+      "record_status": "new",
+      "module_count": 7,
+      "domain_count": 1,
+      "modules": ["LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-COURSE-DELIVERY", "LMS-CREDENTIALS", "LMS-ILT-DELIVERY", "LMS-PATHS", "TRAINING-RECORDS-STARTER"],
+      "domains": ["LMS"],
+      "processes": [
+        {
+          "key": "align_learning_programs",
+          "name": "Align learning programs with competencies and skills",
+          "raci": "responsible"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "raci": "accountable"
+        },
+        {
+          "key": "develop_employee_career_plans",
+          "name": "Develop employee career plans and career paths",
+          "raci": "accountable"
+        },
+        {
+          "key": "evaluate_training_effectiveness",
+          "name": "Evaluate training effectiveness",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_examinations",
+          "name": "Manage examinations and certifications",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_training_schedule",
+          "name": "Manage training schedule",
+          "raci": "accountable"
+        },
+        {
+          "key": "monitor_evaluate_learning",
+          "name": "Monitor and evaluate learning programs",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "LEGAL-COMPLIANCE-SPECIALIST",
+      "name": "Compliance Specialist",
+      "description": "Owns hiring-compliance surfaces: background-check adjudication, FCRA / adverse-action, EEO / OFCCP, and candidate data-subject requests.",
+      "business_function_id": 7,
+      "business_function": "Legal",
+      "record_status": "new",
+      "module_count": 5,
+      "domain_count": 2,
+      "modules": ["ATS-BACKGROUND-CHECKS", "ATS-CANDIDATE-CRM", "ATS-RECRUITMENT-PIPELINE", "LMS-COMPLIANCE-TRAINING", "LMS-CT-GDPR"],
+      "domains": ["ATS", "LMS"],
+      "processes": [
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "raci": "informed"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "raci": "responsible"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "code": "LEGAL-COUNSEL",
+      "name": "Legal Counsel",
+      "description": "Reviews and approves contract language, clause and template content, and redlines counterparty terms during negotiation. The legal gate on what the organization is willing to sign.",
+      "business_function_id": 7,
+      "business_function": "Legal",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["CLM-AUTHORING", "CLM-NEGOTIATION", "CLM-REPOSITORY"],
+      "domains": ["CLM"],
+      "processes": [
+        {
+          "key": "evaluate_enterprise_regulatory",
+          "name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "informed"
+        },
+        {
+          "key": "manage_contracts",
+          "name": "Manage contracts",
+          "raci": "consulted"
+        },
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "raci": "responsible"
+        },
+        {
+          "key": "provide_legal_advice_counseling",
+          "name": "Provide legal advice/counseling",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "MARKETING-CAMPAIGN-MANAGER",
+      "name": "Campaign Manager",
+      "description": "Marketing operator who runs campaign projects with creative review and routes creative requests through intake queues.",
+      "business_function_id": 22,
+      "business_function": "Marketing",
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["WORK-MGMT-INTAKE", "WORK-MGMT-TASK-EXEC"],
+      "domains": ["WORK-MGMT"],
+      "processes": []
+    },
+    {
+      "code": "OKR-OWNER",
+      "name": "OKR Owner",
+      "description": "Cross-functional objective owner who commits and scores OKRs and links key results to executing work items.",
+      "business_function_id": null,
+      "business_function": null,
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["WORK-MGMT-GOALS-OKR", "WORK-MGMT-TASK-EXEC"],
+      "domains": ["WORK-MGMT"],
+      "processes": [
+        {
+          "key": "develop_set_organizational",
+          "name": "Develop and set organizational objectives",
+          "raci": "accountable"
+        },
+        {
+          "key": "develop_set_organizational",
+          "name": "Develop and set organizational objectives",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "OPERATIONS-WORK-CONTRIBUTOR",
+      "name": "Work Contributor",
+      "description": "Individual contributor who executes assigned work items, posts updates, and submits cross-team requests through intake.",
+      "business_function_id": 34,
+      "business_function": "Business Operations",
+      "record_status": "new",
+      "module_count": 2,
+      "domain_count": 1,
+      "modules": ["WORK-MGMT-INTAKE", "WORK-MGMT-TASK-EXEC"],
+      "domains": ["WORK-MGMT"],
+      "processes": [
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "OPERATIONS-WORK-PROGRAM-LEAD",
+      "name": "Work Program Lead",
+      "description": "PMO / BizOps lead who owns cross-team programs, triages intake, and rolls up OKR progress from work items.",
+      "business_function_id": 34,
+      "business_function": "Business Operations",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["WORK-MGMT-GOALS-OKR", "WORK-MGMT-INTAKE", "WORK-MGMT-TASK-EXEC"],
+      "domains": ["WORK-MGMT"],
+      "processes": [
+        {
+          "key": "manage_projects",
+          "name": "Manage projects",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "PEOPLE-MANAGER",
+      "name": "People Manager",
+      "description": "Cross-functional people leader who assigns and nudges direct reports through required and developmental learning, monitors completion and certification status, and follows up on overdue training.",
+      "business_function_id": null,
+      "business_function": null,
+      "record_status": "new",
+      "module_count": 7,
+      "domain_count": 2,
+      "modules": ["HCM-CORE-WORKER", "HCM-LIFECYCLE-WORKFLOWS", "HCM-ORG-POSITIONS", "LMS-AUTOMATION", "LMS-COMPLIANCE-TRAINING", "LMS-CREDENTIALS", "LMS-PATHS"],
+      "domains": ["HCM", "LMS"],
+      "processes": [
+        {
+          "key": "align_learning_programs",
+          "name": "Align learning programs with competencies and skills",
+          "raci": "accountable"
+        },
+        {
+          "key": "conduct_organization",
+          "name": "Conduct organization restructuring opportunities",
+          "raci": "consulted"
+        },
+        {
+          "key": "create_organizational_design",
+          "name": "Create organizational design",
+          "raci": "consulted"
+        },
+        {
+          "key": "develop_conduct_manage_employee",
+          "name": "Develop, conduct, and manage employee training programs",
+          "raci": "informed"
+        },
+        {
+          "key": "develop_employee_career_plans",
+          "name": "Develop employee career plans and career paths",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_leave_absence",
+          "name": "Manage leave of absence",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_maintain_employee_data",
+          "name": "Manage and maintain employee data",
+          "raci": "informed"
+        },
+        {
+          "key": "manage_separation",
+          "name": "Manage separation",
+          "raci": "consulted"
+        },
+        {
+          "key": "relocate_employees_manage",
+          "name": "Relocate employees and manage assignments",
+          "raci": "accountable"
+        },
+        {
+          "key": "train_employees_appropriate",
+          "name": "Train employees on appropriate regulatory requirements",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "code": "PROCUREMENT-CONTRACT-LIAISON",
+      "name": "Procurement Contract Liaison",
+      "description": "Bridges sourcing and contracting: turns awarded sourcing outcomes into draft agreements, consults on supplier terms during negotiation, and reads the repository for active supplier commitments.",
+      "business_function_id": 19,
+      "business_function": "Procurement",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["CLM-AUTHORING", "CLM-NEGOTIATION", "CLM-REPOSITORY"],
+      "domains": ["CLM"],
+      "processes": [
+        {
+          "key": "negotiate_document_agreements",
+          "name": "Negotiate and document agreements/contracts",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "code": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+      "name": "SaaS Renewal Owner",
+      "description": "Procurement persona that owns the commercial SaaS lifecycle: renewal pipeline, vendor negotiations, spend allocation, and vendor risk attestation, with read access to discovery and usage data that informs renewal decisions.",
+      "business_function_id": 19,
+      "business_function": "Procurement",
+      "record_status": "new",
+      "module_count": 3,
+      "domain_count": 1,
+      "modules": ["SMP-DISCOVERY", "SMP-OPTIMIZATION", "SMP-RENEWAL-VENDOR"],
+      "domains": ["SMP"],
+      "processes": [
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_demand_products",
+          "name": "Manage demand for products",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-COORDINATOR",
+      "name": "Recruiting Coordinator",
+      "description": "Owns interview logistics and offer / pre-employee paperwork; schedules panels and keeps the process moving.",
+      "business_function_id": 37,
+      "business_function": "Recruiting",
+      "record_status": "new",
+      "module_count": 5,
+      "domain_count": 1,
+      "modules": ["ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "ATS-RECRUITMENT-PIPELINE"],
+      "domains": ["ATS"],
+      "processes": [
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "raci": "informed"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-MANAGER",
+      "name": "Recruiting Manager",
+      "description": "Accountable for the recruiting function's output: approves reqs and offers, owns pipeline health and vendor relationships.",
+      "business_function_id": 37,
+      "business_function": "Recruiting",
+      "record_status": "new",
+      "module_count": 8,
+      "domain_count": 1,
+      "modules": ["ATS-BACKGROUND-CHECKS", "ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "ATS-RECRUITMENT-PIPELINE", "ATS-REFERRALS", "ATS-TALENT-POOLS"],
+      "domains": ["ATS"],
+      "processes": [
+        {
+          "key": "draw_up_make_offer",
+          "name": "Draw up and make offer",
+          "raci": "consulted"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_employee_referral",
+          "name": "Manage employee referral programs",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "raci": "accountable"
+        },
+        {
+          "key": "manage_new_hire_re_hire",
+          "name": "Manage new hire/re-hire",
+          "raci": "accountable"
+        },
+        {
+          "key": "obtain_candidate_background",
+          "name": "Obtain candidate background information",
+          "raci": "accountable"
+        },
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "raci": "accountable"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-RECRUITER",
+      "name": "Recruiter",
+      "description": "Owns the requisition-to-offer pipeline for assigned reqs: sources, screens, schedules, drafts and sends offers, drives candidates to hire.",
+      "business_function_id": 37,
+      "business_function": "Recruiting",
+      "record_status": "new",
+      "module_count": 8,
+      "domain_count": 1,
+      "modules": ["ATS-BACKGROUND-CHECKS", "ATS-CANDIDATE-CRM", "ATS-INTERVIEWS", "ATS-OFFERS", "ATS-PRE-EMPLOYEE-RECORD", "ATS-RECRUITMENT-PIPELINE", "ATS-REFERRALS", "ATS-TALENT-POOLS"],
+      "domains": ["ATS"],
+      "processes": [
+        {
+          "key": "draw_up_make_offer",
+          "name": "Draw up and make offer",
+          "raci": "responsible"
+        },
+        {
+          "key": "hire_candidate",
+          "name": "Hire candidate",
+          "raci": "responsible"
+        },
+        {
+          "key": "interview_candidates",
+          "name": "Interview candidates",
+          "raci": "consulted"
+        },
+        {
+          "key": "manage_employee_referral",
+          "name": "Manage employee referral programs",
+          "raci": "responsible"
+        },
+        {
+          "key": "manage_employee_requisitions",
+          "name": "Manage employee requisitions",
+          "raci": "responsible"
+        },
+        {
+          "key": "obtain_candidate_background",
+          "name": "Obtain candidate background information",
+          "raci": "responsible"
+        },
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-SOURCER",
+      "name": "Sourcer",
+      "description": "Builds and works talent pools and the candidate CRM; generates qualified pipeline ahead of open reqs.",
+      "business_function_id": 37,
+      "business_function": "Recruiting",
+      "record_status": "new",
+      "module_count": 4,
+      "domain_count": 1,
+      "modules": ["ATS-CANDIDATE-CRM", "ATS-RECRUITMENT-PIPELINE", "ATS-REFERRALS", "ATS-TALENT-POOLS"],
+      "domains": ["ATS"],
+      "processes": [
+        {
+          "key": "recruit_source_candidates",
+          "name": "Recruit/Source candidates",
+          "raci": "responsible"
+        }
+      ]
+    }
+  ]
+}

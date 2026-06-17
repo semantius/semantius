@@ -1,0 +1,40 @@
+# Projection of live catalog DB values for the use-hrsd skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: HRSD
+domain_code_lower: hrsd
+domain_name: "HR Service Delivery"
+module_slug: hrsd
+skill_name: use-hrsd
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Give employees one place to ask HR questions, get answers, and track every request to resolution."
+catalog_description: |
+  Run employee HR support as a single service experience. Employees raise questions and requests from a self-service portal, find answers in a curated knowledge base, and watch their case move from intake to resolution without chasing anyone.
+
+  Behind the scenes, incoming cases are triaged and routed to the right HR specialist, escalated across payroll, benefits, access, and other teams when needed, and resolved against documented service levels. Approvals, assignments, and reopen handling are built into the workflow so nothing slips between stages.
+
+  As cases resolve, the knowledge base grows from real questions, deflecting future requests and freeing HR teams to focus on the cases that genuinely need a human.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Let employees raise HR questions and requests through a self-service portal, find answers in a knowledge base, and follow each case from intake to resolution. Triage and route incoming cases to the right specialist, escalate across payroll, benefits, and access teams, apply approvals and assignments, track against service levels, and handle reopens. Publish and maintain knowledge articles drawn from resolved cases to deflect repeat requests. Use for: HRSD, HR help desk, employee relations, tier 1 HR, tier 2 HR, case deflection, ticketing, SLA, queue, classification, agent assist, policy attestation, onboarding, FAQ, employee experience, shared services, HR portal, people operations."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - AI Triage and Classification
+  - Approval Workflow Orchestration
+  - Knowledge Management
+  - Self-Service Portal
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-ben-admin
+  - use-hcm
+  - use-iga
+  - use-itsm
+  - use-kms
+  - use-lms
+  - use-payroll

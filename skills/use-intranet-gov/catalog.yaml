@@ -1,0 +1,34 @@
+# Projection of live catalog DB values for the use-intranet-gov skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: INTRANET-GOV
+domain_code_lower: intranet-gov
+domain_name: "Intranet Governance"
+module_slug: intranet-gov
+skill_name: use-intranet-gov
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Know what is in every intranet, who owns it, and whether it is still true, without replacing the intranet you have."
+catalog_description: |
+  Map every page, hub, library, and form across the intranets you already run, then make someone accountable for each one. Assign owners and review cadences, run recertification cycles so content gets confirmed current or flagged stale, and turn what you find into a prioritized improvement backlog. Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress as governed sources and govern them from one place. Built for the digital-workplace and internal-comms teams who inherit stale, abandoned, unowned content nobody trusts. It is an accountability layer over your existing intranets, not another intranet to migrate to.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Inventory the pages, hubs, libraries, and forms across the intranets an organization already runs, assign accountable owners to each one, and run recertification attestations so content is confirmed current or flagged stale. Score content health, check accessibility, manage review cadences, and turn findings into a prioritized improvement backlog. Govern the existing intranet platforms in place rather than replacing them. Use for: digital workplace, internal communications, content governance, content audit, governance, compliance, abandoned, orphaned, link rot, broken links, WCAG, ADA, Section 508, sunset, sprawl, taxonomy, findability, knowledge base hygiene, employee portal."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Accessibility Governance
+  - Ownership Attestation and Recertification
+  - Source Connectors
+  - Content Inventory and Mapping
+  - Content Lifecycle and Review
+  - Ownership Accountability
+  - Improvement Planning and Backlog
+  - Content Quality Scanning
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-work-mgmt

@@ -1,0 +1,3775 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "ATS",
+    "name": "Applicant Tracking and Recruiting",
+    "description": "Requisition management, candidate sourcing, interview workflows, and offer management. AI-assisted matching and screening overlays are increasingly bundled.",
+    "parent_domain_code": "HCM",
+    "certification_required": false,
+    "catalog_tagline": "Hire faster with a connected pipeline from sourcing through offer acceptance.",
+    "catalog_description": "Track every candidate from first contact through hire. Manage job requisitions, posting distribution, application intake, interview scheduling, scorecard collection, and offer generation in one connected pipeline.\n\nWhen a candidate accepts an offer, the workflow hands off cleanly to onboarding so your new hire's first day doesn't start from a blank page. Built-in support for EEOC-compliant funnel analytics, requisition approval routing, and offer-letter version control."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "Recruiting"
+    ],
+    "contributors": [
+      "Human Resources",
+      "Legal"
+    ],
+    "consumers": [
+      "Finance"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "AI-RECRUIT",
+      "name": "AI-Driven Matching and Screening",
+      "cross_cutting": false
+    },
+    {
+      "code": "BACKGROUND-SCREENING",
+      "name": "Background Screening",
+      "cross_cutting": false
+    },
+    {
+      "code": "CANDIDATE-EXP",
+      "name": "Candidate Experience",
+      "cross_cutting": false
+    },
+    {
+      "code": "INTERVIEW-MGMT",
+      "name": "Interview Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "OFFER-MGMT",
+      "name": "Offer Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "REQ-MGMT",
+      "name": "Requisition Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "SOURCING",
+      "name": "Candidate Sourcing",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "ATS-BACKGROUND-CHECKS",
+      "name": "Background Checks",
+      "kind": "full",
+      "realizes_capabilities": [
+        "BACKGROUND-SCREENING"
+      ],
+      "masters": [
+        "adverse_action_notices",
+        "background_check_adjudications",
+        "background_check_components",
+        "background_check_disputes",
+        "background_check_packages",
+        "background_checks",
+        "drug_health_screenings",
+        "fcra_disclosures",
+        "fcra_summary_of_rights_acknowledgements",
+        "pre_adverse_action_notices"
+      ],
+      "embedded_masters": [
+        "candidates",
+        "job_offers"
+      ],
+      "consumers": [],
+      "description": "Pre-employment background-check orchestration with adverse-action workflow. Coordinates external vendor handoffs and gates offer-to-firm conversion on clearance. Requires an external `send_email` tool for FCRA adverse-action notices."
+    },
+    {
+      "code": "ATS-CANDIDATE-CRM",
+      "name": "Candidate CRM",
+      "kind": "full",
+      "realizes_capabilities": [
+        "AI-RECRUIT",
+        "CANDIDATE-EXP",
+        "SOURCING"
+      ],
+      "masters": [
+        "agency_submissions",
+        "candidate_consents",
+        "candidate_documents",
+        "candidate_emails",
+        "candidate_engagements",
+        "candidate_notes",
+        "candidate_nurture_campaigns",
+        "candidates",
+        "data_subject_requests",
+        "outreach_sequence_steps",
+        "outreach_sequences",
+        "recruiter_interactions",
+        "recruiting_event_attendances",
+        "recruitment_agencies",
+        "recruitment_events",
+        "recruitment_sources"
+      ],
+      "embedded_masters": [
+        "internal_opportunities",
+        "talent_pools"
+      ],
+      "consumers": [],
+      "description": "The candidate-relationship backbone of an ATS, masters candidates (including the `prospect` lifecycle state), recruitment sources, agencies, and events. Structurally the same shape as standalone candidate-CRM products. Folds the AI-RECRUIT capability (resume parsing, ML matching, screening assistants) since those tools operate on `candidates` and are tightly bound to candidate workflows."
+    },
+    {
+      "code": "ATS-INTERVIEWS",
+      "name": "Interviews",
+      "kind": "full",
+      "realizes_capabilities": [
+        "INTERVIEW-MGMT"
+      ],
+      "masters": [
+        "candidate_assessment_templates",
+        "candidate_assessments",
+        "interview_kits",
+        "interview_panels",
+        "interview_questions",
+        "interview_scorecards",
+        "interviewer_availability_slots",
+        "interviews"
+      ],
+      "embedded_masters": [
+        "candidates",
+        "job_applications"
+      ],
+      "consumers": [],
+      "description": "Interview scheduling, panel coordination, scorecards, and structured assessments. Realizes INTERVIEW-MGMT. Realizes the `interviewing` lifecycle state on `job_applications` (state pruned when this module is not installed)."
+    },
+    {
+      "code": "ATS-OFFERS",
+      "name": "Offers",
+      "kind": "full",
+      "realizes_capabilities": [
+        "OFFER-MGMT"
+      ],
+      "masters": [
+        "job_offers",
+        "offer_approvals",
+        "offer_letter_documents",
+        "offer_letter_templates",
+        "offer_versions"
+      ],
+      "embedded_masters": [
+        "candidates",
+        "job_applications"
+      ],
+      "consumers": [],
+      "description": "Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool, drops module Semantius coverage to ~83%."
+    },
+    {
+      "code": "ATS-PRE-EMPLOYEE-RECORD",
+      "name": "Pre-Employee Record",
+      "kind": "full",
+      "realizes_capabilities": [
+        "OFFER-MGMT"
+      ],
+      "masters": [
+        "pre_employees",
+        "right_to_work_verifications"
+      ],
+      "embedded_masters": [
+        "candidates",
+        "job_offers"
+      ],
+      "consumers": [],
+      "description": "The bridge between offer-accepted and start-date: ATS owns the pre-employee lifecycle stage (paperwork in flight, pre-boarding tasks open, background check pending). Realizes the `hired` state on `job_applications`. Publishes the `pre_employee.activated` event that hands the canonical reconciliation to HCM-mastered `employees`. Formerly NEW-HIRE-HANDOFF, renamed per §7.1 because HCM canonically masters `employees`."
+    },
+    {
+      "code": "ATS-RECRUITMENT-PIPELINE",
+      "name": "Recruitment Pipeline",
+      "kind": "full",
+      "realizes_capabilities": [
+        "CANDIDATE-EXP",
+        "REQ-MGMT"
+      ],
+      "masters": [
+        "applicant_flow_records",
+        "application_dispositions",
+        "application_screening_answers",
+        "application_screening_questions",
+        "application_stage_transitions",
+        "application_stages",
+        "eeo_responses",
+        "hiring_team_assignments",
+        "job_applications",
+        "job_posting_distributions",
+        "job_postings",
+        "job_requisitions",
+        "ofccp_audit_trails",
+        "requisition_approvals",
+        "voluntary_self_identifications"
+      ],
+      "embedded_masters": [
+        "candidates",
+        "hcm_positions",
+        "job_profiles",
+        "locations",
+        "org_units"
+      ],
+      "consumers": [],
+      "description": "Requisitions → postings → applications with pipeline-stage lifecycle. Realizes REQ-MGMT and CANDIDATE-EXP (application flow slice). Embedded-masters `candidates`, optionally `hcm_positions` and `org_units` for canonical position/org context."
+    },
+    {
+      "code": "ATS-REFERRALS",
+      "name": "Employee Referrals",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SOURCING"
+      ],
+      "masters": [
+        "candidate_referrals",
+        "referral_campaigns",
+        "referral_payouts",
+        "referral_rewards"
+      ],
+      "embedded_masters": [
+        "candidates"
+      ],
+      "consumers": [],
+      "description": "Employee-driven candidate sourcing with referral-bonus tracking (`candidate_referrals`). Embedded-masters `candidates`. Cross-domain handoffs to PAYROLL (bonus payout) and EMP-EXP (engagement signal)."
+    },
+    {
+      "code": "ATS-TALENT-POOLS",
+      "name": "Talent Pools",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SOURCING"
+      ],
+      "masters": [
+        "candidate_tag_assignments",
+        "candidate_tags",
+        "recruiter_saved_searches",
+        "talent_pool_memberships",
+        "talent_pools",
+        "talent_segments"
+      ],
+      "embedded_masters": [
+        "candidates"
+      ],
+      "consumers": [],
+      "description": "Curated candidate groupings for nurture and pipeline-building (`talent_pools`). Embedded-masters `candidates`; deployed alone, materializes a thin candidate shell. Mirrors standalone talent-acquisition CRM products."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "adverse_action_notices",
+      "singular_label": "Adverse Action Notice",
+      "plural_label": "Adverse Action Notices",
+      "description": "FCRA-mandated notice issued when a background_check result is used to decline a candidate. Two-step process: pre-adverse notice + waiting period + post-adverse final notice. Carries notice type, sent timestamp, copy_of_report enclosure, dispute window expiry.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pre_adverse_sent",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "dispute_filed",
+          "order": 2
+        },
+        {
+          "name": "waiting_period_elapsed",
+          "order": 3
+        },
+        {
+          "name": "post_adverse_sent",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "send_post_adverse_notice"
+        },
+        {
+          "name": "rescinded",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "agency_submissions",
+      "singular_label": "Agency Submission",
+      "plural_label": "Agency Submissions",
+      "description": "Record of a staffing or search agency submitting a candidate against a requisition. Carries the submission date, the ownership and dedup window that determines which agency owns a placement when more than one submits the same person, and the fee terms that apply if the submission converts to a hire.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Agency Candidate Submission",
+          "source": "synonym"
+        },
+        {
+          "name": "Agency Referral",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "applicant_flow_records",
+      "singular_label": "Applicant Flow Record",
+      "plural_label": "Applicant Flow Records",
+      "description": "OFCCP-mandated log of every Internet Applicant against a requisition, capturing demographic data, expressed interest, basic qualifications, and disposition. Federal contractors must retain for OFCCP audit; the record is independent of EEO voluntary self-id.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "applied",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "under_consideration",
+          "order": 2
+        },
+        {
+          "name": "dispositioned",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "disposition_applicant"
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "application_dispositions",
+      "singular_label": "Application Disposition",
+      "plural_label": "Application Dispositions",
+      "description": "Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorised business reason.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Archive Reason",
+          "source": "synonym"
+        },
+        {
+          "name": "Disposition Reason",
+          "source": "synonym"
+        },
+        {
+          "name": "Rejection Reason",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "application_screening_answers",
+      "singular_label": "Application Screening Answer",
+      "plural_label": "Application Screening Answers",
+      "description": "Candidate-supplied answer to an application_screening_question on a specific job_application. Drives auto-disqualify on knockout rules.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "application_screening_questions",
+      "singular_label": "Application Screening Question",
+      "plural_label": "Application Screening Questions",
+      "description": "Custom screening question attached to a job_posting or template (knockout questions, qualifying questions). Carries question text, type (boolean/single-select/free-text), required, knockout rule.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "application_stage_transitions",
+      "singular_label": "Application Stage Transition",
+      "plural_label": "Application Stage Transitions",
+      "description": "Audit-trail record of an application moving between stages. Carries from_stage, to_stage, actor, timestamp, reason. Source of cycle-time, time-in-stage, and conversion-rate analytics.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "application_stages",
+      "singular_label": "Application Stage",
+      "plural_label": "Application Stages",
+      "description": "Configured stage in the recruiting pipeline (sourced, applied, screened, phone_screen, onsite, offer, hired). Per-requisition or per-template ordered list; defines the lifecycle of a job_application.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "background_check_adjudications",
+      "singular_label": "Background Check Adjudication",
+      "plural_label": "Background Check Adjudications",
+      "description": "Human review decision on a completed background_check (Clear / Engaged / Decisional / Declined). Carries adjudicator, decision rationale, individualized assessment notes per EEOC guidance.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "clear",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "clear_adjudication"
+        },
+        {
+          "name": "engaged",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "engage_adjudication"
+        },
+        {
+          "name": "declined",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "decline_adjudication"
+        }
+      ]
+    },
+    {
+      "name": "background_check_components",
+      "singular_label": "Background Check Component",
+      "plural_label": "Background Check Components",
+      "description": "Individual sub-check result inside a background_checks order (e.g. county_criminal, ssn_trace, employment_verification, drug_screen). Each component has its own status, result, and provider source.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "ordered",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed_clear",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "completed_flagged",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "unable_to_verify",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "background_check_disputes",
+      "singular_label": "Background Check Dispute",
+      "plural_label": "Background Check Disputes",
+      "description": "Candidate-initiated dispute of a background_check component result under FCRA rights. Carries disputed component, candidate statement, provider re-investigation result, resolution.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "filed",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "under_review",
+          "order": 2
+        },
+        {
+          "name": "upheld",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "denied",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "background_check_packages",
+      "singular_label": "Background Check Package",
+      "plural_label": "Background Check Packages",
+      "description": "Configured bundle of check types (county criminal + national + MVR + drug screen + employment verification + education verification) that can be ordered as one unit. Catalog-shaped: defines what a 'standard package' looks like for a role tier.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "background_checks",
+      "singular_label": "Background Check",
+      "plural_label": "Background Checks",
+      "description": "External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Consumer Report",
+          "source": "synonym"
+        },
+        {
+          "name": "Pre-Employment Screening",
+          "source": "synonym"
+        },
+        {
+          "name": "Vetting",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "requested",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed_clear",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "clear_background_check"
+        },
+        {
+          "name": "completed_consider",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "adjudicate_background_check"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_assessment_templates",
+      "singular_label": "Candidate Assessment Template",
+      "plural_label": "Candidate Assessment Templates",
+      "description": "Library item for assessments (coding challenge, work sample, take-home, skills test). Carries title, vendor, time limit, scoring rubric. Materializes into candidate_assessments when assigned.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "retired",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_assessments",
+      "singular_label": "Assessment",
+      "plural_label": "Assessments",
+      "description": "Skills, cognitive, technical, or personality test result attached to an application. Often sourced from an external assessment provider and referenced here.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Pre-Hire Assessment",
+          "source": "synonym"
+        },
+        {
+          "name": "Selection Procedure",
+          "source": "synonym"
+        },
+        {
+          "name": "Skills Test",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "invited",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "expired",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_consents",
+      "singular_label": "Candidate Consent",
+      "plural_label": "Candidate Consents",
+      "description": "Per-candidate opt-in record for GDPR / CCPA / data retention. Carries consent type, jurisdiction, granted timestamp, withdrawal timestamp, retention window.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "granted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "withdraw_consent"
+        },
+        {
+          "name": "expired",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_documents",
+      "singular_label": "Candidate Document",
+      "plural_label": "Candidate Documents",
+      "description": "File artifact attached to a candidate (resume, cover letter, portfolio, work sample, signed disclosure, reference letter, right-to-work proof). Carries document type, MIME type, storage URI, uploaded-by actor, uploaded-at timestamp, and visibility scope.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "candidate_emails",
+      "singular_label": "Candidate Email",
+      "plural_label": "Candidate Emails",
+      "description": "Persisted email correspondence with a candidate as a first-class threaded record, distinct from free-text application notes and engagement summaries. Captures sent and received messages, the template used, and delivery status across the candidate relationship.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Candidate Correspondence",
+          "source": "synonym"
+        },
+        {
+          "name": "Candidate Messages",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "candidate_engagements",
+      "singular_label": "Candidate Engagement",
+      "plural_label": "Candidate Engagements",
+      "description": "Single recruiter-to-candidate touchpoint (email, InMail, call, SMS, event invite). Carries channel, direction, timestamp, status, and content reference.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "planned",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 2
+        },
+        {
+          "name": "delivered",
+          "order": 3
+        },
+        {
+          "name": "responded",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "bounced",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_notes",
+      "singular_label": "Candidate Note",
+      "plural_label": "Candidate Notes",
+      "description": "Free-form recruiter or hiring-team note on a candidate, internal-only, never sent to the candidate. Carries author, body, visibility scope (private to author, team, or hiring panel), timestamp, and optional at-mentions to other team members.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "candidate_nurture_campaigns",
+      "singular_label": "Candidate Nurture Campaign",
+      "plural_label": "Candidate Nurture Campaigns",
+      "description": "Multi-touch automated outreach sequence targeting talent-pool segments. Carries cadence, step templates, audience filter, and lifecycle state.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "paused",
+          "order": 3
+        },
+        {
+          "name": "completed",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_referrals",
+      "singular_label": "Referral",
+      "plural_label": "Referrals",
+      "description": "Employee-submitted candidate suggestion linked to a requisition. Tracks the referring employee, candidate, status, and any payable bonus.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Employee Referral",
+          "source": "synonym"
+        },
+        {
+          "name": "Refer-a-Friend",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "submitted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "under_review",
+          "order": 2
+        },
+        {
+          "name": "converted",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "bonus_payable",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "pay_referral_bonus"
+        },
+        {
+          "name": "bonus_paid",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "rejected",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "candidate_tag_assignments",
+      "singular_label": "Candidate Tag Assignment",
+      "plural_label": "Candidate Tag Assignments",
+      "description": "Many-to-many junction between candidates and candidate_tags. Carries assigned_by, assigned_at, and optional context.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "candidate_tags",
+      "singular_label": "Candidate Tag",
+      "plural_label": "Candidate Tags",
+      "description": "Free-form label applied to a candidate to support segmentation, search, and pool inclusion rules. Distinct from talent pools (curated membership lists). Carries name, optional category, and color.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "candidates",
+      "singular_label": "Candidate",
+      "plural_label": "Candidates",
+      "description": "Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Applicant",
+          "source": "synonym"
+        },
+        {
+          "name": "Person",
+          "source": "synonym"
+        },
+        {
+          "name": "Prospect",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "prospect",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "hired",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "hire_candidate"
+        },
+        {
+          "name": "do_not_hire",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "flag_do_not_hire"
+        },
+        {
+          "name": "archived",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "data_subject_requests",
+      "singular_label": "Data Subject Request",
+      "plural_label": "Data Subject Requests",
+      "description": "GDPR Articles 15-22 (and analogous CPRA/PIPEDA) request from a candidate exercising access, rectification, erasure, restriction, portability, or objection rights against personal data the ATS holds. Tracks request type, intake channel, due date, fulfillment, and verification.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "received",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "verified",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "verify_dsr_identity"
+        },
+        {
+          "name": "in_progress",
+          "order": 3
+        },
+        {
+          "name": "fulfilled",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "fulfill_dsr"
+        },
+        {
+          "name": "partially_fulfilled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "fulfill_dsr_partially"
+        },
+        {
+          "name": "rejected",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_dsr"
+        }
+      ]
+    },
+    {
+      "name": "drug_health_screenings",
+      "singular_label": "Drug and Health Screening",
+      "plural_label": "Drug and Health Screenings",
+      "description": "Pre-employment drug test or occupational health screening ordered as a check distinct from the criminal and employment background check. Tracks the order, provider, result, and any adverse-finding review, and handles sensitive medical data subject to ADA and state-law restrictions.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Drug Test",
+          "source": "synonym"
+        },
+        {
+          "name": "Occupational Health Screening",
+          "source": "synonym"
+        },
+        {
+          "name": "Pre-Employment Drug Screening",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "ordered",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "passed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "failed",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "review_failed_screening"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "eeo_responses",
+      "singular_label": "EEO Response",
+      "plural_label": "EEO Responses",
+      "description": "Voluntary self-identification submitted by an applicant for EEO-1 / OFCCP / VEVRAA reporting (gender, race/ethnicity, veteran status, disability). Required compliance artifact for US employers >100 employees; stored separately from candidates record per regulation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "offered",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "declined",
+          "order": 2,
+          "is_terminal": true
+        },
+        {
+          "name": "submitted",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "fcra_disclosures",
+      "singular_label": "FCRA Disclosure",
+      "plural_label": "FCRA Disclosures",
+      "description": "Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgement signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "presented",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "acknowledged",
+          "order": 2
+        },
+        {
+          "name": "refused",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "expired",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "fcra_summary_of_rights_acknowledgements",
+      "singular_label": "FCRA Summary of Rights Acknowledgement",
+      "plural_label": "FCRA Summary of Rights Acknowledgements",
+      "description": "Candidate acknowledgement of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgement timestamp persist for audit.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "hiring_team_assignments",
+      "singular_label": "Hiring Team Assignment",
+      "plural_label": "Hiring Team Assignments",
+      "description": "Per-requisition role-scoped staffing junction: assigns specific users to recruiter, hiring manager, coordinator, interviewer, and reviewer roles on a single requisition. Captures team composition without requiring global RBAC for transient interview-panel membership.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "interview_kits",
+      "singular_label": "Interview Kit",
+      "plural_label": "Interview Kits",
+      "description": "Reusable interview template per role / stage. Bundles assigned questions, target competencies, recommended scorecard, expected duration. Greenhouse's core authoring unit.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "interview_panels",
+      "singular_label": "Interview Panel",
+      "plural_label": "Interview Panels",
+      "description": "Composition of interviewers assigned to a specific interview, including their role on the panel (lead, technical, behavioral, debrief moderator) and weighting on the consolidated scorecard.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "forming",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "assembled",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "interview_questions",
+      "singular_label": "Interview Question",
+      "plural_label": "Interview Questions",
+      "description": "Question bank entry tied to competencies. Carries question text, type (behavioral / technical / situational), competency tags, suggested follow-ups, rubric.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "interview_scorecards",
+      "singular_label": "Interview Scorecard",
+      "plural_label": "Interview Scorecards",
+      "description": "Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Evaluation Form",
+          "source": "synonym"
+        },
+        {
+          "name": "Interview Feedback",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "submit_scorecard"
+        }
+      ]
+    },
+    {
+      "name": "interviewer_availability_slots",
+      "singular_label": "Interviewer Availability Slot",
+      "plural_label": "Interviewer Availability Slots",
+      "description": "Bookable time window an interviewer has marked available. Drives self-serve scheduling (Goodtime / Modern Hire / Calendly for Recruiting). Carries interviewer, start, end, allowed interview types.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "available",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "booked",
+          "order": 2
+        },
+        {
+          "name": "released",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "past",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "interviews",
+      "singular_label": "Interview",
+      "plural_label": "Interviews",
+      "description": "Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Interview Schedule",
+          "source": "synonym"
+        },
+        {
+          "name": "Onsite",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "scheduled",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "confirmed",
+          "order": 2
+        },
+        {
+          "name": "completed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "no_show",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "rescheduled",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "job_applications",
+      "singular_label": "Application",
+      "plural_label": "Applications",
+      "description": "A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Candidacy",
+          "source": "synonym"
+        },
+        {
+          "name": "Job Application",
+          "source": "synonym"
+        },
+        {
+          "name": "Submission",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "applied",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "screening",
+          "order": 2
+        },
+        {
+          "name": "interviewing",
+          "order": 3
+        },
+        {
+          "name": "offer_extended",
+          "order": 4
+        },
+        {
+          "name": "hired",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "hire_candidate"
+        },
+        {
+          "name": "rejected",
+          "order": 6,
+          "is_terminal": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 7,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "job_offers",
+      "singular_label": "Offer",
+      "plural_label": "Offers",
+      "description": "Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "Job Offer",
+          "source": "synonym"
+        },
+        {
+          "name": "Offer Letter",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "pending_approval",
+          "order": 2
+        },
+        {
+          "name": "approved",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "approve_offer"
+        },
+        {
+          "name": "sent",
+          "order": 4
+        },
+        {
+          "name": "accepted",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "declined",
+          "order": 6,
+          "is_terminal": true
+        },
+        {
+          "name": "rescinded",
+          "order": 7,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "rescind_offer"
+        }
+      ]
+    },
+    {
+      "name": "job_posting_distributions",
+      "singular_label": "Job Posting Distribution",
+      "plural_label": "Job Posting Distributions",
+      "description": "Syndication of a job_posting to an external board (LinkedIn, Indeed, ZipRecruiter, Glassdoor, internal mobility portal). Carries board name, post timestamp, expiry, cost, applicant attribution.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "queued",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "posted",
+          "order": 2
+        },
+        {
+          "name": "expired",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "job_postings",
+      "singular_label": "Job Posting",
+      "plural_label": "Job Postings",
+      "description": "Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Career Site Posting",
+          "source": "synonym"
+        },
+        {
+          "name": "Job Ad",
+          "source": "synonym"
+        },
+        {
+          "name": "Job Listing",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "published",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "publish_posting"
+        },
+        {
+          "name": "paused",
+          "order": 3
+        },
+        {
+          "name": "expired",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "closed",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "job_requisitions",
+      "singular_label": "Job Requisition",
+      "plural_label": "Job Requisitions",
+      "description": "Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / cancelled).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "Headcount Request",
+          "source": "synonym"
+        },
+        {
+          "name": "Job Req",
+          "source": "synonym"
+        },
+        {
+          "name": "Open Position",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "pending_approval",
+          "order": 2
+        },
+        {
+          "name": "open",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "approve_requisition"
+        },
+        {
+          "name": "on_hold",
+          "order": 4
+        },
+        {
+          "name": "filled",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_requisition"
+        },
+        {
+          "name": "cancelled",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "ofccp_audit_trails",
+      "singular_label": "OFCCP Audit Trail",
+      "plural_label": "OFCCP Audit Trails",
+      "description": "Federal-contractor audit log of every applicant-flow event (requisition open, application receipt, disposition, hire) carrying the actor, timestamp, and OFCCP-relevant fields needed to reconstruct compliance decisions during an audit. Immutable append-only.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "offer_approvals",
+      "singular_label": "Offer Approval",
+      "plural_label": "Offer Approvals",
+      "description": "Approval step in the offer-approval chain (HRBP -> Comp -> Finance -> Exec). Triggered when an offer exceeds band, includes non-standard equity, or matches other escalation rules.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_offer"
+        },
+        {
+          "name": "rejected",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_offer"
+        },
+        {
+          "name": "escalated",
+          "order": 4
+        }
+      ]
+    },
+    {
+      "name": "offer_letter_documents",
+      "singular_label": "Offer Letter Document",
+      "plural_label": "Offer Letter Documents",
+      "description": "Generated PDF artifact of the offer terms, distinct from the structured offer record. Versioned in lockstep with offer_versions. Carries template_id, render timestamp, e-sign envelope link.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "drafted",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 2
+        },
+        {
+          "name": "signed",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "voided",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "offer_letter_templates",
+      "singular_label": "Offer Letter Template",
+      "plural_label": "Offer Letter Templates",
+      "description": "Reusable letter template with merge tokens (candidate name, role, base salary, start date, equity, bonus terms). Versioned. Renders offer_letter_documents at offer time. Carries template name, body, token schema, jurisdiction, language, active flag, and version.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20,
+          "permission_verb_override": "submit_offer_letter_template_for_review"
+        },
+        {
+          "name": "approved",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "approve_offer_letter_template"
+        },
+        {
+          "name": "active",
+          "order": 40,
+          "permission_verb_override": "activate_offer_letter_template"
+        },
+        {
+          "name": "superseded",
+          "order": 50
+        },
+        {
+          "name": "retired",
+          "order": 60,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "retire_offer_letter_template"
+        }
+      ]
+    },
+    {
+      "name": "offer_versions",
+      "singular_label": "Offer Version",
+      "plural_label": "Offer Versions",
+      "description": "Versioned snapshot of a job_offer during negotiation (initial -> counter -> revised -> accepted). Each version carries the structured terms (base, bonus, equity, start_date) and the author of the change.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "presented",
+          "order": 2
+        },
+        {
+          "name": "countered",
+          "order": 3
+        },
+        {
+          "name": "accepted",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "withdrawn",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "outreach_sequence_steps",
+      "singular_label": "Outreach Sequence Step",
+      "plural_label": "Outreach Sequence Steps",
+      "description": "One ordered step within an outreach sequence: the channel, the day offset from enrollment, the message template, and whether the step is automated or requires a recruiter action. Defines the cadence the platform follows when a candidate is enrolled in the parent sequence.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Cadence Step",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "outreach_sequences",
+      "singular_label": "Outreach Sequence",
+      "plural_label": "Outreach Sequences",
+      "description": "Named multi-step sourcing cadence definition (for example day 0 email, day 3 nudge, day 7 message) that automates candidate outreach. Holds the sequence name, owner, channel mix, and active status, and is the parent of its ordered steps.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Outreach Campaign",
+          "source": "synonym"
+        },
+        {
+          "name": "Sourcing Cadence",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "activate_outreach_sequence"
+        },
+        {
+          "name": "paused",
+          "order": 3
+        },
+        {
+          "name": "archived",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "pre_adverse_action_notices",
+      "singular_label": "Pre-Adverse Action Notice",
+      "plural_label": "Pre-Adverse Action Notices",
+      "description": "FCRA-mandated notice sent to a candidate before a final adverse-action decision based on a consumer report. Carries a copy of the report and Summary of Rights, and opens a waiting period (typically 5 business days) during which the candidate may dispute findings before the final adverse-action notice issues.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "sent",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "waiting_period_active",
+          "order": 2
+        },
+        {
+          "name": "waiting_period_elapsed",
+          "order": 3
+        },
+        {
+          "name": "under_dispute",
+          "order": 4,
+          "requires_permission": true,
+          "permission_verb_override": "mark_pre_adverse_dispute_filed"
+        },
+        {
+          "name": "cleared",
+          "order": 5,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "clear_pre_adverse_notice"
+        },
+        {
+          "name": "escalated",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "escalate_to_final_adverse_action"
+        }
+      ]
+    },
+    {
+      "name": "pre_employees",
+      "singular_label": "Pre-Employee",
+      "plural_label": "Pre-Employees",
+      "description": "ATS-owned pre-employment record covering the post-offer-acceptance window before the new-hire start date: paperwork in flight, background check pending, pre-boarding tasks open. At start-date the pre-employee row is reconciled into HCM-mastered `employees` (the canonical employee record). HCM owns the canonical employee record; ATS owns the pre-employee lifecycle stage so recruiting and HCM can each move at their own pace.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Day-Zero Record",
+          "source": "synonym"
+        },
+        {
+          "name": "New Hire (Pre-Start)",
+          "source": "synonym"
+        },
+        {
+          "name": "Pre-Hire",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "created",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "paperwork_in_flight",
+          "order": 2
+        },
+        {
+          "name": "cleared",
+          "order": 3
+        },
+        {
+          "name": "activated",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "activate_pre_employee"
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "recruiter_interactions",
+      "singular_label": "Recruiter Interaction",
+      "plural_label": "Recruiter Interactions",
+      "description": "Free-text recruiter note attached to a candidate, application, or pool, time-stamped and authored by a user.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "recruiter_saved_searches",
+      "singular_label": "Recruiter Saved Search",
+      "plural_label": "Recruiter Saved Searches",
+      "description": "Persisted recruiter boolean query over the candidate database. Carries filter expression, last_run timestamp, alert preferences.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "recruiting_event_attendances",
+      "singular_label": "Recruiting Event Attendance",
+      "plural_label": "Recruiting Event Attendances",
+      "description": "Junction between candidates and recruitment_events recording registration, check-in, attendance, and conversion outcome.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "registered",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "checked_in",
+          "order": 2
+        },
+        {
+          "name": "attended",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "no_show",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "recruitment_agencies",
+      "singular_label": "Recruitment Agency",
+      "plural_label": "Recruitment Agencies",
+      "description": "Third-party recruiter or staffing firm supplying candidates. Tracks contract terms, contact, performance, and the candidates they have submitted.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Recruitment Vendor",
+          "source": "synonym"
+        },
+        {
+          "name": "Search Firm",
+          "source": "synonym"
+        },
+        {
+          "name": "Staffing Agency",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "prospective",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "on_hold",
+          "order": 3
+        },
+        {
+          "name": "terminated",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "recruitment_events",
+      "singular_label": "Recruitment Event",
+      "plural_label": "Recruitment Events",
+      "description": "Career fair, on-campus event, hackathon, or meetup used as a sourcing channel. Tracks attendees, captured leads, and event ROI.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Hiring Event",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "planned",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "open_for_registration",
+          "order": 2
+        },
+        {
+          "name": "held",
+          "order": 3
+        },
+        {
+          "name": "closed",
+          "order": 4,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "recruitment_sources",
+      "singular_label": "Recruitment Source",
+      "plural_label": "Recruitment Sources",
+      "description": "Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Source Channel",
+          "source": "synonym"
+        },
+        {
+          "name": "Source of Hire",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "referral_campaigns",
+      "singular_label": "Referral Campaign",
+      "plural_label": "Referral Campaigns",
+      "description": "Time-bounded promotion offering bonus referral rewards (e.g. 'double bonus for engineering Q3 2026', 'spot-bonus for hard-to-fill roles'). Scopes a referral_rewards override.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "ended",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "referral_payouts",
+      "singular_label": "Referral Payout",
+      "plural_label": "Referral Payouts",
+      "description": "Individual payout instance triggered when a referred candidate is hired and meets tenure conditions. Lifecycle: pending -> approved -> paid (-> clawed_back).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "approve_referral_payout"
+        },
+        {
+          "name": "paid",
+          "order": 3,
+          "is_terminal": true
+        },
+        {
+          "name": "clawed_back",
+          "order": 4,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "clawback_referral_payout"
+        },
+        {
+          "name": "forfeited",
+          "order": 5,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "referral_rewards",
+      "singular_label": "Referral Reward",
+      "plural_label": "Referral Rewards",
+      "description": "Bounty rule defining the payout amount and conditions for a successful referral (e.g. $5000 paid 90 days after hire start, scaled by role level).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "requisition_approvals",
+      "singular_label": "Requisition Approval",
+      "plural_label": "Requisition Approvals",
+      "description": "Approval step in the chain that gates opening a job_requisition (hiring manager -> finance -> exec). Each step carries approver, decision, timestamp, rationale.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "approved",
+          "order": 2,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_requisition"
+        },
+        {
+          "name": "rejected",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "reject_requisition"
+        },
+        {
+          "name": "withdrawn",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "right_to_work_verifications",
+      "singular_label": "Right to Work Verification",
+      "plural_label": "Right to Work Verifications",
+      "description": "Pre-hire right-to-work verification event (the I-9 employment eligibility check or E-Verify confirmation itself), distinct from the supporting documents the candidate provides. Tracks the verification method, status, verifier, completion date, and any tentative or final non-confirmation, and handles data subject to federal employment-eligibility law.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "E-Verify Check",
+          "source": "synonym"
+        },
+        {
+          "name": "Employment Eligibility Verification",
+          "source": "synonym"
+        },
+        {
+          "name": "I-9 Verification",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 2
+        },
+        {
+          "name": "verified",
+          "order": 3,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "verify_right_to_work"
+        },
+        {
+          "name": "tentative_nonconfirmation",
+          "order": 4
+        },
+        {
+          "name": "final_nonconfirmation",
+          "order": 5,
+          "is_terminal": true
+        },
+        {
+          "name": "closed",
+          "order": 6,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "talent_pool_memberships",
+      "singular_label": "Talent Pool Membership",
+      "plural_label": "Talent Pool Memberships",
+      "description": "Junction between candidates and talent_pools. Carries added timestamp, source, status_in_pool (cold/warm/hot), match score, and last_engagement timestamp.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "cold",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "warm",
+          "order": 2
+        },
+        {
+          "name": "hot",
+          "order": 3
+        },
+        {
+          "name": "removed",
+          "order": 4,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "talent_pools",
+      "singular_label": "Talent Pool",
+      "plural_label": "Talent Pools",
+      "description": "Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "Candidate Pool",
+          "source": "synonym"
+        },
+        {
+          "name": "Talent Community",
+          "source": "synonym"
+        },
+        {
+          "name": "Talent Pipeline",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "active",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "paused",
+          "order": 2
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "talent_segments",
+      "singular_label": "Talent Segment",
+      "plural_label": "Talent Segments",
+      "description": "Rule-based pool definition (boolean filter over candidates) that materializes membership automatically. Examples: 'Senior PMs in NYC with FinTech experience', 'Engineering alumni who left in the last 2 years'.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "archived",
+          "order": 3,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "voluntary_self_identifications",
+      "singular_label": "Voluntary Self-Identification",
+      "plural_label": "Voluntary Self-Identifications",
+      "description": "Voluntary candidate disclosure of protected-class membership (race, ethnicity, gender, veteran status, disability status) per EEOC and OFCCP self-id requirements. Distinct from `eeo_responses` which captures the survey response: this row captures the offer/decline-to-answer decision and audit metadata.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "adverse_action_notices",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "agency_submissions",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "applicant_flow_records",
+      "verb": "audited_via",
+      "to": "ofccp_audit_trails",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "applicant_flow_records",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "application_screening_questions",
+      "verb": "answered_by",
+      "to": "application_screening_answers",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "application_stage_transitions",
+      "verb": "has author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "application_stages",
+      "verb": "lands_at",
+      "to": "application_stage_transitions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "background_check_adjudications",
+      "verb": "triggers",
+      "to": "adverse_action_notices",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "background_check_adjudications",
+      "verb": "has adjudicator",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "background_check_components",
+      "verb": "disputed_via",
+      "to": "background_check_disputes",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "background_check_components",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "background_check_disputes",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "background_check_packages",
+      "verb": "shapes",
+      "to": "background_checks",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "background_checks",
+      "verb": "adjudicated_via",
+      "to": "background_check_adjudications",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "background_checks",
+      "verb": "contains",
+      "to": "background_check_components",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "background_checks",
+      "verb": "gated_by",
+      "to": "fcra_summary_of_rights_acknowledgements",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "background_checks",
+      "verb": "triggers_pre_notice",
+      "to": "pre_adverse_action_notices",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "background_checks",
+      "verb": "has requester",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "candidate_assessment_templates",
+      "verb": "instantiates_as",
+      "to": "candidate_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidate_assessments",
+      "verb": "has invitation author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "candidate_emails",
+      "verb": "has sender",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "candidate_engagements",
+      "verb": "has recruiter",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "candidate_nurture_campaigns",
+      "verb": "generates",
+      "to": "candidate_engagements",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidate_nurture_campaigns",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "candidate_referrals",
+      "verb": "introduces",
+      "to": "candidates",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidate_referrals",
+      "verb": "earns",
+      "to": "referral_payouts",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "candidate_referrals",
+      "verb": "has referring employee",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "candidate_tags",
+      "verb": "applied_via",
+      "to": "candidate_tag_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "submitted_via",
+      "to": "agency_submissions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "consents_via",
+      "to": "candidate_consents",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "documented_via",
+      "to": "candidate_documents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "corresponds_via",
+      "to": "candidate_emails",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "engaged_via",
+      "to": "candidate_engagements",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "annotated_via",
+      "to": "candidate_notes",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "tagged_via",
+      "to": "candidate_tag_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "submits_via",
+      "to": "data_subject_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "screened_via",
+      "to": "drug_health_screenings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "self_identifies_via",
+      "to": "eeo_responses",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "discloses_via",
+      "to": "fcra_disclosures",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "acknowledges_via",
+      "to": "fcra_summary_of_rights_acknowledgements",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "submits",
+      "to": "job_applications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "becomes pre-employee",
+      "to": "pre_employees",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "noted_via",
+      "to": "recruiter_interactions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "attends_via",
+      "to": "recruiting_event_attendances",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "verified_via",
+      "to": "right_to_work_verifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "member_of_via",
+      "to": "talent_pool_memberships",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "candidates",
+      "verb": "has owning recruiter",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "candidates",
+      "verb": "self_ids_via",
+      "to": "voluntary_self_identifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "data_subject_requests",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "drug_health_screenings",
+      "verb": "has coordinator",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "hcm_positions",
+      "verb": "spawns",
+      "to": "job_requisitions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hiring_team_assignments",
+      "verb": "assigns",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "interview_kits",
+      "verb": "includes",
+      "to": "interview_questions",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "interview_kits",
+      "verb": "shapes",
+      "to": "interviews",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "interview_panels",
+      "verb": "produces",
+      "to": "interview_scorecards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "interview_panels",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "interview_scorecards",
+      "verb": "has interviewer as author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "interviewer_availability_slots",
+      "verb": "booked_for",
+      "to": "interviews",
+      "cardinality": "one_to_one",
+      "required": false
+    },
+    {
+      "from": "interviewer_availability_slots",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "interviews",
+      "verb": "convenes",
+      "to": "interview_panels",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "interviews",
+      "verb": "is scored via",
+      "to": "interview_scorecards",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "interviews",
+      "verb": "has coordinator and panelists",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "logged_via",
+      "to": "applicant_flow_records",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "disposed_via",
+      "to": "application_dispositions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_applications",
+      "verb": "answers_via",
+      "to": "application_screening_answers",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_applications",
+      "verb": "transitions_via",
+      "to": "application_stage_transitions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "requires",
+      "to": "candidate_assessments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "schedules",
+      "to": "interviews",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "results in",
+      "to": "job_offers",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_applications",
+      "verb": "has owning recruiter",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "job_offers",
+      "verb": "is contingent on",
+      "to": "background_checks",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_offers",
+      "verb": "gated_by",
+      "to": "offer_approvals",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_offers",
+      "verb": "evolves_through",
+      "to": "offer_versions",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_offers",
+      "verb": "spawns pre-employee record",
+      "to": "pre_employees",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "job_offers",
+      "verb": "has approver",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "job_postings",
+      "verb": "asks",
+      "to": "application_screening_questions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_postings",
+      "verb": "is applied to via",
+      "to": "job_applications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_postings",
+      "verb": "syndicates_via",
+      "to": "job_posting_distributions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_postings",
+      "verb": "has publisher",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "job_profiles",
+      "verb": "feeds",
+      "to": "job_postings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "defines_pipeline",
+      "to": "application_stages",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "staffed_by",
+      "to": "hiring_team_assignments",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "receives",
+      "to": "job_applications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "is advertised through",
+      "to": "job_postings",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "gated_by",
+      "to": "requisition_approvals",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "job_requisitions",
+      "verb": "has recruiter and hiring manager",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "ofccp_audit_trails",
+      "verb": "has author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "offer_approvals",
+      "verb": "has approver",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "offer_letter_documents",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "offer_letter_templates",
+      "verb": "rendered_as",
+      "to": "offer_letter_documents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "offer_versions",
+      "verb": "renders_as",
+      "to": "offer_letter_documents",
+      "cardinality": "one_to_one",
+      "required": true
+    },
+    {
+      "from": "offer_versions",
+      "verb": "has author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "outreach_sequences",
+      "verb": "contains",
+      "to": "outreach_sequence_steps",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "outreach_sequences",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "pre_adverse_action_notices",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "pre_employees",
+      "verb": "has owning hr_coordinator",
+      "to": "users",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "recruiter_interactions",
+      "verb": "has author",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "recruiter_saved_searches",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "recruiting_event_attendances",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "recruitment_agencies",
+      "verb": "submits_via",
+      "to": "agency_submissions",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "recruitment_agencies",
+      "verb": "sources",
+      "to": "candidates",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "recruitment_agencies",
+      "verb": "has relationship owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "recruitment_events",
+      "verb": "attracts",
+      "to": "candidates",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "recruitment_events",
+      "verb": "has_attendance",
+      "to": "recruiting_event_attendances",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "recruitment_events",
+      "verb": "has coordinator",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "recruitment_sources",
+      "verb": "attributes",
+      "to": "candidates",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "referral_campaigns",
+      "verb": "overrides",
+      "to": "referral_rewards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "referral_campaigns",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "referral_payouts",
+      "verb": "has approver",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "referral_rewards",
+      "verb": "governs",
+      "to": "referral_payouts",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "requisition_approvals",
+      "verb": "has approver",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "right_to_work_verifications",
+      "verb": "has verifier",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "talent_pools",
+      "verb": "targets",
+      "to": "candidate_nurture_campaigns",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "talent_pools",
+      "verb": "groups",
+      "to": "candidates",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "talent_pools",
+      "verb": "has_member",
+      "to": "talent_pool_memberships",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "talent_pools",
+      "verb": "has owner",
+      "to": "users",
+      "cardinality": "many_to_many",
+      "required": true
+    },
+    {
+      "from": "talent_segments",
+      "verb": "materializes_into",
+      "to": "talent_pools",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "uploaded documents",
+      "to": "candidate_documents",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored notes",
+      "to": "candidate_notes",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "assigned tags",
+      "to": "candidate_tag_assignments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approved templates",
+      "to": "offer_letter_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authored templates",
+      "to": "offer_letter_templates",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10440",
+      "name": "Recruit/Source candidates"
+    },
+    {
+      "external_id": "10443",
+      "name": "Manage new hire/re-hire"
+    },
+    {
+      "external_id": "10457",
+      "name": "Interview candidates"
+    },
+    {
+      "external_id": "10460",
+      "name": "Obtain candidate background information"
+    },
+    {
+      "external_id": "10465",
+      "name": "Hire candidate"
+    },
+    {
+      "external_id": "10469",
+      "name": "Manage employee onboarding"
+    },
+    {
+      "external_id": "10505",
+      "name": "Administer benefit enrollment"
+    },
+    {
+      "external_id": "17047",
+      "name": "Manage employee referral programs"
+    },
+    {
+      "external_id": "17052",
+      "name": "Manage employee relations"
+    },
+    {
+      "external_id": "21698",
+      "name": "Manage employee requisitions"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "ats",
+      "description": "Open and route job requisitions for approval, post openings to job boards, and capture applications. Source candidates, build talent pools, and run outreach and referral campaigns. Move applicants through pipeline stages, schedule interviews, collect scorecards, and run assessments. Generate and version offer letters, route them for approval, and send them for e-signature. Order background and drug screenings with FCRA disclosures and adverse-action notices, then hand accepted hires to onboarding. Track EEO and OFCCP funnel analytics and disposition reasons.",
+      "trigger_keywords": "ATS, applicant tracking system, recruiting, recruitment, hiring, talent acquisition, req, sourcing, headhunting, resume, CV, careers page, candidate experience, nurture, recruiter CRM, interview kit, hiring panel, hiring manager, time-to-fill, offer management, salary, comp, e-sign, drug test, EEOC, diversity, compliance, new hire, pre-employee, scorecards, requisition approval",
+      "tools": [
+        {
+          "name": "activate_pre_employee",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "add_candidate_to_pool",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_offer",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_requisition",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_candidate",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_offer",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_pre_employee",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_referral",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_requisition",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "flag_for_review",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "match_candidate_to_jobs",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "parse_resume",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "publish_posting",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_applications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_background_checks",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_candidates",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_interview_scorecards",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_interviews",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_job_postings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_job_requisitions",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_offers",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_pre_employees",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_recruitment_sources",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_referrals",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_salary_bands",
+          "kind": "query",
+          "required": false
+        },
+        {
+          "name": "query_talent_pools",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "remove_candidate_from_pool",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "request_background_check",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "rescind_offer",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "schedule_interview",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "sign_document",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "submit_scorecard",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_application_stage",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_candidate",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_recruitment_source",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_referral_status",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "HIRING-MANAGER",
+      "business_function": null,
+      "modules": [
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-INTERVIEWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-OFFERS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "LEGAL-COMPLIANCE-SPECIALIST",
+      "business_function": "Legal",
+      "modules": [
+        {
+          "code": "ATS-BACKGROUND-CHECKS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-COORDINATOR",
+      "business_function": "Recruiting",
+      "modules": [
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-INTERVIEWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-OFFERS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-PRE-EMPLOYEE-RECORD",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-MANAGER",
+      "business_function": "Recruiting",
+      "modules": [
+        {
+          "code": "ATS-BACKGROUND-CHECKS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-INTERVIEWS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-OFFERS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-PRE-EMPLOYEE-RECORD",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-REFERRALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-TALENT-POOLS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-RECRUITER",
+      "business_function": "Recruiting",
+      "modules": [
+        {
+          "code": "ATS-BACKGROUND-CHECKS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-INTERVIEWS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-OFFERS",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-PRE-EMPLOYEE-RECORD",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-REFERRALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-TALENT-POOLS",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "RECRUITING-SOURCER",
+      "business_function": "Recruiting",
+      "modules": [
+        {
+          "code": "ATS-CANDIDATE-CRM",
+          "interaction": "primary"
+        },
+        {
+          "code": "ATS-RECRUITMENT-PIPELINE",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-REFERRALS",
+          "interaction": "secondary"
+        },
+        {
+          "code": "ATS-TALENT-POOLS",
+          "interaction": "primary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

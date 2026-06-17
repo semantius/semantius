@@ -1,0 +1,540 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "domain": {
+    "code": "HRSD",
+    "name": "HR Service Delivery",
+    "description": "Employee case management, knowledge, journeys, and document management for the HR function.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Give employees one place to ask HR questions, get answers, and track every request to resolution.",
+    "catalog_description": "Run employee HR support as a single service experience. Employees raise questions and requests from a self-service portal, find answers in a curated knowledge base, and watch their case move from intake to resolution without chasing anyone.\n\nBehind the scenes, incoming cases are triaged and routed to the right HR specialist, escalated across payroll, benefits, access, and other teams when needed, and resolved against documented service levels. Approvals, assignments, and reopen handling are built into the workflow so nothing slips between stages.\n\nAs cases resolve, the knowledge base grows from real questions, deflecting future requests and freeing HR teams to focus on the cases that genuinely need a human."
+  },
+  "aliases": [],
+  "business_functions": {
+    "owner": [
+      "HR Service Delivery"
+    ],
+    "contributors": [
+      "IT Operations"
+    ],
+    "consumers": []
+  },
+  "capabilities": [
+    {
+      "code": "AI-TRIAGE-CLASSIFICATION",
+      "name": "AI Triage and Classification",
+      "cross_cutting": true
+    },
+    {
+      "code": "APPROVAL-WORKFLOW",
+      "name": "Approval Workflow Orchestration",
+      "cross_cutting": true
+    },
+    {
+      "code": "KNOWLEDGE-MGMT",
+      "name": "Knowledge Management",
+      "cross_cutting": true
+    },
+    {
+      "code": "SELF-SERVICE-PORTAL",
+      "name": "Self-Service Portal",
+      "cross_cutting": true
+    }
+  ],
+  "modules": [
+    {
+      "code": "HRSD-CASE-MGMT",
+      "name": "HR Case Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "AI-TRIAGE-CLASSIFICATION",
+        "APPROVAL-WORKFLOW"
+      ],
+      "masters": [
+        "case_categories",
+        "hr_cases"
+      ],
+      "embedded_masters": [
+        "employees"
+      ],
+      "consumers": [
+        "background_checks",
+        "carrier_feeds",
+        "compensation_statements",
+        "compliance_assignments",
+        "engagement_surveys",
+        "garnishment_orders",
+        "iga_access_requests",
+        "knowledge_articles",
+        "knowledge_base_articles",
+        "onboarding_tasks",
+        "policy_attestations",
+        "work_shifts"
+      ],
+      "description": "Core HR case management surface: HR cases, case taxonomy, triage, approval routing, and AI-assisted classification. Masters hr_cases and case_categories. The execution backbone of any HRSD deployment."
+    },
+    {
+      "code": "HRSD-EMPLOYEE-PORTAL",
+      "name": "Employee Self-Service Portal",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SELF-SERVICE-PORTAL"
+      ],
+      "masters": [],
+      "embedded_masters": [
+        "employees",
+        "hr_cases",
+        "knowledge_articles",
+        "service_requests"
+      ],
+      "consumers": [],
+      "description": "Employee self-service intake surface: catalog browse, request submission, knowledge search, and case status. Workflow layer on top of HRSD-CASE-MGMT, no masters of its own. Hands intake off to case-mgmt and can route IT-flavored requests through to ITSM."
+    },
+    {
+      "code": "HRSD-KNOWLEDGE",
+      "name": "HR Knowledge",
+      "kind": "full",
+      "realizes_capabilities": [
+        "KNOWLEDGE-MGMT"
+      ],
+      "masters": [],
+      "embedded_masters": [
+        "knowledge_articles"
+      ],
+      "consumers": [
+        "case_categories"
+      ],
+      "description": "HR knowledge surface: HR-audience articles, FAQs, and policy explainers. Consumes the cross-cutting knowledge_articles entity (mastered by ITSM/KMS) and feeds back authoring suggestions when cases are resolved."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "case_categories",
+      "singular_label": "HR Case Category",
+      "plural_label": "HR Case Categories",
+      "description": "Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "HR case taxonomy",
+          "source": "synonym"
+        },
+        {
+          "name": "HR case type",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "hr_cases",
+      "singular_label": "HR Case",
+      "plural_label": "HR Cases",
+      "description": "Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analogue of ITSM service_requests, scoped to HR-owned workflows.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": true,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "HR ticket",
+          "source": "synonym"
+        },
+        {
+          "name": "employee case",
+          "source": "synonym"
+        },
+        {
+          "name": "employee inquiry",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "intake",
+          "order": 1,
+          "is_initial": true
+        },
+        {
+          "name": "triaged",
+          "order": 2,
+          "requires_permission": true,
+          "permission_verb_override": "triage_hr_case"
+        },
+        {
+          "name": "assigned",
+          "order": 3,
+          "requires_permission": true,
+          "permission_verb_override": "assign_hr_case"
+        },
+        {
+          "name": "in_progress",
+          "order": 4
+        },
+        {
+          "name": "pending_approval",
+          "order": 5,
+          "requires_permission": true,
+          "permission_verb_override": "approve_hr_case"
+        },
+        {
+          "name": "resolved",
+          "order": 6,
+          "requires_permission": true,
+          "permission_verb_override": "resolve_hr_case"
+        },
+        {
+          "name": "closed",
+          "order": 7,
+          "is_terminal": true
+        },
+        {
+          "name": "reopened",
+          "order": 8,
+          "requires_permission": true,
+          "permission_verb_override": "reopen_hr_case"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "carrier_feeds",
+      "verb": "spawns",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "case_categories",
+      "verb": "parent_of",
+      "to": "case_categories",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "case_categories",
+      "verb": "drives",
+      "to": "employees",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "case_categories",
+      "verb": "classifies",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "case_categories",
+      "verb": "drives",
+      "to": "knowledge_base_articles",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "raises",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "employees",
+      "verb": "spawns",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "employees",
+      "verb": "updated by",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hr_cases",
+      "verb": "spawns",
+      "to": "iga_access_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "hr_cases",
+      "verb": "references",
+      "to": "knowledge_articles",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "hr_cases",
+      "verb": "spawns",
+      "to": "service_requests",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "knowledge_base_articles",
+      "verb": "resolves",
+      "to": "hr_cases",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "onboarding_tasks",
+      "verb": "spawns",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "manages",
+      "to": "case_categories",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "raises",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "users",
+      "verb": "works on",
+      "to": "hr_cases",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10493",
+      "name": "Develop, conduct, and manage employee training programs"
+    },
+    {
+      "external_id": "10504",
+      "name": "Deliver employee benefits program"
+    },
+    {
+      "external_id": "10523",
+      "name": "Manage employee inquiry process"
+    },
+    {
+      "external_id": "10524",
+      "name": "Manage and maintain employee data"
+    },
+    {
+      "external_id": "10865",
+      "name": "Respond to employee payroll inquiries"
+    },
+    {
+      "external_id": "11073",
+      "name": "Develop and manage enterprise-wide knowledge management (KM) capability"
+    },
+    {
+      "external_id": "20083",
+      "name": "Harvest knowledge"
+    },
+    {
+      "external_id": "20923",
+      "name": "Provide IT resolution capabilities"
+    },
+    {
+      "external_id": "21658",
+      "name": "Define content taxonomies"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "hrsd",
+      "description": "Let employees raise HR questions and requests through a self-service portal, find answers in a knowledge base, and follow each case from intake to resolution. Triage and route incoming cases to the right specialist, escalate across payroll, benefits, and access teams, apply approvals and assignments, track against service levels, and handle reopens. Publish and maintain knowledge articles drawn from resolved cases to deflect repeat requests.",
+      "trigger_keywords": "HRSD, HR help desk, employee relations, tier 1 HR, tier 2 HR, case deflection, ticketing, SLA, queue, classification, agent assist, policy attestation, onboarding, FAQ, employee experience, shared services, HR portal, people operations",
+      "tools": [
+        {
+          "name": "classify_text",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "create_hr_case",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_knowledge_article",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "generate_text",
+          "kind": "compute",
+          "required": false
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": true
+        },
+        {
+          "name": "publish_knowledge_article",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_case_categories",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_employees",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_hr_cases",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_knowledge_articles",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_service_requests",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "update_hr_case",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "update_knowledge_article",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "code": "HRSD-CASE-AGENT",
+      "business_function": "HR Service Delivery",
+      "modules": [
+        {
+          "code": "HRSD-CASE-MGMT",
+          "interaction": "primary"
+        },
+        {
+          "code": "HRSD-EMPLOYEE-PORTAL",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HRSD-KNOWLEDGE",
+          "interaction": "secondary"
+        }
+      ]
+    },
+    {
+      "code": "HRSD-KNOWLEDGE-MANAGER",
+      "business_function": "HR Service Delivery",
+      "modules": [
+        {
+          "code": "HRSD-CASE-MGMT",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HRSD-KNOWLEDGE",
+          "interaction": "primary"
+        }
+      ]
+    },
+    {
+      "code": "HRSD-SERVICE-MANAGER",
+      "business_function": "HR Service Delivery",
+      "modules": [
+        {
+          "code": "HRSD-CASE-MGMT",
+          "interaction": "primary"
+        },
+        {
+          "code": "HRSD-EMPLOYEE-PORTAL",
+          "interaction": "secondary"
+        },
+        {
+          "code": "HRSD-KNOWLEDGE",
+          "interaction": "secondary"
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

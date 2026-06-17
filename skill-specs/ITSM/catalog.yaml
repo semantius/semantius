@@ -1,0 +1,51 @@
+# Projection of live catalog DB values for the use-itsm skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: ITSM
+domain_code_lower: itsm
+domain_name: "IT Service Management"
+module_slug: itsm
+skill_name: use-itsm
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Run a responsive IT service desk that resolves incidents, fulfills requests, and ships changes without breaking the business."
+catalog_description: |
+  IT Service Management gives your service desk one place to capture, route, and resolve everything your workforce throws at it: outages, password resets, new-laptop requests, recurring problems, and risky changes. Tickets follow a clear lifecycle from intake to closure, with priority routing, approvals, and SLA timers built in, so nothing slips and the right person always owns the next step.
+
+  The suite spans incident, request, problem, change, knowledge, and service-level management, plus an agent workspace that pulls the full picture together. Self-service portals and a curated knowledge base deflect routine work, while problem and change workflows keep the underlying environment stable. The result is faster resolution, fewer repeat issues, and a measurable service experience your users and auditors can both trust.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Log and resolve IT incidents and outages, fulfill service requests from a catalog, run problem investigations with root-cause analysis, and move changes and releases through approvals, CAB review, and collision checks. Prioritize and assign work by SLA timers and agent skills, deflect routine questions through a self-service portal and knowledge base, handle inbound events and alerts, and report on resolution times and service quality. Use for: help desk, helpdesk, ITIL, ticketing, ticket queue, password reset, MTTR, change advisory board, escalation, RCA, runbook, major incident, on-call."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - AI Triage and Classification
+  - Approval Workflow Orchestration
+  - Skill-Based Assignment
+  - Service Catalog Authoring
+  - Change Enablement and CAB Workflow
+  - Service Cost and Chargeback
+  - Event and Alert Handling
+  - Incident Management
+  - Major Incident Management
+  - Problem Management
+  - Release Management
+  - ITSM Reporting and Continuous Improvement
+  - Service Request Fulfilment
+  - Standard Change Catalog
+  - Virtual Agent and Conversational ITSM
+  - Walk-Up and Onsite Support
+  - Agent Workspace and Routing
+  - Knowledge Management
+  - Self-Service Portal
+  - SLA and OLA Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-cmdb
+  - use-iga
+  - use-itam
+  - use-kms

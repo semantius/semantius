@@ -1,0 +1,287 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-17",
+  "catalog_snapshot": "catalog-2026-06-17",
+  "bundle": {
+    "code": "REAL-ESTATE-AGENT",
+    "name": "Real Estate Agent (solo / small firm bundle)",
+    "kind": "industry_starter",
+    "domain_attached": false,
+    "tagline": "A working surface for the real-estate agent.",
+    "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
+    "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
+    "host_domains": [
+      "CLM",
+      "CRM",
+      "RE-BROKERAGE"
+    ]
+  },
+  "capabilities": [
+    {
+      "code": "CLM-CONTRACT-REPOSITORY",
+      "name": "Contract Repository",
+      "cross_cutting": false
+    },
+    {
+      "code": "CRM-ACCT-CONTACT",
+      "name": "Account and Contact Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "CRM-LEAD-MGT",
+      "name": "Lead Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-AGENT-CRM",
+      "name": "Real Estate Agent CRM",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-LEAD-CAPTURE",
+      "name": "Real Estate Lead Capture and Routing",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-MLS-SYNDICATION",
+      "name": "MLS and Listing Syndication",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-TOUR-SCHED",
+      "name": "Showing and Tour Scheduling",
+      "cross_cutting": false
+    },
+    {
+      "code": "RE-BROK-TRANS-MGMT",
+      "name": "Real Estate Transaction Management",
+      "cross_cutting": false
+    }
+  ],
+  "composes": [
+    {
+      "name": "crm_contacts",
+      "singular_label": "Contact",
+      "plural_label": "Contacts",
+      "role": "embedded_master",
+      "owning_domain": "CRM"
+    },
+    {
+      "name": "crm_leads",
+      "singular_label": "Lead",
+      "plural_label": "Leads",
+      "role": "embedded_master",
+      "owning_domain": "CRM"
+    },
+    {
+      "name": "disclosure_documents",
+      "singular_label": "Disclosure Document",
+      "plural_label": "Disclosure Documents",
+      "role": "embedded_master",
+      "owning_domain": "RE-BROKERAGE"
+    },
+    {
+      "name": "legal_contracts",
+      "singular_label": "Contract",
+      "plural_label": "Contracts",
+      "role": "embedded_master",
+      "owning_domain": "CLM"
+    },
+    {
+      "name": "real_estate_listings",
+      "singular_label": "Real Estate Listing",
+      "plural_label": "Real Estate Listings",
+      "role": "embedded_master",
+      "owning_domain": "RE-BROKERAGE"
+    },
+    {
+      "name": "real_estate_transactions",
+      "singular_label": "Real Estate Transaction",
+      "plural_label": "Real Estate Transactions",
+      "role": "embedded_master",
+      "owning_domain": "RE-BROKERAGE"
+    },
+    {
+      "name": "tour_appointments",
+      "singular_label": "Tour Appointment",
+      "plural_label": "Tour Appointments",
+      "role": "embedded_master",
+      "owning_domain": "RE-BROKERAGE"
+    },
+    {
+      "name": "users",
+      "singular_label": "User",
+      "plural_label": "Users",
+      "role": "consumer",
+      "owning_domain": null
+    }
+  ],
+  "apqc_processes_touched": [],
+  "system_skill": {
+    "skill_grain": "domain",
+    "skill_name": "real-estate-agent",
+    "description": "Capture and qualify buyer and seller leads, keep client contacts organized, create and publish property listings, schedule and track showings, and carry each deal from offer through closing with disclosures and signed purchase agreements. Send client updates and reminders, request e-signatures on agreements, and optionally draft listing descriptions, generate follow-up messages, and match listings to buyer preferences.",
+    "trigger_keywords": "MLS, open house, property tour, home sale, escrow, commission, real estate CRM",
+    "tools": [
+      {
+        "name": "convert_lead",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_contact",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_legal_contract",
+        "kind": "mutate",
+        "required": false
+      },
+      {
+        "name": "create_real_estate_listing",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_real_estate_transaction",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "create_tour_appointment",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "execute_legal_contract",
+        "kind": "mutate",
+        "required": false
+      },
+      {
+        "name": "generate_text",
+        "kind": "compute",
+        "required": false
+      },
+      {
+        "name": "match_listing_to_buyer_preferences",
+        "kind": "compute",
+        "required": false
+      },
+      {
+        "name": "notify_person",
+        "kind": "side_effect",
+        "required": true
+      },
+      {
+        "name": "query_contacts",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_disclosure_documents",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_leads",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_legal_contracts",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_real_estate_listings",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_real_estate_transactions",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "query_tour_appointments",
+        "kind": "query",
+        "required": true
+      },
+      {
+        "name": "sign_document",
+        "kind": "side_effect",
+        "required": true
+      },
+      {
+        "name": "syndicate_to_mls",
+        "kind": "side_effect",
+        "required": true
+      },
+      {
+        "name": "update_contact",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "update_lead",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "update_real_estate_listing",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "update_real_estate_transaction",
+        "kind": "mutate",
+        "required": true
+      },
+      {
+        "name": "update_tour_appointment",
+        "kind": "mutate",
+        "required": true
+      }
+    ]
+  },
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

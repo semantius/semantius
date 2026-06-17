@@ -1,14 +1,18 @@
 ---
 artifact: semantic-blueprint
-fact_sheet_version: "2.0"
+blueprint_version: "3.0"
+license: MIT
 system_name: HIRING-STARTER
 system_description: Hiring Starter
+tagline: Everything a small team needs to hire, in one lightweight package.
+description: "A starter bundle covering the core hiring path (postings, candidates, applications, interviews, and offers) without the breadth of the full module set. Stand up hiring quickly, then grow into the full modules as your volume increases; your data moves with you when you do."
 system_slug: hiring-starter
 domain_modules:
   - hiring-starter
 domain_code: ATS
-related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline]
-created_at: 2026-05-27
+related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt, pa-workforce-metrics]
+persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-COORDINATOR, RECRUITING-MANAGER, RECRUITING-RECRUITER, RECRUITING-SOURCER]
+created_at: 2026-06-17
 ---
 
 # Hiring Starter
@@ -19,16 +23,16 @@ Entry-tier deployable for a basic hiring workflow: post jobs, capture applicatio
 
 ## 2. Entity summary
 
-| Name | Description |
-| --- | --- |
-| Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. |
-| Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
-| Interview Scorecards | Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation. |
-| Interviews | Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome. |
-| Job Postings | Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region). |
-| Offers | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). |
-| Recruitment Sources | Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI. |
-| Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
+| Name | data_object | Description |
+| --- | --- | --- |
+| Applications | `job_applications` | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. |
+| Candidates | `candidates` | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
+| Interview Scorecards | `interview_scorecards` | Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation. |
+| Interviews | `interviews` | Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome. |
+| Job Postings | `job_postings` | Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region). |
+| Offers | `job_offers` | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). |
+| Recruitment Sources | `recruitment_sources` | Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI. |
+| Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
 
 ```mermaid
 flowchart TD
@@ -42,6 +46,8 @@ flowchart TD
   job_offers["Offers"]
   recruitment_sources["Recruitment Sources"]
   users["Users"]
+  candidates -->|"has owning recruiter"| users
+  job_postings -->|"has publisher"| users
   job_postings -->|"is applied to via"| job_applications
   candidates -->|"submits"| job_applications
   recruitment_sources -->|"attributes"| candidates
@@ -66,417 +72,133 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | role | mastered in | necessity | pattern flags | notes |
-| ---: | --- | --- | --- | --- | --- | --- |
-| 1 | `job_applications` (Applications) | embedded_master | `ats-recruitment-pipeline` | required | personal_content | - |
-| 2 | `candidates` (Candidates) | embedded_master | `ats-candidate-crm` | required | personal_content | - |
-| 3 | `interview_scorecards` (Interview Scorecards) | embedded_master | `ats-interviews` | optional | personal_content, submit_lock | - |
-| 4 | `interviews` (Interviews) | embedded_master | `ats-interviews` | required | - | - |
-| 5 | `job_postings` (Job Postings) | embedded_master | `ats-recruitment-pipeline` | required | - | - |
-| 6 | `job_offers` (Offers) | embedded_master | `ats-offers` | required | personal_content, single_approver | - |
-| 7 | `recruitment_sources` (Recruitment Sources) | embedded_master | `ats-candidate-crm` | optional | - | - |
-| 8 | `users` (Users) | consumer | _(platform built-in)_ | required | - | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | embedded_master | `ats-interviews` | Interviews | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `interviews` | `interviews` | Interview | Interviews | embedded_master | `ats-interviews` | Interviews | required | - | operational_workflow | `:manage` | - |
+| 5 | `job_postings` | `job_postings` | Job Posting | Job Postings | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | - | operational_workflow | `:manage` | - |
+| 6 | `job_offers` | `job_offers` | Offer | Offers | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 7 | `recruitment_sources` | `recruitment_sources` | Recruitment Source | Recruitment Sources | embedded_master | `ats-candidate-crm` | Candidate CRM | optional | - | catalog | `:admin` | - |
+| 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
-_(no industry-scoped aliases or non-synonym alias types loaded for this scope; generic synonyms are omitted as common knowledge.)_
+_(none: no industry-scoped aliases for this scope)_
 
 ## 5. Relationships
 
 ### 5.1 Intra-scope edges
 
-| from | verb | to | cardinality | kind | necessity | owner_side | notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `job_postings` | is applied to via | `job_applications` | one_to_many | reference | required | source | - |
-| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | - |
-| `recruitment_sources` | attributes | `candidates` | one_to_many | reference | required | target | - |
-| `job_applications` | schedules | `interviews` | one_to_many | reference | required | source | - |
-| `interviews` | is scored via | `interview_scorecards` | one_to_many | reference | required | source | - |
-| `job_applications` | results in | `job_offers` | one_to_many | reference | required | source | - |
+| from | verb | to | cardinality | kind | necessity | owner_side | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `job_postings` | is applied to via | `job_applications` | one_to_many | reference | required | source | restrict | reference | - |
+| `candidates` | submits | `job_applications` | one_to_many | reference | required | target | restrict | reference | - |
+| `recruitment_sources` | attributes | `candidates` | one_to_many | reference | required | target | restrict | reference | - |
+| `job_applications` | schedules | `interviews` | one_to_many | reference | required | source | restrict | reference | - |
+| `interviews` | is scored via | `interview_scorecards` | one_to_many | reference | required | source | restrict | reference | - |
+| `job_applications` | results in | `job_offers` | one_to_many | reference | required | source | restrict | reference | - |
 
 ### 5.2 Built-in edges (`users` and other platform built-ins)
 
-| from | verb | to | cardinality | necessity | owner_side | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| `users` | logged events | `asset_lifecycle_events` | one_to_many | optional | source | - |
-| `users` | owned applications | `enterprise_applications` | one_to_many | optional | source | - |
-| `users` | owned platforms | `technology_platforms` | one_to_many | optional | source | - |
-| `users` | owned interfaces | `application_interfaces` | one_to_many | optional | source | - |
-| `users` | owned capability maps | `business_capability_maps` | one_to_many | optional | source | - |
-| `users` | authored scores | `application_value_scores` | one_to_many | optional | source | - |
-| `users` | authored assessments | `technology_fit_assessments` | one_to_many | optional | source | - |
-| `users` | recorded costs | `application_costs` | one_to_many | optional | source | - |
-| `users` | owned CIs | `configuration_items` | one_to_many | optional | source | - |
-| `users` | owned classes | `ci_classes` | one_to_many | optional | source | - |
-| `users` | authored baselines | `ci_baselines` | one_to_many | optional | source | - |
-| `users` | owned service maps | `service_maps` | one_to_many | optional | source | - |
-| `users` | created relationships | `ci_relationships` | one_to_many | optional | source | - |
-| `users` | assigned hardware | `hardware_assets` | one_to_many | optional | source | - |
-| `users` | custodian of assets | `hardware_assets` | one_to_many | optional | source | - |
-| `users` | recorded disposals | `hardware_disposal_records` | one_to_many | optional | source | - |
-| `users` | manages warranties | `hardware_warranties` | one_to_many | optional | source | - |
-| `users` | manages stock | `spare_parts_inventory` | one_to_many | optional | source | - |
-| `users` | curates models | `hardware_models` | one_to_many | optional | source | - |
-| `users` | owned contracts | `asset_contracts` | one_to_many | optional | source | - |
-| `users` | owned channels | `chat_channels` | one_to_many | optional | source | - |
-| `users` | created channels | `chat_channels` | one_to_many | required | source | - |
-| `users` | posted messages | `chat_messages` | one_to_many | required | source | - |
-| `users` | started threads | `chat_threads` | one_to_many | required | source | - |
-| `users` | channel memberships | `channel_members` | one_to_many | required | source | - |
-| `users` | started huddles | `chat_huddles` | one_to_many | required | source | - |
-| `users` | uploaded attachments | `chat_message_attachments` | one_to_many | optional | source | - |
-| `users` | shared files | `channel_file_shares` | one_to_many | optional | source | - |
-| `users` | issued invitations | `external_guest_invitations` | one_to_many | required | source | - |
-| `users` | owns audit plan | `audit_plans` | one_to_many | required | source | - |
-| `users` | leads engagement | `audit_engagements` | one_to_many | required | source | - |
-| `users` | owns | `courses` | one_to_many | optional | source | - |
-| `users` | owns finding | `audit_findings` | one_to_many | optional | source | - |
-| `users` | approves recommendation | `audit_recommendations` | one_to_many | optional | source | - |
-| `users` | signs report | `audit_reports` | one_to_many | required | source | - |
-| `users` | performs control test | `control_tests` | one_to_many | required | source | - |
-| `users` | owns follow-up | `follow_up_actions` | one_to_many | required | source | - |
-| `users` | authored | `work_papers` | one_to_many | required | source | - |
-| `users` | curates | `learning_paths` | one_to_many | optional | source | - |
-| `users` | owns | `benefit_plans` | one_to_many | optional | source | - |
-| `users` | submitted intake | `legal_intake_requests` | one_to_many | required | source | - |
-| `users` | leads matter | `in_house_legal_matters` | one_to_many | required | source | - |
-| `users` | authored advice | `legal_advice_records` | one_to_many | required | source | - |
-| `users` | owns docket | `legal_case_dockets` | one_to_many | required | source | - |
-| `users` | issued hold | `legal_holds` | one_to_many | required | source | - |
-| `users` | runs discovery | `ediscovery_requests` | one_to_many | required | source | - |
-| `users` | approves engagement | `outside_counsel_engagements` | one_to_many | required | source | - |
-| `users` | responds to inquiry | `regulatory_inquiries` | one_to_many | required | source | - |
-| `users` | approves | `butcher_orders` | one_to_many | required | target | - |
-| `users` | owns plan | `test_plans` | one_to_many | required | source | - |
-| `users` | authored case | `test_cases` | one_to_many | required | source | - |
-| `users` | executed run | `test_runs` | one_to_many | optional | source | - |
-| `users` | owns defect | `test_defects` | one_to_many | optional | source | - |
-| `users` | maintains script | `automation_scripts` | one_to_many | required | source | - |
-| `users` | owns suite | `test_suites` | one_to_many | optional | source | - |
-| `users` | administers environment | `test_environments` | one_to_many | optional | source | - |
-| `users` | mapped trace | `requirements_to_test_traceability` | one_to_many | optional | source | - |
-| `users` | owns | `hr_cases` | one_to_many | optional | source | - |
-| `users` | hosts visitor | `host_assignments` | one_to_many | required | source | - |
-| `users` | created registration | `visitor_registrations` | one_to_many | optional | source | - |
-| `users` | processed check-in | `visitor_check_ins` | one_to_many | optional | source | - |
-| `users` | reviewed screening | `visitor_watchlist_screenings` | one_to_many | optional | source | - |
-| `users` | owns evacuation roster | `visitor_evacuation_lists` | one_to_many | optional | source | - |
-| `users` | administers audit log | `visitor_audit_logs` | one_to_many | optional | source | - |
-| `users` | printed badge | `visitor_badges` | one_to_many | optional | source | - |
-| `users` | witnessed nda | `visitor_nda_acknowledgements` | one_to_many | optional | source | - |
-| `users` | is assignee for | `customer_cases` | one_to_many | optional | source | - |
-| `users` | created | `customer_cases` | one_to_many | optional | source | - |
-| `users` | owns | `customer_entitlements` | one_to_many | optional | source | - |
-| `users` | submitted | `csat_responses` | one_to_many | optional | source | - |
-| `users` | authored | `knowledge_articles` | one_to_many | optional | source | - |
-| `users` | approved | `knowledge_articles` | one_to_many | optional | source | - |
-| `users` | authors | `pim_products` | one_to_many | required | source | PIM author / content editor of the product record. |
-| `users` | approves | `pim_products` | one_to_many | optional | source | Merchandiser who gates publish. |
-| `users` | uploads | `pim_digital_assets` | one_to_many | required | source | DAM contributor who uploaded the asset. |
-| `users` | approves | `pim_digital_assets` | one_to_many | optional | source | Brand / rights reviewer who clears the asset. |
-| `users` | translates | `pim_translations` | one_to_many | optional | source | Human translator or post-edit reviewer. |
-| `users` | initiates | `pim_syndication_jobs` | one_to_many | optional | source | Admin / merchandising-ops user who launched the publish run (where not auto-triggered). |
-| `users` | is_assigned_to_tickets | `msp_tickets` | one_to_many | optional | target | - |
-| `users` | opens_tickets | `msp_tickets` | one_to_many | optional | target | - |
-| `users` | logs_time_entries | `msp_time_entries` | one_to_many | required | target | - |
-| `users` | approves_time_entries | `msp_time_entries` | one_to_many | optional | target | - |
-| `users` | manages_contracts | `msp_contracts` | one_to_many | optional | target | - |
-| `users` | issues_invoices | `msp_invoices` | one_to_many | optional | target | - |
-| `users` | owns_clients | `msp_clients` | one_to_many | optional | target | - |
-| `users` | leads_as_attorney | `legal_matters` | one_to_many | required | target | - |
-| `users` | supervises | `legal_matters` | one_to_many | optional | target | - |
-| `users` | bills_as_partner | `legal_matters` | one_to_many | required | target | - |
-| `users` | requests | `conflict_checks` | one_to_many | required | target | - |
-| `users` | reviews_as_partner | `conflict_checks` | one_to_many | optional | target | - |
-| `users` | drafts | `engagement_letters` | one_to_many | required | target | - |
-| `users` | signs_as_partner | `engagement_letters` | one_to_many | required | target | - |
-| `users` | manages_as_bookkeeper | `trust_accounts` | one_to_many | required | target | - |
-| `users` | files | `external_court_filings` | one_to_many | required | target | - |
-| `users` | prepares | `client_invoices` | one_to_many | required | target | - |
-| `users` | approves_as_partner | `client_invoices` | one_to_many | required | target | - |
-| `users` | logs_as_timekeeper | `time_entries` | one_to_many | required | target | - |
-| `real_estate_listings` | has listing agent | `users` | many_to_many | required | source | - |
-| `tour_appointments` | has showing agent | `users` | many_to_many | required | source | - |
-| `real_estate_transactions` | has listing-side agent | `users` | many_to_many | required | source | - |
-| `real_estate_transactions` | has buyer-side agent | `users` | many_to_many | optional | source | - |
-| `disclosure_documents` | has preparer | `users` | many_to_many | required | source | - |
-| `commission_splits` | has recipient agent | `users` | many_to_many | required | source | - |
-| `commission_splits` | has approving broker | `users` | many_to_many | required | source | - |
-| `users` | requests | `iga_access_requests` | one_to_many | required | source | - |
-| `users` | approves | `iga_access_requests` | one_to_many | optional | source | - |
-| `users` | reviews | `iga_access_certifications` | one_to_many | required | source | - |
-| `users` | owns | `iga_entitlement_definitions` | one_to_many | optional | source | - |
-| `users` | implicated_in | `iga_sod_violations` | one_to_many | required | source | - |
-| `users` | targeted_by | `iga_provisioning_events` | one_to_many | required | target | - |
-| `users` | owns | `customers` | one_to_many | optional | source | - |
-| `users` | authored | `content_entries` | one_to_many | required | source | - |
-| `users` | manages release | `content_releases` | one_to_many | optional | source | - |
-| `users` | maintains schema | `content_types` | one_to_many | optional | source | - |
-| `users` | maintains workflow | `editorial_workflows` | one_to_many | optional | source | - |
-| `users` | administers | `content_environments` | one_to_many | optional | source | - |
-| `users` | curates locale | `content_locales` | one_to_many | optional | source | - |
-| `users` | uploaded | `digital_assets` | one_to_many | required | source | - |
-| `users` | owns | `legal_contracts` | one_to_many | optional | source | - |
-| `users` | approved | `legal_contracts` | one_to_many | optional | source | - |
-| `users` | drafted | `legal_contracts` | one_to_many | optional | source | - |
-| `users` | owns | `contract_templates` | one_to_many | optional | source | - |
-| `users` | approved | `contract_templates` | one_to_many | optional | source | - |
-| `users` | is obligation owner for | `contract_obligations` | one_to_many | optional | source | - |
-| `users` | signed | `signature_records` | one_to_many | optional | source | - |
-| `users` | approved | `contract_clauses` | one_to_many | optional | source | - |
-| `users` | reviews | `performance_reviews` | one_to_many | required | target | - |
-| `users` | organizes_room_reservations | `room_reservations` | one_to_many | required | target | - |
-| `users` | designs | `org_designs` | one_to_many | optional | source | - |
-| `users` | books_desks | `desk_bookings` | one_to_many | required | target | - |
-| `users` | requests_workplace_services | `workplace_service_requests` | one_to_many | required | target | - |
-| `users` | assigned_to_workplace_services | `workplace_service_requests` | one_to_many | optional | target | - |
-| `users` | authors_workplace_feedback | `workplace_experience_feedback` | one_to_many | required | target | - |
-| `users` | owns | `customers` | one_to_many | required | source | - |
-| `users` | packs | `csa_share_packs` | one_to_many | optional | target | - |
-| `users` | requests | `absence_requests` | one_to_many | required | source | - |
-| `users` | places | `butcher_orders` | one_to_many | required | target | - |
-| `users` | publishes | `harvest_forecasts` | one_to_many | required | target | - |
-| `employees` | is_linked_to | `users` | one_to_one | optional | target | - |
-| `users` | manages | `hcm_positions` | one_to_many | optional | source | - |
-| `users` | leads | `org_units` | one_to_many | optional | source | - |
-| `users` | approves | `employment_contracts` | one_to_many | optional | source | - |
-| `users` | records | `employment_events` | one_to_many | optional | source | - |
-| `users` | approves | `absence_requests` | one_to_many | optional | source | - |
-| `users` | assigned | `asset_lifecycle_events` | one_to_many | optional | source | - |
-| `users` | owns | `job_profiles` | one_to_many | optional | source | - |
-| `users` | owns | `cost_centers` | one_to_many | optional | source | - |
-| `users` | sponsors | `contingent_workers` | one_to_many | optional | source | - |
-| `users` | onboards | `onboarding_journeys` | one_to_many | required | source | - |
-| `users` | owns | `onboarding_journeys` | one_to_many | optional | source | - |
-| `users` | performs | `onboarding_tasks` | one_to_many | optional | source | - |
-| `users` | created | `onboarding_tasks` | one_to_many | optional | source | - |
-| `users` | mentors | `buddy_assignments` | one_to_many | required | source | - |
-| `users` | maintains | `onboarding_plans` | one_to_many | optional | source | - |
-| `users` | sends | `welcome_communications` | one_to_many | optional | source | - |
-| `users` | approves | `onboarding_document_collections` | one_to_many | optional | source | - |
-| `users` | manages | `onboarding_cohorts` | one_to_many | optional | source | - |
-| `users` | authors | `courses` | one_to_many | optional | source | - |
-| `users` | enrolls in | `course_enrollments` | one_to_many | required | source | - |
-| `users` | assigns | `course_enrollments` | one_to_many | optional | source | - |
-| `users` | earns | `learning_records` | one_to_many | required | source | - |
-| `users` | must complete | `compliance_assignments` | one_to_many | required | source | - |
-| `users` | owns | `compliance_assignments` | one_to_many | optional | source | - |
-| `users` | holds | `learner_certifications` | one_to_many | required | source | - |
-| `users` | holds | `skill_profiles` | one_to_many | required | source | - |
-| `users` | enrolls | `benefit_enrollments` | one_to_many | required | source | - |
-| `users` | approves | `benefit_enrollments` | one_to_many | optional | source | - |
-| `users` | declares | `life_events` | one_to_many | required | source | - |
-| `users` | approves | `life_events` | one_to_many | optional | source | - |
-| `users` | manages | `benefit_open_enrollments` | one_to_many | optional | source | - |
-| `users` | manages | `benefit_carriers` | one_to_many | optional | source | - |
-| `users` | monitors | `carrier_feeds` | one_to_many | optional | source | - |
-| `users` | declares | `benefit_dependents` | one_to_many | required | source | - |
-| `users` | owns | `survey_campaigns` | one_to_many | required | source | - |
-| `users` | creates | `survey_campaigns` | one_to_many | optional | source | - |
-| `users` | submits | `survey_responses` | one_to_many | optional | source | - |
-| `users` | owns | `action_plans` | one_to_many | required | source | - |
-| `action_plans` | is_assigned_to | `users` | many_to_many | optional | target | - |
-| `users` | authors | `pulse_questions` | one_to_many | optional | source | - |
-| `users` | owns | `engagement_drivers` | one_to_many | optional | source | - |
-| `users` | raises | `hr_cases` | one_to_many | required | source | - |
-| `users` | works on | `hr_cases` | one_to_many | optional | source | - |
-| `users` | approves | `hr_cases` | one_to_many | optional | source | - |
-| `users` | manages | `case_categories` | one_to_many | optional | source | - |
-| `users` | authors | `knowledge_articles` | one_to_many | optional | source | - |
-| `users` | requests | `service_requests` | one_to_many | required | source | - |
-| `users` | fulfills | `service_requests` | one_to_many | optional | source | - |
-| `users` | assigned incidents | `service_incidents` | one_to_many | optional | source | - |
-| `users` | reported incidents | `service_incidents` | one_to_many | required | source | - |
-| `users` | assigned requests | `service_requests` | one_to_many | optional | source | - |
-| `users` | submitted requests | `service_requests` | one_to_many | required | source | - |
-| `users` | owned problems | `service_problems` | one_to_many | optional | source | - |
-| `users` | owned changes | `service_changes` | one_to_many | optional | source | - |
-| `service_changes` | is_approved_by | `users` | many_to_many | optional | target | - |
-| `users` | authored articles | `knowledge_articles` | one_to_many | required | source | - |
-| `users` | owned catalog items | `service_catalog_items` | one_to_many | optional | source | - |
-| `users` | owned SLAs | `service_slas` | one_to_many | optional | source | - |
-| `users` | owns | `staffing_suppliers` | one_to_many | optional | source | - |
-| `users` | manages | `contingent_workers` | one_to_many | optional | source | - |
-| `users` | approves | `contingent_timesheets` | one_to_many | optional | source | - |
-| `users` | approves | `contingent_invoices` | one_to_many | optional | source | - |
-| `users` | dispatches | `pm_work_orders` | one_to_many | optional | source | - |
-| `users` | approves | `rate_cards` | one_to_many | optional | source | - |
-| `users` | owns | `suppliers` | one_to_many | optional | source | - |
-| `users` | runs | `supplier_onboardings` | one_to_many | optional | source | - |
-| `users` | approves | `supplier_onboardings` | one_to_many | optional | source | - |
-| `users` | approves | `supplier_qualifications` | one_to_many | optional | source | - |
-| `users` | authors | `supplier_risk_assessments` | one_to_many | optional | source | - |
-| `users` | approves | `supplier_risk_assessments` | one_to_many | optional | source | - |
-| `users` | owns | `supplier_scorecards` | one_to_many | optional | source | - |
-| `users` | uploads | `supplier_certifications` | one_to_many | optional | source | - |
-| `users` | authored | `content_documents` | one_to_many | required | source | - |
-| `users` | owns | `content_documents` | one_to_many | optional | source | - |
-| `users` | owns | `document_folders` | one_to_many | optional | source | - |
-| `users` | revised | `document_versions` | one_to_many | required | source | - |
-| `users` | stewards | `document_classifications` | one_to_many | optional | source | - |
-| `users` | maintains | `records_retention_policies` | one_to_many | optional | source | - |
-| `users` | edits | `content_entries` | one_to_many | optional | source | - |
-| `users` | performs | `eam_work_orders` | one_to_many | optional | source | - |
-| `users` | raised | `eam_work_orders` | one_to_many | required | source | - |
-| `users` | owns asset | `industrial_assets` | one_to_many | optional | source | - |
-| `users` | maintains schedule | `equipment_pm_schedules` | one_to_many | optional | source | - |
-| `users` | owns | `digital_assets` | one_to_many | optional | source | - |
-| `users` | approves | `digital_assets` | one_to_many | optional | source | - |
-| `users` | owns device | `medical_devices` | one_to_many | optional | source | - |
-| `users` | performed maintenance | `device_maintenance_logs` | one_to_many | required | source | - |
-| `users` | performed calibration | `device_calibration_records` | one_to_many | required | source | - |
-| `users` | operated cycle | `sterilization_cycles` | one_to_many | required | source | - |
-| `users` | reported incident | `device_incident_reports` | one_to_many | required | source | - |
-| `users` | manages recall | `device_recalls` | one_to_many | optional | source | - |
-| `users` | assigned work orders | `clinical_engineering_work_orders` | one_to_many | optional | source | - |
-| `users` | opened work orders | `clinical_engineering_work_orders` | one_to_many | required | source | - |
-| `users` | assigned applications | `permit_applications` | one_to_many | optional | source | - |
-| `users` | submitted applications | `permit_applications` | one_to_many | required | source | - |
-| `users` | owns license | `license_records` | one_to_many | optional | source | - |
-| `users` | processes renewals | `license_renewals` | one_to_many | optional | source | - |
-| `users` | assigned inspections | `permit_inspections` | one_to_many | required | source | - |
-| `users` | issued violations | `code_violations` | one_to_many | required | source | - |
-| `users` | assessed fees | `regulatory_fees` | one_to_many | optional | source | - |
-| `users` | assigned tasks | `store_tasks` | one_to_many | optional | source | - |
-| `users` | created tasks | `store_tasks` | one_to_many | required | source | - |
-| `users` | assigned checklists | `store_associate_checklists` | one_to_many | optional | source | - |
-| `users` | publishes schedules | `retail_labour_schedules` | one_to_many | required | source | - |
-| `users` | conducted audits | `store_audits` | one_to_many | required | source | - |
-| `users` | verified planogram | `planogram_compliance_records` | one_to_many | required | source | - |
-| `users` | submitted mystery shop | `mystery_shopper_records` | one_to_many | required | source | - |
-| `users` | submitted reports | `expense_reports` | one_to_many | required | source | - |
-| `users` | approved reports | `expense_reports` | one_to_many | optional | source | - |
-| `users` | created lines | `expense_lines` | one_to_many | required | source | - |
-| `users` | holds cards | `corporate_cards` | one_to_many | required | source | - |
-| `users` | charged transactions | `card_transactions` | one_to_many | optional | source | - |
-| `users` | booked travel | `travel_bookings` | one_to_many | required | source | - |
-| `users` | approved travel | `travel_bookings` | one_to_many | optional | source | - |
-| `users` | owns policy | `expense_policies` | one_to_many | optional | source | - |
-| `users` | assigned items | `work_items` | one_to_many | optional | source | - |
-| `users` | created items | `work_items` | one_to_many | required | source | - |
-| `users` | owns projects | `work_projects` | one_to_many | required | source | - |
-| `users` | owns OKR | `okr_objectives` | one_to_many | required | source | - |
-| `users` | authored automations | `work_automations` | one_to_many | required | source | - |
-| `job_requisitions` | has recruiter and hiring manager | `users` | many_to_many | required | source | - |
-| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | - |
-| `interviews` | has coordinator and panelists | `users` | many_to_many | required | source | - |
-| `interview_scorecards` | has interviewer as author | `users` | many_to_many | required | source | - |
-| `job_offers` | has approver | `users` | many_to_many | required | source | - |
-| `candidate_referrals` | has referring employee | `users` | many_to_many | required | source | - |
-| `users` | leads | `vc_deals` | one_to_many | optional | target | - |
-| `users` | sponsors | `vc_deals` | one_to_many | optional | target | - |
-| `users` | authors | `investment_memos` | one_to_many | optional | target | - |
-| `users` | owns | `relationship_records` | one_to_many | optional | target | - |
-| `users` | manages | `funds` | one_to_many | optional | target | - |
-| `users` | signs | `lp_commitments` | one_to_many | optional | target | - |
-| `users` | approves | `capital_calls` | one_to_many | optional | target | - |
-| `users` | approves | `fund_distributions` | one_to_many | optional | target | - |
-| `users` | observes | `portfolio_companies` | one_to_many | optional | target | - |
-| `users` | computes | `portco_valuations` | one_to_many | optional | target | - |
-| `users` | administers | `cap_tables` | one_to_many | optional | target | - |
-| `users` | signs off | `valuations_409a` | one_to_many | optional | target | - |
-| `users` | models | `exit_scenarios` | one_to_many | optional | target | - |
-| `users` | executes | `secondary_transactions` | one_to_many | optional | target | - |
-| `users` | holds | `employee_equity_accounts` | one_to_many | optional | target | - |
-| `users` | forms | `fund_formations` | one_to_many | optional | target | - |
-| `users` | organizes | `spvs` | one_to_many | optional | target | - |
-| `pre_employees` | has owning hr_coordinator | `users` | one_to_many | required | source | - |
-| `users` | owns | `saas_applications` | one_to_many | required | target | - |
-| `users` | granted | `saas_app_assignments` | one_to_many | required | target | - |
-| `users` | generates | `saas_usage_metrics` | one_to_many | required | target | - |
-| `users` | manages | `saas_subscriptions` | one_to_many | required | target | - |
-| `users` | triggered | `shadow_it_apps` | one_to_many | optional | target | - |
-| `users` | owns | `crm_leads` | one_to_many | required | source | - |
-| `users` | owns | `crm_opportunities` | one_to_many | required | source | - |
-| `users` | owns | `crm_contacts` | one_to_many | optional | source | - |
-| `users` | creates | `sales_activities` | one_to_many | required | source | - |
-| `users` | authors | `feedback_records` | one_to_many | required | target | - |
-| `users` | receives | `feedback_records` | one_to_many | required | target | - |
-| `users` | is_reviewed_in | `performance_reviews` | one_to_many | required | target | - |
-| `users` | owns | `performance_goals` | one_to_many | required | target | - |
-| `users` | calibrates_in | `talent_calibrations` | many_to_many | required | target | - |
-| `users` | is_incumbent_in | `succession_plans` | one_to_many | optional | target | - |
-| `users` | is_successor_in | `succession_plans` | many_to_many | required | target | - |
-| `users` | is_placed_in | `nine_box_placements` | one_to_many | required | target | - |
-| `users` | declares | `career_aspirations` | one_to_many | required | target | - |
-| `inv_stock_movements` | recorded_by | `users` | one_to_many | required | target | - |
-| `inv_stock_transfers` | requested_by | `users` | one_to_many | required | target | - |
-| `inv_stock_transfers` | approved_by | `users` | one_to_many | optional | target | - |
-| `inv_cycle_counts` | counted_by | `users` | one_to_many | required | target | - |
-| `inv_cycle_counts` | variance_approved_by | `users` | one_to_many | required | target | - |
-| `inv_reorder_rules` | owned_by | `users` | one_to_many | optional | target | - |
-| `org_units` | has members | `users` | one_to_many | optional | target | - |
-| `locations` | houses | `users` | one_to_many | optional | target | - |
-| `users` | originates | `engineering_change_orders` | one_to_many | required | source | - |
-| `users` | approves | `engineering_change_orders` | many_to_many | required | source | - |
-| `users` | owns | `engineering_parts` | one_to_many | required | source | - |
-| `users` | checks_out | `cad_models` | one_to_many | optional | source | - |
-| `users` | releases | `cad_drawings` | one_to_many | required | source | - |
-| `users` | authors | `engineering_requirements` | one_to_many | required | source | - |
-| `users` | approves_compliance | `product_compliance_declarations` | one_to_many | required | source | - |
-| `users` | approves | `workforce_plans` | one_to_many | optional | source | - |
-| `users` | sponsors | `headcount_plans` | one_to_many | optional | source | - |
-| `users` | prepares | `position_demand_forecasts` | one_to_many | optional | source | - |
-| `users` | prepares | `skills_gap_analyses` | one_to_many | optional | source | - |
-| `users` | authors | `workforce_scenarios` | one_to_many | optional | source | - |
-| `users` | owns | `workforce_cost_projections` | one_to_many | optional | source | - |
-| `users` | owns_application | `enterprise_applications` | one_to_many | required | source | - |
-| `users` | owns_technology_platform | `technology_platforms` | one_to_many | required | source | - |
-| `users` | owns_application_interface | `application_interfaces` | one_to_many | optional | source | - |
-| `users` | owns_business_capability_map | `business_capability_maps` | one_to_many | optional | source | - |
-| `users` | assesses_technology_fit | `technology_fit_assessments` | one_to_many | required | source | - |
-| `users` | evaluates_application_value | `application_value_scores` | one_to_many | optional | source | - |
-| `strategy_maps` | owned_by | `users` | one_to_many | required | source | - |
-| `operating_reviews` | facilitated_by | `users` | one_to_many | required | source | - |
-| `operating_reviews` | attended_by | `users` | many_to_many | optional | source | - |
-| `strategy_decisions` | decided_by | `users` | one_to_many | required | source | - |
-| `users` | project_manager_of | `service_projects` | one_to_many | required | target | - |
-| `users` | assigned_to | `project_tasks` | many_to_many | optional | target | - |
-| `users` | staffed_on | `project_assignments` | one_to_many | required | target | - |
-| `users` | approves | `project_billing_milestones` | one_to_many | required | target | - |
-| `users` | has_skill_profile | `resource_skill_inventories` | one_to_many | required | target | - |
-| `users` | allocates | `project_resource_allocations` | one_to_many | required | target | - |
-| `users` | owns | `csa_memberships` | one_to_many | required | target | - |
-| `users` | rings | `farmers_market_sales` | one_to_many | required | target | - |
-| `users` | places | `wholesale_orders` | one_to_many | required | target | - |
-| `users` | confirms | `wholesale_orders` | one_to_many | required | target | - |
-| `users` | drives | `delivery_routes` | one_to_many | required | target | - |
-| `users` | administers | `farm_storefronts` | one_to_many | required | target | - |
-| `users` | hosts | `pickup_locations` | one_to_many | optional | target | - |
+| from | verb | to | cardinality | necessity | owner_side | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `candidates` | has owning recruiter | `users` | many_to_many | optional | source | clear | reference | - |
+| `job_postings` | has publisher | `users` | many_to_many | required | source | restrict | reference | - |
+| `job_applications` | has owning recruiter | `users` | many_to_many | required | source | restrict | reference | - |
+| `interviews` | has coordinator and panelists | `users` | many_to_many | required | source | restrict | reference | - |
+| `interview_scorecards` | has interviewer as author | `users` | many_to_many | required | source | restrict | reference | - |
+| `job_offers` | has approver | `users` | many_to_many | required | source | restrict | reference | - |
 
 ### 5.3 Cross-scope edges
 
-| from | verb | to | cardinality | necessity | notes |
-| --- | --- | --- | --- | --- | --- |
-| `job_profiles` | feeds | `job_postings` | one_to_many | optional | - |
-| `skill_profiles` | feeds | `candidates` | one_to_many | optional | - |
-| `job_requisitions` | is advertised through | `job_postings` | one_to_many | required | - |
-| `job_requisitions` | receives | `job_applications` | one_to_many | required | - |
-| `candidate_referrals` | introduces | `candidates` | one_to_many | required | - |
-| `recruitment_agencies` | sources | `candidates` | one_to_many | required | - |
-| `recruitment_events` | attracts | `candidates` | one_to_many | required | - |
-| `talent_pools` | groups | `candidates` | many_to_many | required | - |
-| `job_applications` | requires | `candidate_assessments` | one_to_many | required | - |
-| `job_offers` | is contingent on | `background_checks` | one_to_many | required | - |
-| `job_offers` | spawns | `onboarding_journeys` | one_to_one | required | - |
-| `job_offers` | triggers | `benefit_enrollments` | one_to_one | required | - |
-| `job_offers` | seeds | `compensation_statements` | one_to_one | required | - |
-| `candidates` | becomes | `employees` | one_to_one | required | - |
-| `job_offers` | spawns pre-employee record | `pre_employees` | one_to_one | required | - |
-| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | - |
+#### 5.3a Outbound from this scope's masters and contributors
+
+_Edges this scope drives: the in-scope endpoint has `role` of `master` or `contributor`._
+
+_(none: no outbound cross-scope edges from this scope's masters or contributors)_
+
+#### 5.3b Context edges on embedded shells and consumed entities
+
+_Edges the canonical owner drives, shown for context: the in-scope endpoint has `role` of `embedded_master`, `consumer`, or `derived`._
+
+| from | verb | to | cardinality | necessity | delete_mode | fk_format | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `candidates` | verified_via | `right_to_work_verifications` | one_to_many | optional | none | n/a | - |
+| `candidates` | engaged_via | `candidate_engagements` | one_to_many | optional | none | n/a | - |
+| `candidates` | attends_via | `recruiting_event_attendances` | one_to_many | required | none (required-if-present) | n/a | - |
+| `candidates` | noted_via | `recruiter_interactions` | one_to_many | optional | none | n/a | - |
+| `candidates` | consents_via | `candidate_consents` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `candidates` | member_of_via | `talent_pool_memberships` | one_to_many | required | none (required-if-present) | n/a | - |
+| `candidates` | discloses_via | `fcra_disclosures` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `job_applications` | transitions_via | `application_stage_transitions` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `job_postings` | syndicates_via | `job_posting_distributions` | one_to_many | optional | none | n/a | - |
+| `job_postings` | asks | `application_screening_questions` | one_to_many | optional | none | n/a | - |
+| `job_applications` | answers_via | `application_screening_answers` | one_to_many | optional | none | n/a | - |
+| `candidates` | self_identifies_via | `eeo_responses` | one_to_many | optional | none | n/a | - |
+| `interview_kits` | shapes | `interviews` | one_to_many | optional | none | n/a | - |
+| `interviews` | convenes | `interview_panels` | one_to_one | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `interview_panels` | produces | `interview_scorecards` | one_to_many | optional | none | n/a | - |
+| `interviewer_availability_slots` | booked_for | `interviews` | one_to_one | optional | none | n/a | - |
+| `job_offers` | evolves_through | `offer_versions` | one_to_many | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `job_offers` | gated_by | `offer_approvals` | one_to_many | optional | none | n/a | - |
+| `candidates` | submits_via | `data_subject_requests` | one_to_many | optional | none | n/a | - |
+| `candidates` | self_ids_via | `voluntary_self_identifications` | one_to_many | optional | none | n/a | - |
+| `candidates` | acknowledges_via | `fcra_summary_of_rights_acknowledgements` | one_to_many | optional | none | n/a | - |
+| `job_applications` | disposed_via | `application_dispositions` | one_to_many | optional | none | n/a | - |
+| `job_applications` | logged_via | `applicant_flow_records` | one_to_one | required | ⚠ audit: required composed child out of scope | n/a | - |
+| `candidates` | documented_via | `candidate_documents` | one_to_many | optional | none | n/a | - |
+| `candidates` | annotated_via | `candidate_notes` | one_to_many | optional | none | n/a | - |
+| `candidates` | tagged_via | `candidate_tag_assignments` | one_to_many | optional | none | n/a | - |
+| `job_profiles` | feeds | `job_postings` | one_to_many | optional | none | n/a | - |
+| `skill_profiles` | feeds | `candidates` | one_to_many | optional | none | n/a | - |
+| `job_requisitions` | is advertised through | `job_postings` | one_to_many | required | none (required-if-present) | n/a | - |
+| `job_requisitions` | receives | `job_applications` | one_to_many | required | none (required-if-present) | n/a | - |
+| `candidate_referrals` | introduces | `candidates` | one_to_many | required | none (required-if-present) | n/a | - |
+| `recruitment_agencies` | sources | `candidates` | one_to_many | required | none (required-if-present) | n/a | - |
+| `recruitment_events` | attracts | `candidates` | one_to_many | required | none (required-if-present) | n/a | - |
+| `talent_pools` | groups | `candidates` | many_to_many | required | none (required-if-present) | n/a | - |
+| `job_applications` | requires | `candidate_assessments` | one_to_many | required | none (required-if-present) | n/a | - |
+| `job_offers` | is contingent on | `background_checks` | one_to_many | required | none (required-if-present) | n/a | - |
+| `job_offers` | spawns | `onboarding_journeys` | one_to_one | required | none (required-if-present) | n/a | - |
+| `job_offers` | triggers | `benefit_enrollments` | one_to_one | required | none (required-if-present) | n/a | - |
+| `job_offers` | seeds | `compensation_statements` | one_to_one | required | none (required-if-present) | n/a | - |
+| `candidates` | becomes | `employees` | one_to_one | required | none (required-if-present) | n/a | - |
+| `job_offers` | spawns pre-employee record | `pre_employees` | one_to_one | required | none (required-if-present) | n/a | - |
+| `candidates` | becomes pre-employee | `pre_employees` | one_to_one | required | none (required-if-present) | n/a | - |
+| `employees` | applies_as | `candidates` | one_to_many | optional | none | n/a | - |
+| `candidates` | corresponds_via | `candidate_emails` | one_to_many | optional | none | n/a | - |
+| `candidates` | screened_via | `drug_health_screenings` | one_to_many | optional | none | n/a | - |
+| `candidates` | submitted_via | `agency_submissions` | one_to_many | optional | none | n/a | - |
 
 ## 6. Cross-domain context
 
 ### 6.1 Master consumers (other modules / domains that embed this scope's masters)
 
+_(none: no other module embeds this scope's masters; the canonical owners do.)_
 
 ### 6.2 Outbound handoffs (events this scope publishes)
 
-_(no outbound `handoffs` whose payload is in this scope.)_
+| source module | target domain | target module | trigger_event | transition | payload | integration | friction | description |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ATS-CANDIDATE-CRM | HCM | HCM-LIFECYCLE-WORKFLOWS | `candidate.hired` | `hired` _(lifecycle)_ | `candidates` | event_stream | high | Hired-candidate event publishes the hiring outcome to HCM, which must create the employee record. Identifier mapping (candidate_id -> employee_id) is the canonical reconciliation gap. |
+| ATS-OFFERS | HCM | HCM-LIFECYCLE-WORKFLOWS | `job_offer.accepted` | `accepted` _(state_change)_ | `job_offers` | event_stream | medium | Offer acceptance signals firm hiring intent; HCM creates pending-employee record. |
+| ATS-RECRUITMENT-PIPELINE | ATS | ATS-TALENT-POOLS | `job_application.rejected` | _(state_change)_ | `job_applications` | lifecycle_progression | low | - |
+| ATS-OFFERS | COMP-MGMT | COMP-STATEMENTS | `job_offer.signed` | `signed` _(lifecycle)_ | `job_offers` | event_stream | low | Signed offer establishes the comp baseline; COMP-MGMT incorporates into cycle history. |
+| ATS-CANDIDATE-CRM | BEN-ADMIN | BEN-ENROLLMENT | `candidate.hired` | `hired` _(lifecycle)_ | `candidates` | event_stream | low | Hired candidate triggers eligibility window in BEN-ADMIN. |
+| ATS-CANDIDATE-CRM | PA | PA-WORKFORCE-METRICS | `recruitment_source.attributed` | _(lifecycle)_ | `recruitment_sources` | batch_sync | low | Source attribution feeds people-analytics quality-of-hire and cost-per-hire models. |
+| ATS-INTERVIEWS | PA | PA-WORKFORCE-METRICS | `interview_scorecard.submitted` | _(lifecycle)_ | `interview_scorecards` | event_stream | low | - |
+| ATS-CANDIDATE-CRM | ONBOARDING | ONB-JOURNEY-MGMT | `candidate.hired` | `hired` _(lifecycle)_ | `candidates` | event_stream | medium | Hired candidate drives onboarding-plan kickoff with role/location/manager context from ATS payload. |
 
 ### 6.3 Inbound handoffs (events this scope reacts to)
 
-_(no inbound `handoffs` whose payload is in this scope.)_
+| target module | source domain | source module | trigger_event | transition | payload | integration | friction | description |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ATS-CANDIDATE-CRM | HCM | HCM-CORE-WORKER | `employee.applied_internally` | `active` → `active` _(signal)_ | `candidates` | api_call | medium | When an employee applies internally, HCM hands the worker context to the applicant tracker, which materializes an internal candidate record from the worker profile. Friction: reconciling the worker identity against the candidate identity space. |
+| ATS-RECRUITMENT-PIPELINE | ATS | ATS-TALENT-POOLS | `talent_pool.candidate_activated` | _(state_change)_ | `job_applications` | lifecycle_progression | low | - |
+| ATS-CANDIDATE-CRM | ATS | ATS-REFERRALS | `candidate_referral.submitted` | _(lifecycle)_ | `candidates` | lifecycle_progression | low | - |
+| ATS-OFFERS | ATS | ATS-BACKGROUND-CHECKS | `background_check.flagged` | _(lifecycle)_ | `job_offers` | lifecycle_progression | medium | - |
 
 ### 6.4 Master providers (modules / domains that own masters this scope embeds)
 
@@ -491,7 +213,7 @@ _(no inbound `handoffs` whose payload is in this scope.)_
 | `recruitment_sources` | embedded_master | optional | ATS-CANDIDATE-CRM (ATS) | - |
 | `users` | consumer | required | _(platform built-in)_ | - |
 
-## 7. Lifecycle states (per touched entity)
+## 7. Lifecycle states
 
 ### `candidates` (Candidate)
 
@@ -501,8 +223,8 @@ _This scope holds `candidates` as **embedded_master**; the canonical state machi
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `prospect` | ✓ | - | - | - | Person known to the recruiting org with no active application. |
 | 2 | `active` | - | - | - | - | Candidate has at least one open application or is actively engaged. |
-| 3 | `hired` | - | ✓ | ✓ | `ats-candidate-crm:hire_candidate` | Candidate accepted an offer and converted to employee. |
-| 4 | `do_not_hire` | - | ✓ | ✓ | `ats-candidate-crm:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
+| 3 | `hired` | - | ✓ | ✓ | `hiring-starter:hire_candidate` | Candidate accepted an offer and converted to employee. |
+| 4 | `do_not_hire` | - | ✓ | ✓ | `hiring-starter:flag_do_not_hire` | Candidate flagged as ineligible for future consideration; gated decision. |
 | 5 | `archived` | - | ✓ | - | - | Candidate kept in the database but not active in any pipeline. |
 
 ### `interview_scorecards` (Interview Scorecard)
@@ -512,7 +234,7 @@ _This scope holds `interview_scorecards` as **embedded_master**; the canonical s
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `draft` | ✓ | - | - | - | Interviewer is filling in ratings and notes against the rubric. |
-| 2 | `submitted` | - | ✓ | ✓ | `ats-interviews:submitted_interview_scorecard` | Scorecard submitted and locked; hire/no-hire recommendation recorded. |
+| 2 | `submitted` | - | ✓ | ✓ | `hiring-starter:submit_scorecard` | Scorecard submitted and locked; hire/no-hire recommendation recorded. |
 
 ### `interviews` (Interview)
 
@@ -537,7 +259,7 @@ _This scope holds `job_applications` as **embedded_master**; the canonical state
 | 2 | `screening` | - | - | - | - | Recruiter is reviewing resume and qualifications. |
 | 3 | `interviewing` | - | - | - | - | Candidate is progressing through interview loops. |
 | 4 | `offer_extended` | - | - | - | - | An offer has been generated and is in flight for this application. |
-| 5 | `hired` | - | ✓ | ✓ | `ats-pre-employee-record:hire_candidate` | Candidate accepted the offer and was hired; gated transition. |
+| 5 | `hired` | - | ✓ | ✓ | `hiring-starter:hire_candidate` | Candidate accepted the offer and was hired; gated transition. |
 | 6 | `rejected` | - | ✓ | - | - | Application closed without progression by recruiter or hiring manager. |
 | 7 | `withdrawn` | - | ✓ | - | - | Candidate withdrew their application. |
 
@@ -549,11 +271,11 @@ _This scope holds `job_offers` as **embedded_master**; the canonical state machi
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `draft` | ✓ | - | - | - | Recruiter is composing offer terms and compensation components. |
 | 2 | `pending_approval` | - | - | - | - | Offer routed to the designated approver for sign-off. |
-| 3 | `approved` | - | - | ✓ | `ats-offers:approve_offer` | Approver signed off; offer is ready to send. |
+| 3 | `approved` | - | - | ✓ | `hiring-starter:approve_offer` | Approver signed off; offer is ready to send. |
 | 4 | `sent` | - | - | - | - | Offer delivered to the candidate. |
 | 5 | `accepted` | - | ✓ | - | - | Candidate accepted the offer. |
 | 6 | `declined` | - | ✓ | - | - | Candidate declined the offer. |
-| 7 | `rescinded` | - | ✓ | ✓ | `ats-offers:rescind_offer` | Offer withdrawn by the employer after being sent; gated action. |
+| 7 | `rescinded` | - | ✓ | ✓ | `hiring-starter:rescind_offer` | Offer withdrawn by the employer after being sent; gated action. |
 
 ### `job_postings` (Job Posting)
 
@@ -562,7 +284,7 @@ _This scope holds `job_postings` as **embedded_master**; the canonical state mac
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `draft` | ✓ | - | - | - | Posting being composed against a requisition for a specific board or region. |
-| 2 | `published` | - | - | ✓ | `ats-recruitment-pipeline:publish_posting` | Posting is live on the target channel; gated publish step. |
+| 2 | `published` | - | - | ✓ | `hiring-starter:publish_posting` | Posting is live on the target channel; gated publish step. |
 | 3 | `paused` | - | - | - | - | Posting temporarily hidden from the channel. |
 | 4 | `expired` | - | ✓ | - | - | Posting reached its scheduled end date. |
 | 5 | `closed` | - | ✓ | - | - | Posting taken down because the requisition is filled or cancelled. |
@@ -576,7 +298,101 @@ _This scope holds `job_postings` as **embedded_master**; the canonical state mac
 | `hiring-starter:read` | baseline-read | Read access to every entity in the module | ✓ |
 | `hiring-starter:manage` | baseline-manage | Edit operational records | ✓ |
 | `hiring-starter:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
+| `hiring-starter:publish_posting` | workflow-gate (lifecycle) | Transition `job_postings` into state `published` | ✓ |
+| `hiring-starter:hire_candidate` | workflow-gate (lifecycle) | Transition `candidates` into state `hired` | ✓ |
+| `hiring-starter:flag_do_not_hire` | workflow-gate (lifecycle) | Transition `candidates` into state `do_not_hire` | ✓ |
+| `hiring-starter:submit_scorecard` | workflow-gate (lifecycle) | Transition `interview_scorecards` into state `submitted` | ✓ |
+| `hiring-starter:approve_offer` | workflow-gate (lifecycle) | Transition `job_offers` into state `approved` | ✓ |
+| `hiring-starter:rescind_offer` | workflow-gate (lifecycle) | Transition `job_offers` into state `rescinded` | ✓ |
+| `hiring-starter:view_all_candidates` | override (personal_content) | View all `candidates` rows beyond row-scope | ✓ |
+| `hiring-starter:manage_all_candidates` | override (personal_content) | Manage all `candidates` rows beyond row-scope | ✓ |
+| `hiring-starter:view_all_applications` | override (personal_content) | View all `job_applications` rows beyond row-scope | ✓ |
+| `hiring-starter:manage_all_applications` | override (personal_content) | Manage all `job_applications` rows beyond row-scope | ✓ |
+| `hiring-starter:view_all_interview_scorecards` | override (personal_content) | View all `interview_scorecards` rows beyond row-scope | ✓ |
+| `hiring-starter:manage_all_interview_scorecards` | override (personal_content) | Manage all `interview_scorecards` rows beyond row-scope | ✓ |
+| `hiring-starter:submit_interview_scorecard` | override (submit_lock) | Submit and lock a `interview_scorecards` row (post-submit edits gated) | ✓ |
+| `hiring-starter:view_all_offers` | override (personal_content) | View all `job_offers` rows beyond row-scope | ✓ |
+| `hiring-starter:manage_all_offers` | override (personal_content) | Manage all `job_offers` rows beyond row-scope | ✓ |
 
 ### 8.2 Business rules
 
-_(no flag-derived business rules.)_
+| rule_name | data_object | source flag | intent |
+| --- | --- | --- | --- |
+| `candidate_edit_scope` | `candidates` | has_personal_content | Row-scope by default; override via `hiring-starter:view_all_candidates` / `hiring-starter:manage_all_candidates` |
+| `application_edit_scope` | `job_applications` | has_personal_content | Row-scope by default; override via `hiring-starter:view_all_applications` / `hiring-starter:manage_all_applications` |
+| `interview_scorecard_edit_scope` | `interview_scorecards` | has_personal_content | Row-scope by default; override via `hiring-starter:view_all_interview_scorecards` / `hiring-starter:manage_all_interview_scorecards` |
+| `submit_restricted_to_interview_scorecard_owner` | `interview_scorecards` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hiring-starter:manage_all_interview_scorecards` |
+| `offer_edit_scope` | `job_offers` | has_personal_content | Row-scope by default; override via `hiring-starter:view_all_offers` / `hiring-starter:manage_all_offers` |
+| `approve_offer_requires_approver` | `job_offers` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hiring-starter:approve_offer` if surfaced as a lifecycle workflow gate). |
+
+## 9. Roles, RACI, and responsibilities (derived)
+
+_Baseline roles, the permission hierarchy, and RACI realization are DERIVED from this scope's entity-type write tiers + `process_raci`; none of it is stored in the catalog (the deployer provisions it from this blueprint)._
+
+### 9.1 `HIRING-STARTER`
+
+**Baseline roles:**
+
+| role | baseline grant |
+| --- | --- |
+| `hiring-starter_viewer` | `hiring-starter:read` |
+| `hiring-starter_manager` | `hiring-starter:manage` |
+
+**Permission hierarchy:**
+
+| permission | includes |
+| --- | --- |
+| `hiring-starter:admin` | `hiring-starter:manage` |
+| `hiring-starter:manage` | `hiring-starter:read` |
+| `hiring-starter:admin` | `hiring-starter:publish_posting` |
+| `hiring-starter:admin` | `hiring-starter:hire_candidate` |
+| `hiring-starter:admin` | `hiring-starter:flag_do_not_hire` |
+| `hiring-starter:admin` | `hiring-starter:submit_scorecard` |
+| `hiring-starter:admin` | `hiring-starter:approve_offer` |
+| `hiring-starter:admin` | `hiring-starter:rescind_offer` |
+| `hiring-starter:admin` | `hiring-starter:view_all_candidates` |
+| `hiring-starter:admin` | `hiring-starter:manage_all_candidates` |
+| `hiring-starter:admin` | `hiring-starter:view_all_applications` |
+| `hiring-starter:admin` | `hiring-starter:manage_all_applications` |
+| `hiring-starter:admin` | `hiring-starter:view_all_interview_scorecards` |
+| `hiring-starter:admin` | `hiring-starter:manage_all_interview_scorecards` |
+| `hiring-starter:admin` | `hiring-starter:submit_interview_scorecard` |
+| `hiring-starter:admin` | `hiring-starter:view_all_offers` |
+| `hiring-starter:admin` | `hiring-starter:manage_all_offers` |
+
+**Processes wired:**
+
+| process_key | process_name | PCF code | PCF ID | level | description |
+| --- | --- | --- | --- | --- | --- |
+| `recruit_source_candidates` | Recruit/Source candidates | 7.2.2 | 10440 | 3 | Recruiting new candidates for deployment across various functional areas inside the organization. Select methods for sourcing new employees. Manage relationships with third-party agencies. Stage recruitment fairs and drives. Manage employee referral programs. |
+| `hire_candidate` | Hire candidate | 7.2.4.3 | 10465 | 4 | Wrapping up the process for hiring candidates. Agree to all hiring terms and conditions. Have the candidate accept and sign the job offer. |
+| `interview_candidates` | Interview candidates | 7.2.3.2 | 10457 | 4 | Assessing the candidates by their performance in the interviews. Conduct HR interview, technical interview, hiring manager interview, etc. Understand the mindset of the candidate, and comprehend his/her personal and professional lives. |
+| `draw_up_make_offer` | Draw up and make offer | 7.2.4.1 | 10463 | 4 | Compiling job-related information for the selected candidates in order to make up a job. Include information about the job description, reporting relationship, salary, bonus potential, benefits, and vacation allotment. |
+
+**RACI realization:**
+
+| actor | kind | raci | process_key | realization |
+| --- | --- | --- | --- | --- |
+| `RECRUITING-SOURCER` | persona | responsible | `recruit_source_candidates` | grant gates [hiring-starter:publish_posting] + the gated entities' write tier |
+| `RECRUITING-RECRUITER` | persona | responsible | `recruit_source_candidates` | grant gates [hiring-starter:publish_posting] + the gated entities' write tier |
+| `RECRUITING-MANAGER` | persona | accountable | `recruit_source_candidates` | approval gate |
+| `HIRING-MANAGER` | persona | informed | `recruit_source_candidates` | notification side effect (trigger_event / webhook_receiver) |
+| `RECRUITING-RECRUITER` | persona | responsible | `hire_candidate` | grant gates [hiring-starter:hire_candidate, hiring-starter:hire_candidate] + the gated entities' write tier |
+| `HIRING-MANAGER` | persona | accountable | `hire_candidate` | approval gate |
+| `LEGAL-COMPLIANCE-SPECIALIST` | persona | informed | `hire_candidate` | notification side effect (trigger_event / webhook_receiver) |
+| `HIRING-MANAGER` | persona | responsible | `interview_candidates` | grant gates [hiring-starter:submit_scorecard] + the gated entities' write tier |
+| `RECRUITING-MANAGER` | persona | accountable | `interview_candidates` | approval gate |
+| `RECRUITING-RECRUITER` | persona | consulted | `interview_candidates` | advisory read grant |
+| `RECRUITING-COORDINATOR` | persona | informed | `interview_candidates` | notification side effect (trigger_event / webhook_receiver) |
+| `RECRUITING-RECRUITER` | persona | responsible | `draw_up_make_offer` | grant gates [hiring-starter:approve_offer] + the gated entities' write tier |
+| `HIRING-MANAGER` | persona | accountable | `draw_up_make_offer` | approval gate |
+| `RECRUITING-MANAGER` | persona | consulted | `draw_up_make_offer` | advisory read grant |
+
+### 9.2 Functional ownership and default grants
+
+| responsibility | business function | default role | default tier |
+| --- | --- | --- | --- |
+| owner | Recruiting | `admin` | `:admin` |
+| contributor | Human Resources | `manage` | `:manage` |
+| contributor | Legal | `manage` | `:manage` |
+| consumer | Finance | `read` | `:read` |

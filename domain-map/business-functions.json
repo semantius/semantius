@@ -1,0 +1,2155 @@
+{
+  "business_functions": [
+    {
+      "name": "Accounting",
+      "description": "General ledger, period close, consolidation, statutory reporting, financial controls.",
+      "parent": "Finance",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "RE-BROKERAGE",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Business Operations",
+      "description": "Cross-functional operations: revenue operations, business operations, process improvement, and shared services not specific to any single function.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 2,
+      "domains": [
+        {
+          "code": "WORK-MGMT",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["OPERATIONS-WORK-CONTRIBUTOR", "OPERATIONS-WORK-PROGRAM-LEAD"],
+      "actor_personas": ["OKR-OWNER", "OPERATIONS-WORK-CONTRIBUTOR", "OPERATIONS-WORK-PROGRAM-LEAD"],
+      "raci": [
+        {
+          "domain": "WORK-MGMT",
+          "responsibility": "owner",
+          "persona": "OKR-OWNER",
+          "persona_via": "seam",
+          "process_code": "1.2.6",
+          "process_key": "develop_set_organizational",
+          "process_name": "Develop and set organizational objectives",
+          "raci": "accountable"
+        },
+        {
+          "domain": "WORK-MGMT",
+          "responsibility": "owner",
+          "persona": "OKR-OWNER",
+          "persona_via": "seam",
+          "process_code": "1.2.6",
+          "process_key": "develop_set_organizational",
+          "process_name": "Develop and set organizational objectives",
+          "raci": "responsible"
+        },
+        {
+          "domain": "WORK-MGMT",
+          "responsibility": "owner",
+          "persona": "OPERATIONS-WORK-PROGRAM-LEAD",
+          "persona_via": "own",
+          "process_code": "13.2.3",
+          "process_key": "manage_projects",
+          "process_name": "Manage projects",
+          "raci": "accountable"
+        },
+        {
+          "domain": "WORK-MGMT",
+          "responsibility": "owner",
+          "persona": "OPERATIONS-WORK-CONTRIBUTOR",
+          "persona_via": "own",
+          "process_code": "13.2.3",
+          "process_key": "manage_projects",
+          "process_name": "Manage projects",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "name": "Contract Operations",
+      "description": "Contract authoring, redlining, approval routing, signature, repository, obligation tracking. The operational side of legal contract management.",
+      "parent": "Legal",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 2,
+      "domains": [
+        {
+          "code": "CLM",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["CONTRACT-OPS-MANAGER", "CONTRACT-OPS-SPECIALIST"],
+      "actor_personas": ["CONTRACT-OPS-MANAGER", "CONTRACT-OPS-SPECIALIST"],
+      "raci": [
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "own",
+          "process_code": "8.3.3.1",
+          "process_key": "evaluate_enterprise_regulatory",
+          "process_name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "8.3.3.1",
+          "process_key": "evaluate_enterprise_regulatory",
+          "process_name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "own",
+          "process_code": "4.2.3.4",
+          "process_key": "manage_contracts",
+          "process_name": "Manage contracts",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "4.2.3.4",
+          "process_key": "manage_contracts",
+          "process_name": "Manage contracts",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "own",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "informed"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "own",
+          "process_code": "12.4.8",
+          "process_key": "provide_legal_advice_counseling",
+          "process_name": "Provide legal advice/counseling",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "12.4.8",
+          "process_key": "provide_legal_advice_counseling",
+          "process_name": "Provide legal advice/counseling",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "name": "Customer Success",
+      "description": "Post-sale account health, expansion, retention, customer education, and onboarding for accounts after the initial sale.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "WORK-MGMT",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Executive",
+      "description": "CEO office, corporate strategy, business development, mergers and acquisitions, and corporate communications.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 2,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "HCM",
+          "responsibility": "consumer"
+        },
+        {
+          "code": "INTRANET-GOV",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Finance",
+      "description": "Function responsible for the books, treasury, planning, and procurement of the business.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 4,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "HCM",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "SMP",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "ATS",
+          "responsibility": "consumer"
+        },
+        {
+          "code": "ITSM",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Governance, Risk and Compliance",
+      "description": "Enterprise risk, internal audit, compliance operations, privacy office, and policy management.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 2,
+      "persona_count": 1,
+      "domains": [
+        {
+          "code": "LMS",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "HCM",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": ["GRC-COMPLIANCE-TRAINING-MANAGER"],
+      "actor_personas": ["GRC-COMPLIANCE-TRAINING-MANAGER"],
+      "raci": [
+        {
+          "domain": "LMS",
+          "responsibility": "contributor",
+          "persona": "GRC-COMPLIANCE-TRAINING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.3.4.6",
+          "process_key": "manage_examinations",
+          "process_name": "Manage examinations and certifications",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "contributor",
+          "persona": "GRC-COMPLIANCE-TRAINING-MANAGER",
+          "persona_via": "own",
+          "process_code": "2.1.3.5.1",
+          "process_key": "train_employees_appropriate",
+          "process_name": "Train employees on appropriate regulatory requirements",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "contributor",
+          "persona": "GRC-COMPLIANCE-TRAINING-MANAGER",
+          "persona_via": "own",
+          "process_code": "2.1.3.5.1",
+          "process_key": "train_employees_appropriate",
+          "process_name": "Train employees on appropriate regulatory requirements",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "name": "HR Service Delivery",
+      "description": "HR shared-services delivery: case management, employee self-service, knowledge, tier-1/tier-2 case escalation. The service-desk pattern applied to HR.",
+      "parent": "Human Resources",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 3,
+      "domains": [
+        {
+          "code": "HRSD",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["HRSD-CASE-AGENT", "HRSD-KNOWLEDGE-MANAGER", "HRSD-SERVICE-MANAGER"],
+      "actor_personas": ["HRSD-CASE-AGENT", "HRSD-KNOWLEDGE-MANAGER", "HRSD-SERVICE-MANAGER"],
+      "raci": [
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-SERVICE-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-CASE-AGENT",
+          "persona_via": "own",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-KNOWLEDGE-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "name": "Human Resources",
+      "description": "Function responsible for the full worker lifecycle: hiring, paying, developing, supporting, and offboarding the workforce. Owns HRIS-equivalent domains and partners with Finance on workforce cost.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 4,
+      "persona_count": 4,
+      "domains": [
+        {
+          "code": "HCM",
+          "responsibility": "owner"
+        },
+        {
+          "code": "INTRANET-GOV",
+          "responsibility": "owner"
+        },
+        {
+          "code": "ATS",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "ITSM",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": ["HR-BUSINESS-PARTNER", "HR-HRIS-ADMIN", "HR-ORG-DESIGN-ANALYST", "HR-PEOPLE-OPS-SPECIALIST"],
+      "actor_personas": ["CONTENT-OWNER", "DIGITAL-WORKPLACE-GOV-LEAD", "HIRING-MANAGER", "HR-BUSINESS-PARTNER", "HR-HRIS-ADMIN", "HR-ORG-DESIGN-ANALYST", "HR-PEOPLE-OPS-SPECIALIST", "HRSD-CASE-AGENT", "HRSD-KNOWLEDGE-MANAGER", "HRSD-SERVICE-MANAGER", "LD-INSTRUCTIONAL-DESIGNER", "LD-INSTRUCTOR", "LD-LEARNING-ADMIN", "PEOPLE-MANAGER", "RECRUITING-COORDINATOR", "RECRUITING-MANAGER", "RECRUITING-RECRUITER", "RECRUITING-SOURCER"],
+      "raci": [
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.4.3",
+          "process_key": "hire_candidate",
+          "process_name": "Hire candidate",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.4.3",
+          "process_key": "hire_candidate",
+          "process_name": "Hire candidate",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-COORDINATOR",
+          "persona_via": "descendant",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "informed"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.2.5",
+          "process_key": "manage_employee_referral",
+          "process_name": "Manage employee referral programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.2.5",
+          "process_key": "manage_employee_referral",
+          "process_name": "Manage employee referral programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.1",
+          "process_key": "manage_employee_requisitions",
+          "process_name": "Manage employee requisitions",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.1",
+          "process_key": "manage_employee_requisitions",
+          "process_name": "Manage employee requisitions",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.4",
+          "process_key": "manage_new_hire_re_hire",
+          "process_name": "Manage new hire/re-hire",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-COORDINATOR",
+          "persona_via": "descendant",
+          "process_code": "7.2.4",
+          "process_key": "manage_new_hire_re_hire",
+          "process_name": "Manage new hire/re-hire",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.5.1",
+          "process_key": "obtain_candidate_background",
+          "process_name": "Obtain candidate background information",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.5.1",
+          "process_key": "obtain_candidate_background",
+          "process_name": "Obtain candidate background information",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "descendant",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-SOURCER",
+          "persona_via": "descendant",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "informed"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "1.1.5",
+          "process_key": "conduct_organization",
+          "process_name": "Conduct organization restructuring opportunities",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-ORG-DESIGN-ANALYST",
+          "persona_via": "own",
+          "process_code": "1.1.5",
+          "process_key": "conduct_organization",
+          "process_name": "Conduct organization restructuring opportunities",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "1.1.5",
+          "process_key": "conduct_organization",
+          "process_name": "Conduct organization restructuring opportunities",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "1.2.5",
+          "process_key": "create_organizational_design",
+          "process_name": "Create organizational design",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-ORG-DESIGN-ANALYST",
+          "persona_via": "own",
+          "process_code": "1.2.5",
+          "process_key": "create_organizational_design",
+          "process_name": "Create organizational design",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "1.2.5",
+          "process_key": "create_organizational_design",
+          "process_name": "Create organizational design",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "1.2.5",
+          "process_key": "create_organizational_design",
+          "process_name": "Create organizational design",
+          "raci": "informed"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.1.2.16",
+          "process_key": "develop_maintain_job",
+          "process_name": "Develop and maintain job descriptions",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-ORG-DESIGN-ANALYST",
+          "persona_via": "own",
+          "process_code": "7.1.2.16",
+          "process_key": "develop_maintain_job",
+          "process_name": "Develop and maintain job descriptions",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "7.1.2.16",
+          "process_key": "develop_maintain_job",
+          "process_name": "Develop and maintain job descriptions",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.6.2.2",
+          "process_key": "manage_leave_absence",
+          "process_name": "Manage leave of absence",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-PEOPLE-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.6.2.2",
+          "process_key": "manage_leave_absence",
+          "process_name": "Manage leave of absence",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "7.6.2.2",
+          "process_key": "manage_leave_absence",
+          "process_name": "Manage leave of absence",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.6.2.2",
+          "process_key": "manage_leave_absence",
+          "process_name": "Manage leave of absence",
+          "raci": "informed"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "7.7.3",
+          "process_key": "manage_maintain_employee_data",
+          "process_name": "Manage and maintain employee data",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-PEOPLE-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.7.3",
+          "process_key": "manage_maintain_employee_data",
+          "process_name": "Manage and maintain employee data",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.7.3",
+          "process_key": "manage_maintain_employee_data",
+          "process_name": "Manage and maintain employee data",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.7.3",
+          "process_key": "manage_maintain_employee_data",
+          "process_name": "Manage and maintain employee data",
+          "raci": "informed"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "7.6.2",
+          "process_key": "manage_separation",
+          "process_name": "Manage separation",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-PEOPLE-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.6.2",
+          "process_key": "manage_separation",
+          "process_name": "Manage separation",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.6.2",
+          "process_key": "manage_separation",
+          "process_name": "Manage separation",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.6.2",
+          "process_key": "manage_separation",
+          "process_name": "Manage separation",
+          "raci": "informed"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.6.3",
+          "process_key": "relocate_employees_manage",
+          "process_name": "Relocate employees and manage assignments",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-PEOPLE-OPS-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.6.3",
+          "process_key": "relocate_employees_manage",
+          "process_name": "Relocate employees and manage assignments",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-BUSINESS-PARTNER",
+          "persona_via": "own",
+          "process_code": "7.6.3",
+          "process_key": "relocate_employees_manage",
+          "process_name": "Relocate employees and manage assignments",
+          "raci": "consulted"
+        },
+        {
+          "domain": "HCM",
+          "responsibility": "owner",
+          "persona": "HR-HRIS-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.6.3",
+          "process_key": "relocate_employees_manage",
+          "process_name": "Relocate employees and manage assignments",
+          "raci": "informed"
+        },
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-SERVICE-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "accountable"
+        },
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-CASE-AGENT",
+          "persona_via": "descendant",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "responsible"
+        },
+        {
+          "domain": "HRSD",
+          "responsibility": "owner",
+          "persona": "HRSD-KNOWLEDGE-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "7.7.2",
+          "process_key": "manage_employee_inquiry_process",
+          "process_name": "Manage employee inquiry process",
+          "raci": "informed"
+        },
+        {
+          "domain": "INTRANET-GOV",
+          "responsibility": "owner",
+          "persona": "DIGITAL-WORKPLACE-GOV-LEAD",
+          "persona_via": "seam",
+          "process_code": "CUSTOM-INTRANET-GOV-RECERT",
+          "process_key": "",
+          "process_name": "Recertify Intranet Content",
+          "raci": "accountable"
+        },
+        {
+          "domain": "INTRANET-GOV",
+          "responsibility": "owner",
+          "persona": "CONTENT-OWNER",
+          "persona_via": "seam",
+          "process_code": "CUSTOM-INTRANET-GOV-RECERT",
+          "process_key": "",
+          "process_name": "Recertify Intranet Content",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "informed"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.3.2",
+          "process_key": "develop_employee_career_plans",
+          "process_name": "Develop employee career plans and career paths",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.3.2",
+          "process_key": "develop_employee_career_plans",
+          "process_name": "Develop employee career plans and career paths",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "descendant",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "descendant",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.6",
+          "process_key": "manage_examinations",
+          "process_name": "Manage examinations and certifications",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.6",
+          "process_key": "manage_examinations",
+          "process_name": "Manage examinations and certifications",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "5.2.3.3",
+          "process_key": "manage_training_schedule",
+          "process_name": "Manage training schedule",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "descendant",
+          "process_code": "5.2.3.3",
+          "process_key": "manage_training_schedule",
+          "process_name": "Manage training schedule",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "descendant",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "2.1.3.5.1",
+          "process_key": "train_employees_appropriate",
+          "process_name": "Train employees on appropriate regulatory requirements",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "name": "IT Asset Management",
+      "description": "Hardware, software, SaaS asset lifecycle, license compliance, asset financial management. Distinct from CMDB (configuration) and from procurement (sourcing).",
+      "parent": "IT Operations",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 1,
+      "domains": [
+        {
+          "code": "SMP",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["ITAM-SAAS-PORTFOLIO-MANAGER"],
+      "actor_personas": ["ITAM-SAAS-PORTFOLIO-MANAGER"],
+      "raci": [
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "own",
+          "process_code": "8.2.2",
+          "process_key": "manage_it_portfolio_strategy",
+          "process_name": "Manage IT portfolio strategy",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "own",
+          "process_code": "8.2.2",
+          "process_key": "manage_it_portfolio_strategy",
+          "process_name": "Manage IT portfolio strategy",
+          "raci": "responsible"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "own",
+          "process_code": "8.2.5.6",
+          "process_key": "optimize_it_resource_allocation",
+          "process_name": "Optimize IT resource allocation",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "own",
+          "process_code": "8.2.5.6",
+          "process_key": "optimize_it_resource_allocation",
+          "process_name": "Optimize IT resource allocation",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "name": "IT Operations",
+      "description": "Infrastructure, end-user computing, service desk, and corporate IT delivery for employee-facing technology.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 4,
+      "persona_count": 2,
+      "domains": [
+        {
+          "code": "INTRANET-GOV",
+          "responsibility": "owner"
+        },
+        {
+          "code": "HCM",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "HRSD",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "ITSM",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": ["IT-SAAS-ADMIN", "ITOPS-INTRANET-ADMIN"],
+      "actor_personas": ["CONTENT-OWNER", "DIGITAL-WORKPLACE-GOV-LEAD", "IT-SAAS-ADMIN", "ITAM-SAAS-PORTFOLIO-MANAGER", "ITOPS-INTRANET-ADMIN"],
+      "raci": [
+        {
+          "domain": "INTRANET-GOV",
+          "responsibility": "owner",
+          "persona": "DIGITAL-WORKPLACE-GOV-LEAD",
+          "persona_via": "seam",
+          "process_code": "CUSTOM-INTRANET-GOV-RECERT",
+          "process_key": "",
+          "process_name": "Recertify Intranet Content",
+          "raci": "accountable"
+        },
+        {
+          "domain": "INTRANET-GOV",
+          "responsibility": "owner",
+          "persona": "CONTENT-OWNER",
+          "persona_via": "seam",
+          "process_code": "CUSTOM-INTRANET-GOV-RECERT",
+          "process_key": "",
+          "process_name": "Recertify Intranet Content",
+          "raci": "responsible"
+        },
+        {
+          "domain": "INTRANET-GOV",
+          "responsibility": "owner",
+          "persona": "ITOPS-INTRANET-ADMIN",
+          "persona_via": "own",
+          "process_code": "CUSTOM-INTRANET-GOV-RECERT",
+          "process_key": "",
+          "process_name": "Recertify Intranet Content",
+          "raci": "consulted"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "9.6.3",
+          "process_key": "manage_corporate_credit_cards",
+          "process_name": "Manage corporate credit cards",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "9.6.3",
+          "process_key": "manage_corporate_credit_cards",
+          "process_name": "Manage corporate credit cards",
+          "raci": "responsible"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "8.7.7",
+          "process_key": "manage_infrastructure_resource",
+          "process_name": "Manage infrastructure resource administration",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "8.7.7",
+          "process_key": "manage_infrastructure_resource",
+          "process_name": "Manage infrastructure resource administration",
+          "raci": "responsible"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "8.2.2",
+          "process_key": "manage_it_portfolio_strategy",
+          "process_name": "Manage IT portfolio strategy",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "8.2.2",
+          "process_key": "manage_it_portfolio_strategy",
+          "process_name": "Manage IT portfolio strategy",
+          "raci": "responsible"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "8.3.8",
+          "process_key": "manage_it_user_identity",
+          "process_name": "Manage IT user identity and authorization",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "IT-SAAS-ADMIN",
+          "persona_via": "own",
+          "process_code": "8.3.8",
+          "process_key": "manage_it_user_identity",
+          "process_name": "Manage IT user identity and authorization",
+          "raci": "responsible"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "8.2.5.6",
+          "process_key": "optimize_it_resource_allocation",
+          "process_name": "Optimize IT resource allocation",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "owner",
+          "persona": "ITAM-SAAS-PORTFOLIO-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "8.2.5.6",
+          "process_key": "optimize_it_resource_allocation",
+          "process_name": "Optimize IT resource allocation",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "name": "IT Service Desk",
+      "description": "Employee-facing IT support: incident, request, knowledge management, walk-up and virtual agent service.",
+      "parent": "IT Operations",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "ITSM",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Learning and Development",
+      "description": "Sub-function inside Human Resources that runs corporate learning, compliance training, and skills development.",
+      "parent": "Human Resources",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 3,
+      "domains": [
+        {
+          "code": "LMS",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["LD-INSTRUCTIONAL-DESIGNER", "LD-INSTRUCTOR", "LD-LEARNING-ADMIN"],
+      "actor_personas": ["LD-INSTRUCTIONAL-DESIGNER", "LD-INSTRUCTOR", "LD-LEARNING-ADMIN", "PEOPLE-MANAGER"],
+      "raci": [
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "own",
+          "process_code": "7.3.4.3",
+          "process_key": "align_learning_programs",
+          "process_name": "Align learning programs with competencies and skills",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "own",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "own",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.4.5",
+          "process_key": "develop_conduct_manage_employee",
+          "process_name": "Develop, conduct, and manage employee training programs",
+          "raci": "informed"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.3.3.2",
+          "process_key": "develop_employee_career_plans",
+          "process_name": "Develop employee career plans and career paths",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.3.3.2",
+          "process_key": "develop_employee_career_plans",
+          "process_name": "Develop employee career plans and career paths",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "own",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "own",
+          "process_code": "5.2.3.7",
+          "process_key": "evaluate_training_effectiveness",
+          "process_name": "Evaluate training effectiveness",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.3.4.6",
+          "process_key": "manage_examinations",
+          "process_name": "Manage examinations and certifications",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "own",
+          "process_code": "7.3.4.6",
+          "process_key": "manage_examinations",
+          "process_name": "Manage examinations and certifications",
+          "raci": "consulted"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "5.2.3.3",
+          "process_key": "manage_training_schedule",
+          "process_name": "Manage training schedule",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTOR",
+          "persona_via": "own",
+          "process_code": "5.2.3.3",
+          "process_key": "manage_training_schedule",
+          "process_name": "Manage training schedule",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-LEARNING-ADMIN",
+          "persona_via": "own",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "LD-INSTRUCTIONAL-DESIGNER",
+          "persona_via": "own",
+          "process_code": "7.3.4.7",
+          "process_key": "monitor_evaluate_learning",
+          "process_name": "Monitor and evaluate learning programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "owner",
+          "persona": "PEOPLE-MANAGER",
+          "persona_via": "seam",
+          "process_code": "2.1.3.5.1",
+          "process_key": "train_employees_appropriate",
+          "process_name": "Train employees on appropriate regulatory requirements",
+          "raci": "consulted"
+        }
+      ]
+    },
+    {
+      "name": "Legal",
+      "description": "Function responsible for contracts, regulatory compliance, intellectual property, and dispute management.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 3,
+      "persona_count": 2,
+      "domains": [
+        {
+          "code": "ATS",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "HCM",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "LMS",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": ["LEGAL-COMPLIANCE-SPECIALIST", "LEGAL-COUNSEL"],
+      "actor_personas": ["CONTRACT-OPS-MANAGER", "CONTRACT-OPS-SPECIALIST", "LEGAL-COMPLIANCE-SPECIALIST", "LEGAL-COUNSEL"],
+      "raci": [
+        {
+          "domain": "ATS",
+          "responsibility": "contributor",
+          "persona": "LEGAL-COMPLIANCE-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.2.4.3",
+          "process_key": "hire_candidate",
+          "process_name": "Hire candidate",
+          "raci": "informed"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "contributor",
+          "persona": "LEGAL-COMPLIANCE-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "7.2.4",
+          "process_key": "manage_new_hire_re_hire",
+          "process_name": "Manage new hire/re-hire",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "8.3.3.1",
+          "process_key": "evaluate_enterprise_regulatory",
+          "process_name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "descendant",
+          "process_code": "8.3.3.1",
+          "process_key": "evaluate_enterprise_regulatory",
+          "process_name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "LEGAL-COUNSEL",
+          "persona_via": "own",
+          "process_code": "8.3.3.1",
+          "process_key": "evaluate_enterprise_regulatory",
+          "process_name": "Evaluate enterprise regulatory and compliance obligations",
+          "raci": "informed"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "4.2.3.4",
+          "process_key": "manage_contracts",
+          "process_name": "Manage contracts",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "descendant",
+          "process_code": "4.2.3.4",
+          "process_key": "manage_contracts",
+          "process_name": "Manage contracts",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "LEGAL-COUNSEL",
+          "persona_via": "own",
+          "process_code": "4.2.3.4",
+          "process_key": "manage_contracts",
+          "process_name": "Manage contracts",
+          "raci": "consulted"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "LEGAL-COUNSEL",
+          "persona_via": "own",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "descendant",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "informed"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-MANAGER",
+          "persona_via": "descendant",
+          "process_code": "12.4.8",
+          "process_key": "provide_legal_advice_counseling",
+          "process_name": "Provide legal advice/counseling",
+          "raci": "accountable"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "LEGAL-COUNSEL",
+          "persona_via": "own",
+          "process_code": "12.4.8",
+          "process_key": "provide_legal_advice_counseling",
+          "process_name": "Provide legal advice/counseling",
+          "raci": "responsible"
+        },
+        {
+          "domain": "CLM",
+          "responsibility": "owner",
+          "persona": "CONTRACT-OPS-SPECIALIST",
+          "persona_via": "descendant",
+          "process_code": "12.4.8",
+          "process_key": "provide_legal_advice_counseling",
+          "process_name": "Provide legal advice/counseling",
+          "raci": "informed"
+        },
+        {
+          "domain": "LMS",
+          "responsibility": "contributor",
+          "persona": "LEGAL-COMPLIANCE-SPECIALIST",
+          "persona_via": "own",
+          "process_code": "2.1.3.5.1",
+          "process_key": "train_employees_appropriate",
+          "process_name": "Train employees on appropriate regulatory requirements",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "name": "Manufacturing Operations",
+      "description": "Production scheduling, shop-floor execution, quality, MES integration, OEE management.",
+      "parent": "Supply Chain",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "LMS",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Marketing",
+      "description": "Brand, demand generation, content production, internal and external communications, customer marketing, and martech operations.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 2,
+      "persona_count": 1,
+      "domains": [
+        {
+          "code": "RE-BROKERAGE",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "WORK-MGMT",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": ["MARKETING-CAMPAIGN-MANAGER"],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Marketing Communications",
+      "description": "PR, analyst relations, customer marketing communications, and internal-facing corporate communications when housed under Marketing.",
+      "parent": "Marketing",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "INTRANET-GOV",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Payroll",
+      "description": "Payroll calculation, gross-to-net, statutory filing, garnishments, pay distribution, payroll compliance.",
+      "parent": "Human Resources",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "HCM",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Procurement",
+      "description": "Sub-function inside Finance (or independent in some orgs) that runs sourcing, supplier management, and purchase orders.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 2,
+      "persona_count": 2,
+      "domains": [
+        {
+          "code": "CLM",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "SMP",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": ["PROCUREMENT-CONTRACT-LIAISON", "PROCUREMENT-SAAS-RENEWAL-OWNER"],
+      "actor_personas": ["PROCUREMENT-CONTRACT-LIAISON", "PROCUREMENT-SAAS-RENEWAL-OWNER"],
+      "raci": [
+        {
+          "domain": "CLM",
+          "responsibility": "contributor",
+          "persona": "PROCUREMENT-CONTRACT-LIAISON",
+          "persona_via": "own",
+          "process_code": "12.4.9",
+          "process_key": "negotiate_document_agreements",
+          "process_name": "Negotiate and document agreements/contracts",
+          "raci": "consulted"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "contributor",
+          "persona": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+          "persona_via": "own",
+          "process_code": "4.1.2",
+          "process_key": "manage_demand_products",
+          "process_name": "Manage demand for products",
+          "raci": "accountable"
+        },
+        {
+          "domain": "SMP",
+          "responsibility": "contributor",
+          "persona": "PROCUREMENT-SAAS-RENEWAL-OWNER",
+          "persona_via": "own",
+          "process_code": "4.1.2",
+          "process_key": "manage_demand_products",
+          "process_name": "Manage demand for products",
+          "raci": "responsible"
+        }
+      ]
+    },
+    {
+      "name": "Product Management",
+      "description": "Product strategy, discovery, prioritization, roadmap ownership, and release coordination for software and physical products.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "WORK-MGMT",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Recruiting",
+      "description": "Talent acquisition, sourcing, candidate screening, interview coordination, offer management.",
+      "parent": "Human Resources",
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 4,
+      "domains": [
+        {
+          "code": "ATS",
+          "responsibility": "owner"
+        }
+      ],
+      "personas": ["RECRUITING-COORDINATOR", "RECRUITING-MANAGER", "RECRUITING-RECRUITER", "RECRUITING-SOURCER"],
+      "actor_personas": ["HIRING-MANAGER", "RECRUITING-COORDINATOR", "RECRUITING-MANAGER", "RECRUITING-RECRUITER", "RECRUITING-SOURCER"],
+      "raci": [
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.4.1",
+          "process_key": "draw_up_make_offer",
+          "process_name": "Draw up and make offer",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.4.3",
+          "process_key": "hire_candidate",
+          "process_name": "Hire candidate",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.4.3",
+          "process_key": "hire_candidate",
+          "process_name": "Hire candidate",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-COORDINATOR",
+          "persona_via": "own",
+          "process_code": "7.2.3.2",
+          "process_key": "interview_candidates",
+          "process_name": "Interview candidates",
+          "raci": "informed"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.2.5",
+          "process_key": "manage_employee_referral",
+          "process_name": "Manage employee referral programs",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.2.5",
+          "process_key": "manage_employee_referral",
+          "process_name": "Manage employee referral programs",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.1",
+          "process_key": "manage_employee_requisitions",
+          "process_name": "Manage employee requisitions",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.1",
+          "process_key": "manage_employee_requisitions",
+          "process_name": "Manage employee requisitions",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.4",
+          "process_key": "manage_new_hire_re_hire",
+          "process_name": "Manage new hire/re-hire",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-COORDINATOR",
+          "persona_via": "own",
+          "process_code": "7.2.4",
+          "process_key": "manage_new_hire_re_hire",
+          "process_name": "Manage new hire/re-hire",
+          "raci": "consulted"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.5.1",
+          "process_key": "obtain_candidate_background",
+          "process_name": "Obtain candidate background information",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.5.1",
+          "process_key": "obtain_candidate_background",
+          "process_name": "Obtain candidate background information",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-MANAGER",
+          "persona_via": "own",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "accountable"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-RECRUITER",
+          "persona_via": "own",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "RECRUITING-SOURCER",
+          "persona_via": "own",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "responsible"
+        },
+        {
+          "domain": "ATS",
+          "responsibility": "owner",
+          "persona": "HIRING-MANAGER",
+          "persona_via": "seam",
+          "process_code": "7.2.2",
+          "process_key": "recruit_source_candidates",
+          "process_name": "Recruit/Source candidates",
+          "raci": "informed"
+        }
+      ]
+    },
+    {
+      "name": "Sales",
+      "description": "Pipeline ownership, account management, quota-carrying revenue generation, and sales operations support across direct and channel motions.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 4,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "RE-BROKERAGE",
+          "responsibility": "owner"
+        },
+        {
+          "code": "CLM",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "LMS",
+          "responsibility": "consumer"
+        },
+        {
+          "code": "WORK-MGMT",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Security",
+      "description": "InfoSec policy, security operations, identity and access management, vulnerability management, and incident response.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "ITSM",
+          "responsibility": "contributor"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    },
+    {
+      "name": "Software Engineering",
+      "description": "Application development, platform engineering, site reliability, and quality engineering for the products and internal systems the company builds.",
+      "parent": null,
+      "record_status": "new",
+      "domain_count": 1,
+      "persona_count": 0,
+      "domains": [
+        {
+          "code": "LMS",
+          "responsibility": "consumer"
+        }
+      ],
+      "personas": [],
+      "actor_personas": [],
+      "raci": []
+    }
+  ]
+}
