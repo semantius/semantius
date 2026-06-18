@@ -13,18 +13,13 @@ const domains = (await getCollection('domains')).sort(
 const catalogs = await getCollection('catalogs');
 const catalogByCode = new Map(catalogs.map((c) => [c.data.domain_code, c.data]));
 
-// Only render domains that have a catalog. Split the description block scalar
-// into paragraphs on blank lines.
+// Only render domains that have a catalog.
 const entries = domains
 	.map((domain) => catalogByCode.get(domain.data.code))
 	.filter((catalog): catalog is NonNullable<typeof catalog> => Boolean(catalog))
 	.map((catalog) => ({
 		...catalog,
 		slug: (catalog.domain_code_lower ?? catalog.domain_code).toLowerCase(),
-		paragraphs: (catalog.catalog_description ?? '')
-			.split(/\n\s*\n/)
-			.map((p) => p.trim())
-			.filter(Boolean),
 	}));
 ---
 
@@ -36,37 +31,29 @@ const entries = domains
 				One installable skill per domain. Install it alongside your semantic model and put your agent to work.
 			</p>
 
-			<div class="mt-16 space-y-16">
+			<div class="mt-16 space-y-8">
 				{entries.map((catalog) => (
-					<section aria-labelledby={`skill-${catalog.domain_code}`} class="border-b border-border pb-12 last:border-b-0">
-						<span class="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
-							{catalog.domain_code}
-						</span>
-						<h2 id={`skill-${catalog.domain_code}`} class="mt-3 text-2xl font-display font-semibold lg:text-3xl">
-							<a href={`/skills/${catalog.slug}`} class="hover:text-primary transition-colors">
+					<section aria-labelledby={`skill-${catalog.domain_code}`}>
+						<h2 id={`skill-${catalog.domain_code}`} class="text-lg">
+							<a
+								href={`/skills/${catalog.slug}`}
+								class="inline-flex items-center gap-2 font-semibold text-primary transition-colors hover:text-primary/80"
+							>
 								{catalog.domain_name}
+								{!catalog.domain_code.includes('-') && (
+									<span class="text-sm font-normal uppercase tracking-wide text-muted-foreground">
+										{catalog.domain_code}
+									</span>
+								)}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+									<path d="M5 12h14" />
+									<path d="m12 5 7 7-7 7" />
+								</svg>
 							</a>
 						</h2>
 						{catalog.catalog_tagline && (
-							<p class="mt-3 max-w-3xl text-lg text-foreground/90">{catalog.catalog_tagline}</p>
+							<p class="mt-2 max-w-3xl text-foreground/80">{catalog.catalog_tagline}</p>
 						)}
-						{catalog.paragraphs.length > 0 && (
-							<div class="mt-4 max-w-3xl space-y-4 text-foreground/70">
-								{catalog.paragraphs.map((paragraph) => (
-									<p>{paragraph}</p>
-								))}
-							</div>
-						)}
-						<a
-							class="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
-							href={`/skills/${catalog.slug}`}
-						>
-							View skill
-							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
-								<path d="M5 12h14" />
-								<path d="m12 5 7 7-7 7" />
-							</svg>
-						</a>
 					</section>
 				))}
 			</div>

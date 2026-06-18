@@ -16,6 +16,54 @@ For all Semantius CLI mechanics, PostgREST encoding, and cube DSL, defer to the 
 
 ---
 
+## Runbook: every invocation, in order
+
+**Two rules that override your instincts, read these first:**
+
+- **Determine state by running the script, never by reasoning about it.** Do not hand-probe the environment (`which semantius`, a manual `getCurrentUser`, "let me check whether you're connected") to decide what to do. Run `bun run scripts/bootstrap.ts` and act on what it returns. The script is the single source of truth for environment and connection state.
+- **The only way to connect is: install the `semantius` CLI and configure `.env`.** There is no base URL to ask the user for, no cloud instance to spin up, no local-dev mode. If the platform is unreachable the fix is always exactly one of two things: install the CLI, or add `SEMANTIUS_API_KEY` to `.env` (see [Bootstrap exit handling](#bootstrap-exit-handling)). Never invent connection or onboarding options.
+
+Walk these gates in order. Pass to the next, or halt with the stated message. (Detailed expansion of each step: [Invocation steps (detailed reference)](#invocation-steps-detailed-reference).)
+
+1. **`use-semantius` loaded?** Check the available-skills list in the system reminder.
+   - No → halt, verbatim: *"This skill delegates all Semantius CLI mechanics to `use-semantius`. Install it and reload the session: `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`"* (do NOT invent an install URL).
+   - Yes → step 2.
+2. **Bun installed?** Run `bun --version`.
+   - Non-zero exit → halt: *"Install Bun: https://bun.sh/install"*. Every script here is TypeScript on Bun.
+   - Prints a version → step 3.
+3. **Read `learnings.jsonc`** in full (it is small). Apply `active` resolutions matched by `trigger`; surface `proposed` ones for one-tap confirmation. It holds earned knowledge the CLI and re-discovery cannot give back. → step 4. Format: [references/learnings-format.md](./references/learnings-format.md).
+4. **Is `ready.flag` current?** Current = ALL of: it exists, AND `valid_through_emitted == spec.emitted`, AND `valid_through_major == spec.facts_major`.
+   - Current → step 5.
+   - Any part fails → run `bun run scripts/bootstrap.ts` from the project root (do not probe by hand first), handle its result per [Bootstrap exit handling](#bootstrap-exit-handling), then re-check this gate. Run bootstrap and its Phase 2b follow-up silently ([Keep the machinery invisible](#keep-the-machinery-invisible)).
+5. **Answer from the persisted discovery, never live re-queries.** `discovered.json` holds the full operational shape; `state.jsonc` holds the deployment deltas. **Before any write, apply the entity's operating contract** (`validation_rules`, `input_type_rule`, `select_rule`, `computed_fields`) from `discovered.json`. Catalog names may not hold (a master may be renamed, dropped, or split). Let `semantius` errors surface verbatim; do not pre-flight auth every turn. Field detail: [What's in `discovered.json`](#whats-in-discoveredjson).
+6. **Write earned knowledge to `learnings.jsonc`** when something is learned this run (`error_fix`, `user_input`, `recipe`, `quirk`), so it is not re-derived next session. Trust/decay rules: [references/learnings-format.md](./references/learnings-format.md).
+
+To force a fresh discovery: delete `ready.flag` (or also `discovered.json` and `.phase1-cache.json` for a fully cold rebuild); the next invocation re-runs bootstrap.
+
+### Bootstrap exit handling
+
+`bootstrap.ts` prints a JSON result. **Never show that JSON, the phase number, internal flags, file names, module IDs, or version numbers to the user.** Translate the exit into one plain line:
+
+| Bootstrap result | What you DO | What you SAY (shape) |
+|---|---|---|
+| `can_offer_install: true` (CLI not installed) | Offer to run the provided `install_command`. On yes: run it, have them restart the shell if PATH changed, re-run bootstrap. On no: give `install_docs` and stop. Never auto-install. | *"Your Semantius CLI isn't installed yet. Want me to install it for you?"* |
+| Auth failure (missing or invalid `.env`) | Stop and give the `.env` setup. Do NOT ask for a base URL or offer to provision anything. | *"I can't reach your Semantius platform yet. Add a `.env` file in this folder with `SEMANTIUS_API_KEY=<your key>` (generate one under Settings > API Keys), then I'll continue. Setup: https://www.semantius.com/docs/agent-skills/installation/"* |
+| JWT-audience error | Surface the error verbatim and wait; do not retry in a loop. | *(show the exact error, then)* *"This looks like a server-side auth-scope issue. Could you check the API key's audience?"* |
+| Domain not deployed (empty slice) | Stop; offer the blueprint deploy. | *"The Learning Management domain isn't deployed on your platform yet. It can be added from the catalog. Want me to walk you through deploying it?"* |
+| OK, ambiguities remain | Run Phase 2b silently; ask only the specific either/or it surfaces. | *(only the targeted question, e.g.)* *"Is your `applications` table the same as Job Applications?"* |
+| OK, no ambiguities | Proceed to step 5 and answer. | *(nothing about bootstrap, just the answer.)* |
+
+### Common scenarios
+
+| Scenario | Flow |
+|---|---|
+| First run, nothing set up | bootstrap → (offer CLI install or `.env` if it halts) → bootstrap again → answer |
+| `ready.flag` current | read `discovered.json` → answer (no bootstrap) |
+| Force re-discovery | delete `ready.flag` → bootstrap |
+| Platform unreachable | bootstrap halts → install CLI or set `.env`, never invent options |
+
+---
+
 ## File layout
 
 | File | Source of truth | Mutated by |
@@ -35,14 +83,13 @@ The installer preserves `state.jsonc` and `learnings.jsonc` across upgrades. Tea
 
 ---
 
-## On every invocation
+## Invocation steps (detailed reference)
 
-Before doing any domain work, the skill follows this sequence:
+The action sequence is the [Runbook](#runbook-every-invocation-in-order) at the top of this file; this section is the detailed expansion of each gate. Same order, more depth:
 
 1. **Verify `use-semantius` is loaded in the session.** Look at the available-skills list in the system reminder. If `use-semantius` is not present, halt with this exact message (use the command below verbatim; do NOT invent an install URL): *"This skill delegates all Semantius CLI mechanics to `use-semantius`. Install it and reload the session: `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`"*. This is an agent-level check (no script can see what's loaded in the Claude Code session); the agent performs it on every invocation as the cheapest gate.
 2. **Verify Bun is installed.** Run `bun --version`. If exit code is non-zero, halt with the install link (`https://bun.sh/install`). All scripts in `scripts/` are TypeScript on Bun (no Python, ever, see hard rules). The skill cannot proceed without Bun.
-3. **Read `learnings.jsonc`** in full (it is small). It is the **earned-knowledge** store: knowledge the skill had to work out or was told, that neither the CLI nor re-discovery can give back. Each entry is a `trigger` + `resolution` of kind `error_fix`, `user_input`, `recipe`, or `quirk`. Before solving a non-trivial operation or after a failure, match by `trigger` and apply `active` resolutions instead of re-deriving them; surface `proposed` ones for one-tap confirmation. Format and trust/decay rules: [references/learnings-format.md](./references/learnings-format.md).
-   - If bootstrap halts Phase 1 with `can_offer_install: true` (the `semantius` CLI is not installed), **offer to run the install for the user.** The result carries `install_command` (the one-liner for their platform) and `install_docs`. Ask their go-ahead first (it modifies their system); never auto-install silently. On "yes", run the exact `install_command`, have them restart the shell if PATH changed, then re-run bootstrap. On "no", surface `install_docs` and stop.
+3. **Read `learnings.jsonc`** in full (it is small). It is the **earned-knowledge** store: knowledge the skill had to work out or was told, that neither the CLI nor re-discovery can give back. Each entry is a `trigger` + `resolution` of kind `error_fix`, `user_input`, `recipe`, or `quirk`. Before solving a non-trivial operation or after a failure, match by `trigger` and apply `active` resolutions instead of re-deriving them; surface `proposed` ones for one-tap confirmation. Format and trust/decay rules: [references/learnings-format.md](./references/learnings-format.md). (Bootstrap's `can_offer_install` and other exit modes are handled in [Bootstrap exit handling](#bootstrap-exit-handling), not here.)
 4. **Check `ready.flag`.** Single-file check. The skill is ready when:
    - `ready.flag` exists, AND
    - `ready.flag.valid_through_emitted == spec.emitted`, AND
@@ -62,7 +109,7 @@ As of core v0.1.2 the live platform carries provenance columns, so discovery rea
 0. **State resolution**, a resolution the user already recorded in `state.jsonc` from a prior Phase 2b (rename, omission, or custom classification). Applied first so the bootstrap loop converges instead of re-asking.
 1. **FK reachability**, a live FK on the domain's own entities whose `reference_table` resolves to an entity carrying `catalog_entity_code = X`. Reseating is universal, so this catches silo, same-name share, and reuse/merge whenever `X` still has a consumer in the domain.
 2. **Owned canonical code**, `catalog_entity_code = X` AND the entity's module is in the domain slice. Catches masters the domain owns and its own silos (`table_name` is the `X`-rename).
-3. **Alias**, an entity whose `catalog_entity_aliases` contains `{ alias_code: X, source_domain: <this domain> }` (JSONB containment; resolve on the **pair**, never `alias_code` alone). Catches a reuse/merge that renamed `X` onto a differently-named host.
+3. **Alias**, an entity whose `catalog_entity_aliases` contains `{ alias_code: X, source_domain: LMS }` (JSONB containment; resolve on the **pair**, never `alias_code` alone). Catches a reuse/merge that renamed `X` onto a differently-named host.
 4. **Absent**, none of the above. If the domain OWNS `X` it is a true omission (`omitted_entities`); if `X` is only referenced (embedded master / consumer owned by another domain) it is external context (`external_entities`), not an omission.
 
 The provenance columns and their **empty** values (core v0.1.2 stores NOT NULL with an empty default, so test against the empty value, **never `IS NULL`**):
@@ -173,7 +220,7 @@ The word "tenant" may still appear in internal mechanics the customer never sees
 
 ### Keep the machinery invisible
 
-Everything in "On every invocation" (the `use-semantius`/Bun checks, `ready.flag`, bootstrap, the provenance ladder, `discovered.json`/`state.jsonc`/`learnings.jsonc`, module IDs, version numbers) is internal plumbing the user must NEVER see narrated. Run it silently. Do not announce file reads, "bootstrapping", "provenance-stamped", "discovery resolved", "module 1033", Bun versions, "on-invocation checks", or "6 of 8 entities, let me read the rest". If discovery has to run and will take a beat, say at most one plain line, e.g. *"One moment, taking stock of how your platform is set up..."*, then deliver the answer. The user asked a question; show them the answer, not the build log.
+Everything in the runbook (the `use-semantius`/Bun checks, `ready.flag`, bootstrap, the provenance ladder, `discovered.json`/`state.jsonc`/`learnings.jsonc`, module IDs, version numbers) is internal plumbing the user must NEVER see narrated. Run it silently. Do not announce file reads, "bootstrapping", "provenance-stamped", "discovery resolved", "module 1033", Bun versions, "on-invocation checks", or "6 of 8 entities, let me read the rest". If discovery has to run and will take a beat, say at most one plain line, e.g. *"One moment, taking stock of how your platform is set up..."*, then deliver the answer. The user asked a question; show them the answer, not the build log.
 
 - Good: *"One moment, checking your setup... Your platform runs the Hiring Starter package, a slim recruiting pipeline. Here is what you can do."*
 - Bad: *"There is no `ready.flag` or `discovered.json` yet, so I will run bootstrap. Bun 1.3.12 is present. Bootstrap succeeded with zero deferred questions; the deployment is fully provenance-stamped. Let me read `discovered.json`..."*

@@ -32,7 +32,7 @@ Domain membership is the **union of two deterministic signals**, never module co
 
 1. **Deploy stamp (`settings.domain_code`)**, the deploy pipeline writes
    `{ domain_code, module_kind, naming_mode, catalog_snapshot }` into each provisioned module's
-   `settings` JSONB. Querying `settings->>domain_code = <CODE>` resolves the slice directly and is
+   `settings` JSONB. Querying `settings->>domain_code = HVAC-SVC-MGMT` resolves the slice directly and is
    the authoritative marker. It holds even when a deployment's entities were created WITHOUT
    `catalog_entity_code` stamps (hand-built tables), which the entity probe alone would miss.
 2. **Entity-first**, the live `module_id`s that host the domain's OWNED entities, resolved from
@@ -44,7 +44,7 @@ Domain membership is the **union of two deterministic signals**, never module co
 
 ```bash
 # (a) AUTHORITATIVE: the deploy stamp.
-semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.<CODE>&select=id,module_slug,module_name,catalog_module_code,settings"}'
+semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.HVAC-SVC-MGMT&select=id,module_slug,module_name,catalog_module_code,settings"}'
 # (b) entity-first (owned master codes -> the modules that host them).
 semantius call crud postgrestRequest '{"method":"GET","path":"/entities?catalog_entity_code=in.(<spec.data_objects[].name>)&select=module_id,catalog_entity_code"}'
 # HINT: module codes + slugs.
@@ -268,7 +268,7 @@ The agent then writes the lean `state.jsonc` deltas (module presence, `entity_re
 surfaces a one-screen summary:
 
 ```
-<domain> discovery complete (deterministic).
+HVAC Service Management (small-org starter) discovery complete (deterministic).
   Modules: 3 of 4 deployed (<code> not deployed)
   Concepts: 11 resolved (1 rename: job_applications -> applications via owned_code), 2 omitted
   Custom / empty-code rows: 1 (referral_bonuses -> classify)

@@ -186,7 +186,7 @@ async function main() {
            "Known server-side issue. Surface this verbatim to the user and wait for direction. Do not retry in a loop.");
     }
     halt(`semantius CLI could not authenticate: ${cu.stderr}`,
-         "Configure .env in the project root with SEMANTIUS_API_KEY=<your-key> (generate from Settings > API Keys). Docs: https://semantius.app/docs/cli/configure");
+         "Configure .env in the project root with SEMANTIUS_API_KEY=<your-key> (generate from Settings > API Keys). Docs: https://www.semantius.com/docs/agent-skills/installation/");
   }
 
   const tenantOrg = cu.data?.semantius_org ?? "<unknown>";
