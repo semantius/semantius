@@ -32,7 +32,7 @@ const paragraphs = (catalog.catalog_description ?? '')
 
 // Install command mirrors the one the remark plugin injects on skill READMEs.
 const installCommand = catalog.skill_name
-	? `npx skills add https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`
+	? `npx skills add https://github.com/semantius/semantius/skills/${catalog.skill_name}`
 	: null;
 
 // Usage command shows how to invoke the installed skill in chat.
@@ -121,7 +121,7 @@ const usageCommand = catalog.skill_name ? `/${catalog.skill_name} What can you d
 			{catalog.skill_name && (
 				<div class="mt-10 border-t border-border pt-6">
 					<a
-						href={`https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`}
+						href={`https://github.com/semantius/semantius/skills/${catalog.skill_name}`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"

@@ -210,7 +210,11 @@ const domainsCollection = defineCollection({
     schema: z.object({
         code: z.string(),
         name: z.string(),
+        // `description` is the internal/technical blurb; `catalog_description` is
+        // the buyer-facing copy and is preferred for display (same convention as
+        // the module fields below).
         description: z.string(),
+        catalog_description: z.string().optional(),
         domain_kind: z.string().optional(),
         order: z.number().default(0),
         modules: z

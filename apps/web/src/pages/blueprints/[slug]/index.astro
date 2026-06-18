@@ -16,9 +16,26 @@ export async function getStaticPaths() {
 	const blueprintSlugs = new Set(blueprints.map((b) => b.data.system_slug));
 	const domains = await getCollection('domains');
 
+	// The buyer-facing `catalog_description` lives on the domain-map module
+	// (domain-map.json), keyed by module code. A blueprint's `system_name` is that
+	// same code, so we join on it to surface the catalog copy on the detail page
+	// (the same copy the listing cards prefer). See content.config.ts.
+	const catalogDescriptions = new Map<string, string>();
+	for (const domain of domains) {
+		for (const module of domain.data.modules) {
+			if (module.catalog_description) {
+				catalogDescriptions.set(module.code, module.catalog_description);
+			}
+		}
+	}
+
 	const blueprintPaths = blueprints.map((blueprint) => ({
 		params: { slug: blueprint.data.system_slug },
-		props: { kind: 'blueprint' as const, blueprint },
+		props: {
+			kind: 'blueprint' as const,
+			blueprint,
+			catalogDescription: catalogDescriptions.get(blueprint.data.system_name) ?? '',
+		},
 	}));
 
 	const domainPaths = domains
@@ -32,7 +49,7 @@ export async function getStaticPaths() {
 }
 
 type Props =
-	| { kind: 'blueprint'; blueprint: CollectionEntry<'blueprints'> }
+	| { kind: 'blueprint'; blueprint: CollectionEntry<'blueprints'>; catalogDescription: string }
 	| { kind: 'domain'; domain: CollectionEntry<'domains'> };
 
 const props = Astro.props as Props;
@@ -44,13 +61,16 @@ let subsetHtml = '';
 let date = '';
 let blueprintFileUrl = '';
 let systemName = '';
+let seoTitle = '';
 let relatedSkills: CollectionEntry<'skills'>[] = [];
 
 if (props.kind === 'blueprint') {
 	blueprint = props.blueprint;
+	// Prefer the buyer-facing catalog copy (catalog_description, joined from the
+	// domain map in getStaticPaths) over the technical frontmatter `description`.
 	// `overview` and `subsetHtml` are derived once at collection-build time by the
 	// custom loader in content.config.ts (see lib/models-extract.ts).
-	description = blueprint.data.description ?? blueprint.data.overview ?? '';
+	description = props.catalogDescription || blueprint.data.description || blueprint.data.overview || '';
 	subsetHtml = blueprint.data.subsetHtml ?? '';
 	date = blueprint.data.created_at.toLocaleDateString('en-US', {
 		year: 'numeric',
@@ -58,7 +78,15 @@ if (props.kind === 'blueprint') {
 		day: 'numeric',
 	});
 	blueprintFileUrl = new URL(`/blueprints/${blueprint.id}.md`, Astro.site ?? Astro.url).toString();
-	systemName = blueprint.data.system_name;
+	// Prefer the human-readable system_description (e.g. "Candidate CRM") for the
+	// displayed title; system_name is an uppercase code/id (e.g. "ATS-CANDIDATE-CRM").
+	systemName = blueprint.data.system_description ?? blueprint.data.system_name;
+	// SEO/document title pairs the model title with its code/id name, e.g.
+	// "Candidate CRM — ATS-CANDIDATE-CRM". Falls back to the code alone when no
+	// description is set.
+	seoTitle = blueprint.data.system_description
+		? `${blueprint.data.system_description} — ${blueprint.data.system_name}`
+		: blueprint.data.system_name;
 	// Find skills related to this blueprint (semantic_model matches system_slug).
 	const allSkills = await getCollection('skills');
 	relatedSkills = allSkills.filter(
@@ -71,13 +99,13 @@ if (props.kind === 'blueprint') {
 
 {props.kind === 'blueprint' && blueprint && (
 <Layout
-	title={blueprint.data.system_name}
+	title={seoTitle}
 	description={description || `Semantic data blueprint for ${blueprint.data.system_name}.`}
 	noindex={blueprint.data.noindex}
 	nofollow={blueprint.data.nofollow}
 >
 	<section class="pt-32 pb-16">
-		<div class="max-w-5xl mx-auto px-6">
+		<div class="max-w-7xl mx-auto px-6">
 			<div class="mb-6 flex items-center justify-between gap-3">
 				<a href="/blueprints" class="text-sm text-muted-foreground hover:text-primary">
 					&larr; Blueprints
@@ -113,13 +141,16 @@ if (props.kind === 'blueprint') {
 				<span>{date}</span>
 			</div>
 
+			{/* Narrow reading column: only the title and prose description. */}
 			<div class="prose dark:prose-invert prose-base max-w-3xl prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
 				<h1>{systemName}</h1>
 				{description && <p>{description}</p>}
+			</div>
+
+			{/* Full container width: command box and the entity summary table. */}
+			<div class="prose dark:prose-invert prose-base max-w-none mt-4 prose-headings:font-display prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary hover:prose-a:text-primary/80 prose-img:rounded-xl prose-code:before:content-none prose-code:after:content-none">
 				<h3>Use the {systemName} semantic blueprint</h3>
-				<Command mode="chat" command={`/semantic-model-deployer deploy ${blueprintFileUrl}`} />
-				<h3>Customize this {systemName} blueprint</h3>
-				<Command mode="chat" command={`/semantic-model-analyst customize ${blueprintFileUrl}`} />
+				<Command mode="chat" command={`/semantius-admin use the architect, analyst and modeler skills to update the semantius platform with the model specified in ${blueprintFileUrl}`} />
 				{subsetHtml && <div set:html={subsetHtml} />}
 			</div>
 
