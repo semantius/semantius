@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: CLM-RENEWAL
 system_description: Renewal Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: CLM
 related_modules: [clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-repository]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Renewal Management
@@ -28,7 +28,7 @@ Date-based renewal alerting, auto-renewal-clause detection, and renewal executio
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Contract Renewal Records | `contract_renewal_records` | A record of a single renewal of an existing contract, capturing the renewed term, pricing, and outcome distinct from the original agreement. |
+| Contract Renewal Records | `contract_renewal_records` | Records of a single renewal of an existing contract, capturing the renewed term, pricing, and outcome. |
 
 ```mermaid
 flowchart TD
@@ -43,9 +43,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_renewal_records` | `contract_renewal_records` | Contract Renewal Record | Contract Renewal Records | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `contract_renewal_records` | `contract_renewal_records` | Contract Renewal Record | Contract Renewal Records | A record of a single renewal of an existing contract, capturing the renewed term, pricing, and outcome distinct from the original agreement. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

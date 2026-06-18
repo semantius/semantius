@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: RE-BROK-BROKERAGE-OPS
 system_description: Brokerage Oversight and Commission Management
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: RE-BROKERAGE
 related_modules: [re-brok-agent-ops]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Brokerage Oversight and Commission Management
@@ -25,9 +25,9 @@ Broker-level oversight on top of agent operations. Multi-agent commission-split 
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Commission Splits | `commission_splits` | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. |
-| Disclosure Documents | `disclosure_documents` | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. |
-| Real Estate Transactions | `real_estate_transactions` | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. |
+| Commission Splits | `commission_splits` | How a transaction's commission is divided across brokerages and then internal agents, used by accounting and tax reporting. |
+| Disclosure Documents | `disclosure_documents` | State-mandated and brokerage-policy disclosure forms attached to transactions, such as agency, property condition, lead paint, and HOA documents. |
+| Real Estate Transactions | `real_estate_transactions` | Real estate deals from accepted offer through close, with parties, terms, contingencies, escrow timeline, and document compliance. |
 
 ```mermaid
 flowchart TD
@@ -53,11 +53,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 2 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 2 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

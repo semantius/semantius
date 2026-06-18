@@ -191,6 +191,8 @@ async function main() {
 
   const tenantOrg = cu.data?.semantius_org ?? "<unknown>";
   const tenantEmail = cu.data?.email ?? "<unknown>";
+  // ui_baseurl powers UI deep-links (`{ui_baseurl}/{module_slug}/{table_name}`); never hardcode the org host.
+  const tenantUiBaseurl = cu.data?.ui_baseurl ?? "";
 
   // ---- Check 2: resolve the domain SLICE (entity-first). ----
   // Canonical master codes = the entities the domain OWNS (spec.data_objects names ==
@@ -312,7 +314,7 @@ async function main() {
   console.log(JSON.stringify({
     ok: true,
     phase: 1,
-    tenant: { org: tenantOrg, email: tenantEmail },
+    tenant: { org: tenantOrg, email: tenantEmail, ui_baseurl: tenantUiBaseurl },
     domain: { code: view.code, name: view.name, kind: view.isBundle ? "bundle" : "domain" },
     domain_slice: domainSlice,
     modules: moduleStatus,

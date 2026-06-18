@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: CLM-AUTHORING
 system_description: Contract Authoring
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: CLM
 related_modules: [clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-approvals-contracts]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Contract Authoring
@@ -28,11 +28,11 @@ Template-driven contract drafting with the approved clause library. Masters cont
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Clause Libraries | `clause_libraries` | A versioned, governed collection of approved contract clauses, often organized by jurisdiction or contract type, that authors draw from. |
-| Contract Clauses | `contract_clauses` | Reusable clause library: preferred and fallback language for indemnification, IP, termination, SLA, payment terms, data-protection, AI-use, audit rights. Drives consistency in authoring and accelerates negotiation. |
-| Contract Templates | `contract_templates` | Pre-approved drafts (NDA, MSA, DPA, SOW, order form) assembled from the clause library, used to author new contracts. Carries versioning, approval state, and risk-tier classification. |
-| CPQ Contract Drafts | `contract_drafts` | Approved-quote handoff artifact; precursor to CLM `contracts`. CPQ owns the draft; CLM owns the signed contract + amendments. |
-| Sourcing Events | `sourcing_events` | RFx process record: RFI, RFQ, RFP, or reverse auction. Carries scope, supplier list, scorecard / weighting, responses, and the awarded supplier. The pre-contract stage that produces a sourcing decision feeding CLM. |
+| Clause Libraries | `clause_libraries` | Versioned, governed collections of approved contract clauses, often organized by jurisdiction or contract type, that authors draw from. |
+| Contract Clauses | `contract_clauses` | Reusable clause library with preferred and fallback language for terms like indemnification, IP, termination, and payment. |
+| Contract Templates | `contract_templates` | Pre-approved contract templates such as NDAs, MSAs, and SOWs, assembled from the clause library to author new contracts. |
+| CPQ Contract Drafts | `contract_drafts` | Draft contracts handed off from an approved quote, the precursor to a signed contract. |
+| Sourcing Events | `sourcing_events` | Competitive bidding processes (RFI, RFQ, RFP, or reverse auction), tracking scope, suppliers, scorecards, responses, and the awarded supplier. |
 
 ```mermaid
 flowchart TD
@@ -64,13 +64,13 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `clause_libraries` | `clause_libraries` | Clause Library | Clause Libraries | master | - | - | optional | - | catalog | `:admin` | - |
-| 2 | `contract_clauses` | `contract_clauses` | Contract Clause | Contract Clauses | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `contract_templates` | `contract_templates` | Contract Template | Contract Templates | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `contract_drafts` | `contract_drafts` | CPQ Contract Draft | CPQ Contract Drafts | consumer | `cpq-approvals-contracts` | Approvals and Contract Drafts | optional | - | operational_workflow | `:manage` | - |
-| 5 | `sourcing_events` | `sourcing_events` | Sourcing Event | Sourcing Events | consumer | - | - | required | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `clause_libraries` | `clause_libraries` | Clause Library | Clause Libraries | A versioned, governed collection of approved contract clauses, often organized by jurisdiction or contract type, that authors draw from. | master | - | - | optional | - | catalog | `:admin` | - |
+| 2 | `contract_clauses` | `contract_clauses` | Contract Clause | Contract Clauses | Reusable clause library: preferred and fallback language for indemnification, IP, termination, SLA, payment terms, data-protection, AI-use, audit rights. Drives consistency in authoring and accelerates negotiation. | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `contract_templates` | `contract_templates` | Contract Template | Contract Templates | Pre-approved drafts (NDA, MSA, DPA, SOW, order form) assembled from the clause library, used to author new contracts. Carries versioning, approval state, and risk-tier classification. | master | - | - | required | - | catalog | `:admin` | - |
+| 4 | `contract_drafts` | `contract_drafts` | CPQ Contract Draft | CPQ Contract Drafts | Approved-quote handoff artifact; precursor to CLM `contracts`. CPQ owns the draft; CLM owns the signed contract + amendments. | consumer | `cpq-approvals-contracts` | Approvals and Contract Drafts | optional | - | operational_workflow | `:manage` | - |
+| 5 | `sourcing_events` | `sourcing_events` | Sourcing Event | Sourcing Events | RFx process record: RFI, RFQ, RFP, or reverse auction. Carries scope, supplier list, scorecard / weighting, responses, and the awarded supplier. The pre-contract stage that produces a sourcing decision feeding CLM. | consumer | - | - | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: WORK-MGMT-INTAKE
 system_description: Request Intake
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: WORK-MGMT
 related_modules: [work-mgmt-goals-okr, work-mgmt-task-exec]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Request Intake
@@ -28,8 +28,8 @@ Structured request-intake surface: form definitions, form submissions, routing r
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Form Submissions | `work_form_submissions` | Submitted instance of a work_form. Carries field values, submitter, timestamp. Converts to a work_item via routing rules. May contain personal content from form fields (requester name/email). |
-| Forms | `work_forms` | Structured intake form definition: schema (fields, validation), target project, routing rules. Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms. |
+| Form Submissions | `work_form_submissions` | Submitted instances of an intake form, carrying field values, submitter, and timestamp, and converting to a work item via routing rules. |
+| Forms | `work_forms` | Structured intake form definitions, with field schema, validation, target project, and routing rules. |
 
 ```mermaid
 flowchart TD
@@ -48,10 +48,10 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `work_form_submissions` | `work_form_submissions` | Form Submission | Form Submissions | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `work_forms` | `work_forms` | Form | Forms | master | - | - | required | - | catalog | `:admin` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `work_form_submissions` | `work_form_submissions` | Form Submission | Form Submissions | Submitted instance of a work_form. Carries field values, submitter, timestamp. Converts to a work_item via routing rules. May contain personal content from form fields (requester name/email). | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `work_forms` | `work_forms` | Form | Forms | Structured intake form definition: schema (fields, validation), target project, routing rules. Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms. | master | - | - | required | - | catalog | `:admin` | - |
 
 ## 4. Aliases and industry synonyms
 

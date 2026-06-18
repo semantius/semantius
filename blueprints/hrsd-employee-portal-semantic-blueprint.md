@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: HRSD-EMPLOYEE-PORTAL
 system_description: Employee Self-Service Portal
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-case-mgmt, hrsd-knowledge, iga-access-request, itsm-knowledge, itsm-service-request, lms-course-delivery, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, HRSD-CASE-AGENT, HRSD-KNOWLEDGE-MANAGER, HRSD-SERVICE-MANAGER, PEOPLE-MANAGER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Employee Self-Service Portal
@@ -28,10 +28,10 @@ Employee self-service intake surface: catalog browse, request submission, knowle
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
-| HR Cases | `hr_cases` | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows. |
-| Knowledge Articles | `knowledge_articles` | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. |
-| Service Requests | `service_requests` | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). |
+| Employees | `employees` | Canonical records of people currently or formerly employed, carrying identity, employment metadata, and links to position, manager, and org unit. |
+| HR Cases | `hr_cases` | Employee inquiries and service requests routed to HR operations, such as pay questions, benefits changes, leave requests, and complaints. |
+| Knowledge Articles | `knowledge_articles` | Knowledge-base articles backing self-service portals and agent-assist tools, moving through draft, review, published, and retired. |
+| Service Requests | `service_requests` | Planned, catalog-driven requests for access, hardware, software, or information, distinct from reactive incidents. |
 
 ```mermaid
 flowchart TD
@@ -71,12 +71,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | embedded_master | `hrsd-case-mgmt` | HR Case Management | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
-| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows. | embedded_master | `hrsd-case-mgmt` | HR Case Management | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 3 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
+| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

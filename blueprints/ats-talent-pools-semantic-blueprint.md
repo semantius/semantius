@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: ATS-TALENT-POOLS
 system_description: Talent Pools
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ben-enrollment, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-RECRUITER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Talent Pools
@@ -25,13 +25,13 @@ Curated candidate groupings for nurture and pipeline-building (`talent_pools`). 
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Candidate Tag Assignments | `candidate_tag_assignments` | Many-to-many junction between candidates and candidate_tags. Carries assigned_by, assigned_at, and optional context. |
-| Candidate Tags | `candidate_tags` | Free-form label applied to a candidate to support segmentation, search, and pool inclusion rules. Distinct from talent pools (curated membership lists). Carries name, optional category, and color. |
-| Recruiter Saved Searches | `recruiter_saved_searches` | Persisted recruiter boolean query over the candidate database. Carries filter expression, last_run timestamp, alert preferences. |
-| Talent Pool Memberships | `talent_pool_memberships` | Junction between candidates and talent_pools. Carries added timestamp, source, status_in_pool (cold/warm/hot), match score, and last_engagement timestamp. |
-| Talent Pools | `talent_pools` | Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters). |
-| Talent Segments | `talent_segments` | Rule-based pool definition (boolean filter over candidates) that materializes membership automatically. Examples: 'Senior PMs in NYC with FinTech experience', 'Engineering alumni who left in the last 2 years'. |
-| Candidates | `candidates` | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
+| Candidate Tag Assignments | `candidate_tag_assignments` | Links between candidates and tags, recording who assigned each tag and when, with optional context. |
+| Candidate Tags | `candidate_tags` | Free-form labels applied to candidates to support segmentation, search, and pool inclusion, with name, optional category, and color. |
+| Recruiter Saved Searches | `recruiter_saved_searches` | Saved recruiter searches over the candidate database, with the filter expression, last-run time, and alert preferences. |
+| Talent Pool Memberships | `talent_pool_memberships` | Links between candidates and talent pools, carrying added date, source, status in the pool, match score, and last engagement. |
+| Talent Pools | `talent_pools` | Curated pools of candidates kept warm for future roles, such as past finalists, alumni, and hard-to-fill skill clusters. |
+| Talent Segments | `talent_segments` | Rule-based pool definitions over candidates that automatically populate membership from a saved filter. |
+| Candidates | `candidates` | People known to the recruiting organization, with or without an active application, carrying contact details, resume, tags, consent, and source. |
 
 ```mermaid
 flowchart TD
@@ -69,15 +69,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `candidate_tag_assignments` | `candidate_tag_assignments` | Candidate Tag Assignment | Candidate Tag Assignments | master | - | - | required | - | junction | `:admin` | - |
-| 2 | `candidate_tags` | `candidate_tags` | Candidate Tag | Candidate Tags | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `recruiter_saved_searches` | `recruiter_saved_searches` | Recruiter Saved Search | Recruiter Saved Searches | master | - | - | optional | - | catalog | `:admin` | - |
-| 4 | `talent_pool_memberships` | `talent_pool_memberships` | Talent Pool Membership | Talent Pool Memberships | master | - | - | required | - | junction | `:manage` | - |
-| 5 | `talent_pools` | `talent_pools` | Talent Pool | Talent Pools | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 6 | `talent_segments` | `talent_segments` | Talent Segment | Talent Segments | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `candidate_tag_assignments` | `candidate_tag_assignments` | Candidate Tag Assignment | Candidate Tag Assignments | Many-to-many junction between candidates and candidate_tags. Carries assigned_by, assigned_at, and optional context. | master | - | - | required | - | junction | `:admin` | - |
+| 2 | `candidate_tags` | `candidate_tags` | Candidate Tag | Candidate Tags | Free-form label applied to a candidate to support segmentation, search, and pool inclusion rules. Distinct from talent pools (curated membership lists). Carries name, optional category, and color. | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `recruiter_saved_searches` | `recruiter_saved_searches` | Recruiter Saved Search | Recruiter Saved Searches | Persisted recruiter boolean query over the candidate database. Carries filter expression, last_run timestamp, alert preferences. | master | - | - | optional | - | catalog | `:admin` | - |
+| 4 | `talent_pool_memberships` | `talent_pool_memberships` | Talent Pool Membership | Talent Pool Memberships | Junction between candidates and talent_pools. Carries added timestamp, source, status_in_pool (cold/warm/hot), match score, and last_engagement timestamp. | master | - | - | required | - | junction | `:manage` | - |
+| 5 | `talent_pools` | `talent_pools` | Talent Pool | Talent Pools | Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters). | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 6 | `talent_segments` | `talent_segments` | Talent Segment | Talent Segments | Rule-based pool definition (boolean filter over candidates) that materializes membership automatically. Examples: 'Senior PMs in NYC with FinTech experience', 'Engineering alumni who left in the last 2 years'. | master | - | - | required | - | catalog | `:admin` | - |
+| 7 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

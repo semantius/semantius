@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: CLM-NEGOTIATION
 system_description: Negotiation and Redlining
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: CLM
 related_modules: [clm-authoring, clm-obligation-mgmt, clm-renewal, clm-repository]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Negotiation and Redlining
@@ -28,9 +28,9 @@ Track-changes negotiation with counterparty exchange, version comparison, and cl
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Contract Risk Assessments | `contract_risk_assessments` | A structured assessment of the legal or commercial risk in a contract or clause, produced during review and dispositioned by a reviewer. |
-| Negotiation Playbooks | `negotiation_playbooks` | A set of negotiation rules and fallback positions that guide how clauses may be redlined and what concessions are pre-approved. |
-| Negotiation Threads | `contract_negotiation_threads` | A structured thread of negotiation rounds and counterparty exchanges on a contract, separate from the clauses and the contract itself. |
+| Contract Risk Assessments | `contract_risk_assessments` | Structured assessments of the legal or commercial risk in a contract or clause, produced during review. |
+| Negotiation Playbooks | `negotiation_playbooks` | Negotiation rules and fallback positions guiding how clauses may be redlined and which concessions are pre-approved. |
+| Negotiation Threads | `contract_negotiation_threads` | Structured threads of negotiation rounds and counterparty exchanges on a contract. |
 
 ```mermaid
 flowchart TD
@@ -53,11 +53,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_risk_assessments` | `contract_risk_assessments` | Contract Risk Assessment | Contract Risk Assessments | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 2 | `negotiation_playbooks` | `negotiation_playbooks` | Negotiation Playbook | Negotiation Playbooks | master | - | - | optional | - | catalog | `:admin` | - |
-| 3 | `contract_negotiation_threads` | `contract_negotiation_threads` | Negotiation Thread | Negotiation Threads | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `contract_risk_assessments` | `contract_risk_assessments` | Contract Risk Assessment | Contract Risk Assessments | A structured assessment of the legal or commercial risk in a contract or clause, produced during review and dispositioned by a reviewer. | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 2 | `negotiation_playbooks` | `negotiation_playbooks` | Negotiation Playbook | Negotiation Playbooks | A set of negotiation rules and fallback positions that guide how clauses may be redlined and what concessions are pre-approved. | master | - | - | optional | - | catalog | `:admin` | - |
+| 3 | `contract_negotiation_threads` | `contract_negotiation_threads` | Negotiation Thread | Negotiation Threads | A structured thread of negotiation rounds and counterparty exchanges on a contract, separate from the clauses and the contract itself. | master | - | - | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

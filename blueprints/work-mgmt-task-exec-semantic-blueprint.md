@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: WORK-MGMT-TASK-EXEC
 system_description: Task and Project Execution
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: WORK-MGMT
 related_modules: [crm-pipeline-mgt, emp-exp-action-planning, intgov-governance, mrm-planning, pm-discovery, pm-roadmap-delivery, psa-project-delivery, psa-resource-mgmt, sem-execution-tracking, spm-demand-mgmt, spm-portfolio-planning, spm-resource-capacity, work-mgmt-goals-okr, work-mgmt-intake, wsc-channels-conversations]
 persona: [OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Task and Project Execution
@@ -28,41 +28,41 @@ Cross-functional task and project execution surface: work items with owners, due
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Approval Chains | `work_approval_chains` | Ordered or parallel set of work_approval_steps gating a work_item or work_project transition. Backs the APPROVAL-WORKFLOW capability (cross-cutting; this is the WORK-MGMT realization). |
-| Approval Steps | `work_approval_steps` | Single approval gate on a work_item or work_project, performed by a designated approver. Belongs to a work_approval_chain. Per-step states: pending / approved / rejected / expired. |
-| Custom Field Values | `work_custom_field_values` | Per-work_item value for a work_custom_field. Junction-style master: tuple (work_item, work_custom_field, value). Monday column_values, Asana custom_field_values, Smartsheet cells. |
-| Custom Fields | `work_custom_fields` | User-defined field attached to a work_project or workspace, typed (text, number, date, select, etc.). Applies to all work_items in scope. Monday columns / Asana custom fields / ClickUp custom fields / Workfront / Smartsheet column types. |
-| Item Attachments | `work_item_attachments` | File or external link attached to a work_item. May reference embedded content or platform-managed storage. |
-| Item Comments | `work_item_comments` | Threaded comment on a work_item. Asana stories / Monday updates / ClickUp comments / Workfront updates / Smartsheet conversations. May include personal or sensitive content. |
-| Item Tag Assignments | `work_item_tags` | Junction master between work_items and work_tags. Carries no qualifier of its own; existence asserts the tag is applied. |
-| Milestones | `work_milestones` | Zero-duration gate within a work_project marking a meaningful transition. Distinct from a regular work_item by gate semantics (passed/missed). Asana, Monday, ClickUp, Workfront, Smartsheet all model. |
-| Project Templates | `work_project_templates` | Reusable work_project blueprint with seeded sections, items, custom fields, and automations. Universal across all 5 flagships; central to enterprise rollout patterns. |
-| Proofing Annotations | `proofing_annotations` | Markup comment placed on a region of a proof during a proofing session, with the reviewer, location, and resolution state. |
-| Proofing Sessions | `proofing_sessions` | Review-and-approval cycle on a creative asset or document attached to a work item. Reviewers mark up the proof and decide approve or request-changes; backs the creative-review capability. |
-| Sections | `work_sections` | Container within a work_project that groups work_items for board/list views. Asana sections / Monday groups / ClickUp statuses-as-columns / Workfront statuses / Smartsheet parent rows. |
-| Tags | `work_tags` | Free-form label attached to work_items for cross-cutting categorization (priority, theme, status). Many-to-many to work_items via work_item_tags. |
-| Task Templates | `work_task_templates` | Reusable work_item blueprint with seeded assignee role, due-date offset, subtasks, and custom field defaults. Used for recurring or templated work creation. |
-| Work Automations | `work_automations` | Trigger-action rule defined per board/project: status change, due date, assignment, form submission as triggers; multi-step actions with conditions, time delays, and external integrations. The user-authored behavior layer on top of the data primitives. |
-| Work Dashboards | `work_dashboards` | Saved, shareable cross-project dashboard composed of configurable widgets that summarize work progress, workload, and goal status. Backs the cross-project dashboards capability. |
-| Work Dependencies | `work_dependencies` | Typed dependency between two work_items: predecessor/successor with type (FS finish-to-start, SS start-to-start, FF finish-to-finish, SF start-to-finish). Backs the WORK-DEPS-SCHED capability. Modeled by Asana, Monday, ClickUp, Workfront, Smartsheet. |
-| Work Items | `work_items` | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). |
-| Work Portfolios | `work_portfolios` | Team-level grouping of related projects for cross-project status roll-up. Distinct from the top-down strategic portfolio mastered in the strategic-portfolio domain. |
-| Work Projects | `work_projects` | Container of work_items, regardless of platform-specific terminology (project, board, sheet, space/list). Has timeline, status, owner, members, dashboards, and embedded views. |
-| Work Status Updates | `work_status_updates` | Logged status-change event on a work item or project capturing the prior status, the new status, who changed it, and when. |
-| Work Statuses | `work_statuses` | Configurable status value in a project's or team's status taxonomy, with its category (not started, in progress, done) and display order. |
-| Work Time Entries | `work_time_entries` | Non-billable time logged against a work item for effort tracking and capacity reporting. Billable worklog with rate, utilization, and invoice stays mastered in the services-billing domain and is consumed, not re-mastered, here. |
-| Work Views | `work_views` | Saved, named, shareable board / list / timeline / calendar view of work items with persisted filters, grouping, and sort. A configuration record, not a per-user UI toggle. |
-| Workloads | `work_user_workloads` | Per-user, per-period sum of allocated effort on work_items, with capacity ceiling. Backs the WORK-CAPACITY capability. Continuous-numeric, not state-driven. May expose individual workload. |
-| Business Value Assessments | `business_value_assessments` | Scoring model for prioritizing portfolio items: NPV, strategic alignment, risk, dependencies, resource constraints. Ranked backlog. |
-| Engagement Action Plans | `action_plans` | Team or manager action commitment in response to engagement_drivers result. Tracked to closure; recurring failure to act is itself an engagement signal. |
-| Feature Requests | `feature_requests` | Customer request for new capability; input to the prioritization workflow. |
-| Opportunities | `crm_opportunities` | Active sales deal - stage, amount, close date, probability, products/SKUs, competitor, decision criteria. Drives CPQ quote generation and closed-won triggers downstream subscription activation. |
-| Portfolios | `strategic_portfolios` | Container for strategic initiatives grouped by business unit, product line, or cost center; aggregate KPIs and investment rules. |
-| Product Releases | `product_releases` | Versioned software release; bundles features and defines delivery date and scope. |
-| Product Roadmaps | `product_roadmaps` | Timeline view of features grouped by release, product, or theme. Marquee PROD-MGMT capability. |
-| Project Assignments | `project_assignments` | Worker-to-project allocation with role, bill rate, cost rate, planned hours, period. Drives utilization and resource-availability reporting. |
-| Project Tasks | `project_tasks` | Decomposed unit of work inside a project: scope, dependencies, estimated hours, status. Drives time entry tagging and Earned Value calculation. |
-| Strategic Initiatives | `strategic_initiatives` | Multi-quarter / annual program aligned to corporate strategy; bundles related projects, has executive sponsor and benefits realization plan. |
+| Approval Chains | `work_approval_chains` | Ordered or parallel sets of approval steps that gate a work item or project transition. |
+| Approval Steps | `work_approval_steps` | Single approval gates on a work item or project, performed by a designated approver, with states pending, approved, rejected, or expired. |
+| Custom Field Values | `work_custom_field_values` | Per-work-item values for a custom field, one value per item and field. |
+| Custom Fields | `work_custom_fields` | User-defined fields attached to a project or workspace, typed as text, number, date, select, and more, applying to all items in scope. |
+| Item Attachments | `work_item_attachments` | Files or external links attached to a work item. |
+| Item Comments | `work_item_comments` | Threaded comments on a work item, which may include personal or sensitive content. |
+| Item Tag Assignments | `work_item_tags` | Assignments linking work items to tags, where existence asserts the tag is applied. |
+| Milestones | `work_milestones` | Zero-duration gates within a project marking a meaningful transition, distinguished from regular items by passed or missed semantics. |
+| Project Templates | `work_project_templates` | Reusable project blueprints with seeded sections, items, custom fields, and automations. |
+| Proofing Annotations | `proofing_annotations` | Markup comments placed on a region of a proof during review, with the reviewer, location, and resolution state. |
+| Proofing Sessions | `proofing_sessions` | Review-and-approval cycles on a creative asset or document, where reviewers mark up the proof and decide to approve or request changes. |
+| Sections | `work_sections` | Containers within a project that group work items for board and list views. |
+| Tags | `work_tags` | Free-form labels attached to work items for cross-cutting categorization such as priority, theme, or status. |
+| Task Templates | `work_task_templates` | Reusable work-item blueprints with seeded assignee role, due-date offset, subtasks, and custom field defaults. |
+| Work Automations | `work_automations` | Trigger-action rules defined per board or project, with triggers like status change or assignment driving multi-step conditional actions. |
+| Work Dashboards | `work_dashboards` | Saved, shareable cross-project dashboards composed of widgets that summarize work progress, workload, and goal status. |
+| Work Dependencies | `work_dependencies` | Typed dependencies between two work items, linking predecessor and successor with finish-to-start, start-to-start, finish-to-finish, or start-to-finish type. |
+| Work Items | `work_items` | Atomic tasks, items, or cards in a work-management tool, with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. |
+| Work Portfolios | `work_portfolios` | Team-level groupings of related projects for cross-project status roll-up. |
+| Work Projects | `work_projects` | Containers of work items (project, board, sheet, or space), with timeline, status, owner, members, dashboards, and embedded views. |
+| Work Status Updates | `work_status_updates` | Logged status-change events on a work item or project, capturing the prior status, new status, who changed it, and when. |
+| Work Statuses | `work_statuses` | Configurable status values in a project or team status taxonomy, with category (not started, in progress, done) and display order. |
+| Work Time Entries | `work_time_entries` | Non-billable time logged against a work item for effort tracking and capacity reporting. |
+| Work Views | `work_views` | Saved, named, shareable board, list, timeline, or calendar views of work items, with persisted filters, grouping, and sort. |
+| Workloads | `work_user_workloads` | Per-user, per-period sums of allocated effort across work items, compared against a capacity ceiling. |
+| Business Value Assessments | `business_value_assessments` | Scoring models for prioritizing portfolio items by value, strategic alignment, risk, and dependencies, producing a ranked backlog. |
+| Engagement Action Plans | `action_plans` | Team or manager commitments to act on engagement survey results, tracked through to closure. |
+| Feature Requests | `feature_requests` | Customer requests for new capabilities, feeding the product prioritization workflow. |
+| Opportunities | `crm_opportunities` | Active sales deals, tracking stage, amount, close date, probability, products, competitor, and decision criteria. |
+| Portfolios | `strategic_portfolios` | Containers grouping strategic initiatives by business unit, product line, or cost center, with aggregate KPIs and investment rules. |
+| Product Releases | `product_releases` | Versioned software releases that bundle a set of features and define the delivery date and scope. |
+| Product Roadmaps | `product_roadmaps` | Timeline views of planned features grouped by release, product, or theme. |
+| Project Assignments | `project_assignments` | Allocations of a worker to a project, with role, bill rate, cost rate, planned hours, and period, driving utilization and availability reporting. |
+| Project Tasks | `project_tasks` | Decomposed units of work within a project, with scope, dependencies, estimated hours, and status, used for time tracking and earned-value calculation. |
+| Strategic Initiatives | `strategic_initiatives` | Multi-quarter programs aligned to corporate strategy, bundling related projects with an executive sponsor and benefits plan. |
 
 ```mermaid
 flowchart TD
@@ -231,43 +231,43 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `work_approval_chains` | `work_approval_chains` | Approval Chain | Approval Chains | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `work_approval_steps` | `work_approval_steps` | Approval Step | Approval Steps | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 3 | `work_custom_field_values` | `work_custom_field_values` | Custom Field Value | Custom Field Values | master | - | - | required | - | junction | `:admin` | - |
-| 4 | `work_custom_fields` | `work_custom_fields` | Custom Field | Custom Fields | master | - | - | required | - | catalog | `:admin` | - |
-| 5 | `work_item_attachments` | `work_item_attachments` | Item Attachment | Item Attachments | master | - | - | required | - | operational_record | `:manage` | - |
-| 6 | `work_item_comments` | `work_item_comments` | Item Comment | Item Comments | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 7 | `work_item_tags` | `work_item_tags` | Item Tag Assignment | Item Tag Assignments | master | - | - | required | - | junction | `:admin` | - |
-| 8 | `work_milestones` | `work_milestones` | Milestone | Milestones | master | - | - | required | - | operational_record | `:manage` | - |
-| 9 | `work_project_templates` | `work_project_templates` | Project Template | Project Templates | master | - | - | required | - | catalog | `:admin` | - |
-| 10 | `proofing_annotations` | `proofing_annotations` | Proofing Annotation | Proofing Annotations | master | - | - | optional | - | operational_record | `:manage` | - |
-| 11 | `proofing_sessions` | `proofing_sessions` | Proofing Session | Proofing Sessions | master | - | - | optional | single_approver | operational_workflow | `:manage` | - |
-| 12 | `work_sections` | `work_sections` | Section | Sections | master | - | - | required | - | catalog | `:admin` | - |
-| 13 | `work_tags` | `work_tags` | Tag | Tags | master | - | - | required | - | catalog | `:admin` | - |
-| 14 | `work_task_templates` | `work_task_templates` | Task Template | Task Templates | master | - | - | required | - | catalog | `:admin` | - |
-| 15 | `work_automations` | `work_automations` | Work Automation | Work Automations | master | - | - | required | - | catalog | `:admin` | - |
-| 16 | `work_dashboards` | `work_dashboards` | Work Dashboard | Work Dashboards | master | - | - | optional | - | catalog | `:admin` | - |
-| 17 | `work_dependencies` | `work_dependencies` | Work Dependency | Work Dependencies | master | - | - | required | - | junction | `:manage` | - |
-| 18 | `work_items` | `work_items` | Work Item | Work Items | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 19 | `work_portfolios` | `work_portfolios` | Work Portfolio | Work Portfolios | master | - | - | optional | - | catalog | `:admin` | - |
-| 20 | `work_projects` | `work_projects` | Work Project | Work Projects | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 21 | `work_status_updates` | `work_status_updates` | Work Status Update | Work Status Updates | master | - | - | optional | - | operational_record | `:manage` | - |
-| 22 | `work_statuses` | `work_statuses` | Work Status | Work Statuses | master | - | - | optional | - | catalog | `:admin` | - |
-| 23 | `work_time_entries` | `work_time_entries` | Work Time Entry | Work Time Entries | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 24 | `work_views` | `work_views` | Work View | Work Views | master | - | - | optional | - | catalog | `:admin` | - |
-| 25 | `work_user_workloads` | `work_user_workloads` | Workload | Workloads | master | - | - | required | - | computed | read-only | - |
-| 26 | `business_value_assessments` | `business_value_assessments` | Business Value Assessment | Business Value Assessments | consumer | `spm-demand-mgmt` | Demand and Value Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 27 | `action_plans` | `action_plans` | Engagement Action Plan | Engagement Action Plans | consumer | `emp-exp-action-planning` | Action Planning | optional | - | operational_workflow | `:manage` | - |
-| 28 | `feature_requests` | `feature_requests` | Feature Request | Feature Requests | consumer | `pm-discovery` | Product Discovery and Prioritization | optional | personal_content | operational_workflow | `:manage` | - |
-| 29 | `crm_opportunities` | `crm_opportunities` | Opportunity | Opportunities | consumer | `crm-pipeline-mgt` | Opportunity and Pipeline Management | optional | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 30 | `strategic_portfolios` | `strategic_portfolios` | Portfolio | Portfolios | consumer | `spm-portfolio-planning` | Portfolio Planning | optional | - | operational_workflow | `:manage` | - |
-| 31 | `product_releases` | `product_releases` | Product Release | Product Releases | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
-| 32 | `product_roadmaps` | `product_roadmaps` | Product Roadmap | Product Roadmaps | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
-| 33 | `project_assignments` | `project_assignments` | Project Assignment | Project Assignments | consumer | `psa-resource-mgmt` | Resource Management | optional | - | operational_workflow | `:manage` | - |
-| 34 | `project_tasks` | `project_tasks` | Project Task | Project Tasks | consumer | `psa-project-delivery` | Project Delivery | optional | - | operational_workflow | `:manage` | - |
-| 35 | `strategic_initiatives` | `strategic_initiatives` | Strategic Initiative | Strategic Initiatives | consumer | `sem-execution-tracking` | Execution Tracking | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `work_approval_chains` | `work_approval_chains` | Approval Chain | Approval Chains | Ordered or parallel set of work_approval_steps gating a work_item or work_project transition. Backs the APPROVAL-WORKFLOW capability (cross-cutting; this is the WORK-MGMT realization). | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `work_approval_steps` | `work_approval_steps` | Approval Step | Approval Steps | Single approval gate on a work_item or work_project, performed by a designated approver. Belongs to a work_approval_chain. Per-step states: pending / approved / rejected / expired. | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 3 | `work_custom_field_values` | `work_custom_field_values` | Custom Field Value | Custom Field Values | Per-work_item value for a work_custom_field. Junction-style master: tuple (work_item, work_custom_field, value). Monday column_values, Asana custom_field_values, Smartsheet cells. | master | - | - | required | - | junction | `:admin` | - |
+| 4 | `work_custom_fields` | `work_custom_fields` | Custom Field | Custom Fields | User-defined field attached to a work_project or workspace, typed (text, number, date, select, etc.). Applies to all work_items in scope. Monday columns / Asana custom fields / ClickUp custom fields / Workfront / Smartsheet column types. | master | - | - | required | - | catalog | `:admin` | - |
+| 5 | `work_item_attachments` | `work_item_attachments` | Item Attachment | Item Attachments | File or external link attached to a work_item. May reference embedded content or platform-managed storage. | master | - | - | required | - | operational_record | `:manage` | - |
+| 6 | `work_item_comments` | `work_item_comments` | Item Comment | Item Comments | Threaded comment on a work_item. Asana stories / Monday updates / ClickUp comments / Workfront updates / Smartsheet conversations. May include personal or sensitive content. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 7 | `work_item_tags` | `work_item_tags` | Item Tag Assignment | Item Tag Assignments | Junction master between work_items and work_tags. Carries no qualifier of its own; existence asserts the tag is applied. | master | - | - | required | - | junction | `:admin` | - |
+| 8 | `work_milestones` | `work_milestones` | Milestone | Milestones | Zero-duration gate within a work_project marking a meaningful transition. Distinct from a regular work_item by gate semantics (passed/missed). Asana, Monday, ClickUp, Workfront, Smartsheet all model. | master | - | - | required | - | operational_record | `:manage` | - |
+| 9 | `work_project_templates` | `work_project_templates` | Project Template | Project Templates | Reusable work_project blueprint with seeded sections, items, custom fields, and automations. Universal across all 5 flagships; central to enterprise rollout patterns. | master | - | - | required | - | catalog | `:admin` | - |
+| 10 | `proofing_annotations` | `proofing_annotations` | Proofing Annotation | Proofing Annotations | Markup comment placed on a region of a proof during a proofing session, with the reviewer, location, and resolution state. | master | - | - | optional | - | operational_record | `:manage` | - |
+| 11 | `proofing_sessions` | `proofing_sessions` | Proofing Session | Proofing Sessions | Review-and-approval cycle on a creative asset or document attached to a work item. Reviewers mark up the proof and decide approve or request-changes; backs the creative-review capability. | master | - | - | optional | single_approver | operational_workflow | `:manage` | - |
+| 12 | `work_sections` | `work_sections` | Section | Sections | Container within a work_project that groups work_items for board/list views. Asana sections / Monday groups / ClickUp statuses-as-columns / Workfront statuses / Smartsheet parent rows. | master | - | - | required | - | catalog | `:admin` | - |
+| 13 | `work_tags` | `work_tags` | Tag | Tags | Free-form label attached to work_items for cross-cutting categorization (priority, theme, status). Many-to-many to work_items via work_item_tags. | master | - | - | required | - | catalog | `:admin` | - |
+| 14 | `work_task_templates` | `work_task_templates` | Task Template | Task Templates | Reusable work_item blueprint with seeded assignee role, due-date offset, subtasks, and custom field defaults. Used for recurring or templated work creation. | master | - | - | required | - | catalog | `:admin` | - |
+| 15 | `work_automations` | `work_automations` | Work Automation | Work Automations | Trigger-action rule defined per board/project: status change, due date, assignment, form submission as triggers; multi-step actions with conditions, time delays, and external integrations. The user-authored behavior layer on top of the data primitives. | master | - | - | required | - | catalog | `:admin` | - |
+| 16 | `work_dashboards` | `work_dashboards` | Work Dashboard | Work Dashboards | Saved, shareable cross-project dashboard composed of configurable widgets that summarize work progress, workload, and goal status. Backs the cross-project dashboards capability. | master | - | - | optional | - | catalog | `:admin` | - |
+| 17 | `work_dependencies` | `work_dependencies` | Work Dependency | Work Dependencies | Typed dependency between two work_items: predecessor/successor with type (FS finish-to-start, SS start-to-start, FF finish-to-finish, SF start-to-finish). Backs the WORK-DEPS-SCHED capability. Modeled by Asana, Monday, ClickUp, Workfront, Smartsheet. | master | - | - | required | - | junction | `:manage` | - |
+| 18 | `work_items` | `work_items` | Work Item | Work Items | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 19 | `work_portfolios` | `work_portfolios` | Work Portfolio | Work Portfolios | Team-level grouping of related projects for cross-project status roll-up. Distinct from the top-down strategic portfolio mastered in the strategic-portfolio domain. | master | - | - | optional | - | catalog | `:admin` | - |
+| 20 | `work_projects` | `work_projects` | Work Project | Work Projects | Container of work_items, regardless of platform-specific terminology (project, board, sheet, space/list). Has timeline, status, owner, members, dashboards, and embedded views. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 21 | `work_status_updates` | `work_status_updates` | Work Status Update | Work Status Updates | Logged status-change event on a work item or project capturing the prior status, the new status, who changed it, and when. | master | - | - | optional | - | operational_record | `:manage` | - |
+| 22 | `work_statuses` | `work_statuses` | Work Status | Work Statuses | Configurable status value in a project's or team's status taxonomy, with its category (not started, in progress, done) and display order. | master | - | - | optional | - | catalog | `:admin` | - |
+| 23 | `work_time_entries` | `work_time_entries` | Work Time Entry | Work Time Entries | Non-billable time logged against a work item for effort tracking and capacity reporting. Billable worklog with rate, utilization, and invoice stays mastered in the services-billing domain and is consumed, not re-mastered, here. | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 24 | `work_views` | `work_views` | Work View | Work Views | Saved, named, shareable board / list / timeline / calendar view of work items with persisted filters, grouping, and sort. A configuration record, not a per-user UI toggle. | master | - | - | optional | - | catalog | `:admin` | - |
+| 25 | `work_user_workloads` | `work_user_workloads` | Workload | Workloads | Per-user, per-period sum of allocated effort on work_items, with capacity ceiling. Backs the WORK-CAPACITY capability. Continuous-numeric, not state-driven. May expose individual workload. | master | - | - | required | - | computed | read-only | - |
+| 26 | `business_value_assessments` | `business_value_assessments` | Business Value Assessment | Business Value Assessments | Scoring model for prioritizing portfolio items: NPV, strategic alignment, risk, dependencies, resource constraints. Ranked backlog. | consumer | `spm-demand-mgmt` | Demand and Value Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 27 | `action_plans` | `action_plans` | Engagement Action Plan | Engagement Action Plans | Team or manager action commitment in response to engagement_drivers result. Tracked to closure; recurring failure to act is itself an engagement signal. | consumer | `emp-exp-action-planning` | Action Planning | optional | - | operational_workflow | `:manage` | - |
+| 28 | `feature_requests` | `feature_requests` | Feature Request | Feature Requests | Customer request for new capability; input to the prioritization workflow. | consumer | `pm-discovery` | Product Discovery and Prioritization | optional | personal_content | operational_workflow | `:manage` | - |
+| 29 | `crm_opportunities` | `crm_opportunities` | Opportunity | Opportunities | Active sales deal - stage, amount, close date, probability, products/SKUs, competitor, decision criteria. Drives CPQ quote generation and closed-won triggers downstream subscription activation. | consumer | `crm-pipeline-mgt` | Opportunity and Pipeline Management | optional | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 30 | `strategic_portfolios` | `strategic_portfolios` | Portfolio | Portfolios | Container for strategic initiatives grouped by business unit, product line, or cost center; aggregate KPIs and investment rules. | consumer | `spm-portfolio-planning` | Portfolio Planning | optional | - | operational_workflow | `:manage` | - |
+| 31 | `product_releases` | `product_releases` | Product Release | Product Releases | Versioned software release; bundles features and defines delivery date and scope. | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
+| 32 | `product_roadmaps` | `product_roadmaps` | Product Roadmap | Product Roadmaps | Timeline view of features grouped by release, product, or theme. Marquee PROD-MGMT capability. | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
+| 33 | `project_assignments` | `project_assignments` | Project Assignment | Project Assignments | Worker-to-project allocation with role, bill rate, cost rate, planned hours, period. Drives utilization and resource-availability reporting. | consumer | `psa-resource-mgmt` | Resource Management | optional | - | operational_workflow | `:manage` | - |
+| 34 | `project_tasks` | `project_tasks` | Project Task | Project Tasks | Decomposed unit of work inside a project: scope, dependencies, estimated hours, status. Drives time entry tagging and Earned Value calculation. | consumer | `psa-project-delivery` | Project Delivery | optional | - | operational_workflow | `:manage` | - |
+| 35 | `strategic_initiatives` | `strategic_initiatives` | Strategic Initiative | Strategic Initiatives | Multi-quarter / annual program aligned to corporate strategy; bundles related projects, has executive sponsor and benefits realization plan. | consumer | `sem-execution-tracking` | Execution Tracking | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

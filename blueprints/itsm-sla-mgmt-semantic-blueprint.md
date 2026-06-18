@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: ITSM-SLA-MGMT
 system_description: SLA and Chargeback Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [ats-recruitment-pipeline, fin-gl-close, hcm-core-worker, hcm-org-positions, iga-access-request, itsm-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # SLA and Chargeback Management
@@ -28,9 +28,9 @@ SLA / OLA definitions, breach tracking, escalation rules, service-cost tracking,
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| SLAs | `service_slas` | Service-level agreement record: response-time, resolution-time, and availability targets per priority / category / customer tier. SLAs attach to incidents, service requests, and changes; breach metrics roll up to operational KPIs. |
-| Cost Centers | `cost_centers` | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. |
-| Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
+| SLAs | `service_slas` | Service-level agreements setting response, resolution, and availability targets by priority, category, or customer tier. |
+| Cost Centers | `cost_centers` | Organizational units for cost allocation, with code, manager, hierarchy, and currency, driving variance and departmental reporting. |
+| Org Units | `org_units` | Nodes in the organizational hierarchy such as divisions, departments, and teams, with manager, cost center alignment, geographic scope, and parent-child links. |
 
 ```mermaid
 flowchart TD
@@ -58,11 +58,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `service_slas` | `service_slas` | SLA | SLAs | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 3 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `service_slas` | `service_slas` | SLA | SLAs | Service-level agreement record: response-time, resolution-time, and availability targets per priority / category / customer tier. SLAs attach to incidents, service requests, and changes; breach metrics roll up to operational KPIs. | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
+| 3 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: ATS-BACKGROUND-CHECKS
 system_description: Background Checks
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, hrsd-case-mgmt, lms-compliance-training, lms-ct-gdpr, onb-journey-mgmt, payroll-run]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-COORDINATOR, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Background Checks
@@ -28,18 +28,18 @@ Pre-employment background-check orchestration with adverse-action workflow. Coor
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Adverse Action Notices | `adverse_action_notices` | FCRA-mandated notice issued when a background_check result is used to decline a candidate. Two-step process: pre-adverse notice + waiting period + post-adverse final notice. Carries notice type, sent timestamp, copy_of_report enclosure, dispute window expiry. |
-| Background Check Adjudications | `background_check_adjudications` | Human review decision on a completed background_check (Clear / Engaged / Decisional / Declined). Carries adjudicator, decision rationale, individualized assessment notes per EEOC guidance. |
-| Background Check Components | `background_check_components` | Individual sub-check result inside a background_checks order (e.g. county_criminal, ssn_trace, employment_verification, drug_screen). Each component has its own status, result, and provider source. |
-| Background Check Disputes | `background_check_disputes` | Candidate-initiated dispute of a background_check component result under FCRA rights. Carries disputed component, candidate statement, provider re-investigation result, resolution. |
-| Background Check Packages | `background_check_packages` | Configured bundle of check types (county criminal + national + MVR + drug screen + employment verification + education verification) that can be ordered as one unit. Catalog-shaped: defines what a 'standard package' looks like for a role tier. |
-| Background Checks | `background_checks` | External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider. |
-| Drug and Health Screenings | `drug_health_screenings` | Pre-employment drug test or occupational health screening ordered as a check distinct from the criminal and employment background check. Tracks the order, provider, result, and any adverse-finding review, and handles sensitive medical data subject to ADA and state-law restrictions. |
-| FCRA Disclosures | `fcra_disclosures` | Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgment signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.). |
-| FCRA Summary of Rights Acknowledgments | `fcra_summary_of_rights_acknowledgements` | Candidate acknowledgment of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgment timestamp persist for audit. |
-| Pre-Adverse Action Notices | `pre_adverse_action_notices` | FCRA-mandated notice sent to a candidate before a final adverse-action decision based on a consumer report. Carries a copy of the report and Summary of Rights, and opens a waiting period (typically 5 business days) during which the candidate may dispute findings before the final adverse-action notice issues. |
-| Candidates | `candidates` | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
-| Offers | `job_offers` | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). |
+| Adverse Action Notices | `adverse_action_notices` | FCRA-mandated notices issued when a background check is used to decline a candidate, covering the pre-adverse and post-adverse two-step process and dispute window. |
+| Background Check Adjudications | `background_check_adjudications` | Human review decisions on a completed background check (clear, engaged, decisional, declined), with rationale and individualized assessment notes. |
+| Background Check Components | `background_check_components` | Individual sub-check results inside a background check order (county criminal, SSN trace, employment verification, drug screen), each with its own status and source. |
+| Background Check Disputes | `background_check_disputes` | Candidate-initiated disputes of a background check result under FCRA, with the disputed component, candidate statement, re-investigation result, and resolution. |
+| Background Check Packages | `background_check_packages` | Configured bundles of check types that can be ordered as one unit, defining what a standard package looks like for a role tier. |
+| Background Checks | `background_checks` | External verification results for a candidate (criminal, employment, education, credit, identity), with status and findings from a screening provider. |
+| Drug and Health Screenings | `drug_health_screenings` | Pre-employment drug tests and occupational health screenings, tracking the order, provider, result, and any adverse-finding review. Holds sensitive medical data subject to legal restrictions. |
+| FCRA Disclosures | `fcra_disclosures` | Legally required disclosure forms shown to a candidate before a consumer report is requested, with text version, signature, and timestamp. |
+| FCRA Summary of Rights Acknowledgments | `fcra_summary_of_rights_acknowledgements` | Candidate acknowledgments of receiving the summary of consumer rights at consent time, captured separately so the copy and timestamp persist for audit. |
+| Pre-Adverse Action Notices | `pre_adverse_action_notices` | FCRA-mandated notices sent to a candidate before a final adverse-action decision, including the report and rights summary and opening a dispute waiting period. |
+| Candidates | `candidates` | People known to the recruiting organization, with or without an active application, carrying contact details, resume, tags, consent, and source. |
+| Offers | `job_offers` | Formal employment offers extended to candidates, with compensation, start date, terms, approval chain, and status. |
 
 ```mermaid
 flowchart TD
@@ -101,20 +101,20 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `adverse_action_notices` | `adverse_action_notices` | Adverse Action Notice | Adverse Action Notices | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 2 | `background_check_adjudications` | `background_check_adjudications` | Background Check Adjudication | Background Check Adjudications | master | - | - | required | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 3 | `background_check_components` | `background_check_components` | Background Check Component | Background Check Components | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `background_check_disputes` | `background_check_disputes` | Background Check Dispute | Background Check Disputes | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `background_check_packages` | `background_check_packages` | Background Check Package | Background Check Packages | master | - | - | required | - | catalog | `:admin` | - |
-| 6 | `background_checks` | `background_checks` | Background Check | Background Checks | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 7 | `drug_health_screenings` | `drug_health_screenings` | Drug and Health Screening | Drug and Health Screenings | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 8 | `fcra_disclosures` | `fcra_disclosures` | FCRA Disclosure | FCRA Disclosures | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 9 | `fcra_summary_of_rights_acknowledgements` | `fcra_summary_of_rights_acknowledgements` | FCRA Summary of Rights Acknowledgment | FCRA Summary of Rights Acknowledgments | master | - | - | optional | personal_content, submit_lock | operational_record | `:manage` | - |
-| 10 | `pre_adverse_action_notices` | `pre_adverse_action_notices` | Pre-Adverse Action Notice | Pre-Adverse Action Notices | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 11 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `job_offers` | `job_offers` | Offer | Offers | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `adverse_action_notices` | `adverse_action_notices` | Adverse Action Notice | Adverse Action Notices | FCRA-mandated notice issued when a background_check result is used to decline a candidate. Two-step process: pre-adverse notice + waiting period + post-adverse final notice. Carries notice type, sent timestamp, copy_of_report enclosure, dispute window expiry. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 2 | `background_check_adjudications` | `background_check_adjudications` | Background Check Adjudication | Background Check Adjudications | Human review decision on a completed background_check (Clear / Engaged / Decisional / Declined). Carries adjudicator, decision rationale, individualized assessment notes per EEOC guidance. | master | - | - | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 3 | `background_check_components` | `background_check_components` | Background Check Component | Background Check Components | Individual sub-check result inside a background_checks order (e.g. county_criminal, ssn_trace, employment_verification, drug_screen). Each component has its own status, result, and provider source. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `background_check_disputes` | `background_check_disputes` | Background Check Dispute | Background Check Disputes | Candidate-initiated dispute of a background_check component result under FCRA rights. Carries disputed component, candidate statement, provider re-investigation result, resolution. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `background_check_packages` | `background_check_packages` | Background Check Package | Background Check Packages | Configured bundle of check types (county criminal + national + MVR + drug screen + employment verification + education verification) that can be ordered as one unit. Catalog-shaped: defines what a 'standard package' looks like for a role tier. | master | - | - | required | - | catalog | `:admin` | - |
+| 6 | `background_checks` | `background_checks` | Background Check | Background Checks | External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `drug_health_screenings` | `drug_health_screenings` | Drug and Health Screening | Drug and Health Screenings | Pre-employment drug test or occupational health screening ordered as a check distinct from the criminal and employment background check. Tracks the order, provider, result, and any adverse-finding review, and handles sensitive medical data subject to ADA and state-law restrictions. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 8 | `fcra_disclosures` | `fcra_disclosures` | FCRA Disclosure | FCRA Disclosures | Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgment signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.). | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 9 | `fcra_summary_of_rights_acknowledgements` | `fcra_summary_of_rights_acknowledgements` | FCRA Summary of Rights Acknowledgment | FCRA Summary of Rights Acknowledgments | Candidate acknowledgment of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgment timestamp persist for audit. | master | - | - | optional | personal_content, submit_lock | operational_record | `:manage` | - |
+| 10 | `pre_adverse_action_notices` | `pre_adverse_action_notices` | Pre-Adverse Action Notice | Pre-Adverse Action Notices | FCRA-mandated notice sent to a candidate before a final adverse-action decision based on a consumer report. Carries a copy of the report and Summary of Rights, and opens a waiting period (typically 5 business days) during which the candidate may dispute findings before the final adverse-action notice issues. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 11 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `job_offers` | `job_offers` | Offer | Offers | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: RE-BROK-AGENT-OPS
 system_description: Real Estate Agent Operations
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: RE-BROKERAGE
 related_modules: [crm-acct-mgt, crm-activity, crm-lead-mgt, ma-campaign-authoring, ma-lead-scoring, re-brok-brokerage-ops, re-invest-portfolio-val, real-estate-agent]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Real Estate Agent Operations
@@ -25,13 +25,13 @@ Agent-facing workflow from lead capture through closing. Lead nurture (writes ba
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Disclosure Documents | `disclosure_documents` | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. |
-| Real Estate Listings | `real_estate_listings` | Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn). |
-| Real Estate Transactions | `real_estate_transactions` | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. |
+| Disclosure Documents | `disclosure_documents` | State-mandated and brokerage-policy disclosure forms attached to transactions, such as agency, property condition, lead paint, and HOA documents. |
+| Real Estate Listings | `real_estate_listings` | Properties offered for sale or rent, with pricing, photos, descriptions, agent representation, and status from active to sold. |
+| Real Estate Transactions | `real_estate_transactions` | Real estate deals from accepted offer through close, with parties, terms, contingencies, escrow timeline, and document compliance. |
 | Tour Appointments | `tour_appointments` | Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking. |
-| Commission Splits | `commission_splits` | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. |
-| Contacts | `crm_contacts` | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. |
-| Leads | `crm_leads` | Pre-qualification prospect record - source, score, status (new/working/qualified/disqualified/converted), assigned rep, conversion target (which contact + account it would become). MQL handoff from MA lands here. |
+| Commission Splits | `commission_splits` | How a transaction's commission is divided across brokerages and then internal agents, used by accounting and tax reporting. |
+| Contacts | `crm_contacts` | People at customer or prospect organizations, carrying title, contact details, decision-maker flag, preferred channel, and opt-in state. |
+| Leads | `crm_leads` | Prospects captured before qualification, tracking source, score, status, assigned rep, and the contact and account they would convert into. |
 
 ```mermaid
 flowchart TD
@@ -74,15 +74,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | master | - | - | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 2 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | embedded_master | `re-brok-brokerage-ops` | Brokerage Oversight and Commission Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 6 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
-| 7 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. | master | - | - | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 2 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn). | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | Per-transaction commission distribution across listing-side and buyer-side brokerages, then internal agent splits per franchise rules; referenced by accounting and 1099 processes. | embedded_master | `re-brok-brokerage-ops` | Brokerage Oversight and Commission Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 6 | `crm_contacts` | `crm_contacts` | Contact | Contacts | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
+| 7 | `crm_leads` | `crm_leads` | Lead | Leads | Pre-qualification prospect record - source, score, status (new/working/qualified/disqualified/converted), assigned rep, conversion target (which contact + account it would become). MQL handoff from MA lands here. | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

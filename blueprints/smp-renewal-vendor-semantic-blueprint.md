@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: SMP-RENEWAL-VENDOR
 system_description: SMP Renewal and Vendor Management
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: SMP
 related_modules: [agency-mgmt-job-traffic, apm-portfolio-registry, ats-recruitment-pipeline, clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-quote-builder, expense-capture-and-reporting, hcm-core-worker, hcm-org-positions, iga-access-request, iga-entitlement-catalog, it-ops-starter, psa-project-delivery, smp-automation, smp-discovery, smp-optimization]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, IT-SAAS-ADMIN, ITAM-SAAS-PORTFOLIO-MANAGER, LEGAL-COUNSEL, PEOPLE-MANAGER, PROCUREMENT-CONTRACT-LIAISON, PROCUREMENT-SAAS-RENEWAL-OWNER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # SMP Renewal and Vendor Management
@@ -25,15 +25,15 @@ Renewal pipeline tracking, vendor relationship management, contract coordination
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Renewal Engagements | `smp_renewal_engagements` | Lifecycle envelope per renewal cycle: timeline, owner, vendor proposals received, BATNA notes, decisions taken. Buyer-side analog of CRM opportunities; distinct in that the buyer drives the negotiation. Productiv Renewal Pipeline + Zylo Renewal Workbench are the flagship. |
-| Renewal Tasks | `smp_renewal_tasks` | Workstream task within a SaaS renewal cycle (renewal window notice, owner assignment, decision: renew/renegotiate/consolidate/cancel). Productiv, Zylo, Flexera Renewal workspace surfaces. |
-| SaaS Spend Allocations | `smp_spend_allocations` | Chargeback split of a SaaS subscription across cost centers, business units, or projects, with allocation method (per-seat, per-headcount, fixed-percentage) and effective window. Zylo Cost Center Allocation + Flexera Chargeback Allocations are the flagship. Distinct from FINOPS cost_allocations (cloud-only). |
-| SaaS Subscriptions | `saas_subscriptions` | The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P). |
-| Vendor Negotiations | `smp_vendor_negotiations` | Quote, counter-quote, and discount-applied artifact tied to a renewal engagement. Decision-provenance record for how the final commercial terms were reached; contributor into CLM at execution time. Productiv Negotiation Intelligence + Zylo negotiation insights are the flagship. |
-| Vendor Risk Assessments | `smp_vendor_risk_assessments` | SaaS-specific vendor-risk scorecard: SOC 2 attestation status, ISO 27001, DPA review, subprocessor disclosures, breach history, posture score. Per-SaaS-application (Slack vs Salesforce risk profiles differ from the same vendor). Flexera Vendor Risk Scorecard is the flagship; pure-plays defer most risk surfaces to GRC. |
-| Contracts | `legal_contracts` | Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object - CLM owns the document, S2P and SMP contribute context. |
-| Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
-| SaaS Applications | `saas_applications` | Canonical SaaS app in the portfolio (collaboration, CRM, productivity, design, work-management tools). Carries vendor, category, criticality tier, sanctioned/shadow flag, and links to the active subscription. Distinct from SAM's software_titles which are typically installed (or hybrid). The flagship SMP entity. |
+| Renewal Engagements | `smp_renewal_engagements` | Per-renewal-cycle envelopes covering timeline, owner, vendor proposals received, fallback notes, and decisions taken. |
+| Renewal Tasks | `smp_renewal_tasks` | Tasks within a SaaS renewal cycle, such as the renewal-window notice, owner assignment, and the renew-or-cancel decision. |
+| SaaS Spend Allocations | `smp_spend_allocations` | Chargeback splits of a SaaS subscription across cost centers, business units, or projects, with the allocation method and effective window. |
+| SaaS Subscriptions | `saas_subscriptions` | Contractual subscriptions for SaaS apps: plan tier, seat count, recurring cost, billing cadence, renewal date, and owner. |
+| Vendor Negotiations | `smp_vendor_negotiations` | Quote, counter-quote, and discount records tied to a renewal, documenting how the final commercial terms were reached. |
+| Vendor Risk Assessments | `smp_vendor_risk_assessments` | SaaS vendor risk scorecards covering attestation status, data-processing review, subprocessors, breach history, and posture score. |
+| Contracts | `legal_contracts` | Contracts with counterparties or suppliers, covering type, value, key dates, governing law, and lifecycle from draft to terminated. |
+| Org Units | `org_units` | Nodes in the organizational hierarchy such as divisions, departments, and teams, with manager, cost center alignment, geographic scope, and parent-child links. |
+| SaaS Applications | `saas_applications` | SaaS applications in the company portfolio, with vendor, category, criticality, owner, and whether each is sanctioned or shadow IT. |
 
 ```mermaid
 flowchart TD
@@ -88,17 +88,17 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `smp_renewal_engagements` | `smp_renewal_engagements` | Renewal Engagement | Renewal Engagements | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 2 | `smp_renewal_tasks` | `smp_renewal_tasks` | Renewal Task | Renewal Tasks | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `smp_spend_allocations` | `smp_spend_allocations` | SaaS Spend Allocation | SaaS Spend Allocations | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 4 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `smp_vendor_negotiations` | `smp_vendor_negotiations` | Vendor Negotiation | Vendor Negotiations | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 6 | `smp_vendor_risk_assessments` | `smp_vendor_risk_assessments` | Vendor Risk Assessment | Vendor Risk Assessments | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 7 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 8 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 9 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | embedded_master | `smp-discovery` | SMP Discovery and Catalog | required | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `smp_renewal_engagements` | `smp_renewal_engagements` | Renewal Engagement | Renewal Engagements | Lifecycle envelope per renewal cycle: timeline, owner, vendor proposals received, BATNA notes, decisions taken. Buyer-side analog of CRM opportunities; distinct in that the buyer drives the negotiation. Productiv Renewal Pipeline + Zylo Renewal Workbench are the flagship. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `smp_renewal_tasks` | `smp_renewal_tasks` | Renewal Task | Renewal Tasks | Workstream task within a SaaS renewal cycle (renewal window notice, owner assignment, decision: renew/renegotiate/consolidate/cancel). Productiv, Zylo, Flexera Renewal workspace surfaces. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `smp_spend_allocations` | `smp_spend_allocations` | SaaS Spend Allocation | SaaS Spend Allocations | Chargeback split of a SaaS subscription across cost centers, business units, or projects, with allocation method (per-seat, per-headcount, fixed-percentage) and effective window. Zylo Cost Center Allocation + Flexera Chargeback Allocations are the flagship. Distinct from FINOPS cost_allocations (cloud-only). | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 4 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P). | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `smp_vendor_negotiations` | `smp_vendor_negotiations` | Vendor Negotiation | Vendor Negotiations | Quote, counter-quote, and discount-applied artifact tied to a renewal engagement. Decision-provenance record for how the final commercial terms were reached; contributor into CLM at execution time. Productiv Negotiation Intelligence + Zylo negotiation insights are the flagship. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 6 | `smp_vendor_risk_assessments` | `smp_vendor_risk_assessments` | Vendor Risk Assessment | Vendor Risk Assessments | SaaS-specific vendor-risk scorecard: SOC 2 attestation status, ISO 27001, DPA review, subprocessor disclosures, breach history, posture score. Per-SaaS-application (Slack vs Salesforce risk profiles differ from the same vendor). Flexera Vendor Risk Scorecard is the flagship; pure-plays defer most risk surfaces to GRC. | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 7 | `legal_contracts` | `legal_contracts` | Contract | Contracts | Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object - CLM owns the document, S2P and SMP contribute context. | embedded_master | `clm-repository` | Contract Repository | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 8 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 9 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | Canonical SaaS app in the portfolio (collaboration, CRM, productivity, design, work-management tools). Carries vendor, category, criticality tier, sanctioned/shadow flag, and links to the active subscription. Distinct from SAM's software_titles which are typically installed (or hybrid). The flagship SMP entity. | embedded_master | `smp-discovery` | SMP Discovery and Catalog | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

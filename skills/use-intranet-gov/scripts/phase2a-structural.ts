@@ -127,6 +127,7 @@ function normalize(spec: Spec): {
 
 type Phase1Result = {
   ok: boolean;
+  tenant?: { org?: string | null; email?: string | null; ui_baseurl?: string | null };
   domain_slice?: Array<{
     module_id: number;
     module_slug?: string | null;
@@ -360,6 +361,14 @@ async function main() {
       };
     }
   } catch { /* cache absent (re-derived slice); module detail simply omitted */ }
+
+  // Tenant/deploy context for the skill: ui_baseurl (from getCurrentUser) is the base for UI deep-links;
+  // org is the deployment identity. Read from the Phase 1 cache so links resolve from discovered.json.
+  let deployment: { org: string | null; ui_baseurl: string | null } = { org: null, ui_baseurl: null };
+  try {
+    const phase1: Phase1Result = JSON.parse(readFileSync(phase1Path, "utf-8"));
+    deployment = { org: phase1.tenant?.org ?? null, ui_baseurl: phase1.tenant?.ui_baseurl ?? null };
+  } catch { /* cache absent; deployment context omitted */ }
 
   // ---- Pull live entities (with provenance + operational shape) for the slice modules. ----
   // The operational columns (id_column/label_column/description/permissions, and the field-level
@@ -684,6 +693,7 @@ async function main() {
     discovered_against_emitted: (spec as any).emitted,
     discovered_against_major: (spec as any).facts_major,
     domain_code: view.code,
+    deployment, // { org, ui_baseurl }: ui_baseurl (from getCurrentUser) is the base for UI deep-links
     slice_module_ids: sliceModuleIds,
     modules: sliceModules, // per module_id: { module_slug, module_name, catalog_module_code, settings }
     resolution: resolutions, // per-concept: { via, live_table, renamed }

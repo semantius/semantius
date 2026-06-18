@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: LMS-CREDENTIALS
 system_description: Credentials, Badges and Continuing Education
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-automation, lms-compliance-training, lms-course-delivery, lms-ct-gdpr, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Credentials, Badges and Continuing Education
@@ -25,19 +25,19 @@ Catalog and lifecycle for certifications, micro-credential badges, and continuin
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Certificate Templates | `certificate_templates` | PDF / image template used to issue a certificate to a learner; carries layout and dynamic fields. |
-| Certification Definitions | `certification_definitions` | Catalog of certification types: name, issuing authority, validity period, recertification policy, prerequisite courses. |
-| Certification Renewals | `certification_renewals` | Renewal cycle of an existing certification, distinct from initial issuance. |
-| Certifications | `learner_certifications` | Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. |
-| CEU Records | `ceu_records` | Earned-credit ledger row per learner; CEU evidence for state-CE, NASBA, and similar professional licensure reporting. |
-| Continuing Education Credits | `continuing_education_credits` | CEU credit-value master: credit hours, accrediting body, eligible courses. |
-| Credential Badges | `credential_badges` | Open Badges / micro-credential definition: criteria, image, issuer, expiration policy. Distinct from visitor_badges (physical access). |
-| Credential Verifications | `credential_verifications` | Third-party verification handshake for an issued badge or credential (Open Badges 3.0). |
-| FINRA CE Records | `finra_ce_records` | FINRA Rule 1240 continuing-education ledger row per registered representative; regulator-evidence retention. |
-| Learner Badges | `learner_badges` | Earned-badge junction per learner per badge; carries earn date, evidence URL, and verification token. |
-| Course Enrollments | `course_enrollments` | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. |
-| Courses | `courses` | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. |
-| Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
+| Certificate Templates | `certificate_templates` | Templates used to issue completion certificates to learners, carrying layout and dynamic fields. |
+| Certification Definitions | `certification_definitions` | Catalog of certification types, with issuing authority, validity period, recertification policy, and prerequisite courses. |
+| Certification Renewals | `certification_renewals` | Renewal cycles of an existing certification, distinct from its initial issuance. |
+| Certifications | `learner_certifications` | Credentials issued to a worker (internal, vendor, or regulatory), with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. |
+| CEU Records | `ceu_records` | Per-learner ledger of earned continuing-education credits, serving as evidence for professional licensure reporting. |
+| Continuing Education Credits | `continuing_education_credits` | Continuing education credit definitions, with credit hours, accrediting body, and eligible courses. |
+| Credential Badges | `credential_badges` | Definitions of digital badges and micro-credentials, covering criteria, image, issuer, and expiration policy. |
+| Credential Verifications | `credential_verifications` | Third-party verification handshakes confirming that an issued badge or credential is genuine. |
+| FINRA CE Records | `finra_ce_records` | Continuing-education ledger rows per registered representative, retained as regulator evidence. |
+| Learner Badges | `learner_badges` | Badges earned by learners, each with earn date, evidence link, and verification token. |
+| Course Enrollments | `course_enrollments` | Per-learner per-course records tracking assigned and due dates, attempts, status, and score. |
+| Courses | `courses` | Learning units such as e-learning modules, videos, live sessions, or blended programs, with format, duration, and prerequisites. |
+| Employees | `employees` | Canonical records of people currently or formerly employed, carrying identity, employment metadata, and links to position, manager, and org unit. |
 
 ```mermaid
 flowchart TD
@@ -98,21 +98,21 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `certificate_templates` | `certificate_templates` | Certificate Template | Certificate Templates | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `certification_definitions` | `certification_definitions` | Certification Definition | Certification Definitions | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `certification_renewals` | `certification_renewals` | Certification Renewal | Certification Renewals | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 4 | `learner_certifications` | `learner_certifications` | Certification | Certifications | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `ceu_records` | `ceu_records` | CEU Record | CEU Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `continuing_education_credits` | `continuing_education_credits` | Continuing Education Credit | Continuing Education Credits | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `credential_badges` | `credential_badges` | Credential Badge | Credential Badges | master | - | - | required | - | catalog | `:admin` | - |
-| 8 | `credential_verifications` | `credential_verifications` | Credential Verification | Credential Verifications | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 9 | `finra_ce_records` | `finra_ce_records` | FINRA CE Record | FINRA CE Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 10 | `learner_badges` | `learner_badges` | Learner Badge | Learner Badges | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 11 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 13 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `certificate_templates` | `certificate_templates` | Certificate Template | Certificate Templates | PDF / image template used to issue a certificate to a learner; carries layout and dynamic fields. | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `certification_definitions` | `certification_definitions` | Certification Definition | Certification Definitions | Catalog of certification types: name, issuing authority, validity period, recertification policy, prerequisite courses. | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `certification_renewals` | `certification_renewals` | Certification Renewal | Certification Renewals | Renewal cycle of an existing certification, distinct from initial issuance. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 4 | `learner_certifications` | `learner_certifications` | Certification | Certifications | Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 5 | `ceu_records` | `ceu_records` | CEU Record | CEU Records | Earned-credit ledger row per learner; CEU evidence for state-CE, NASBA, and similar professional licensure reporting. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 6 | `continuing_education_credits` | `continuing_education_credits` | Continuing Education Credit | Continuing Education Credits | CEU credit-value master: credit hours, accrediting body, eligible courses. | master | - | - | required | - | catalog | `:admin` | - |
+| 7 | `credential_badges` | `credential_badges` | Credential Badge | Credential Badges | Open Badges / micro-credential definition: criteria, image, issuer, expiration policy. Distinct from visitor_badges (physical access). | master | - | - | required | - | catalog | `:admin` | - |
+| 8 | `credential_verifications` | `credential_verifications` | Credential Verification | Credential Verifications | Third-party verification handshake for an issued badge or credential (Open Badges 3.0). | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 9 | `finra_ce_records` | `finra_ce_records` | FINRA CE Record | FINRA CE Records | FINRA Rule 1240 continuing-education ledger row per registered representative; regulator-evidence retention. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 10 | `learner_badges` | `learner_badges` | Learner Badge | Learner Badges | Earned-badge junction per learner per badge; carries earn date, evidence URL, and verification token. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 11 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `courses` | `courses` | Course | Courses | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
+| 13 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: LMS-CT-GDPR
 system_description: Learner Data Privacy
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, ecm-records-gov, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-case-mgmt, iga-access-request, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Learner Data Privacy
@@ -25,12 +25,12 @@ Learner data privacy substrate that compliance training depends on: GDPR Article
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Data Deletion Requests | `data_deletion_requests` | GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfillment status. |
-| GDPR Consent Records | `gdpr_consent_records` | GDPR Article 6 / 7 consent capture for learner training data: purpose, lawful basis, granted timestamp, withdrawal timestamp. |
-| Subject Access Requests | `subject_access_requests` | GDPR Article 15 subject-access-request ticket: requester, scope, fulfillment status, regulator deadline. |
-| Employees | `employees` | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. |
-| Records Retention Policies | `records_retention_policies` | Legal hold + disposition rules per document class (regulatory retention periods, destruction dates). |
-| Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
+| Data Deletion Requests | `data_deletion_requests` | Right-to-erasure requests under GDPR Article 17, covering scope, anonymization policy, regulator deadline, and fulfillment status. |
+| GDPR Consent Records | `gdpr_consent_records` | Consent records for learner training data under GDPR, capturing purpose, lawful basis, and grant and withdrawal timestamps. |
+| Subject Access Requests | `subject_access_requests` | Subject access request tickets under GDPR Article 15, tracking requester, scope, fulfillment status, and regulator deadline. |
+| Employees | `employees` | Canonical records of people currently or formerly employed, carrying identity, employment metadata, and links to position, manager, and org unit. |
+| Records Retention Policies | `records_retention_policies` | Legal hold and disposition rules per document class, with regulatory retention periods and scheduled destruction dates. |
+| Users | `users` | Platform users referenced as assignees, authors, approvers, and creators across records. |
 
 ```mermaid
 flowchart TD
@@ -62,14 +62,14 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `data_deletion_requests` | `data_deletion_requests` | Data Deletion Request | Data Deletion Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `gdpr_consent_records` | `gdpr_consent_records` | GDPR Consent Record | GDPR Consent Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 3 | `subject_access_requests` | `subject_access_requests` | Subject Access Request | Subject Access Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `records_retention_policies` | `records_retention_policies` | Records Retention Policy | Records Retention Policies | consumer | `ecm-records-gov` | Records Management and Information Governance | optional | - | operational_workflow | `:manage` | - |
-| 6 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `data_deletion_requests` | `data_deletion_requests` | Data Deletion Request | Data Deletion Requests | GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfillment status. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `gdpr_consent_records` | `gdpr_consent_records` | GDPR Consent Record | GDPR Consent Records | GDPR Article 6 / 7 consent capture for learner training data: purpose, lawful basis, granted timestamp, withdrawal timestamp. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 3 | `subject_access_requests` | `subject_access_requests` | Subject Access Request | Subject Access Requests | GDPR Article 15 subject-access-request ticket: requester, scope, fulfillment status, regulator deadline. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `records_retention_policies` | `records_retention_policies` | Records Retention Policy | Records Retention Policies | Legal hold + disposition rules per document class (regulatory retention periods, destruction dates). | consumer | `ecm-records-gov` | Records Management and Information Governance | optional | - | operational_workflow | `:manage` | - |
+| 6 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: CLM-REPOSITORY
 system_description: Contract Repository
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: CLM
 related_modules: [agency-mgmt-job-traffic, ats-recruitment-pipeline, clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-renewal, cpq-quote-builder, crm-pipeline-mgt, csm-entitlements, hcm-core-worker, hcm-org-positions, iga-access-request, lms-compliance-training, psa-project-delivery, real-estate-agent, sam-entitlement-mgmt, smp-renewal-vendor, training-records-starter]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, LEGAL-COUNSEL, PEOPLE-MANAGER, PROCUREMENT-CONTRACT-LIAISON]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Contract Repository
@@ -28,13 +28,13 @@ Executed-contract index. Masters legal_contracts (post-signature) and signature_
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Contract Amendments | `contract_amendments` | A formal change to the terms of an executed contract, tracked as its own record with an approval and signature trail. |
-| Contract Counterparties | `contract_counterparties` | The external party to a contract, held as its own record because a counterparty is not always a CRM account or supplier and may sign many contracts. |
-| Contracts | `legal_contracts` | Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object - CLM owns the document, S2P and SMP contribute context. |
-| Data Protection Addenda | `data_protection_addenda` | A data processing addendum attached to a contract that governs how personal data is handled, with its own approval and renewal cycle. |
-| Signature Records | `signature_records` | E-signature envelope: signing audit trail, IP addresses, external e-signature provider envelope and document reference IDs, and the signed PDF artifact. Distinct from contracts, one contract may have many signature events (counterpart, amendment, renewal). |
-| Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
-| Envelopes | `envelopes` | An e-signature transaction wrapping one or more signature requests against a contract or document. Lifecycle: created → sent → in_progress → completed (or declined / voided / expired). Distinct from CLM's signature_records (the legal-side authoritative record of signed agreements); ESIGN's envelopes capture the e-sign-platform lifecycle while CLM consumes the completed result. |
+| Contract Amendments | `contract_amendments` | Formal changes to the terms of an executed contract, each tracked with its own approval and signature trail. |
+| Contract Counterparties | `contract_counterparties` | External parties to a contract, held separately because a counterparty may not be a CRM account or supplier and may sign many contracts. |
+| Contracts | `legal_contracts` | Contracts with counterparties or suppliers, covering type, value, key dates, governing law, and lifecycle from draft to terminated. |
+| Data Protection Addenda | `data_protection_addenda` | Data processing addenda attached to contracts that govern how personal data is handled, each with its own approval and renewal cycle. |
+| Signature Records | `signature_records` | E-signature envelopes with signing audit trail, IP addresses, provider references, and the signed document, one contract may have many. |
+| Org Units | `org_units` | Nodes in the organizational hierarchy such as divisions, departments, and teams, with manager, cost center alignment, geographic scope, and parent-child links. |
+| Envelopes | `envelopes` | E-signature transactions wrapping one or more signature requests against a document, tracked from created through completed, declined, or voided. |
 
 ```mermaid
 flowchart TD
@@ -82,15 +82,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_amendments` | `contract_amendments` | Contract Amendment | Contract Amendments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `contract_counterparties` | `contract_counterparties` | Contract Counterparty | Contract Counterparties | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 3 | `legal_contracts` | `legal_contracts` | Contract | Contracts | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `data_protection_addenda` | `data_protection_addenda` | Data Protection Addendum | Data Protection Addenda | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `signature_records` | `signature_records` | Signature Record | Signature Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 7 | `envelopes` | `envelopes` | Envelope | Envelopes | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `contract_amendments` | `contract_amendments` | Contract Amendment | Contract Amendments | A formal change to the terms of an executed contract, tracked as its own record with an approval and signature trail. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 2 | `contract_counterparties` | `contract_counterparties` | Contract Counterparty | Contract Counterparties | The external party to a contract, held as its own record because a counterparty is not always a CRM account or supplier and may sign many contracts. | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 3 | `legal_contracts` | `legal_contracts` | Contract | Contracts | Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object - CLM owns the document, S2P and SMP contribute context. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `data_protection_addenda` | `data_protection_addenda` | Data Protection Addendum | Data Protection Addenda | A data processing addendum attached to a contract that governs how personal data is handled, with its own approval and renewal cycle. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 5 | `signature_records` | `signature_records` | Signature Record | Signature Records | E-signature envelope: signing audit trail, IP addresses, external e-signature provider envelope and document reference IDs, and the signed PDF artifact. Distinct from contracts, one contract may have many signature events (counterpart, amendment, renewal). | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 6 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 7 | `envelopes` | `envelopes` | Envelope | Envelopes | An e-signature transaction wrapping one or more signature requests against a contract or document. Lifecycle: created → sent → in_progress → completed (or declined / voided / expired). Distinct from CLM's signature_records (the legal-side authoritative record of signed agreements); ESIGN's envelopes capture the e-sign-platform lifecycle while CLM consumes the completed result. | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

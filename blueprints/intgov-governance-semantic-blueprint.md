@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: INTGOV-GOVERNANCE
 system_description: Ownership, Lifecycle and Planning
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: INTRANET-GOV
 related_modules: [intgov-inventory, mrm-planning, pm-roadmap-delivery, psa-project-delivery, work-mgmt-goals-okr, work-mgmt-intake, work-mgmt-task-exec]
 persona: [CONTENT-OWNER, DIGITAL-WORKPLACE-GOV-LEAD, ITOPS-INTRANET-ADMIN, OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Ownership, Lifecycle and Planning
@@ -25,10 +25,10 @@ Accountable ownership assignments, recertification attestations, and the improve
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Content Attestations | `intranet_content_attestations` | A recertification record: an owner attests that a piece of content is current, or flags it stale for remediation or archival. |
-| Content Ownership Assignments | `intranet_content_ownership_assignments` | Assignment of an accountable owner and backup to an inventory record, with the review cadence the owner is responsible for. |
-| Work Items | `work_items` | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). |
-| Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
+| Content Attestations | `intranet_content_attestations` | Recertification records where an owner confirms content is current or flags it stale for remediation or archival. |
+| Content Ownership Assignments | `intranet_content_ownership_assignments` | Assignments of an accountable owner and backup to a content record, with the review cadence the owner must keep. |
+| Work Items | `work_items` | Atomic tasks, items, or cards in a work-management tool, with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. |
+| Users | `users` | Platform users referenced as assignees, authors, approvers, and creators across records. |
 
 ```mermaid
 flowchart TD
@@ -53,12 +53,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `intranet_content_attestations` | `intranet_content_attestations` | Content Attestation | Content Attestations | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 2 | `intranet_content_ownership_assignments` | `intranet_content_ownership_assignments` | Content Ownership Assignment | Content Ownership Assignments | master | - | - | required | - | junction | `:manage` | - |
-| 3 | `work_items` | `work_items` | Work Item | Work Items | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | optional | - | operational_workflow | `:manage` | - |
-| 4 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `intranet_content_attestations` | `intranet_content_attestations` | Content Attestation | Content Attestations | A recertification record: an owner attests that a piece of content is current, or flags it stale for remediation or archival. | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 2 | `intranet_content_ownership_assignments` | `intranet_content_ownership_assignments` | Content Ownership Assignment | Content Ownership Assignments | Assignment of an accountable owner and backup to an inventory record, with the review cadence the owner is responsible for. | master | - | - | required | - | junction | `:manage` | - |
+| 3 | `work_items` | `work_items` | Work Item | Work Items | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | optional | - | operational_workflow | `:manage` | - |
+| 4 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

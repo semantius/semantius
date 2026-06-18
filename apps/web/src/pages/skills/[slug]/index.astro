@@ -34,6 +34,9 @@ const paragraphs = (catalog.catalog_description ?? '')
 const installCommand = catalog.skill_name
 	? `npx skills add https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`
 	: null;
+
+// Usage command shows how to invoke the installed skill in chat.
+const usageCommand = catalog.skill_name ? `/${catalog.skill_name} What can you do?` : null;
 ---
 
 <Layout
@@ -70,6 +73,15 @@ const installCommand = catalog.skill_name
 						Install the {catalog.skill_name} skill
 					</h2>
 					<Command mode="shell" command={installCommand} />
+				</div>
+			)}
+
+			{usageCommand && (
+				<div class="mt-10">
+					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+						How to use the {catalog.domain_name}
+					</h2>
+					<Command mode="chat" command={usageCommand} />
 				</div>
 			)}
 

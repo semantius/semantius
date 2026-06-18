@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: ATS-CANDIDATE-CRM
 system_description: Candidate CRM
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [abm-intent, ats-background-checks, ats-interviews, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, lms-compliance-training, lms-ct-gdpr, onb-journey-mgmt, pa-workforce-metrics, tlnt-intel-marketplace, tlnt-intel-mobility, vms-worker-sourcing]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-RECRUITER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Candidate CRM
@@ -28,24 +28,24 @@ The candidate-relationship backbone of an ATS, masters candidates (including the
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Agency Submissions | `agency_submissions` | Record of a staffing or search agency submitting a candidate against a requisition. Carries the submission date, the ownership and dedup window that determines which agency owns a placement when more than one submits the same person, and the fee terms that apply if the submission converts to a hire. |
-| Candidate Consents | `candidate_consents` | Per-candidate opt-in record for GDPR / CCPA / data retention. Carries consent type, jurisdiction, granted timestamp, withdrawal timestamp, retention window. |
-| Candidate Documents | `candidate_documents` | File artifact attached to a candidate (resume, cover letter, portfolio, work sample, signed disclosure, reference letter, right-to-work proof). Carries document type, MIME type, storage URI, uploaded-by actor, uploaded-at timestamp, and visibility scope. |
-| Candidate Emails | `candidate_emails` | Persisted email correspondence with a candidate as a first-class threaded record, distinct from free-text application notes and engagement summaries. Captures sent and received messages, the template used, and delivery status across the candidate relationship. |
-| Candidate Engagements | `candidate_engagements` | Single recruiter-to-candidate touchpoint (email, InMail, call, SMS, event invite). Carries channel, direction, timestamp, status, and content reference. |
-| Candidate Notes | `candidate_notes` | Free-form recruiter or hiring-team note on a candidate, internal-only, never sent to the candidate. Carries author, body, visibility scope (private to author, team, or hiring panel), timestamp, and optional at-mentions to other team members. |
-| Candidate Nurture Campaigns | `candidate_nurture_campaigns` | Multi-touch automated outreach sequence targeting talent-pool segments. Carries cadence, step templates, audience filter, and lifecycle state. |
-| Candidates | `candidates` | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
-| Data Subject Requests | `data_subject_requests` | GDPR Articles 15-22 (and analogous CPRA/PIPEDA) request from a candidate exercising access, rectification, erasure, restriction, portability, or objection rights against personal data the ATS holds. Tracks request type, intake channel, due date, fulfillment, and verification. |
-| Outreach Sequence Steps | `outreach_sequence_steps` | One ordered step within an outreach sequence: the channel, the day offset from enrollment, the message template, and whether the step is automated or requires a recruiter action. Defines the cadence the platform follows when a candidate is enrolled in the parent sequence. |
-| Outreach Sequences | `outreach_sequences` | Named multi-step sourcing cadence definition (for example day 0 email, day 3 nudge, day 7 message) that automates candidate outreach. Holds the sequence name, owner, channel mix, and active status, and is the parent of its ordered steps. |
-| Recruiter Interactions | `recruiter_interactions` | Free-text recruiter note attached to a candidate, application, or pool, time-stamped and authored by a user. |
-| Recruiting Event Attendances | `recruiting_event_attendances` | Junction between candidates and recruitment_events recording registration, check-in, attendance, and conversion outcome. |
-| Recruitment Agencies | `recruitment_agencies` | Third-party recruiter or staffing firm supplying candidates. Tracks contract terms, contact, performance, and the candidates they have submitted. |
-| Recruitment Events | `recruitment_events` | Career fair, on-campus event, hackathon, or meetup used as a sourcing channel. Tracks attendees, captured leads, and event ROI. |
-| Recruitment Sources | `recruitment_sources` | Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI. |
-| Opportunities | `internal_opportunities` | Internal postings covering full-time roles, gigs, projects, stretch assignments, and mentorships. |
-| Talent Pools | `talent_pools` | Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters). |
+| Agency Submissions | `agency_submissions` | Records of a staffing or search agency submitting a candidate against a requisition, with the dedup ownership window and fee terms on conversion to a hire. |
+| Candidate Consents | `candidate_consents` | Per-candidate opt-in records for privacy and data retention, with consent type, jurisdiction, and granted and withdrawal timestamps. |
+| Candidate Documents | `candidate_documents` | Files attached to a candidate such as resumes, cover letters, portfolios, and signed disclosures, with document type, storage location, and visibility. |
+| Candidate Emails | `candidate_emails` | Threaded email correspondence with a candidate as a first-class record, capturing sent and received messages, the template used, and delivery status. |
+| Candidate Engagements | `candidate_engagements` | Single recruiter-to-candidate touchpoints across channels such as email, call, or SMS, with direction, timestamp, status, and content reference. |
+| Candidate Notes | `candidate_notes` | Internal-only recruiter or hiring-team notes on a candidate, with author, body, visibility scope, and optional mentions, never sent to the candidate. |
+| Candidate Nurture Campaigns | `candidate_nurture_campaigns` | Multi-touch automated outreach sequences targeting talent-pool segments, with cadence, step templates, audience filter, and lifecycle state. |
+| Candidates | `candidates` | People known to the recruiting organization, with or without an active application, carrying contact details, resume, tags, consent, and source. |
+| Data Subject Requests | `data_subject_requests` | Privacy rights requests from candidates exercising access, rectification, erasure, restriction, portability, or objection, with intake, due date, and fulfillment. |
+| Outreach Sequence Steps | `outreach_sequence_steps` | Ordered steps within an outreach sequence, each defining the channel, day offset, message template, and whether the step is automated or needs a recruiter action. |
+| Outreach Sequences | `outreach_sequences` | Named multi-step sourcing cadences that automate candidate outreach across channels, holding the sequence name, owner, channel mix, and active status. |
+| Recruiter Interactions | `recruiter_interactions` | Free-text recruiter notes attached to a candidate, application, or talent pool, time-stamped and authored by a user. |
+| Recruiting Event Attendances | `recruiting_event_attendances` | Links between candidates and recruiting events, recording registration, check-in, attendance, and conversion outcome. |
+| Recruitment Agencies | `recruitment_agencies` | Third-party recruiters and staffing firms supplying candidates, with contract terms, contacts, performance, and submitted candidates. |
+| Recruitment Events | `recruitment_events` | Career fairs, campus events, hackathons, and meetups used as sourcing channels, tracking attendees, captured leads, and event return. |
+| Recruitment Sources | `recruitment_sources` | Channels a candidate came from, such as job board, referral, agency, campaign, or inbound, used for source-of-hire and channel analytics. |
+| Opportunities | `internal_opportunities` | Internal opportunity postings covering full-time roles, gigs, projects, stretch assignments, and mentorships. |
+| Talent Pools | `talent_pools` | Curated pools of candidates kept warm for future roles, such as past finalists, alumni, and hard-to-fill skill clusters. |
 
 ```mermaid
 flowchart TD
@@ -131,26 +131,26 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `agency_submissions` | `agency_submissions` | Agency Submission | Agency Submissions | master | - | - | required | - | operational_record | `:manage` | - |
-| 2 | `candidate_consents` | `candidate_consents` | Candidate Consent | Candidate Consents | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 3 | `candidate_documents` | `candidate_documents` | Candidate Document | Candidate Documents | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 4 | `candidate_emails` | `candidate_emails` | Candidate Email | Candidate Emails | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 5 | `candidate_engagements` | `candidate_engagements` | Candidate Engagement | Candidate Engagements | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 6 | `candidate_notes` | `candidate_notes` | Candidate Note | Candidate Notes | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 7 | `candidate_nurture_campaigns` | `candidate_nurture_campaigns` | Candidate Nurture Campaign | Candidate Nurture Campaigns | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 8 | `candidates` | `candidates` | Candidate | Candidates | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 9 | `data_subject_requests` | `data_subject_requests` | Data Subject Request | Data Subject Requests | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 10 | `outreach_sequence_steps` | `outreach_sequence_steps` | Outreach Sequence Step | Outreach Sequence Steps | master | - | - | required | - | catalog | `:admin` | - |
-| 11 | `outreach_sequences` | `outreach_sequences` | Outreach Sequence | Outreach Sequences | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 12 | `recruiter_interactions` | `recruiter_interactions` | Recruiter Interaction | Recruiter Interactions | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 13 | `recruiting_event_attendances` | `recruiting_event_attendances` | Recruiting Event Attendance | Recruiting Event Attendances | master | - | - | required | - | junction | `:manage` | - |
-| 14 | `recruitment_agencies` | `recruitment_agencies` | Recruitment Agency | Recruitment Agencies | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 15 | `recruitment_events` | `recruitment_events` | Recruitment Event | Recruitment Events | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 16 | `recruitment_sources` | `recruitment_sources` | Recruitment Source | Recruitment Sources | master | - | - | required | - | catalog | `:admin` | - |
-| 17 | `internal_opportunities` | `internal_opportunities` | Opportunity | Opportunities | embedded_master | `tlnt-intel-marketplace` | Talent Marketplace | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 18 | `talent_pools` | `talent_pools` | Talent Pool | Talent Pools | embedded_master | `ats-talent-pools` | Talent Pools | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `agency_submissions` | `agency_submissions` | Agency Submission | Agency Submissions | Record of a staffing or search agency submitting a candidate against a requisition. Carries the submission date, the ownership and dedup window that determines which agency owns a placement when more than one submits the same person, and the fee terms that apply if the submission converts to a hire. | master | - | - | required | - | operational_record | `:manage` | - |
+| 2 | `candidate_consents` | `candidate_consents` | Candidate Consent | Candidate Consents | Per-candidate opt-in record for GDPR / CCPA / data retention. Carries consent type, jurisdiction, granted timestamp, withdrawal timestamp, retention window. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 3 | `candidate_documents` | `candidate_documents` | Candidate Document | Candidate Documents | File artifact attached to a candidate (resume, cover letter, portfolio, work sample, signed disclosure, reference letter, right-to-work proof). Carries document type, MIME type, storage URI, uploaded-by actor, uploaded-at timestamp, and visibility scope. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 4 | `candidate_emails` | `candidate_emails` | Candidate Email | Candidate Emails | Persisted email correspondence with a candidate as a first-class threaded record, distinct from free-text application notes and engagement summaries. Captures sent and received messages, the template used, and delivery status across the candidate relationship. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 5 | `candidate_engagements` | `candidate_engagements` | Candidate Engagement | Candidate Engagements | Single recruiter-to-candidate touchpoint (email, InMail, call, SMS, event invite). Carries channel, direction, timestamp, status, and content reference. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 6 | `candidate_notes` | `candidate_notes` | Candidate Note | Candidate Notes | Free-form recruiter or hiring-team note on a candidate, internal-only, never sent to the candidate. Carries author, body, visibility scope (private to author, team, or hiring panel), timestamp, and optional at-mentions to other team members. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 7 | `candidate_nurture_campaigns` | `candidate_nurture_campaigns` | Candidate Nurture Campaign | Candidate Nurture Campaigns | Multi-touch automated outreach sequence targeting talent-pool segments. Carries cadence, step templates, audience filter, and lifecycle state. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 8 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 9 | `data_subject_requests` | `data_subject_requests` | Data Subject Request | Data Subject Requests | GDPR Articles 15-22 (and analogous CPRA/PIPEDA) request from a candidate exercising access, rectification, erasure, restriction, portability, or objection rights against personal data the ATS holds. Tracks request type, intake channel, due date, fulfillment, and verification. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 10 | `outreach_sequence_steps` | `outreach_sequence_steps` | Outreach Sequence Step | Outreach Sequence Steps | One ordered step within an outreach sequence: the channel, the day offset from enrollment, the message template, and whether the step is automated or requires a recruiter action. Defines the cadence the platform follows when a candidate is enrolled in the parent sequence. | master | - | - | required | - | catalog | `:admin` | - |
+| 11 | `outreach_sequences` | `outreach_sequences` | Outreach Sequence | Outreach Sequences | Named multi-step sourcing cadence definition (for example day 0 email, day 3 nudge, day 7 message) that automates candidate outreach. Holds the sequence name, owner, channel mix, and active status, and is the parent of its ordered steps. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 12 | `recruiter_interactions` | `recruiter_interactions` | Recruiter Interaction | Recruiter Interactions | Free-text recruiter note attached to a candidate, application, or pool, time-stamped and authored by a user. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 13 | `recruiting_event_attendances` | `recruiting_event_attendances` | Recruiting Event Attendance | Recruiting Event Attendances | Junction between candidates and recruitment_events recording registration, check-in, attendance, and conversion outcome. | master | - | - | required | - | junction | `:manage` | - |
+| 14 | `recruitment_agencies` | `recruitment_agencies` | Recruitment Agency | Recruitment Agencies | Third-party recruiter or staffing firm supplying candidates. Tracks contract terms, contact, performance, and the candidates they have submitted. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 15 | `recruitment_events` | `recruitment_events` | Recruitment Event | Recruitment Events | Career fair, on-campus event, hackathon, or meetup used as a sourcing channel. Tracks attendees, captured leads, and event ROI. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 16 | `recruitment_sources` | `recruitment_sources` | Recruitment Source | Recruitment Sources | Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI. | master | - | - | required | - | catalog | `:admin` | - |
+| 17 | `internal_opportunities` | `internal_opportunities` | Opportunity | Opportunities | Internal postings covering full-time roles, gigs, projects, stretch assignments, and mentorships. | embedded_master | `tlnt-intel-marketplace` | Talent Marketplace | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 18 | `talent_pools` | `talent_pools` | Talent Pool | Talent Pools | Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters). | embedded_master | `ats-talent-pools` | Talent Pools | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

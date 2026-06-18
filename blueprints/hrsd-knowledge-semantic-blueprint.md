@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: HRSD-KNOWLEDGE
 system_description: HR Knowledge
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [hrsd-case-mgmt, hrsd-employee-portal, itsm-knowledge]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # HR Knowledge
@@ -28,8 +28,8 @@ HR knowledge surface: HR-audience articles, FAQs, and policy explainers. Consume
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Knowledge Articles | `knowledge_articles` | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. |
-| HR Case Categories | `case_categories` | Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics. |
+| Knowledge Articles | `knowledge_articles` | Knowledge-base articles backing self-service portals and agent-assist tools, moving through draft, review, published, and retired. |
+| HR Case Categories | `case_categories` | Taxonomy of HR request types such as pay, benefits, leave, and policy, driving routing, SLAs, knowledge lookup, and trend analytics. |
 
 ```mermaid
 flowchart TD
@@ -53,10 +53,10 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | consumer | `hrsd-case-mgmt` | HR Case Management | optional | - | catalog | `:admin` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
+| 2 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics. | consumer | `hrsd-case-mgmt` | HR Case Management | optional | - | catalog | `:admin` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: HVAC-SVC-MGMT
 system_description: HVAC Service Management (small-org starter)
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: HVAC-SVC-MGMT
 related_modules: [b2c-comm-order-capture, cdp-unified-profile, cpq-product-catalog, cpq-quote-builder, crm-acct-mgt, crm-lead-mgt, crm-pipeline-mgt, fds-csa-mgmt, fds-wholesale, fsm-dispatch-ops, fsm-installed-base, fsm-mobile-tech, fsm-service-contracts, ham-warranty-parts, ma-campaign-authoring, sub-mgmt-billing, sub-mgmt-subscriptions]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # HVAC Service Management (small-org starter)
@@ -25,19 +25,19 @@ Small-shop persona bundle for HVAC service businesses (5-30 technicians). Single
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Contacts | `crm_contacts` | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. |
-| Customer Invoices | `customer_invoices` | Seller-issued invoice - line items, tax, payment terms, due date, status (draft/sent/paid/overdue/written-off). **AR side**; distinct from S2P `invoices` (AP-side, supplier-issued). |
-| Customer Sites | `customer_sites` | Physical service location belonging to a customer. One customer can have many sites (commercial chains, multi-property landlords, residential customers with multiple properties). Distinct from CRM accounts (the commercial relationship) and from internal locations (the service organization's own facilities). |
-| Customers | `customers` | Canonical record of a customer - account (B2B) or end-customer (B2C). Carries identity, segmentation, lifecycle stage, account hierarchy, and pointers to opportunities, cases, subscriptions, and unified profile. The flagship customer-facing entity and the catalog's most multi-mastered row: CRM masters the sales view, CSM the service view, SUB-MGMT the financial view, CDP the unified resolved profile. The structural twin of `employees` on the customer side. |
-| Dispatch Records | `dispatch_records` | An assignment of a work_order to a specific technician at a specific time. Captures dispatch decisions, route optimization output, dispatcher overrides. Audit trail for what was assigned to whom and why. |
-| Field Visits | `field_visits` | A scheduled or completed on-site visit by a field technician. Captures arrival, departure, work performed, parts used, customer signature, outcome. Distinct from work_orders (the demand-side artifact); a single work_order may produce multiple field_visits if the work spans days or requires re-dispatch. |
-| Installed Equipment | `installed_equipment` | Customer-owned equipment that the service organization installs and maintains. Carries identity (manufacturer, model, serial), placement (customer_site), and lifecycle state (active, out_of_service, decommissioned). The asset register that work orders are performed against and service contracts cover. |
-| Sales Quotes | `sales_quotes` | Versioned, numbered quote document with quote date, validity, currency, terms, status (draft → presented → accepted → lost), total-price rollup. N:1 to CRM `opportunities`. |
-| Service Contracts | `service_contracts` | SLA-bearing service contract (response time, parts coverage, call-out fees) - distinct from CLM canonical contracts. |
-| Service PM Schedules | `service_pm_schedules` | Recurring preventive-maintenance plan attached to an installed_equipment unit. Defines cadence, due date, grace window, and overdue escalation. Drives proactive work-order generation when the next service is due. |
-| Service Work Orders | `service_work_orders` | Customer-facing service job request fulfilled by field visits - distinct from VMS preventive-maintenance work orders. |
-| Spare Part Inventory Items | `spare_parts_inventory` | Stockroom counts and procurement of replacement hardware components (not yet deployed assets). |
-| Users | `users` | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). |
+| Contacts | `crm_contacts` | People at customer or prospect organizations, carrying title, contact details, decision-maker flag, preferred channel, and opt-in state. |
+| Customer Invoices | `customer_invoices` | Seller-issued invoices billed to customers, with line items, tax, payment terms, due date, and status from draft to paid or written off. |
+| Customer Sites | `customer_sites` | Physical service locations belonging to a customer, where one customer can have many sites across properties or chains. |
+| Customers | `customers` | Canonical records of customers, whether business accounts or end consumers, carrying identity, segmentation, lifecycle stage, and account hierarchy. |
+| Dispatch Records | `dispatch_records` | Assignments of a work order to a specific technician at a specific time, capturing dispatch decisions, route output, and dispatcher overrides. |
+| Field Visits | `field_visits` | Scheduled or completed on-site visits by a field technician, capturing arrival, work performed, parts used, customer signature, and outcome. |
+| Installed Equipment | `installed_equipment` | Customer-owned equipment that the service organization installs and maintains, with identity, placement, and lifecycle state, covered by work orders and contracts. |
+| Sales Quotes | `sales_quotes` | Versioned, numbered quote documents with dates, validity, currency, terms, pricing, and status from draft to accepted or lost. |
+| Service Contracts | `service_contracts` | Service contracts that carry service-level commitments such as response times, parts coverage, and call-out fees. |
+| Service PM Schedules | `service_pm_schedules` | Recurring preventive-maintenance plans for installed equipment, defining cadence, due date, grace window, and overdue escalation. |
+| Service Work Orders | `service_work_orders` | Customer-facing service jobs fulfilled by field visits, distinct from preventive-maintenance work orders. |
+| Spare Part Inventory Items | `spare_parts_inventory` | Stockroom counts and procurement of replacement hardware components not yet deployed as assets. |
+| Users | `users` | Platform users referenced as assignees, authors, approvers, and creators across records. |
 
 ```mermaid
 flowchart TD
@@ -94,21 +94,21 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
-| 2 | `customer_invoices` | `customer_invoices` | Customer Invoice | Customer Invoices | embedded_master | `sub-mgmt-billing` | Recurring Billing and Dunning | required | - | operational_workflow | `:manage` | - |
-| 3 | `customer_sites` | `customer_sites` | Customer Site | Customer Sites | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
-| 4 | `customers` | `customers` | Customer | Customers | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `dispatch_records` | `dispatch_records` | Dispatch Record | Dispatch Records | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
-| 6 | `field_visits` | `field_visits` | Field Visit | Field Visits | embedded_master | `fsm-mobile-tech` | Mobile Technician | required | personal_content | operational_workflow | `:manage` | - |
-| 7 | `installed_equipment` | `installed_equipment` | Installed Equipment Unit | Installed Equipment | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
-| 8 | `sales_quotes` | `sales_quotes` | Sales Quote | Sales Quotes | embedded_master | `cpq-quote-builder` | Quote Construction and Discounting | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 9 | `service_contracts` | `service_contracts` | Service Contract | Service Contracts | embedded_master | `fsm-service-contracts` | Service Contracts and SLAs | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 10 | `service_pm_schedules` | `service_pm_schedules` | Service PM Schedule | Service PM Schedules | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | submit_lock | operational_workflow | `:manage` | - |
-| 11 | `service_work_orders` | `service_work_orders` | Service Work Order | Service Work Orders | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
-| 12 | `spare_parts_inventory` | `spare_parts_inventory` | Spare Part Inventory Item | Spare Part Inventory Items | embedded_master | `ham-warranty-parts` | Warranty, Disposal, and Spare Parts | required | - | operational_record | `:manage` | - |
-| 13 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
+| 2 | `customer_invoices` | `customer_invoices` | Customer Invoice | Customer Invoices | Seller-issued invoice - line items, tax, payment terms, due date, status (draft/sent/paid/overdue/written-off). **AR side**; distinct from S2P `invoices` (AP-side, supplier-issued). | embedded_master | `sub-mgmt-billing` | Recurring Billing and Dunning | required | - | operational_workflow | `:manage` | - |
+| 3 | `customer_sites` | `customer_sites` | Customer Site | Customer Sites | Physical service location belonging to a customer. One customer can have many sites (commercial chains, multi-property landlords, residential customers with multiple properties). Distinct from CRM accounts (the commercial relationship) and from internal locations (the service organization's own facilities). | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
+| 4 | `customers` | `customers` | Customer | Customers | Canonical record of a customer - account (B2B) or end-customer (B2C). Carries identity, segmentation, lifecycle stage, account hierarchy, and pointers to opportunities, cases, subscriptions, and unified profile. The flagship customer-facing entity and the catalog's most multi-mastered row: CRM masters the sales view, CSM the service view, SUB-MGMT the financial view, CDP the unified resolved profile. The structural twin of `employees` on the customer side. | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `dispatch_records` | `dispatch_records` | Dispatch Record | Dispatch Records | An assignment of a work_order to a specific technician at a specific time. Captures dispatch decisions, route optimization output, dispatcher overrides. Audit trail for what was assigned to whom and why. | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
+| 6 | `field_visits` | `field_visits` | Field Visit | Field Visits | A scheduled or completed on-site visit by a field technician. Captures arrival, departure, work performed, parts used, customer signature, outcome. Distinct from work_orders (the demand-side artifact); a single work_order may produce multiple field_visits if the work spans days or requires re-dispatch. | embedded_master | `fsm-mobile-tech` | Mobile Technician | required | personal_content | operational_workflow | `:manage` | - |
+| 7 | `installed_equipment` | `installed_equipment` | Installed Equipment Unit | Installed Equipment | Customer-owned equipment that the service organization installs and maintains. Carries identity (manufacturer, model, serial), placement (customer_site), and lifecycle state (active, out_of_service, decommissioned). The asset register that work orders are performed against and service contracts cover. | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
+| 8 | `sales_quotes` | `sales_quotes` | Sales Quote | Sales Quotes | Versioned, numbered quote document with quote date, validity, currency, terms, status (draft → presented → accepted → lost), total-price rollup. N:1 to CRM `opportunities`. | embedded_master | `cpq-quote-builder` | Quote Construction and Discounting | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 9 | `service_contracts` | `service_contracts` | Service Contract | Service Contracts | SLA-bearing service contract (response time, parts coverage, call-out fees) - distinct from CLM canonical contracts. | embedded_master | `fsm-service-contracts` | Service Contracts and SLAs | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 10 | `service_pm_schedules` | `service_pm_schedules` | Service PM Schedule | Service PM Schedules | Recurring preventive-maintenance plan attached to an installed_equipment unit. Defines cadence, due date, grace window, and overdue escalation. Drives proactive work-order generation when the next service is due. | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | submit_lock | operational_workflow | `:manage` | - |
+| 11 | `service_work_orders` | `service_work_orders` | Service Work Order | Service Work Orders | Customer-facing service job request fulfilled by field visits - distinct from VMS preventive-maintenance work orders. | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
+| 12 | `spare_parts_inventory` | `spare_parts_inventory` | Spare Part Inventory Item | Spare Part Inventory Items | Stockroom counts and procurement of replacement hardware components (not yet deployed assets). | embedded_master | `ham-warranty-parts` | Warranty, Disposal, and Spare Parts | required | - | operational_record | `:manage` | - |
+| 13 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

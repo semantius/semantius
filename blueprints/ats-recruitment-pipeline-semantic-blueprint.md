@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: ATS-RECRUITMENT-PIPELINE
 system_description: Recruitment Pipeline
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-referrals, ats-talent-pools, ben-enrollment, comp-benchmarking, comp-planning, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, iga-access-request, iwms-location-master, lms-compliance-training, lms-ct-gdpr, onb-journey-mgmt, psa-resource-mgmt, skills-mgmt-profile, swp-demand-forecast, tlnt-intel-mobility, vms-worker-sourcing]
 persona: [HIRING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, LEGAL-COMPLIANCE-SPECIALIST, PEOPLE-MANAGER, RECRUITING-MANAGER, RECRUITING-RECRUITER, RECRUITING-SOURCER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Recruitment Pipeline
@@ -28,26 +28,26 @@ Requisitions → postings → applications with pipeline-stage lifecycle. Realiz
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Applicant Flow Records | `applicant_flow_records` | OFCCP-mandated log of every Internet Applicant against a requisition, capturing demographic data, expressed interest, basic qualifications, and disposition. Federal contractors must retain for OFCCP audit; the record is independent of EEO voluntary self-id. |
-| Application Dispositions | `application_dispositions` | Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorized business reason. |
-| Application Screening Answers | `application_screening_answers` | Candidate-supplied answer to an application_screening_question on a specific job_application. Drives auto-disqualify on knockout rules. |
-| Application Screening Questions | `application_screening_questions` | Custom screening question attached to a job_posting or template (knockout questions, qualifying questions). Carries question text, type (boolean/single-select/free-text), required, knockout rule. |
-| Application Stage Transitions | `application_stage_transitions` | Audit-trail record of an application moving between stages. Carries from_stage, to_stage, actor, timestamp, reason. Source of cycle-time, time-in-stage, and conversion-rate analytics. |
-| Application Stages | `application_stages` | Configured stage in the recruiting pipeline (sourced, applied, screened, phone_screen, onsite, offer, hired). Per-requisition or per-template ordered list; defines the lifecycle of a job_application. |
-| Applications | `job_applications` | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. |
-| EEO Responses | `eeo_responses` | Voluntary self-identification submitted by an applicant for EEO-1 / OFCCP / VEVRAA reporting (gender, race/ethnicity, veteran status, disability). Required compliance artifact for US employers >100 employees; stored separately from candidates record per regulation. |
-| Hiring Team Assignments | `hiring_team_assignments` | Per-requisition role-scoped staffing junction: assigns specific users to recruiter, hiring manager, coordinator, interviewer, and reviewer roles on a single requisition. Captures team composition without requiring global RBAC for transient interview-panel membership. |
-| Job Posting Distributions | `job_posting_distributions` | Syndication of a job_posting to an external board (LinkedIn, Indeed, ZipRecruiter, Glassdoor, internal mobility portal). Carries board name, post timestamp, expiry, cost, applicant attribution. |
-| Job Postings | `job_postings` | Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region). |
-| Job Requisitions | `job_requisitions` | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled). |
-| OFCCP Audit Trails | `ofccp_audit_trails` | Federal-contractor audit log of every applicant-flow event (requisition open, application receipt, disposition, hire) carrying the actor, timestamp, and OFCCP-relevant fields needed to reconstruct compliance decisions during an audit. Immutable append-only. |
-| Requisition Approvals | `requisition_approvals` | Approval step in the chain that gates opening a job_requisition (hiring manager -> finance -> exec). Each step carries approver, decision, timestamp, rationale. |
-| Voluntary Self-Identifications | `voluntary_self_identifications` | Voluntary candidate disclosure of protected-class membership (race, ethnicity, gender, veteran status, disability status) per EEOC and OFCCP self-id requirements. Distinct from `eeo_responses` which captures the survey response: this row captures the offer/decline-to-answer decision and audit metadata. |
-| Candidates | `candidates` | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. |
-| Job Profiles | `job_profiles` | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. |
-| Locations | `locations` | - |
-| Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
-| Positions | `hcm_positions` | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. |
+| Applicant Flow Records | `applicant_flow_records` | OFCCP-mandated logs of every internet applicant against a requisition, capturing demographics, expressed interest, qualifications, and disposition for audit. |
+| Application Dispositions | `application_dispositions` | Categorized reasons a job application was not selected, driving OFCCP applicant-flow reporting and internal hiring analytics. |
+| Application Screening Answers | `application_screening_answers` | Candidate answers to screening questions on a specific job application, used to auto-disqualify on knockout rules. |
+| Application Screening Questions | `application_screening_questions` | Custom screening questions attached to a job posting or template, including knockout and qualifying questions with their answer type and rules. |
+| Application Stage Transitions | `application_stage_transitions` | Audit-trail records of an application moving between stages, with from-stage, to-stage, actor, timestamp, and reason for cycle-time analytics. |
+| Application Stages | `application_stages` | Configured stages in the recruiting pipeline (sourced, applied, screened, onsite, offer, hired) that define a job application's lifecycle. |
+| Applications | `job_applications` | Candidate submissions against a specific requisition, with pipeline stage, status, source, and full evaluation history. |
+| EEO Responses | `eeo_responses` | Voluntary self-identification submitted by applicants for equal-employment reporting, stored separately from candidate records per regulation. |
+| Hiring Team Assignments | `hiring_team_assignments` | Assignments of specific users to recruiter, hiring manager, coordinator, interviewer, and reviewer roles on a single requisition. |
+| Job Posting Distributions | `job_posting_distributions` | Syndications of a job posting to external boards, with board name, post and expiry times, cost, and applicant attribution. |
+| Job Postings | `job_postings` | Published, candidate-facing versions of a requisition on a career site or job board, one requisition possibly having many postings. |
+| Job Requisitions | `job_requisitions` | Approved requests to hire for a specific role, carrying headcount, level, location, hiring manager, recruiter, and status. |
+| OFCCP Audit Trails | `ofccp_audit_trails` | Immutable, append-only audit logs of every applicant-flow event for federal contractors, carrying the actor, timestamp, and compliance-relevant fields. |
+| Requisition Approvals | `requisition_approvals` | Approval steps that gate opening a job requisition, each recording the approver, decision, timestamp, and rationale. |
+| Voluntary Self-Identifications | `voluntary_self_identifications` | Voluntary candidate disclosures of protected-class membership per EEOC and OFCCP requirements, recording the offer or decline-to-answer decision and audit metadata. |
+| Candidates | `candidates` | People known to the recruiting organization, with or without an active application, carrying contact details, resume, tags, consent, and source. |
+| Job Profiles | `job_profiles` | Canonical role definitions in the job catalog: title, family, level, responsibilities, required skills, pay range, and FLSA class. Many positions share one profile. |
+| Locations | `locations` | Physical or organizational locations referenced across the system, used to place and group other records. |
+| Org Units | `org_units` | Nodes in the organizational hierarchy such as divisions, departments, and teams, with manager, cost center alignment, geographic scope, and parent-child links. |
+| Positions | `hcm_positions` | Approved org slots with role definition, cost center, reporting line, location, and FTE allocation. Each can be open, filled, or eliminated. |
 
 ```mermaid
 flowchart TD
@@ -146,28 +146,28 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `applicant_flow_records` | `applicant_flow_records` | Applicant Flow Record | Applicant Flow Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `application_dispositions` | `application_dispositions` | Application Disposition | Application Dispositions | master | - | - | optional | - | operational_record | `:manage` | - |
-| 3 | `application_screening_answers` | `application_screening_answers` | Application Screening Answer | Application Screening Answers | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 4 | `application_screening_questions` | `application_screening_questions` | Application Screening Question | Application Screening Questions | master | - | - | required | - | catalog | `:admin` | - |
-| 5 | `application_stage_transitions` | `application_stage_transitions` | Application Stage Transition | Application Stage Transitions | master | - | - | required | - | operational_record | `:manage` | - |
-| 6 | `application_stages` | `application_stages` | Application Stage | Application Stages | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `job_applications` | `job_applications` | Application | Applications | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 8 | `eeo_responses` | `eeo_responses` | EEO Response | EEO Responses | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 9 | `hiring_team_assignments` | `hiring_team_assignments` | Hiring Team Assignment | Hiring Team Assignments | master | - | - | required | - | junction | `:manage` | - |
-| 10 | `job_posting_distributions` | `job_posting_distributions` | Job Posting Distribution | Job Posting Distributions | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 11 | `job_postings` | `job_postings` | Job Posting | Job Postings | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 12 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 13 | `ofccp_audit_trails` | `ofccp_audit_trails` | OFCCP Audit Trail | OFCCP Audit Trails | master | - | - | optional | submit_lock | operational_record | `:manage` | - |
-| 14 | `requisition_approvals` | `requisition_approvals` | Requisition Approval | Requisition Approvals | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 15 | `voluntary_self_identifications` | `voluntary_self_identifications` | Voluntary Self-Identification | Voluntary Self-Identifications | master | - | - | optional | personal_content, submit_lock | operational_record | `:manage` | - |
-| 16 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
-| 17 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | embedded_master | `hcm-org-positions` | Organization and Position Management | required | - | catalog | `:admin` | - |
-| 18 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 19 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 20 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `applicant_flow_records` | `applicant_flow_records` | Applicant Flow Record | Applicant Flow Records | OFCCP-mandated log of every Internet Applicant against a requisition, capturing demographic data, expressed interest, basic qualifications, and disposition. Federal contractors must retain for OFCCP audit; the record is independent of EEO voluntary self-id. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `application_dispositions` | `application_dispositions` | Application Disposition | Application Dispositions | Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorized business reason. | master | - | - | optional | - | operational_record | `:manage` | - |
+| 3 | `application_screening_answers` | `application_screening_answers` | Application Screening Answer | Application Screening Answers | Candidate-supplied answer to an application_screening_question on a specific job_application. Drives auto-disqualify on knockout rules. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 4 | `application_screening_questions` | `application_screening_questions` | Application Screening Question | Application Screening Questions | Custom screening question attached to a job_posting or template (knockout questions, qualifying questions). Carries question text, type (boolean/single-select/free-text), required, knockout rule. | master | - | - | required | - | catalog | `:admin` | - |
+| 5 | `application_stage_transitions` | `application_stage_transitions` | Application Stage Transition | Application Stage Transitions | Audit-trail record of an application moving between stages. Carries from_stage, to_stage, actor, timestamp, reason. Source of cycle-time, time-in-stage, and conversion-rate analytics. | master | - | - | required | - | operational_record | `:manage` | - |
+| 6 | `application_stages` | `application_stages` | Application Stage | Application Stages | Configured stage in the recruiting pipeline (sourced, applied, screened, phone_screen, onsite, offer, hired). Per-requisition or per-template ordered list; defines the lifecycle of a job_application. | master | - | - | required | - | catalog | `:admin` | - |
+| 7 | `job_applications` | `job_applications` | Application | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 8 | `eeo_responses` | `eeo_responses` | EEO Response | EEO Responses | Voluntary self-identification submitted by an applicant for EEO-1 / OFCCP / VEVRAA reporting (gender, race/ethnicity, veteran status, disability). Required compliance artifact for US employers >100 employees; stored separately from candidates record per regulation. | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 9 | `hiring_team_assignments` | `hiring_team_assignments` | Hiring Team Assignment | Hiring Team Assignments | Per-requisition role-scoped staffing junction: assigns specific users to recruiter, hiring manager, coordinator, interviewer, and reviewer roles on a single requisition. Captures team composition without requiring global RBAC for transient interview-panel membership. | master | - | - | required | - | junction | `:manage` | - |
+| 10 | `job_posting_distributions` | `job_posting_distributions` | Job Posting Distribution | Job Posting Distributions | Syndication of a job_posting to an external board (LinkedIn, Indeed, ZipRecruiter, Glassdoor, internal mobility portal). Carries board name, post timestamp, expiry, cost, applicant attribution. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 11 | `job_postings` | `job_postings` | Job Posting | Job Postings | Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region). | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 12 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled). | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 13 | `ofccp_audit_trails` | `ofccp_audit_trails` | OFCCP Audit Trail | OFCCP Audit Trails | Federal-contractor audit log of every applicant-flow event (requisition open, application receipt, disposition, hire) carrying the actor, timestamp, and OFCCP-relevant fields needed to reconstruct compliance decisions during an audit. Immutable append-only. | master | - | - | optional | submit_lock | operational_record | `:manage` | - |
+| 14 | `requisition_approvals` | `requisition_approvals` | Requisition Approval | Requisition Approvals | Approval step in the chain that gates opening a job_requisition (hiring manager -> finance -> exec). Each step carries approver, decision, timestamp, rationale. | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 15 | `voluntary_self_identifications` | `voluntary_self_identifications` | Voluntary Self-Identification | Voluntary Self-Identifications | Voluntary candidate disclosure of protected-class membership (race, ethnicity, gender, veteran status, disability status) per EEOC and OFCCP self-id requirements. Distinct from `eeo_responses` which captures the survey response: this row captures the offer/decline-to-answer decision and audit metadata. | master | - | - | optional | personal_content, submit_lock | operational_record | `:manage` | - |
+| 16 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 17 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. | embedded_master | `hcm-org-positions` | Organization and Position Management | required | - | catalog | `:admin` | - |
+| 18 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 19 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 20 | `hcm_positions` | `hcm_positions` | Position | Positions | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

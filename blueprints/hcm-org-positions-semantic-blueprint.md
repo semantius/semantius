@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: HCM-ORG-POSITIONS
 system_description: Organization and Position Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: HCM
 related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ben-enrollment, ben-plan-design, clm-repository, cmdb-core, comp-benchmarking, comp-incentives, comp-planning, comp-statements, csm-case-mgmt, emp-exp-action-planning, emp-exp-continuous-listen, epm-plan-budget, expense-capture-and-reporting, fin-gl-close, fleet-maint-work-order, hcm-core-worker, hcm-lifecycle-workflows, iga-access-request, iga-entitlement-catalog, itam-lifecycle, itsm-agent-workspace, itsm-change-mgmt, itsm-incident-mgmt, itsm-problem-mgmt, itsm-service-request, itsm-sla-mgmt, iwms-space-analytics, iwms-workplace-service-desk, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ilt-delivery, lms-paths, onb-journey-mgmt, onb-welcome-experience, pa-dei-analytics, pa-predictive-models, pa-workforce-metrics, payroll-run, psa-project-delivery, psa-resource-mgmt, sam-catalog-discovery, sem-strategy-definition, skills-mgmt-profile, skills-mgmt-taxonomy, smp-renewal-vendor, swp-cost-projections, swp-demand-forecast, swp-scenario-modeling, swp-supply-planning, talent-performance-mgmt, talent-succession-career, tlnt-intel-mobility, vms-worker-sourcing, vuln-mgmt-detect, vuln-mgmt-remediate, vuln-mgmt-risk, wfm-absence, wfm-scheduling, wfm-time-attendance]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Organization and Position Management
@@ -28,12 +28,12 @@ Organization design: org units, positions, and job profiles. Effective-dated org
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Job Profiles | `job_profiles` | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. |
-| Org Units | `org_units` | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). |
-| Positions | `hcm_positions` | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. |
-| Cost Centers | `cost_centers` | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. |
-| Financial Plans | `financial_plans` | Umbrella entity for financial planning artifacts: annual budget, rolling forecast, long-range plan (LRP). Carries planning period, version, approval state, and pointers to the line-item budgets, forecasts, and variances that compose it. Consumes workforce_cost_projections from SWP for the people-cost line. |
-| Job Requisitions | `job_requisitions` | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled). |
+| Job Profiles | `job_profiles` | Canonical role definitions in the job catalog: title, family, level, responsibilities, required skills, pay range, and FLSA class. Many positions share one profile. |
+| Org Units | `org_units` | Nodes in the organizational hierarchy such as divisions, departments, and teams, with manager, cost center alignment, geographic scope, and parent-child links. |
+| Positions | `hcm_positions` | Approved org slots with role definition, cost center, reporting line, location, and FTE allocation. Each can be open, filled, or eliminated. |
+| Cost Centers | `cost_centers` | Organizational units for cost allocation, with code, manager, hierarchy, and currency, driving variance and departmental reporting. |
+| Financial Plans | `financial_plans` | Umbrella records for financial planning artifacts: annual budget, rolling forecast, and long-range plan, with period, version, and approval state. |
+| Job Requisitions | `job_requisitions` | Approved requests to hire for a specific role, carrying headcount, level, location, hiring manager, recruiter, and status. |
 
 ```mermaid
 flowchart TD
@@ -74,14 +74,14 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `org_units` | `org_units` | Org Unit | Org Units | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `hcm_positions` | `hcm_positions` | Position | Positions | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 4 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | contributor | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 5 | `financial_plans` | `financial_plans` | Financial Plan | Financial Plans | consumer | `epm-plan-budget` | Planning and Budgeting | optional | - | operational_workflow | `:manage` | - |
-| 6 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | consumer | `ats-recruitment-pipeline` | Recruitment Pipeline | optional | single_approver | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `hcm_positions` | `hcm_positions` | Position | Positions | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 4 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. | contributor | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
+| 5 | `financial_plans` | `financial_plans` | Financial Plan | Financial Plans | Umbrella entity for financial planning artifacts: annual budget, rolling forecast, long-range plan (LRP). Carries planning period, version, approval state, and pointers to the line-item budgets, forecasts, and variances that compose it. Consumes workforce_cost_projections from SWP for the people-cost line. | consumer | `epm-plan-budget` | Planning and Budgeting | optional | - | operational_workflow | `:manage` | - |
+| 6 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled). | consumer | `ats-recruitment-pipeline` | Recruitment Pipeline | optional | single_approver | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

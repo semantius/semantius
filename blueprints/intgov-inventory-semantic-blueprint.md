@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: INTGOV-INVENTORY
 system_description: Inventory and Sources
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: INTRANET-GOV
 related_modules: [intgov-governance]
 persona: []
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Inventory and Sources
@@ -25,10 +25,10 @@ Connector registry, cross-platform content inventory, content-type policy, and h
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Connected Intranets | `connected_intranets` | A source intranet platform under governance (the connector target): platform type, base URL, auth, crawl schedule, and status. |
-| Content Health Scores | `intranet_content_health_scores` | Derived freshness, quality, accessibility, and ownership-coverage score per inventory record. |
-| Content Inventory Records | `intranet_content_inventory_records` | A discovered or registered piece of intranet content (page, hub, space, library, form) across connected intranets, with source, type, last-modified, owner, and governance status. |
-| Intranet Content Types | `intranet_content_types` | A governed content-type definition (policy, news post, hub, library, form, FAQ) carrying its default review cadence, criticality, and retention rule. |
+| Connected Intranets | `connected_intranets` | Source intranet platforms under governance, with platform type, base URL, authentication, crawl schedule, and status. |
+| Content Health Scores | `intranet_content_health_scores` | Derived per-item scores for freshness, quality, accessibility, and ownership coverage of intranet content. |
+| Content Inventory Records | `intranet_content_inventory_records` | Discovered or registered pieces of intranet content (pages, hubs, libraries, forms) with source, type, owner, and governance status. |
+| Intranet Content Types | `intranet_content_types` | Governed content-type definitions (policy, news post, hub, library, form, FAQ) carrying default review cadence, criticality, and retention rule. |
 
 ```mermaid
 flowchart TD
@@ -48,12 +48,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `connected_intranets` | `connected_intranets` | Connected Intranet | Connected Intranets | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `intranet_content_health_scores` | `intranet_content_health_scores` | Content Health Score | Content Health Scores | master | - | - | required | - | computed | read-only | - |
-| 3 | `intranet_content_inventory_records` | `intranet_content_inventory_records` | Content Inventory Record | Content Inventory Records | master | - | - | required | - | operational_record | `:manage` | - |
-| 4 | `intranet_content_types` | `intranet_content_types` | Intranet Content Type | Intranet Content Types | master | - | - | required | - | catalog | `:admin` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `connected_intranets` | `connected_intranets` | Connected Intranet | Connected Intranets | A source intranet platform under governance (the connector target): platform type, base URL, auth, crawl schedule, and status. | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `intranet_content_health_scores` | `intranet_content_health_scores` | Content Health Score | Content Health Scores | Derived freshness, quality, accessibility, and ownership-coverage score per inventory record. | master | - | - | required | - | computed | read-only | - |
+| 3 | `intranet_content_inventory_records` | `intranet_content_inventory_records` | Content Inventory Record | Content Inventory Records | A discovered or registered piece of intranet content (page, hub, space, library, form) across connected intranets, with source, type, last-modified, owner, and governance status. | master | - | - | required | - | operational_record | `:manage` | - |
+| 4 | `intranet_content_types` | `intranet_content_types` | Intranet Content Type | Intranet Content Types | A governed content-type definition (policy, news post, hub, library, form, FAQ) carrying its default review cadence, criticality, and retention rule. | master | - | - | required | - | catalog | `:admin` | - |
 
 ## 4. Aliases and industry synonyms
 

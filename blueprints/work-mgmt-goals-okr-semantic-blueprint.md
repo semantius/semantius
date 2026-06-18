@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.0"
+blueprint_version: "3.1"
 license: MIT
 system_name: WORK-MGMT-GOALS-OKR
 system_description: Team-Execution Goals and OKRs
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: WORK-MGMT
 related_modules: [eap-portfolio-roadmap, intgov-governance, mrm-planning, pm-roadmap-delivery, psa-project-delivery, sem-execution-tracking, sem-operating-rhythm, sem-strategy-definition, talent-performance-mgmt, work-mgmt-intake, work-mgmt-task-exec]
 persona: [OKR-OWNER, OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-17
+created_at: 2026-06-18
 ---
 
 # Team-Execution Goals and OKRs
@@ -28,11 +28,11 @@ Team-execution OKR tracking surface: objectives with key results that link to wo
 
 | Name | data_object | Description |
 | --- | --- | --- |
-| Key Results | `okr_key_results` | Measurable result attached to an okr_objective. The unit of scoring on OKR programs - vendors universally model KR as first-class (Asana, Monday, ClickUp, Workfront). |
-| Objective / OKRs | `okr_objectives` | Hierarchical objective with measurable key results, weighted progress rollup from child objectives or linked work_items, owner accountability, and cadence (quarterly/annual). Mastered by three distinct domains: WORK-MGMT (team-level execution OKRs), SPM (strategic portfolio OKRs), TALENT-MGMT (individual performance-management OKRs). Same primitive, three different lifecycles and review processes - canonical Signal-1 multi-master. |
-| OKR Check-ins | `okr_check_ins` | Periodic status update on an okr_objective or key_result during the active cycle. Cadence-of-record (weekly/bi-weekly) for OKR programs. May discuss individual performance - flagged as personal content. |
-| Work-to-Goal Links | `work_goal_links` | Contribution link between a work item or project and an okr_objective so that goal progress can roll up from the work that drives it. |
-| Work Items | `work_items` | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). |
+| Key Results | `okr_key_results` | Measurable results attached to an objective, the unit of scoring that tracks progress toward the goal. |
+| Objective / OKRs | `okr_objectives` | Goals with measurable key results, owner accountability, and weighted progress rollup, organized in a hierarchy and reviewed on a quarterly or annual cadence. |
+| OKR Check-ins | `okr_check_ins` | Periodic status updates on an objective or key result during the active cycle, the cadence of record for OKR programs. |
+| Work-to-Goal Links | `work_goal_links` | Contribution links between a work item or project and an objective, so goal progress can roll up from the work that drives it. |
+| Work Items | `work_items` | Atomic tasks, items, or cards in a work-management tool, with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. |
 
 ```mermaid
 flowchart TD
@@ -68,13 +68,13 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `okr_key_results` | `okr_key_results` | Key Result | Key Results | master | - | - | required | - | operational_record | `:manage` | - |
-| 2 | `okr_objectives` | `okr_objectives` | Objective / OKR | Objective / OKRs | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `okr_check_ins` | `okr_check_ins` | OKR Check-in | OKR Check-ins | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 4 | `work_goal_links` | `work_goal_links` | Work-to-Goal Link | Work-to-Goal Links | master | - | - | optional | - | junction | `:manage` | - |
-| 5 | `work_items` | `work_items` | Work Item | Work Items | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | required | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `okr_key_results` | `okr_key_results` | Key Result | Key Results | Measurable result attached to an okr_objective. The unit of scoring on OKR programs - vendors universally model KR as first-class (Asana, Monday, ClickUp, Workfront). | master | - | - | required | - | operational_record | `:manage` | - |
+| 2 | `okr_objectives` | `okr_objectives` | Objective / OKR | Objective / OKRs | Hierarchical objective with measurable key results, weighted progress rollup from child objectives or linked work_items, owner accountability, and cadence (quarterly/annual). Mastered by three distinct domains: WORK-MGMT (team-level execution OKRs), SPM (strategic portfolio OKRs), TALENT-MGMT (individual performance-management OKRs). Same primitive, three different lifecycles and review processes - canonical Signal-1 multi-master. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `okr_check_ins` | `okr_check_ins` | OKR Check-in | OKR Check-ins | Periodic status update on an okr_objective or key_result during the active cycle. Cadence-of-record (weekly/bi-weekly) for OKR programs. May discuss individual performance - flagged as personal content. | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 4 | `work_goal_links` | `work_goal_links` | Work-to-Goal Link | Work-to-Goal Links | Contribution link between a work item or project and an okr_objective so that goal progress can roll up from the work that drives it. | master | - | - | optional | - | junction | `:manage` | - |
+| 5 | `work_items` | `work_items` | Work Item | Work Items | Atomic primitive in a work-management platform: task / item / card with owner, due date, status, priority, dependencies, subtasks, attachments, and comments. Same shape regardless of platform-specific terminology (task, item, row, card). | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
