@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: SMP-AUTOMATION
 system_description: SMP Automation and Self-Service Requests
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: SMP
 related_modules: [smp-discovery, smp-optimization, smp-renewal-vendor]
 persona: [IT-SAAS-ADMIN]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # SMP Automation and Self-Service Requests
@@ -48,11 +48,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `smp_app_requests` | `smp_app_requests` | App Access Request | App Access Requests | Employee request for access to a SaaS application via the published catalog. Routes through manager + IT approval, then hands off to IGA for entitlement provisioning. App-grain (pre-IGA-handoff); distinct from iga_access_requests (entitlement-grain) and itsm_service_requests (generic catalog). Torii App Catalog requests + BetterCloud Self-Service Requests are the flagship. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `smp_automation_workflows` | `smp_automation_workflows` | Automation Workflow | Automation Workflows | Declarative orchestration: trigger + steps (provision in SaaS app, send notification, file offboarding action, request approval, escalate). BetterCloud Workflows + Torii Workflows are the flagship product surface. Distinct from iga_access_requests (request-side) and integration_recipes (generic iPaaS). | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `smp_workflow_runs` | `smp_workflow_runs` | Workflow Run | Workflow Runs | Execution log per automation workflow invocation. Carries trigger source, input payload, step-by-step status, output, duration, and error if failed. | master | - | - | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `smp_app_requests` | `smp_app_requests` | App Access Request | App Access Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `smp_automation_workflows` | `smp_automation_workflows` | Automation Workflow | Automation Workflows | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `smp_workflow_runs` | `smp_workflow_runs` | Workflow Run | Workflow Runs | master | - | - | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

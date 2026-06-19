@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: HRSD-CASE-MGMT
 system_description: HR Case Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [ats-background-checks, ats-candidate-crm, ben-carrier-integ, ben-enrollment, comp-planning, comp-statements, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-employee-portal, hrsd-knowledge, iga-access-request, itsm-knowledge, lms-compliance-training, lms-course-delivery, onb-journey-mgmt, pa-engagement-surveys, pa-predictive-models, payroll-earnings-deductions, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, wfm-scheduling]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, HRSD-CASE-AGENT, HRSD-KNOWLEDGE-MANAGER, HRSD-SERVICE-MANAGER, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # HR Case Management
@@ -145,23 +145,23 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics. | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows. | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider. | consumer | `ats-background-checks` | Background Checks | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `carrier_feeds` | `carrier_feeds` | Carrier Feed | Carrier Feeds | Outbound integration to a benefit_carrier (EDI 834 enrollment, 820 remittance, custom API, file_drop). Mostly weekly batch; failures cause coverage discrepancies between HR system of record and carrier of record. | consumer | `ben-carrier-integ` | Carrier Connectivity | optional | - | operational_workflow | `:manage` | - |
-| 6 | `compensation_statements` | `compensation_statements` | Compensation Statement | Compensation Statements | Personalized total-rewards letter delivered to a worker showing the value of base, bonus, equity, benefits, and perks. Generated on hire, merit cycle close, and annually. | consumer | `comp-statements` | Total Rewards Statements | optional | personal_content | operational_workflow | `:manage` | - |
-| 7 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log. | consumer | `lms-compliance-training` | Compliance Training | optional | personal_content | operational_workflow | `:manage` | - |
-| 8 | `engagement_surveys` | `engagement_surveys` | Engagement Survey | Engagement Surveys | Employee engagement, pulse, and sentiment survey responses. Mastered by PA (or by a specialized engagement-platform when used). Drives segment-level engagement scoring and intervention triggers. | consumer | `pa-engagement-surveys` | Engagement Surveys | optional | - | operational_workflow | `:manage` | - |
-| 9 | `garnishment_orders` | `garnishment_orders` | Garnishment Order | Garnishment Orders | Court-ordered or agency-issued instruction to withhold from an employee's wages (child support, tax levy, bankruptcy, student loan, creditor). Carries priority, ceiling, remit-to instructions, and lifecycle (active, released, exhausted). | consumer | `payroll-earnings-deductions` | Earnings, Deductions and Garnishments | optional | - | operational_workflow | `:manage` | - |
-| 10 | `iga_access_requests` | `iga_access_requests` | IGA Access Request | IGA Access Requests | User-initiated access request + approval workflow within an IGA platform. | consumer | `iga-access-request` | IGA Access Request | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 11 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. | consumer | `itsm-knowledge` | Knowledge Management | optional | submit_lock | operational_workflow | `:manage` | - |
-| 12 | `knowledge_base_articles` | `knowledge_base_articles` | Knowledge Base Article | Knowledge Base Articles | Authored, versioned content unit. The KMS standalone-market master, distinct from ITSM/CSM/HRSD/LSD bundled `knowledge_articles` (which are platform-embedded). Lifecycle: draft → published → archived. | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
-| 13 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgment). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | personal_content | operational_workflow | `:manage` | - |
-| 14 | `policy_attestations` | `policy_attestations` | Policy Attestation | Policy Attestations | Record that a user read, understood, and acknowledged a policy; timestamp, version, medium, completion evidence. | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
-| 15 | `work_shifts` | `work_shifts` | Shift | Shifts | A scheduled work block assigned to a worker: start, end, position, location, break plan, premium pay flags. The atomic scheduling unit. | consumer | `wfm-scheduling` | Workforce Scheduling | optional | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 3 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | consumer | `ats-background-checks` | Background Checks | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 5 | `carrier_feeds` | `carrier_feeds` | Carrier Feed | Carrier Feeds | consumer | `ben-carrier-integ` | Carrier Connectivity | optional | - | operational_workflow | `:manage` | - |
+| 6 | `compensation_statements` | `compensation_statements` | Compensation Statement | Compensation Statements | consumer | `comp-statements` | Total Rewards Statements | optional | personal_content | operational_workflow | `:manage` | - |
+| 7 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | personal_content | operational_workflow | `:manage` | - |
+| 8 | `engagement_surveys` | `engagement_surveys` | Engagement Survey | Engagement Surveys | consumer | `pa-engagement-surveys` | Engagement Surveys | optional | - | operational_workflow | `:manage` | - |
+| 9 | `garnishment_orders` | `garnishment_orders` | Garnishment Order | Garnishment Orders | consumer | `payroll-earnings-deductions` | Earnings, Deductions and Garnishments | optional | - | operational_workflow | `:manage` | - |
+| 10 | `iga_access_requests` | `iga_access_requests` | IGA Access Request | IGA Access Requests | consumer | `iga-access-request` | IGA Access Request | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 11 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | consumer | `itsm-knowledge` | Knowledge Management | optional | submit_lock | operational_workflow | `:manage` | - |
+| 12 | `knowledge_base_articles` | `knowledge_base_articles` | Knowledge Base Article | Knowledge Base Articles | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
+| 13 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 14 | `policy_attestations` | `policy_attestations` | Policy Attestation | Policy Attestations | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
+| 15 | `work_shifts` | `work_shifts` | Shift | Shifts | consumer | `wfm-scheduling` | Workforce Scheduling | optional | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

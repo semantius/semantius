@@ -28,7 +28,7 @@ function remarkSkillInstallCommand() {
         if (!match) return;
 
         const slug = match[1];
-        const command = `npx skills add https://github.com/semantius/semantius/skills/${slug}`;
+        const command = `npx skills add https://github.com/semantius/semantius/tree/main/skills/${slug}`;
 
         // Title: prefer frontmatter data set by Astro's remark pipeline; fall
         // back to parsing the raw file source, then to the slug.

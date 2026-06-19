@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-AGENT-WORKSPACE
 system_description: Agent Workspace and Reporting
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [ats-recruitment-pipeline, hcm-core-worker, hcm-org-positions, iga-access-request, iwms-location-master]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Agent Workspace and Reporting
@@ -59,12 +59,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `virtual_agent_conversations` | `virtual_agent_conversations` | Virtual Agent Conversation | Virtual Agent Conversations | A chatbot or virtual-agent conversation transcript: the turn-by-turn exchange, the resolved intent, any deflection or escalation to a human agent, and the ticket it produced. Backs the Virtual Agent capability. | master | - | - | required | - | operational_record | `:manage` | - |
-| 2 | `walkup_visits` | `walkup_visits` | Walk-Up Visit | Walk-Up Visits | A walk-up or onsite check-in record: the visitor, the reason for the visit, queue position, estimated service time, and outcome. Backs the Walk-Up capability. The kiosk is treated as a location attribute, not a separate entity. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 4 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `virtual_agent_conversations` | `virtual_agent_conversations` | Virtual Agent Conversation | Virtual Agent Conversations | master | - | - | required | - | operational_record | `:manage` | - |
+| 2 | `walkup_visits` | `walkup_visits` | Walk-Up Visit | Walk-Up Visits | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 4 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

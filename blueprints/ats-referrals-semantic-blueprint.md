@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ATS-REFERRALS
 system_description: Employee Referrals
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-talent-pools, ben-enrollment, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt, payroll-earnings-deductions]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Employee Referrals
@@ -61,13 +61,13 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `referral_campaigns` | `referral_campaigns` | Referral Campaign | Referral Campaigns | Time-bounded promotion offering bonus referral rewards (e.g. 'double bonus for engineering Q3 2026', 'spot-bonus for hard-to-fill roles'). Scopes a referral_rewards override. | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 2 | `referral_payouts` | `referral_payouts` | Referral Payout | Referral Payouts | Individual payout instance triggered when a referred candidate is hired and meets tenure conditions. Lifecycle: pending -> approved -> paid (-> clawed_back). | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `referral_rewards` | `referral_rewards` | Referral Reward | Referral Rewards | Bounty rule defining the payout amount and conditions for a successful referral (e.g. $5000 paid 90 days after hire start, scaled by role level). | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `candidate_referrals` | `candidate_referrals` | Referral | Referrals | Employee-submitted candidate suggestion linked to a requisition. Tracks the referring employee, candidate, status, and any payable bonus. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `referral_campaigns` | `referral_campaigns` | Referral Campaign | Referral Campaigns | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 2 | `referral_payouts` | `referral_payouts` | Referral Payout | Referral Payouts | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `referral_rewards` | `referral_rewards` | Referral Reward | Referral Rewards | master | - | - | required | - | catalog | `:admin` | - |
+| 4 | `candidate_referrals` | `candidate_referrals` | Referral | Referrals | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

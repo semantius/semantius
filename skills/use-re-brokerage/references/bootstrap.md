@@ -12,7 +12,7 @@ This skill delegates all CLI mechanics to `use-semantius`. Without it, the disco
 
 **How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, halt with:
 
-> The `use-semantius` skill is required but not loaded in this session. Install it and re-run this skill (use this command verbatim, do not substitute another URL): `npx skills add https://github.com/semantius/semantius-cli/skills/use-semantius`
+> The `use-semantius` skill is required but not loaded in this session. Install it and re-run this skill (use this command verbatim, do not substitute another URL): `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`
 
 ---
 

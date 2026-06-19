@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: LMS-ILT-DELIVERY
 system_description: Instructor-Led and Virtual-Instructor-Led Training
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iwms-location-master, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Instructor-Led and Virtual-Instructor-Led Training
@@ -116,24 +116,24 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `course_offerings` | `course_offerings` | Course Offering | Course Offerings | Scheduled instance of a course: date range, location, capacity, language, delivery mode. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 2 | `course_resources` | `course_resources` | Course Resource | Course Resources | Handout, supplementary material, or pre-read attached to an offering or session. | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `course_sessions` | `course_sessions` | Course Session | Course Sessions | Individual session within a multi-day offering; carries per-session attendance and instructor assignment. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 4 | `instructor_assignments` | `instructor_assignments` | Instructor Assignment | Instructor Assignments | Junction assigning an instructor to a session or offering, with role (primary / assistant / observer). | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `instructors` | `instructors` | Instructor | Instructors | Instructor master separate from employees; covers internal trainers, contracted SMEs, and external vendor instructors. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `session_attendances` | `session_attendances` | Session Attendance | Session Attendances | Per-session attendance roster row per learner. OSHA-mandated evidence for required workplace training. | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 7 | `session_cancellations` | `session_cancellations` | Session Cancellation | Session Cancellations | Cancellation or no-show record for an ILT session, driving waitlist promotion. | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 8 | `session_rosters` | `session_rosters` | Session Roster | Session Rosters | Pre-session enrollment snapshot for an ILT session; attendance proof basis. | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 9 | `training_room_bookings` | `training_room_bookings` | Training Room Booking | Training Room Bookings | Reservation of a physical or virtual room and resources for an instructor-led session. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 10 | `virtual_classroom_meetings` | `virtual_classroom_meetings` | Virtual Classroom Meeting | Virtual Classroom Meetings | Linkage to an external video meeting (Zoom / Teams / Webex) for a virtual session; carries join URL and recording reference. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 11 | `waitlist_entries` | `waitlist_entries` | Waitlist Entry | Waitlist Entries | Capacity overflow queue for a course offering; priority order and notify-on-seat-open policy. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
-| 13 | `courses` | `courses` | Course | Courses | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 14 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 15 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 16 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `course_offerings` | `course_offerings` | Course Offering | Course Offerings | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `course_resources` | `course_resources` | Course Resource | Course Resources | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `course_sessions` | `course_sessions` | Course Session | Course Sessions | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 4 | `instructor_assignments` | `instructor_assignments` | Instructor Assignment | Instructor Assignments | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `instructors` | `instructors` | Instructor | Instructors | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 6 | `session_attendances` | `session_attendances` | Session Attendance | Session Attendances | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 7 | `session_cancellations` | `session_cancellations` | Session Cancellation | Session Cancellations | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 8 | `session_rosters` | `session_rosters` | Session Roster | Session Rosters | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 9 | `training_room_bookings` | `training_room_bookings` | Training Room Booking | Training Room Bookings | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 10 | `virtual_classroom_meetings` | `virtual_classroom_meetings` | Virtual Classroom Meeting | Virtual Classroom Meetings | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 11 | `waitlist_entries` | `waitlist_entries` | Waitlist Entry | Waitlist Entries | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
+| 13 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
+| 14 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 15 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 16 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

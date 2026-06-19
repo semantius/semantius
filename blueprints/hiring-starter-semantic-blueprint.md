@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: HIRING-STARTER
 system_description: Hiring Starter
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt, pa-workforce-metrics]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-COORDINATOR, RECRUITING-MANAGER, RECRUITING-RECRUITER, RECRUITING-SOURCER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Hiring Starter
@@ -72,16 +72,16 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `job_applications` | `job_applications` | Application | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation. | embedded_master | `ats-interviews` | Interviews | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `interviews` | `interviews` | Interview | Interviews | Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome. | embedded_master | `ats-interviews` | Interviews | required | - | operational_workflow | `:manage` | - |
-| 5 | `job_postings` | `job_postings` | Job Posting | Job Postings | Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region). | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | - | operational_workflow | `:manage` | - |
-| 6 | `job_offers` | `job_offers` | Offer | Offers | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 7 | `recruitment_sources` | `recruitment_sources` | Recruitment Source | Recruitment Sources | Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI. | embedded_master | `ats-candidate-crm` | Candidate CRM | optional | - | catalog | `:admin` | - |
-| 8 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | embedded_master | `ats-interviews` | Interviews | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `interviews` | `interviews` | Interview | Interviews | embedded_master | `ats-interviews` | Interviews | required | - | operational_workflow | `:manage` | - |
+| 5 | `job_postings` | `job_postings` | Job Posting | Job Postings | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | - | operational_workflow | `:manage` | - |
+| 6 | `job_offers` | `job_offers` | Offer | Offers | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 7 | `recruitment_sources` | `recruitment_sources` | Recruitment Source | Recruitment Sources | embedded_master | `ats-candidate-crm` | Candidate CRM | optional | - | catalog | `:admin` | - |
+| 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

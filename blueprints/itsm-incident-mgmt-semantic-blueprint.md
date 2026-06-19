@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-INCIDENT-MGMT
 system_description: Incident Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [aiops-event-correlation, aiops-predictive-intelligence, apm-portfolio-registry, ats-recruitment-pipeline, cmdb-core, data-ai-plat-ml, dcim-asset-space, dcim-power-env, dlp-enforcement-runtime, hcm-core-worker, hcm-org-positions, iga-access-request, iga-auto-provisioning, it-ops-starter, itam-lifecycle, itam-portfolio-reporting, itom-infra-mon, itsm-starter, iwms-location-master, lcap-visual-composition, msp-psa-svc-desk, remote-access-session, rmm-agent-mgmt, rmm-automation, rmm-monitoring, smp-discovery, uem-compliance-posture, uem-config-apps, uem-device-lifecycle, work-mgmt-task-exec, wsc-channels-conversations]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Incident Management
@@ -89,17 +89,17 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents). | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `service_outages` | `service_outages` | Service Outage | Service Outages | A customer-facing outage or status record, separate from the internal incident. Captures the affected service, the public status (investigating, identified, monitoring, resolved), start and end times, and the customer-facing message. Distinct from the internal incident work item. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `asset_lifecycle_events` | `asset_lifecycle_events` | Asset Lifecycle Event | Asset Lifecycle Events | Cross-cutting lifecycle audit log applicable to hardware, software, and SaaS assets: procurement, deployment, transfer, retirement, disposal. ITSM (incident-driven failure events), HCM (employee termination → recall), and Onboarding (provisioning) all contribute events. | embedded_master | `itam-lifecycle` | Unified Asset Lifecycle Log | optional | - | operational_record | `:manage` | - |
-| 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | Canonical record of an IT thing under management: server, container, application, business service, network device, database, cloud resource. The flagship CMDB entity, referenced by changes, incidents, problems, and topology. Multi-feed: DISCOVERY auto-populates, HAM provides the physical-asset overlay for hardware CIs, SAM/SMP overlay for software/SaaS CIs. | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
-| 5 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 6 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 7 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | Filtered, human-relevant subset of events that crossed a threshold, matched a pattern, or were enriched with priority and routing. Alerts are what gets paged or ticketed; events are what feeds the correlation engine. | consumer | `itom-infra-mon` | Infrastructure Monitoring and Event Management | optional | - | operational_workflow | `:manage` | - |
-| 8 | `error_groups` | `error_groups` | Error Group | Error Groups | Aggregated exception records: unique exception fingerprint, first/last seen, occurrence count, affected releases, environments, owners, status (unresolved/resolved/ignored). | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
-| 9 | `service_level_objectives` | `service_level_objectives` | SLO | SLOs | Service-level objective definitions and breach state: target (e.g. 99.9% requests under 300ms over 28 days), error budget remaining, burn rate, last breach. Drives the slo.breached handoff that creates incidents. | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `service_outages` | `service_outages` | Service Outage | Service Outages | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `asset_lifecycle_events` | `asset_lifecycle_events` | Asset Lifecycle Event | Asset Lifecycle Events | embedded_master | `itam-lifecycle` | Unified Asset Lifecycle Log | optional | - | operational_record | `:manage` | - |
+| 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
+| 5 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 7 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | consumer | `itom-infra-mon` | Infrastructure Monitoring and Event Management | optional | - | operational_workflow | `:manage` | - |
+| 8 | `error_groups` | `error_groups` | Error Group | Error Groups | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
+| 9 | `service_level_objectives` | `service_level_objectives` | SLO | SLOs | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

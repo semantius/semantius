@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: SMP-OPTIMIZATION
 system_description: SMP License Optimization
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: SMP
 related_modules: [smp-automation, smp-discovery, smp-renewal-vendor]
 persona: [ITAM-SAAS-PORTFOLIO-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # SMP License Optimization
@@ -57,13 +57,13 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `smp_optimization_recommendations` | `smp_optimization_recommendations` | Optimization Recommendation | Optimization Recommendations | System-generated rightsizing or consolidation proposal against a SaaS subscription or application. Carries savings_estimate, rationale, recommendation type (downgrade tier, reduce seats, consolidate apps), status. Productiv Recommendations + Zylo Savings Opportunities are the flagship. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 2 | `smp_reclamation_actions` | `smp_reclamation_actions` | Reclamation Action | Reclamation Actions | Executed reclamation against an smp_license_seat_assignment (revoke, downgrade, reassign) with savings_realized linkage. Tracks the operational payoff of the optimization workflow. BetterCloud License Recovery + Torii Reclaim workflows are the flagship. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `smp_app_benchmarks` | `smp_app_benchmarks` | SaaS App Benchmark | SaaS App Benchmarks | Per-app utilization and cost-per-seat benchmark vs an industry peer-set. Snapshot record per measurement period; carries headcount cohort, peer-percentile, and outlier flag. Productiv Benchmarks + Zylo Industry Benchmarks are the flagship. | master | - | - | optional | - | computed | read-only | - |
-| 4 | `saas_usage_metrics` | `saas_usage_metrics` | SaaS Usage Metric | SaaS Usage Metrics | Per-app per-user activity metrics: logins, time-in-app, feature usage, last-active date. The basis for license right-sizing, renewal-tier decisions, and shadow-IT vs sanctioned-app analysis. | master | - | - | required | - | computed | read-only | - |
-| 5 | `smp_license_seat_assignments` | `smp_license_seat_assignments` | SMP License Seat Assignment | SMP License Seat Assignments | SMP's view of a user-to-app license seat: who holds a seat at which tier, cost-per-seat, utilization signal, last active. Drives reclamation and rightsizing. Correlates with an iga_user_entitlement record (the governance view of the same access fact); the two routinely diverge. | master | - | - | required | - | junction | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `smp_optimization_recommendations` | `smp_optimization_recommendations` | Optimization Recommendation | Optimization Recommendations | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `smp_reclamation_actions` | `smp_reclamation_actions` | Reclamation Action | Reclamation Actions | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 3 | `smp_app_benchmarks` | `smp_app_benchmarks` | SaaS App Benchmark | SaaS App Benchmarks | master | - | - | optional | - | computed | read-only | - |
+| 4 | `saas_usage_metrics` | `saas_usage_metrics` | SaaS Usage Metric | SaaS Usage Metrics | master | - | - | required | - | computed | read-only | - |
+| 5 | `smp_license_seat_assignments` | `smp_license_seat_assignments` | SMP License Seat Assignment | SMP License Seat Assignments | master | - | - | required | - | junction | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-CHANGE-MGMT
 system_description: Change and Release Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [ats-recruitment-pipeline, cmdb-core, hcm-core-worker, hcm-org-positions, iga-access-request, itsm-incident-mgmt, iwms-location-master, rmm-agent-mgmt, rmm-patch-mgmt]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Change and Release Management
@@ -74,15 +74,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `cab_meetings` | `cab_meetings` | CAB Meeting | CAB Meetings | A Change Advisory Board meeting record: agenda, attendees, the changes reviewed, decisions, and minutes. The first-class artifact of the CAB review step in change management. | master | - | - | required | - | operational_record | `:manage` | - |
-| 2 | `change_collisions` | `change_collisions` | Change Collision | Change Collisions | A detected conflict between overlapping changes or a change scheduled inside a blackout window. Records the colliding changes, the window in question, and the resolution. Surfaces scheduling conflicts before they reach implementation. | master | - | - | required | - | operational_record | `:manage` | - |
-| 3 | `service_changes` | `service_changes` | Change | Changes | Planned modification to a service or configuration item. Carries change type (standard, normal, emergency), risk score, CAB approval state, implementation window, and back-out plan. The boundary object between ITSM and CMDB - CIs are updated as a result of an executed change. | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 4 | `service_releases` | `service_releases` | Service Release | Service Releases | A release or deployment record that bundles one or more changes into a single shippable unit. Carries the release window, the included changes, deployment status, and rollback plan. Distinct from a single change ticket. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | Canonical record of an IT thing under management: server, container, application, business service, network device, database, cloud resource. The flagship CMDB entity, referenced by changes, incidents, problems, and topology. Multi-feed: DISCOVERY auto-populates, HAM provides the physical-asset overlay for hardware CIs, SAM/SMP overlay for software/SaaS CIs. | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
-| 6 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 7 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `cab_meetings` | `cab_meetings` | CAB Meeting | CAB Meetings | master | - | - | required | - | operational_record | `:manage` | - |
+| 2 | `change_collisions` | `change_collisions` | Change Collision | Change Collisions | master | - | - | required | - | operational_record | `:manage` | - |
+| 3 | `service_changes` | `service_changes` | Change | Changes | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 4 | `service_releases` | `service_releases` | Service Release | Service Releases | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
+| 6 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

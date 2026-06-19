@@ -1,0 +1,432 @@
+---
+// Shell install command with an interactive Agent picker and Global toggle.
+// Cloned from Command.astro (shell mode). The required prop is the install
+// `url`; the surrounding `npx skills add <url> ...` shell and the flag logic
+// live here.
+//
+// Behaviour:
+//  - "Agent" dropdown. "All" is the first entry and the default. Selecting a
+//    specific agent appends `--agent <value>`; selecting "All" appends `--all`
+//    instead (never `--agent`).
+//  - "Global" checkbox to the right of the dropdown, default checked. When
+//    checked, appends `--global`.
+//  - Both choices persist in cookies so they survive navigation/reloads.
+//
+// Props:
+//  - title: optional heading rendered on the same row as the controls.
+//  - includeSubagents: set on pages whose package bundles interactive
+//    subagents. When true and "OpenClaw" is selected, the copy button surfaces
+//    a warning modal (OpenClaw does not support those subagents).
+
+interface Props {
+  url: string;
+  title?: string;
+  includeSubagents?: boolean;
+}
+
+const { url, title, includeSubagents = false } = Astro.props;
+
+// Agent display name -> `--agent` slug. Multi-agent rows from the source table
+// (e.g. "Amp, Replit, Universal") are split into individual selectable entries
+// so each maps to exactly one `--agent` value. Sorted alphabetically by label;
+// "All" is prepended in the markup as the default first option.
+const AGENTS: { value: string; label: string }[] = [
+  { value: "adal", label: "AdaL" },
+  { value: "aider-desk", label: "AiderDesk" },
+  { value: "amp", label: "Amp" },
+  { value: "antigravity", label: "Antigravity" },
+  { value: "antigravity-cli", label: "Antigravity CLI" },
+  { value: "astrbot", label: "AstrBot" },
+  { value: "augment", label: "Augment" },
+  { value: "autohand-code", label: "Autohand Code CLI" },
+  { value: "claude-code", label: "Claude Code" },
+  { value: "cline", label: "Cline" },
+  { value: "codearts-agent", label: "CodeArts Agent" },
+  { value: "codebuddy", label: "CodeBuddy" },
+  { value: "codemaker", label: "Codemaker" },
+  { value: "codestudio", label: "Code Studio" },
+  { value: "codex", label: "Codex" },
+  { value: "command-code", label: "Command Code" },
+  { value: "continue", label: "Continue" },
+  { value: "cortex", label: "Cortex Code" },
+  { value: "crush", label: "Crush" },
+  { value: "cursor", label: "Cursor" },
+  { value: "deepagents", label: "Deep Agents" },
+  { value: "devin", label: "Devin for Terminal" },
+  { value: "dexto", label: "Dexto" },
+  { value: "droid", label: "Droid" },
+  { value: "eve", label: "Eve" },
+  { value: "firebender", label: "Firebender" },
+  { value: "forgecode", label: "ForgeCode" },
+  { value: "gemini-cli", label: "Gemini CLI" },
+  { value: "github-copilot", label: "GitHub Copilot" },
+  { value: "goose", label: "Goose" },
+  { value: "hermes-agent", label: "Hermes Agent" },
+  { value: "bob", label: "IBM Bob" },
+  { value: "iflow-cli", label: "iFlow CLI" },
+  { value: "inference-sh", label: "inference.sh" },
+  { value: "jazz", label: "Jazz" },
+  { value: "junie", label: "Junie" },
+  { value: "kilo", label: "Kilo Code" },
+  { value: "kimi-code-cli", label: "Kimi Code CLI" },
+  { value: "kiro-cli", label: "Kiro CLI" },
+  { value: "kode", label: "Kode" },
+  { value: "lingma", label: "Lingma" },
+  { value: "loaf", label: "Loaf" },
+  { value: "mcpjam", label: "MCPJam" },
+  { value: "mistral-vibe", label: "Mistral Vibe" },
+  { value: "moxby", label: "Moxby" },
+  { value: "mux", label: "Mux" },
+  { value: "neovate", label: "Neovate" },
+  { value: "ona", label: "Ona" },
+  { value: "openclaw", label: "OpenClaw" },
+  { value: "opencode", label: "OpenCode" },
+  { value: "openhands", label: "OpenHands" },
+  { value: "pi", label: "Pi" },
+  { value: "pochi", label: "Pochi" },
+  { value: "promptscript", label: "PromptScript" },
+  { value: "qoder", label: "Qoder" },
+  { value: "qoder-cn", label: "Qoder CN" },
+  { value: "qwen-code", label: "Qwen Code" },
+  { value: "reasonix", label: "Reasonix" },
+  { value: "replit", label: "Replit" },
+  { value: "roo", label: "Roo Code" },
+  { value: "rovodev", label: "Rovo Dev" },
+  { value: "tabnine-cli", label: "Tabnine CLI" },
+  { value: "terramind", label: "Terramind" },
+  { value: "tinycloud", label: "Tinycloud" },
+  { value: "trae", label: "Trae" },
+  { value: "trae-cn", label: "Trae CN" },
+  { value: "universal", label: "Universal" },
+  { value: "warp", label: "Warp" },
+  { value: "windsurf", label: "Windsurf" },
+  { value: "zed", label: "Zed" },
+  { value: "zencoder", label: "Zencoder" },
+  { value: "zenflow", label: "Zenflow" },
+];
+
+const base = `npx skills add ${url}`;
+// Server render matches the default control state (Agent = All, Global = on).
+// The client script reconciles this with any saved cookie on load.
+const defaultCommand = `${base} --all --global`;
+---
+
+<div
+  class="skill-install not-prose"
+  data-base={base}
+  data-include-subagents={includeSubagents ? "true" : undefined}
+>
+  <div class="skill-install-controls">
+    {title && <h2 class="skill-install-title">{title}</h2>}
+    <div class="skill-install-fields">
+      <label class="skill-install-field">
+        <span>Agent</span>
+        <select class="skill-install-agent" aria-label="Agent">
+          <option value="all">All</option>
+          {AGENTS.map((agent) => (
+            <option value={agent.value}>{agent.label}</option>
+          ))}
+        </select>
+      </label>
+      <label class="skill-install-field skill-install-global-field">
+        <input type="checkbox" class="skill-install-global" checked />
+        <span>Global</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="command group is-shell">
+    <code class="command-text">{defaultCommand}</code>
+    <button
+      type="button"
+      class="command-copy"
+      data-command={defaultCommand}
+      aria-label="Copy command"
+    >
+      <svg
+        class="command-icon-copy"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+      <svg
+        class="command-icon-check"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+      <span class="command-copy-label">Copy</span>
+    </button>
+  </div>
+
+  {includeSubagents && (
+    <div class="skill-install-modal" role="presentation">
+      <div class="skill-install-modal-backdrop" data-close></div>
+      <div
+        class="skill-install-modal-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="skill-install-modal-title"
+        tabindex="-1"
+      >
+        <button
+          type="button"
+          class="skill-install-modal-close"
+          data-close
+          aria-label="Close"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+        <h3 id="skill-install-modal-title" class="skill-install-modal-title">
+          WARNING!
+        </h3>
+        <p class="skill-install-modal-body">
+          OpenClaw does not support the interactive subagents included in this
+          package.
+        </p>
+        <a
+          class="skill-install-modal-link"
+          href="https://docs.openclaw.ai/tools/subagents"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Learn more about OpenClaw subagents
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </a>
+      </div>
+    </div>
+  )}
+</div>
+
+<script>
+  const COOKIE_AGENT = "skillAgent";
+  const COOKIE_GLOBAL = "skillGlobal";
+
+  function getCookie(name: string): string | null {
+    const match = document.cookie.match(
+      new RegExp("(?:^|; )" + name + "=([^;]*)"),
+    );
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function setCookie(name: string, value: string): void {
+    // One year, site-wide so the preference follows the user across pages.
+    document.cookie =
+      name +
+      "=" +
+      encodeURIComponent(value) +
+      "; path=/; max-age=31536000; samesite=lax";
+  }
+
+  function buildCommand(base: string, agent: string, global: boolean): string {
+    let cmd = base;
+    // "all" is special: it emits `--all` and never `--agent`.
+    cmd += agent && agent !== "all" ? ` --agent ${agent}` : " --all";
+    if (global) cmd += " --global";
+    return cmd;
+  }
+
+  async function copyText(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+  }
+
+  type Instance = {
+    base: string;
+    select: HTMLSelectElement;
+    checkbox: HTMLInputElement;
+    code: HTMLElement;
+    copy: HTMLElement;
+  };
+
+  const roots = Array.from(
+    document.querySelectorAll<HTMLElement>(".skill-install"),
+  );
+
+  if (roots.length) {
+    const instances: Instance[] = roots
+      .map((root) => {
+        const select = root.querySelector<HTMLSelectElement>(
+          ".skill-install-agent",
+        );
+        const checkbox = root.querySelector<HTMLInputElement>(
+          ".skill-install-global",
+        );
+        const code = root.querySelector<HTMLElement>(".command-text");
+        const copy = root.querySelector<HTMLElement>(".command-copy");
+        if (!select || !checkbox || !code || !copy) return null;
+        return { base: root.dataset.base ?? "", select, checkbox, code, copy };
+      })
+      .filter((value): value is Instance => value !== null);
+
+    const render = (instance: Instance): void => {
+      const cmd = buildCommand(
+        instance.base,
+        instance.select.value,
+        instance.checkbox.checked,
+      );
+      instance.code.textContent = cmd;
+      instance.copy.dataset.command = cmd;
+    };
+
+    // The preference is shared (single cookie), so a change in one instance
+    // syncs every instance on the page.
+    const apply = (agent: string, global: boolean): void => {
+      instances.forEach((instance) => {
+        instance.select.value = agent;
+        if (instance.select.value !== agent) instance.select.value = "all";
+        instance.checkbox.checked = global;
+        render(instance);
+      });
+    };
+
+    // Restore saved preferences (falling back to the SSR defaults).
+    const savedAgent = getCookie(COOKIE_AGENT);
+    const savedGlobal = getCookie(COOKIE_GLOBAL);
+    const first = instances[0];
+    if (savedAgent) {
+      first.select.value = savedAgent;
+      if (first.select.value !== savedAgent) first.select.value = "all";
+    }
+    if (savedGlobal !== null) first.checkbox.checked = savedGlobal !== "0";
+    apply(first.select.value, first.checkbox.checked);
+
+    instances.forEach((instance) => {
+      instance.select.addEventListener("change", () => {
+        setCookie(COOKIE_AGENT, instance.select.value);
+        apply(instance.select.value, instance.checkbox.checked);
+      });
+      instance.checkbox.addEventListener("change", () => {
+        setCookie(COOKIE_GLOBAL, instance.checkbox.checked ? "1" : "0");
+        apply(instance.select.value, instance.checkbox.checked);
+      });
+    });
+  }
+
+  // Copy + warning-modal handling (bound once per page). Kept self-contained so
+  // SkillInstall works on pages that do not also render a Command component.
+  const w = window as typeof window & { __skillInstallBound?: boolean };
+  if (!w.__skillInstallBound) {
+    w.__skillInstallBound = true;
+
+    const closeModal = (modal: Element | null): void => {
+      modal?.classList.remove("is-open");
+    };
+
+    document.addEventListener("click", async (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+
+      // Close the warning modal (backdrop or close button).
+      const closer = target.closest("[data-close]");
+      if (closer) {
+        closeModal(closer.closest(".skill-install-modal"));
+        return;
+      }
+
+      const button = target.closest<HTMLButtonElement>(
+        ".skill-install .command-copy",
+      );
+      if (!button) return;
+
+      const root = button.closest<HTMLElement>(".skill-install");
+      const command = button.dataset.command ?? "";
+
+      // On packages that bundle interactive subagents, OpenClaw cannot run
+      // them: warn the user instead of the usual inline "Copied" feedback.
+      // Surface the modal synchronously (before the async clipboard write) so a
+      // slow/blocked clipboard can never swallow the warning.
+      const includeSubagents = root?.dataset.includeSubagents === "true";
+      const agent = root?.querySelector<HTMLSelectElement>(
+        ".skill-install-agent",
+      )?.value;
+      const warnOpenClaw = includeSubagents && agent === "openclaw";
+      if (warnOpenClaw) {
+        const modal = root?.querySelector(".skill-install-modal");
+        if (modal) {
+          modal.classList.add("is-open");
+          modal
+            .querySelector<HTMLElement>(".skill-install-modal-dialog")
+            ?.focus();
+        }
+      }
+
+      await copyText(command);
+
+      if (warnOpenClaw) return; // modal is the feedback; skip the inline state
+
+      const wrapper = button.closest(".command");
+      const label = button.querySelector<HTMLElement>(".command-copy-label");
+      const originalLabel = label?.textContent ?? "Copy";
+
+      wrapper?.classList.add("copied");
+      if (label) label.textContent = "Copied";
+
+      setTimeout(() => {
+        wrapper?.classList.remove("copied");
+        if (label) label.textContent = originalLabel;
+      }, 1600);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      document
+        .querySelectorAll(".skill-install-modal.is-open")
+        .forEach((modal) => closeModal(modal));
+    });
+  }
+</script>

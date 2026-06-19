@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: REAL-ESTATE-AGENT
 system_description: Real Estate Agent (solo / small firm bundle)
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: REAL-ESTATE-AGENT
 related_modules: [agency-mgmt-job-traffic, clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-quote-builder, crm-acct-mgt, crm-activity, crm-lead-mgt, ma-campaign-authoring, ma-lead-scoring, psa-project-delivery, re-brok-agent-ops, re-brok-brokerage-ops, re-invest-portfolio-val, smp-renewal-vendor]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL, PROCUREMENT-CONTRACT-LIAISON]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Real Estate Agent (solo / small firm bundle)
@@ -72,16 +72,16 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | Person at a customer account (B2B) or contact-level record (B2C-relevant). Carries title, email, decision-maker flag, preferred channel, opt-in state. MA contributes engagement data; SALES-ENG contributes cadence touchpoints. | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
-| 2 | `legal_contracts` | `legal_contracts` | Contract | Contracts | Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object - CLM owns the document, S2P and SMP contribute context. | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 3 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | State-mandated and brokerage-policy disclosure forms attached to transactions (agency disclosure, property condition, lead paint, HOA documents); required for compliance audit. | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 4 | `crm_leads` | `crm_leads` | Lead | Leads | Pre-qualification prospect record - source, score, status (new/working/qualified/disqualified/converted), assigned rep, conversion target (which contact + account it would become). MQL handoff from MA lands here. | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | Property offered for sale or rent on an MLS or brokerage marketplace; carries pricing, photos, descriptive text, agent representation, and listing-status lifecycle (active/contingent/pending/sold/withdrawn). | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | Deal pipeline from offer through close: parties, terms, contingencies, escrow timeline, and document compliance. One transaction per accepted offer; survives the listing once the offer is bound. | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 7 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | Scheduled property showings with lock-box codes, access windows, agent attendance, and follow-up tracking. | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
-| 8 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
+| 2 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 3 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 4 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 5 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
+| 6 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
+| 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

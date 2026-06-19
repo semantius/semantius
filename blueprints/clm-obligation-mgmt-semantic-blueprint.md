@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: CLM-OBLIGATION-MGMT
 system_description: Obligation Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: CLM
 related_modules: [clm-authoring, clm-negotiation, clm-renewal, clm-repository]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Obligation Management
@@ -48,10 +48,10 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_milestones` | `contract_milestones` | Contract Milestone | Contract Milestones | A date-driven checkpoint in a contract (for example a delivery date or review date), distinct from a deliverable obligation. | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 2 | `contract_obligations` | `contract_obligations` | Contract Obligation | Contract Obligations | Specific performance, payment, delivery, reporting, or compliance commitment extracted from a contract - each with its own owner, due date, and status. Post-signature obligation tracking is where contracts deliver (or fail to deliver) value. | master | - | - | required | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `contract_milestones` | `contract_milestones` | Contract Milestone | Contract Milestones | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 2 | `contract_obligations` | `contract_obligations` | Contract Obligation | Contract Obligations | master | - | - | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

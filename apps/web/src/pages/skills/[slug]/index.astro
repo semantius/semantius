@@ -3,6 +3,7 @@ export const prerender = true;
 import { getCollection } from 'astro:content';
 import Layout from '~/layouts/Layout.astro';
 import Command from '~/components/common/Command.astro';
+import SkillInstall from '~/components/common/SkillInstall.astro';
 
 // One skill per domain. The page is driven by the per-domain catalog copy
 // (catalogs collection, from skill-specs/<CODE>/catalog.yaml), with the slug =
@@ -31,8 +32,10 @@ const paragraphs = (catalog.catalog_description ?? '')
 	.filter(Boolean);
 
 // Install command mirrors the one the remark plugin injects on skill READMEs.
-const installCommand = catalog.skill_name
-	? `npx skills add https://github.com/semantius/semantius/skills/${catalog.skill_name}`
+// SkillInstall wraps this URL in `npx skills add <url> ...` and appends the
+// agent/global flags chosen in its UI.
+const installUrl = catalog.skill_name
+	? `https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`
 	: null;
 
 // Usage command shows how to invoke the installed skill in chat.
@@ -67,12 +70,9 @@ const usageCommand = catalog.skill_name ? `/${catalog.skill_name} What can you d
 				</div>
 			)}
 
-			{installCommand && (
+			{installUrl && (
 				<div class="mt-10">
-					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-						Install the {catalog.skill_name} skill
-					</h2>
-					<Command mode="shell" command={installCommand} />
+					<SkillInstall url={installUrl} title={`Install the ${catalog.skill_name} skill`} />
 				</div>
 			)}
 
@@ -121,7 +121,7 @@ const usageCommand = catalog.skill_name ? `/${catalog.skill_name} What can you d
 			{catalog.skill_name && (
 				<div class="mt-10 border-t border-border pt-6">
 					<a
-						href={`https://github.com/semantius/semantius/skills/${catalog.skill_name}`}
+						href={`https://github.com/semantius/semantius/tree/main/skills/${catalog.skill_name}`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"

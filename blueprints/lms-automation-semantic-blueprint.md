@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: LMS-AUTOMATION
 system_description: Learning Automation
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, LEGAL-COMPLIANCE-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Learning Automation
@@ -89,20 +89,20 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `audiences` | `audiences` | Audience | Audiences | Dynamic learner segment defined by attributes (department, location, role) and used by auto-enrollment and notification rules. | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `automated_enrollment_rules` | `automated_enrollment_rules` | Automated Enrollment Rule | Automated Enrollment Rules | Rule engine entry that auto-enrolls learners into courses or paths based on audience membership and lifecycle events. | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `escalation_rules` | `escalation_rules` | Escalation Rule | Escalation Rules | Policy that escalates overdue training through manager, skip-level, HR Business Partner, or compliance officer. | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `learner_notifications` | `learner_notifications` | Learner Notification | Learner Notifications | Per-learner sent-notification log row for reminders, nudges, completions, and escalations. | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 5 | `manager_nudges` | `manager_nudges` | Manager Nudge | Manager Nudges | Manager-directed reminder triggered when a direct report has overdue or upcoming training. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `notification_templates` | `notification_templates` | Notification Template | Notification Templates | Reusable email / in-app / chat template with merge fields, used by automation rules and manager nudges. | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `reminder_schedules` | `reminder_schedules` | Reminder Schedule | Reminder Schedules | Configured nudge cadence driving automated learner and manager reminders. | master | - | - | optional | - | catalog | `:admin` | - |
-| 8 | `learner_certifications` | `learner_certifications` | Certification | Certifications | Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log. | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content | operational_workflow | `:manage` | - |
-| 10 | `courses` | `courses` | Course | Courses | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 11 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `audiences` | `audiences` | Audience | Audiences | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `automated_enrollment_rules` | `automated_enrollment_rules` | Automated Enrollment Rule | Automated Enrollment Rules | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `escalation_rules` | `escalation_rules` | Escalation Rule | Escalation Rules | master | - | - | required | - | catalog | `:admin` | - |
+| 4 | `learner_notifications` | `learner_notifications` | Learner Notification | Learner Notifications | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 5 | `manager_nudges` | `manager_nudges` | Manager Nudge | Manager Nudges | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 6 | `notification_templates` | `notification_templates` | Notification Template | Notification Templates | master | - | - | required | - | catalog | `:admin` | - |
+| 7 | `reminder_schedules` | `reminder_schedules` | Reminder Schedule | Reminder Schedules | master | - | - | optional | - | catalog | `:admin` | - |
+| 8 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content | operational_workflow | `:manage` | - |
+| 10 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
+| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: LMS-COURSE-DELIVERY
 system_description: Course Delivery
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, emp-exp-continuous-listen, fin-gl-close, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, lms-automation, lms-compliance-training, lms-credentials, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Course Delivery
@@ -177,37 +177,37 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `assessment_attempts` | `assessment_attempts` | Assessment Attempt | Assessment Attempts | Per-learner per-attempt audit row: start time, score, pass/fail, time-on-task. FINRA / Part 11 evidence substrate. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `assessment_questions` | `assessment_questions` | Assessment Question | Assessment Questions | Item-bank entry: question stem, choices, scoring, and metadata for randomization. | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `cmi5_assignable_units` | `cmi5_assignable_units` | cmi5 Assignable Unit | cmi5 Assignable Units | cmi5 (ADL) assignable unit launched against an LRS; modern course-package standard supplanting SCORM. | master | - | - | optional | - | catalog | `:admin` | - |
-| 4 | `course_assessments` | `course_assessments` | Course Assessment | Course Assessments | Quiz or exam definition associated with a course or lesson; carries passing score and attempt policy. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 5 | `course_catalogs` | `course_catalogs` | Course Catalog | Course Catalogs | Scoped catalog view: subset of courses surfaced to a specific audience, branch, or domain. | master | - | - | required | - | catalog | `:admin` | - |
-| 6 | `course_categories` | `course_categories` | Course Category | Course Categories | Hierarchical taxonomy for catalog browsing and reporting. | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `course_completions` | `course_completions` | Course Completion | Course Completions | Terminal completion record per learner per course version. Distinct from learning_records (event log). | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 8 | `course_discussions` | `course_discussions` | Course Discussion | Course Discussions | Forum-style discussion thread attached to a course or lesson; collaborative-learning surface. | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 9 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 10 | `course_modules` | `course_modules` | Course Module | Course Modules | Intra-course composition unit grouping related lessons; supports completion tracking at sub-course granularity. | master | - | - | required | - | catalog | `:admin` | - |
-| 11 | `course_ratings` | `course_ratings` | Course Rating | Course Ratings | Numeric rating (typically 1-5) per learner per course; aggregate analytics surface. | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 12 | `course_reviews` | `course_reviews` | Course Review | Course Reviews | Learner-authored qualitative review of a course post-completion. | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 13 | `course_tags` | `course_tags` | Course Tag | Course Tags | Free-form taxonomy alongside categories; supports faceted search. | master | - | - | required | - | catalog | `:admin` | - |
-| 14 | `course_versions` | `course_versions` | Course Version | Course Versions | Versioned snapshot of a course's content lineage. Required for compliance retention: regulators ask which version of training each learner completed. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 15 | `courses` | `courses` | Course | Courses | Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 16 | `learning_content_assets` | `learning_content_assets` | Learning Content Asset | Learning Content Assets | Reusable content asset (video, PDF, image, audio) referenced by lessons and modules. | master | - | - | required | - | catalog | `:admin` | - |
-| 17 | `learning_records` | `learning_records` | Learning Record | Learning Records | Granular completion event for a course or activity, often xAPI / SCORM / cmi5 statement: actor, verb, object, result, timestamp. Feeds skill_profiles and certifications. | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 18 | `lessons` | `lessons` | Lesson | Lessons | Leaf consumable inside a course module: video, document, SCORM block, or live activity. | master | - | - | required | - | catalog | `:admin` | - |
-| 19 | `lrs_statement_endpoints` | `lrs_statement_endpoints` | LRS Statement Endpoint | LRS Statement Endpoints | External Learning Record Store endpoints xAPI statements are routed to. | master | - | - | optional | - | catalog | `:admin` | - |
-| 20 | `observation_checklist_results` | `observation_checklist_results` | Observation Checklist Result | Observation Checklist Results | A learner's scored result against an observation checklist, with observer signoff. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 21 | `observation_checklists` | `observation_checklists` | Observation Checklist | Observation Checklists | On-the-job competency checklist an observer scores against; field-skill assessment. | master | - | - | optional | - | catalog | `:admin` | - |
-| 22 | `question_banks` | `question_banks` | Question Bank | Question Banks | Reusable pools of assessment questions independent of any single assessment, drawn from for randomized quizzes and recertification exams. | master | - | - | optional | - | catalog | `:admin` | - |
-| 23 | `quiz_responses` | `quiz_responses` | Quiz Response | Quiz Responses | Item-level learner response capture for psychometric analysis and per-question review. | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 24 | `scorm_packages` | `scorm_packages` | SCORM Package | SCORM Packages | SCORM / AICC / cmi5 content package import; carries content interop manifest and runtime state. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 25 | `xapi_statements` | `xapi_statements` | xAPI Statement | xAPI Statements | Experience-API event log row capturing actor-verb-object learning activity inside or outside the LMS. | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 26 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | Organizational unit for cost allocation: name, code, manager, hierarchy, currency. Drives variance reporting and project / departmental P&L. A near-universal foreign key in finance and payroll. | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 27 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 28 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 29 | `hcm_positions` | `hcm_positions` | Position | Positions | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `assessment_attempts` | `assessment_attempts` | Assessment Attempt | Assessment Attempts | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `assessment_questions` | `assessment_questions` | Assessment Question | Assessment Questions | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `cmi5_assignable_units` | `cmi5_assignable_units` | cmi5 Assignable Unit | cmi5 Assignable Units | master | - | - | optional | - | catalog | `:admin` | - |
+| 4 | `course_assessments` | `course_assessments` | Course Assessment | Course Assessments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 5 | `course_catalogs` | `course_catalogs` | Course Catalog | Course Catalogs | master | - | - | required | - | catalog | `:admin` | - |
+| 6 | `course_categories` | `course_categories` | Course Category | Course Categories | master | - | - | required | - | catalog | `:admin` | - |
+| 7 | `course_completions` | `course_completions` | Course Completion | Course Completions | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 8 | `course_discussions` | `course_discussions` | Course Discussion | Course Discussions | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 9 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 10 | `course_modules` | `course_modules` | Course Module | Course Modules | master | - | - | required | - | catalog | `:admin` | - |
+| 11 | `course_ratings` | `course_ratings` | Course Rating | Course Ratings | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 12 | `course_reviews` | `course_reviews` | Course Review | Course Reviews | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 13 | `course_tags` | `course_tags` | Course Tag | Course Tags | master | - | - | required | - | catalog | `:admin` | - |
+| 14 | `course_versions` | `course_versions` | Course Version | Course Versions | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 15 | `courses` | `courses` | Course | Courses | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 16 | `learning_content_assets` | `learning_content_assets` | Learning Content Asset | Learning Content Assets | master | - | - | required | - | catalog | `:admin` | - |
+| 17 | `learning_records` | `learning_records` | Learning Record | Learning Records | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 18 | `lessons` | `lessons` | Lesson | Lessons | master | - | - | required | - | catalog | `:admin` | - |
+| 19 | `lrs_statement_endpoints` | `lrs_statement_endpoints` | LRS Statement Endpoint | LRS Statement Endpoints | master | - | - | optional | - | catalog | `:admin` | - |
+| 20 | `observation_checklist_results` | `observation_checklist_results` | Observation Checklist Result | Observation Checklist Results | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 21 | `observation_checklists` | `observation_checklists` | Observation Checklist | Observation Checklists | master | - | - | optional | - | catalog | `:admin` | - |
+| 22 | `question_banks` | `question_banks` | Question Bank | Question Banks | master | - | - | optional | - | catalog | `:admin` | - |
+| 23 | `quiz_responses` | `quiz_responses` | Quiz Response | Quiz Responses | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 24 | `scorm_packages` | `scorm_packages` | SCORM Package | SCORM Packages | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 25 | `xapi_statements` | `xapi_statements` | xAPI Statement | xAPI Statements | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 26 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
+| 27 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 28 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 29 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

@@ -12,7 +12,7 @@ This skill delegates all CLI mechanics to `use-semantius`. Without it, the disco
 
 **How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, halt with:
 
-> The `use-semantius` skill is required but not loaded in this session. Install it and re-run this skill (use this command verbatim, do not substitute another URL): `npx skills add https://github.com/semantius/semantius-cli/skills/use-semantius`
+> The `use-semantius` skill is required but not loaded in this session. Install it and re-run this skill (use this command verbatim, do not substitute another URL): `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`
 
 ---
 
@@ -84,8 +84,8 @@ hint as `modules`.
 
 > The `{{DOMAIN_NAME}}` domain is not deployed in your platform. No live module hosts its entities, and no module carries its catalog codes. Deploy the domain blueprint first:
 >
-> 1. Pull the blueprint: `https://www.semantius.com/blueprints/{{DOMAIN_CODE_LOWER}}`
-> 2. Run the semantic-model-deployer skill against the blueprint
+> 1. Review the blueprint for this domain at `https://www.semantius.com/blueprints/{{DOMAIN_CODE_LOWER}}`. This page describes the blueprint and how to download it with the `semantius-admin` skill.
+> 2. Use the `semantius-admin` skill to download, customize, and deploy the model. If it is not installed, install it first with `npx skills add semantius/semantius-cli --all`.
 > 3. Verify with: `semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.{{DOMAIN_CODE}}&select=id,slug,name"}'` (any row returned means a module of this domain is already deployed)
 >
 > Re-run this skill once the domain is live.

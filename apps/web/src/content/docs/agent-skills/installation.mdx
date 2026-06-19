@@ -7,6 +7,7 @@ order: 2
 
 import { Image } from 'astro:assets';
 import Command from '~/components/common/Command.astro';
+import SkillInstall from '~/components/common/SkillInstall.astro';
 import getCliConfig from '~/assets/docs/getcliconfig.png';
 
 Getting Semantius **[Agent Skills](/docs/agent-skills)** running takes three steps: install the Semantius CLI, set up credentials, then add the skills to your agent.
@@ -60,13 +61,9 @@ That is all the configuration needed. The CLI automatically connects to your Sem
 
 ## 3. Install the Skills
 
-With the CLI installed and credentials in place, pull the skill bundle into your agent:
+With the CLI installed and credentials in place, pull the skill bundle into your agent. Leave the **Agent** dropdown on **All** to install for every detected agent, or pick a specific agent to target just that one. Toggle **Global** to install into your home directory instead of the current project.
 
-<Command command="npx skills add semantius/semantius-cli --all" />
-
-To install for a specific agent only (e.g. Codex):
-
-<Command command="npx skills add semantius/semantius-cli --all --agent codex" />
+<SkillInstall url="semantius/semantius-cli" includeSubagents />
 
 Supports [OpenCode, Claude Code, Codex, Cursor, and 51 more](https://github.com/vercel-labs/skills#supported-agents). See the [skills documentation](https://github.com/vercel-labs/skills) to learn how to install skills for your agent.
 

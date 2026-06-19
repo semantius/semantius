@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ATS-INTERVIEWS
 system_description: Interviews
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, onb-journey-mgmt, pa-workforce-metrics, talent-performance-mgmt, talent-succession-career, vms-worker-sourcing]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-COORDINATOR, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Interviews
@@ -85,18 +85,18 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | Skills, cognitive, technical, or personality test result attached to an application. Often sourced from an external assessment provider and referenced here. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `candidate_assessment_templates` | `candidate_assessment_templates` | Candidate Assessment Template | Candidate Assessment Templates | Library item for assessments (coding challenge, work sample, take-home, skills test). Carries title, vendor, time limit, scoring rubric. Materializes into candidate_assessments when assigned. | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `interview_kits` | `interview_kits` | Interview Kit | Interview Kits | Reusable interview template per role / stage. Bundles assigned questions, target competencies, recommended scorecard, expected duration. Greenhouse's core authoring unit. | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `interview_panels` | `interview_panels` | Interview Panel | Interview Panels | Composition of interviewers assigned to a specific interview, including their role on the panel (lead, technical, behavioral, debrief moderator) and weighting on the consolidated scorecard. | master | - | - | required | - | junction | `:manage` | - |
-| 5 | `interview_questions` | `interview_questions` | Interview Question | Interview Questions | Question bank entry tied to competencies. Carries question text, type (behavioral / technical / situational), competency tags, suggested follow-ups, rubric. | master | - | - | required | - | catalog | `:admin` | - |
-| 6 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation. | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 7 | `interviewer_availability_slots` | `interviewer_availability_slots` | Interviewer Availability Slot | Interviewer Availability Slots | Bookable time window an interviewer has marked available. Drives self-serve scheduling (Goodtime / Modern Hire / Calendly for Recruiting). Carries interviewer, start, end, allowed interview types. | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 8 | `interviews` | `interviews` | Interview | Interviews | Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 9 | `job_applications` | `job_applications` | Application | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
-| 10 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 2 | `candidate_assessment_templates` | `candidate_assessment_templates` | Candidate Assessment Template | Candidate Assessment Templates | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `interview_kits` | `interview_kits` | Interview Kit | Interview Kits | master | - | - | required | - | catalog | `:admin` | - |
+| 4 | `interview_panels` | `interview_panels` | Interview Panel | Interview Panels | master | - | - | required | - | junction | `:manage` | - |
+| 5 | `interview_questions` | `interview_questions` | Interview Question | Interview Questions | master | - | - | required | - | catalog | `:admin` | - |
+| 6 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `interviewer_availability_slots` | `interviewer_availability_slots` | Interviewer Availability Slot | Interviewer Availability Slots | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 8 | `interviews` | `interviews` | Interview | Interviews | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 9 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
+| 10 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

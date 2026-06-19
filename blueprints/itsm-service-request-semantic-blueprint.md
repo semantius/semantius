@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-SERVICE-REQUEST
 system_description: Service Request Fulfillment
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [ats-recruitment-pipeline, cmdb-core, hcm-core-worker, hcm-org-positions, hrsd-case-mgmt, hrsd-employee-portal, iga-access-request, iga-entitlement-catalog, it-ops-starter, itsm-incident-mgmt, itsm-starter, iwms-location-master, iwms-workplace-service-desk, lms-compliance-training, onb-journey-mgmt, rmm-agent-mgmt, rmm-monitoring]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Service Request Fulfillment
@@ -79,15 +79,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `service_catalog_items` | `service_catalog_items` | Service Catalog Item | Service Catalog Items | Definition of what can be requested: the form schema, fulfillment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item. | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `service_offerings` | `service_offerings` | Service Offering | Service Offerings | The back-end service definition (commitments, supported configurations, and fulfillment details) split from its user-facing catalog item presentation. One offering can back several catalog items, and a catalog item can present one offering. | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `service_requests` | `service_requests` | Service Request | Service Requests | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | Canonical record of an IT thing under management: server, container, application, business service, network device, database, cloud resource. The flagship CMDB entity, referenced by changes, incidents, problems, and topology. Multi-feed: DISCOVERY auto-populates, HAM provides the physical-asset overlay for hardware CIs, SAM/SMP overlay for software/SaaS CIs. | embedded_master | `cmdb-core` | CMDB Core Repository | optional | - | operational_workflow | `:manage` | - |
-| 5 | `locations` | `locations` | Location | Locations | - | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 6 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | Discrete to-do within a journey: sign I-9, attend orientation, complete compliance training, meet buddy, receive laptop. Carries assignee (new hire / manager / IT / facilities / HR), due date, completion state, evidence, and task type (form / training / meeting / provisioning / acknowledgment). Many tasks are local; a subset triggers cross-domain handoffs into ITSM, IWMS, Payroll, LMS, IGA, or HRSD. | embedded_master | `onb-journey-mgmt` | Onboarding Journey Management | required | personal_content | operational_workflow | `:manage` | ITSM-SERVICE-REQUEST receives onboarding tasks (IT provisioning, workplace setup) as service-request payloads. |
-| 7 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `service_catalog_items` | `service_catalog_items` | Service Catalog Item | Service Catalog Items | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `service_offerings` | `service_offerings` | Service Offering | Service Offerings | master | - | - | required | - | catalog | `:admin` | - |
+| 3 | `service_requests` | `service_requests` | Service Request | Service Requests | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | optional | - | operational_workflow | `:manage` | - |
+| 5 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
+| 6 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | embedded_master | `onb-journey-mgmt` | Onboarding Journey Management | required | personal_content | operational_workflow | `:manage` | ITSM-SERVICE-REQUEST receives onboarding tasks (IT provisioning, workplace setup) as service-request payloads. |
+| 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

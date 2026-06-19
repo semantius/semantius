@@ -5,7 +5,7 @@ description: 'The use-semantius agent skill: a drop-in instruction set that teac
 order: 3
 ---
 
-import Command from '~/components/common/Command.astro';
+import SkillInstall from '~/components/common/SkillInstall.astro';
 
 `use-semantius` is an **agent skill** that ships alongside the [Semantius CLI](/docs/cli). Where the CLI gives an agent the ability to call Semantius, this skill teaches the agent **how to use it well**: which layer to reach for, which tool to pick, and which mistakes to avoid.
 
@@ -13,13 +13,9 @@ It is the foundational skill that every other workflow (schema editing, record C
 
 ## Installation
 
-Install all Semantius skills with a single command:
+Pull the skill bundle into your agent. Leave the **Agent** dropdown on **All** to install for every detected agent, or pick a specific agent to target just that one. Toggle **Global** to install into your home directory instead of the current project.
 
-<Command command="npx skills add semantius/semantius-cli --all" />
-
-To install for a specific agent only (e.g. Codex):
-
-<Command command="npx skills add semantius/semantius-cli --all --agent codex" />
+<SkillInstall url="semantius/semantius-cli" />
 
 Supports [OpenCode, Claude Code, Codex, Cursor, and 51 more](https://github.com/vercel-labs/skills#supported-agents). See the [skills documentation](https://github.com/vercel-labs/skills) to learn how to install skills for your agent.
 

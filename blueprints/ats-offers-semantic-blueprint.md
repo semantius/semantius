@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ATS-OFFERS
 system_description: Offers
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: ATS
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, onb-journey-mgmt, vms-worker-sourcing]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Offers
@@ -72,15 +72,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `offer_approvals` | `offer_approvals` | Offer Approval | Offer Approvals | Approval step in the offer-approval chain (HRBP -> Comp -> Finance -> Exec). Triggered when an offer exceeds band, includes non-standard equity, or matches other escalation rules. | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 2 | `offer_letter_documents` | `offer_letter_documents` | Offer Letter Document | Offer Letter Documents | Generated PDF artifact of the offer terms, distinct from the structured offer record. Versioned in lockstep with offer_versions. Carries template_id, render timestamp, e-sign envelope link. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `offer_letter_templates` | `offer_letter_templates` | Offer Letter Template | Offer Letter Templates | Reusable letter template with merge tokens (candidate name, role, base salary, start date, equity, bonus terms). Versioned. Renders offer_letter_documents at offer time. Carries template name, body, token schema, jurisdiction, language, active flag, and version. | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `offer_versions` | `offer_versions` | Offer Version | Offer Versions | Versioned snapshot of a job_offer during negotiation (initial -> counter -> revised -> accepted). Each version carries the structured terms (base, bonus, equity, start_date) and the author of the change. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `job_offers` | `job_offers` | Offer | Offers | Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded). | master | - | - | required | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 6 | `job_applications` | `job_applications` | Application | Applications | A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history. | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
-| 7 | `candidates` | `candidates` | Candidate | Candidates | Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired. | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `offer_approvals` | `offer_approvals` | Offer Approval | Offer Approvals | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 2 | `offer_letter_documents` | `offer_letter_documents` | Offer Letter Document | Offer Letter Documents | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `offer_letter_templates` | `offer_letter_templates` | Offer Letter Template | Offer Letter Templates | master | - | - | required | - | catalog | `:admin` | - |
+| 4 | `offer_versions` | `offer_versions` | Offer Version | Offer Versions | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `job_offers` | `job_offers` | Offer | Offers | master | - | - | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 6 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
+| 7 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

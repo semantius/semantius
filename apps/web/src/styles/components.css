@@ -154,6 +154,167 @@ a.command-skill-prefix:hover {
     color: #7fd17f;
 }
 
+/* Interactive install command (SkillInstall.astro): an Agent dropdown and a
+ * Global toggle stacked above the shell command box. Kept here (not in a
+ * scoped <style>) for the same MDX-emit reason as .command above. */
+.skill-install {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.skill-install .command {
+    margin-bottom: 0;
+}
+
+.skill-install-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+}
+
+/* Heading (when a `title` is passed) sits on the left of the same row; the
+ * fields are pushed to the right edge whether or not a heading is present. */
+.skill-install-title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted-foreground);
+}
+
+.skill-install-fields {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.skill-install-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+}
+
+.skill-install-global-field {
+    cursor: pointer;
+    user-select: none;
+}
+
+.skill-install-agent {
+    max-width: 14rem;
+    border-radius: 0.375rem;
+    border: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
+    background: var(--background);
+    color: var(--foreground);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    padding: 0.3rem 0.5rem;
+    cursor: pointer;
+}
+
+.skill-install-agent:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.skill-install-global {
+    width: 0.95rem;
+    height: 0.95rem;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+
+/* Warning modal shown (only on includeSubagents pages) when the user copies
+ * the OpenClaw command. Hidden until the copy handler adds `.is-open`. */
+.skill-install-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.skill-install-modal.is-open {
+    display: flex;
+}
+
+.skill-install-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.skill-install-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 28rem;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+    background: var(--background);
+    color: var(--foreground);
+    padding: 1.5rem 1.5rem 1.25rem;
+    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.45);
+}
+
+.skill-install-modal-dialog:focus {
+    outline: none;
+}
+
+.skill-install-modal-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: inline-flex;
+    padding: 0.25rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    line-height: 0;
+    cursor: pointer;
+}
+
+.skill-install-modal-close:hover {
+    color: var(--foreground);
+}
+
+.skill-install-modal-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #b8562f;
+}
+
+.skill-install-modal-body {
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--foreground);
+}
+
+.skill-install-modal-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.skill-install-modal-link:hover {
+    text-decoration: underline;
+}
+
 /* Mermaid diagram styles from @mostlylucid/mermaid-enhancements.
  * Loaded here (not in the integration client script) so the rules are
  * available from first paint and included in Vite's CSS bundle. */

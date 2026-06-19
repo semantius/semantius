@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-KNOWLEDGE
 system_description: Knowledge Management
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [csm-case-mgmt, csm-knowledge, hrsd-case-mgmt, hrsd-employee-portal, hrsd-knowledge, itsm-starter]
 persona: []
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Knowledge Management
@@ -46,9 +46,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate. | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

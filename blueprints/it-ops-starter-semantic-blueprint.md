@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: IT-OPS-STARTER
 system_description: IT Operations Starter
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: IT-OPS-STARTER
 related_modules: [aiops-event-correlation, aiops-predictive-intelligence, apm-portfolio-registry, clm-repository, data-ai-plat-ml, dcim-asset-space, dcim-power-env, dlp-enforcement-runtime, ham-asset-registry, hcm-core-worker, hrsd-employee-portal, iga-access-request, iga-auto-provisioning, iga-entitlement-catalog, itam-contracts, itam-lifecycle, itom-infra-mon, itsm-incident-mgmt, itsm-service-request, lcap-visual-composition, remote-access-session, rmm-agent-mgmt, rmm-automation, rmm-monitoring, sam-entitlement-mgmt, smp-discovery, smp-renewal-vendor, uem-compliance-posture, uem-config-apps, uem-device-lifecycle, work-mgmt-task-exec, wsc-channels-conversations]
 persona: [IT-SAAS-ADMIN, ITAM-SAAS-PORTFOLIO-MANAGER, PROCUREMENT-SAAS-RENEWAL-OWNER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # IT Operations Starter
@@ -89,16 +89,16 @@ Coexistence: these flat fields are a standalone-only denormalization. They are n
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `asset_contracts` | `asset_contracts` | Asset Contract | Asset Contracts | Lease, maintenance, support, or warranty contract governing an asset or pool of assets. Distinct from contract templates / signature artifacts (CLM-mastered): this is the ITAM-side index of contracts attached to physical or software assets. ITAM contributes the asset-pool linkage; CLM masters the contract document itself. | embedded_master | `itam-contracts` | Cross-Asset Contract Management | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 2 | `hardware_assets` | `hardware_assets` | Hardware Asset | Hardware Assets | Physical IT asset: laptop, desktop, server, mobile, network gear, peripheral. Carries serial number, MAC/asset tag, current user / location / room, lifecycle state, depreciation schedule, and procurement reference. The HAM master; CMDB models the same physical thing as a CI for the operational/topology view. | embedded_master | `ham-asset-registry` | Hardware Asset Registry | optional | - | operational_workflow | `:manage` | - |
-| 3 | `service_incidents` | `service_incidents` | Incident | Incidents | Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents). | embedded_master | `itsm-incident-mgmt` | Incident Management | optional | personal_content | operational_workflow | `:manage` | - |
-| 4 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | Canonical SaaS app in the portfolio (collaboration, CRM, productivity, design, work-management tools). Carries vendor, category, criticality tier, sanctioned/shadow flag, and links to the active subscription. Distinct from SAM's software_titles which are typically installed (or hybrid). The flagship SMP entity. | embedded_master | `smp-discovery` | SMP Discovery and Catalog | optional | - | operational_workflow | `:manage` | - |
-| 5 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | The contractual instance for a SaaS app: plan / tier, seat count, MRR or ARR, billing cadence, renewal date, primary owner. One app may have multiple subscriptions (BU, region, M&A-inherited free tier). Linked to a contract (CLM) and a PO (S2P). | embedded_master | `smp-renewal-vendor` | SMP Renewal and Vendor Management | required | - | operational_workflow | `:manage` | - |
-| 6 | `service_requests` | `service_requests` | Service Request | Service Requests | Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents - incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD). | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
-| 7 | `software_licenses` | `software_licenses` | Software License | Software Licenses | License entitlement: vendor, title, purchased count, license model (per-user, per-device, concurrent, site, subscription), term, renewal date, governing contract. The legal right-to-use, distinct from actual installations. | embedded_master | `sam-entitlement-mgmt` | Entitlement Reconciliation and Renewal | optional | - | operational_workflow | `:manage` | - |
-| 8 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `asset_contracts` | `asset_contracts` | Asset Contract | Asset Contracts | embedded_master | `itam-contracts` | Cross-Asset Contract Management | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 2 | `hardware_assets` | `hardware_assets` | Hardware Asset | Hardware Assets | embedded_master | `ham-asset-registry` | Hardware Asset Registry | optional | - | operational_workflow | `:manage` | - |
+| 3 | `service_incidents` | `service_incidents` | Incident | Incidents | embedded_master | `itsm-incident-mgmt` | Incident Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 4 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | embedded_master | `smp-discovery` | SMP Discovery and Catalog | optional | - | operational_workflow | `:manage` | - |
+| 5 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | embedded_master | `smp-renewal-vendor` | SMP Renewal and Vendor Management | required | - | operational_workflow | `:manage` | - |
+| 6 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
+| 7 | `software_licenses` | `software_licenses` | Software License | Software Licenses | embedded_master | `sam-entitlement-mgmt` | Entitlement Reconciliation and Renewal | optional | - | operational_workflow | `:manage` | - |
+| 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

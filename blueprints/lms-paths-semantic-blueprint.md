@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: LMS-PATHS
 system_description: Learning Paths
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-benchmarking, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ilt-delivery, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, swp-demand-forecast, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Learning Paths
@@ -131,25 +131,25 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `curricula` | `curricula` | Curriculum | Curricula | Grouped paths and courses targeting a role, function, or compliance scope. Used by Workday and Cornerstone as the primary noun for role-based learning. | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `learning_path_assignments` | `learning_path_assignments` | Learning Path Assignment | Learning Path Assignments | Path-to-learner assignment row distinct from course_enrollments; tracks overall path progress and completion percentage. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `learning_path_steps` | `learning_path_steps` | Learning Path Step | Learning Path Steps | Ordered step inside a learning path: pointer to a course, sub-path, or external resource with sequencing rules. | master | - | - | required | - | junction | `:admin` | - |
-| 4 | `learning_paths` | `learning_paths` | Learning Path | Learning Paths | Curated sequence of courses targeting a role, skill, or certification. Drives ordered enrollment and progress tracking across multiple courses. | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `learning_plans` | `learning_plans` | Learning Plan | Learning Plans | Personalized plan composed of multiple paths or courses, often manager-curated or AI-recommended against skill gaps. | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `learning_recommendations` | `learning_recommendations` | Learning Recommendation | Learning Recommendations | Per-learner suggested content generated from skill gaps and role profile. | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 7 | `prerequisite_rules` | `prerequisite_rules` | Prerequisite Rule | Prerequisite Rules | Gating logic that controls path progression: required completions, scores, certifications, or competencies. | master | - | - | required | - | catalog | `:admin` | - |
-| 8 | `skill_targets` | `skill_targets` | Skill Target | Skill Targets | A learning-path step bound to a skill plus a target proficiency threshold. | master | - | - | optional | - | catalog | `:admin` | - |
-| 9 | `learner_certifications` | `learner_certifications` | Certification | Certifications | Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 10 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking. | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
-| 11 | `employees` | `employees` | Employee | Employees | Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute. | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile. | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | catalog | `:admin` | - |
-| 13 | `org_units` | `org_units` | Org Unit | Org Units | Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded). | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 14 | `hcm_positions` | `hcm_positions` | Position | Positions | Approved slot in the org - a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved. | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
-| 15 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | Individual goal or OKR with owner, period, metric, weight, status, alignment to organizational objectives. Reviewed within performance_reviews cycles. | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | personal_content | operational_workflow | `:manage` | - |
-| 16 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | Per-worker collection of skills with self-assessed and validated proficiency levels, derived from completed courses, certifications, performance signals, and inferred peer-comparison. The central artifact of HCM-side skills-cloud and talent-intelligence offerings. | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | personal_content | operational_workflow | `:manage` | - |
-| 17 | `skills_gap_analyses` | `skills_gap_analyses` | Skills Gap Analysis | Skills Gap Analyses | Comparison of current-state skills inventory vs future-state demand by role, level, and geography. Drives build/buy/borrow strategy: which gaps to close via training (LMS), external hires (ATS), or contingent workforce. Outputs feed both SWP scenarios and LMS curriculum decisions. | consumer | `swp-demand-forecast` | Demand Forecast | optional | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `curricula` | `curricula` | Curriculum | Curricula | master | - | - | required | - | catalog | `:admin` | - |
+| 2 | `learning_path_assignments` | `learning_path_assignments` | Learning Path Assignment | Learning Path Assignments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `learning_path_steps` | `learning_path_steps` | Learning Path Step | Learning Path Steps | master | - | - | required | - | junction | `:admin` | - |
+| 4 | `learning_paths` | `learning_paths` | Learning Path | Learning Paths | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `learning_plans` | `learning_plans` | Learning Plan | Learning Plans | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 6 | `learning_recommendations` | `learning_recommendations` | Learning Recommendation | Learning Recommendations | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 7 | `prerequisite_rules` | `prerequisite_rules` | Prerequisite Rule | Prerequisite Rules | master | - | - | required | - | catalog | `:admin` | - |
+| 8 | `skill_targets` | `skill_targets` | Skill Target | Skill Targets | master | - | - | optional | - | catalog | `:admin` | - |
+| 9 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 10 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
+| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | catalog | `:admin` | - |
+| 13 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 14 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
+| 15 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 16 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | personal_content | operational_workflow | `:manage` | - |
+| 17 | `skills_gap_analyses` | `skills_gap_analyses` | Skills Gap Analysis | Skills Gap Analyses | consumer | `swp-demand-forecast` | Demand Forecast | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

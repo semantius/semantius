@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: TRAINING-RECORDS-STARTER
 system_description: Training Records (Compliance Documentation Starter)
@@ -12,7 +12,7 @@ domain_modules:
 domain_code: LMS
 related_modules: [clm-negotiation, clm-repository, hcm-lifecycle-workflows, hrsd-case-mgmt, iga-auto-provisioning, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, GRC-COMPLIANCE-TRAINING-MANAGER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, LEGAL-COMPLIANCE-SPECIALIST, LEGAL-COUNSEL, PEOPLE-MANAGER]
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Training Records (Compliance Documentation Starter)
@@ -78,18 +78,18 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `learner_certifications` | `learner_certifications` | Certification | Certifications | Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns. | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `compliance_regulations` | `compliance_regulations` | Compliance Regulation | Compliance Regulations | Tenant-scoped reference table of statutes a tenant is subject to (jurisdiction, citation, retention period). Each tenant activates only its applicable subset; the regulation field on training_evidence_records is an FK into this table, and the active rows gate which compliance evidence applies. | embedded_master | `lms-compliance-training` | Compliance Training | optional | - | catalog | `:admin` | - |
-| 3 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log. | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `dpo_training_acknowledgements` | `dpo_training_acknowledgements` | DPO Training Acknowledgment | DPO Training Acknowledgments | Data-protection-officer training acknowledgment record (GDPR Art. 39). | embedded_master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 5 | `fda_part11_audit_trails` | `fda_part11_audit_trails` | FDA Part 11 Audit Trail | FDA Part 11 Audit Trails | 21 CFR Part 11 audit trail row for GxP-relevant training; tamper-evident, retention-locked. | embedded_master | `lms-compliance-training` | Compliance Training | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `harassment_training_acknowledgements` | `harassment_training_acknowledgements` | Harassment Training Acknowledgment | Harassment Training Acknowledgments | Statutory acknowledgment of harassment training completion per CA SB-1343, NY 201-g, IL 2-109; carries signed timestamp and IP. | embedded_master | `lms-compliance-training` | Compliance Training | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 7 | `pci_dss_awareness_records` | `pci_dss_awareness_records` | PCI DSS Awareness Record | PCI DSS Awareness Records | Card-handler security-awareness training record (PCI DSS 12.6). | embedded_master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 8 | `signature_records` | `signature_records` | Signature Record | Signature Records | E-signature envelope: signing audit trail, IP addresses, external e-signature provider envelope and document reference IDs, and the signed PDF artifact. Distinct from contracts, one contract may have many signature events (counterpart, amendment, renewal). | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 9 | `training_evidence_records` | `training_evidence_records` | Training Evidence Record | Training Evidence Records | Inspection-ready evidence package: signed roster, certificate hash, content version, signature record reference. Generated for regulator submission. | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 10 | `users` | `users` | User | Users | Semantius platform-owned user table. Referenced from domain `data_objects` via `data_object_relationships` for assignee / author / approver / creator edges. Not surfaced in domain-level analytics (Signal 1/2 ignore `kind='platform_builtin'`). | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `compliance_regulations` | `compliance_regulations` | Compliance Regulation | Compliance Regulations | embedded_master | `lms-compliance-training` | Compliance Training | optional | - | catalog | `:admin` | - |
+| 3 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `dpo_training_acknowledgements` | `dpo_training_acknowledgements` | DPO Training Acknowledgment | DPO Training Acknowledgments | embedded_master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 5 | `fda_part11_audit_trails` | `fda_part11_audit_trails` | FDA Part 11 Audit Trail | FDA Part 11 Audit Trails | embedded_master | `lms-compliance-training` | Compliance Training | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 6 | `harassment_training_acknowledgements` | `harassment_training_acknowledgements` | Harassment Training Acknowledgment | Harassment Training Acknowledgments | embedded_master | `lms-compliance-training` | Compliance Training | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `pci_dss_awareness_records` | `pci_dss_awareness_records` | PCI DSS Awareness Record | PCI DSS Awareness Records | embedded_master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 8 | `signature_records` | `signature_records` | Signature Record | Signature Records | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 9 | `training_evidence_records` | `training_evidence_records` | Training Evidence Record | Training Evidence Records | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 10 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

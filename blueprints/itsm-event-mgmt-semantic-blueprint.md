@@ -1,6 +1,6 @@
 ---
 artifact: semantic-blueprint
-blueprint_version: "3.1"
+blueprint_version: "3.0"
 license: MIT
 system_name: ITSM-EVENT-MGMT
 system_description: Event and Alert Handling
@@ -15,7 +15,7 @@ domain_modules:
 domain_code: ITSM
 related_modules: [itom-infra-mon]
 persona: []
-created_at: 2026-06-18
+created_at: 2026-06-19
 ---
 
 # Event and Alert Handling
@@ -43,9 +43,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | description | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | Filtered, human-relevant subset of events that crossed a threshold, matched a pattern, or were enriched with priority and routing. Alerts are what gets paged or ticketed; events are what feeds the correlation engine. | embedded_master | `itom-infra-mon` | Infrastructure Monitoring and Event Management | required | - | operational_workflow | `:manage` | - |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | embedded_master | `itom-infra-mon` | Infrastructure Monitoring and Event Management | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
