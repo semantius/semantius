@@ -383,31 +383,35 @@ const defaultCommand = `${base} --all --global`;
       );
       if (!button) return;
 
-      const root = button.closest<HTMLElement>(".skill-install");
       const command = button.dataset.command ?? "";
 
+      // --- OpenClaw subagent warning temporarily disabled (commented out for now) ---
+      // To re-enable, uncomment this block and the `if (warnOpenClaw) return;`
+      // line below. The modal markup in the template above stays in place but
+      // is inert (never receives `is-open`) while this is commented out.
+      // const root = button.closest<HTMLElement>(".skill-install");
       // On packages that bundle interactive subagents, OpenClaw cannot run
       // them: warn the user instead of the usual inline "Copied" feedback.
       // Surface the modal synchronously (before the async clipboard write) so a
       // slow/blocked clipboard can never swallow the warning.
-      const includeSubagents = root?.dataset.includeSubagents === "true";
-      const agent = root?.querySelector<HTMLSelectElement>(
-        ".skill-install-agent",
-      )?.value;
-      const warnOpenClaw = includeSubagents && agent === "openclaw";
-      if (warnOpenClaw) {
-        const modal = root?.querySelector(".skill-install-modal");
-        if (modal) {
-          modal.classList.add("is-open");
-          modal
-            .querySelector<HTMLElement>(".skill-install-modal-dialog")
-            ?.focus();
-        }
-      }
+      // const includeSubagents = root?.dataset.includeSubagents === "true";
+      // const agent = root?.querySelector<HTMLSelectElement>(
+      //   ".skill-install-agent",
+      // )?.value;
+      // const warnOpenClaw = includeSubagents && agent === "openclaw";
+      // if (warnOpenClaw) {
+      //   const modal = root?.querySelector(".skill-install-modal");
+      //   if (modal) {
+      //     modal.classList.add("is-open");
+      //     modal
+      //       .querySelector<HTMLElement>(".skill-install-modal-dialog")
+      //       ?.focus();
+      //   }
+      // }
 
       await copyText(command);
 
-      if (warnOpenClaw) return; // modal is the feedback; skip the inline state
+      // if (warnOpenClaw) return; // modal is the feedback; skip the inline state
 
       const wrapper = button.closest(".command");
       const label = button.querySelector<HTMLElement>(".command-copy-label");

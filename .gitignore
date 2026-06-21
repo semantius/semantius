@@ -39,3 +39,6 @@ dist-ssr
 
 # npm pack tarballs
 *.tgz
+
+# Domain skill template (sourced from domain-map, not tracked here)
+domain-skill-template/
