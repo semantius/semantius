@@ -939,7 +939,7 @@
               "via": "handoff"
             }
           ],
-          "related_modules": ["CLM-NEGOTIATION", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "HCM-ORG-POSITIONS", "LMS-COMPLIANCE-TRAINING", "REAL-ESTATE-AGENT", "SMP-RENEWAL-VENDOR", "TRAINING-RECORDS-STARTER"]
+          "related_modules": ["CLM-NEGOTIATION", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "HCM-ORG-POSITIONS", "LMS-COMPLIANCE-TRAINING", "REAL-ESTATE-AGENT", "SMP-RENEWAL-VENDOR", "SVCS-PROC-ENGAGEMENT", "TRAINING-RECORDS-STARTER"]
         },
         {
           "code": "REAL-ESTATE-AGENT",
@@ -1145,7 +1145,7 @@
           "via": "handoff"
         }
       ],
-      "related_domains": ["HCM", "LMS", "RE-BROKERAGE", "REAL-ESTATE-AGENT", "SMP"]
+      "related_domains": ["HCM", "LMS", "RE-BROKERAGE", "REAL-ESTATE-AGENT", "SMP", "SVCS-PROC"]
     },
     {
       "code": "HCM",
@@ -4074,6 +4074,139 @@
         }
       ],
       "related_domains": ["CLM", "HCM", "IT-OPS-STARTER", "ITSM"]
+    },
+    {
+      "code": "SRM",
+      "name": "Supplier Relationship Management",
+      "description": "Supplier onboarding, master data, performance, and relationship management.",
+      "catalog_tagline": "Onboard new suppliers, qualify them against your standards, and monitor performance and risk on one supplier record.",
+      "catalog_description": "Run supplier onboarding from invite through KYC, banking, tax, and sanctions checks. Capture insurance, ISO, and SOC certifications with automatic expiry alerts so renewals never lapse.\n\nScore supplier performance against delivery, quality, and SLA targets. Roll KPIs into tiered scorecards your category managers and finance teams share.\n\nAssess supplier risk on financial, ESG, cyber, and operational axes. Escalate elevated scores to governance and procurement for re-qualification or replacement.",
+      "domain_kind": "established_market",
+      "catalog_release": "2026-06-19",
+      "business_functions": [
+        {
+          "name": "Procurement",
+          "responsibility": "owner"
+        },
+        {
+          "name": "Governance, Risk and Compliance",
+          "responsibility": "contributor"
+        },
+        {
+          "name": "Legal",
+          "responsibility": "contributor"
+        }
+      ],
+      "modules": [
+        {
+          "code": "SRM-PERFORMANCE-MGMT",
+          "name": "Supplier Performance Management",
+          "description": "Supplier performance scorecards, KPIs, reviews, and corrective actions. Measures and improves supplier delivery, quality, and service.",
+          "catalog_tagline": "Score supplier performance and drive improvement where it slips.",
+          "catalog_description": "Measure suppliers against delivery, quality, responsiveness, and savings targets, and roll the results into weighted scorecards your category managers and finance teams share. Spot underperformers early, open corrective actions, and track them to closure so supplier performance improves cycle over cycle.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["SRM-SUPPLIER-LIFECYCLE"]
+        },
+        {
+          "code": "SRM-RISK-COMPLIANCE",
+          "name": "Supplier Risk and Compliance",
+          "description": "Supplier risk assessment, certifications, sanctions and compliance screening, and ESG. Operational, qualification-gated supplier risk, distinct from deep third-party due diligence (TPRM).",
+          "catalog_tagline": "Assess supplier risk and prove compliance before and after you sign.",
+          "catalog_description": "Score each supplier for financial, operational, cyber, and ESG risk, and keep certifications and insurance current with automatic expiry alerts. Screen suppliers for sanctions and compliance gaps, escalate elevated risk to governance and procurement, and keep a defensible record of every check behind each supplier decision.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["SRM-SUPPLIER-LIFECYCLE"]
+        },
+        {
+          "code": "SRM-SUPPLIER-LIFECYCLE",
+          "name": "Supplier Lifecycle Management",
+          "description": "Supplier master data, onboarding, registration, and qualification. The intake and master-record spine of supplier management.",
+          "catalog_tagline": "Onboard, qualify, and maintain every supplier on one trusted master record.",
+          "catalog_description": "Run supplier onboarding from invitation through registration, document collection, and approval. Qualify new suppliers against your standards before they go active, and keep the supplier master, contacts, and documents current as the relationship evolves. One clean record per supplier that procurement, finance, and compliance all work from.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["SRM-PERFORMANCE-MGMT", "SRM-RISK-COMPLIANCE", "SVCS-PROC-ENGAGEMENT"]
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [
+        {
+          "key": "certify_validate_suppliers",
+          "name": "Certify and validate suppliers",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_business_unit_function",
+          "name": "Manage business unit and function risk",
+          "via": "handoff"
+        },
+        {
+          "key": "manage_suppliers",
+          "name": "Manage suppliers",
+          "via": "handoff"
+        },
+        {
+          "key": "monitor_manage_supplier",
+          "name": "Monitor/Manage supplier information",
+          "via": "handoff"
+        },
+        {
+          "key": "prepare_analyze_procurement",
+          "name": "Prepare/Analyze procurement and supplier performance",
+          "via": "handoff"
+        },
+        {
+          "key": "select_suppliers",
+          "name": "Select suppliers",
+          "via": "handoff"
+        },
+        {
+          "key": "select_suppliers_develop",
+          "name": "Select suppliers and develop/maintain contracts",
+          "via": "handoff"
+        }
+      ],
+      "module_processes": [],
+      "related_domains": ["SVCS-PROC"]
+    },
+    {
+      "code": "SVCS-PROC",
+      "name": "Services Procurement",
+      "description": "Buyer-side procurement of outsourced services from a firm under a statement of work: author the SOW, intake proposals, run the engagement, track milestones and deliverables, accept the work, and settle milestone-based invoices. The unit is the engagement and its deliverables from a firm, not an individual contractor as in contingent workforce. References the services firm as a supplier mastered elsewhere, the SOW or master agreement as a contract document mastered in contract lifecycle management, and rate cards where the work is rate-priced; masters the SOW engagement cluster itself.",
+      "catalog_tagline": "Buy outsourced services under a statement of work (SOW), then track milestones to acceptance and payment.",
+      "catalog_description": "Procure outsourced services from a firm under a statement of work, not headcount you manage day to day. Author the SOW, take in proposals, and stand up the engagement, then break the work into milestones and deliverables and track each one to acceptance. Settle on what was delivered with milestone-based invoices, handle change orders when scope shifts, and keep a clear record of who accepted what and when. The services firm stays your supplier and the SOW stays your contract; this is where you run the engagement in between.",
+      "domain_kind": "emerging_market",
+      "catalog_release": "2026-06-19",
+      "business_functions": [],
+      "modules": [
+        {
+          "code": "SVCS-PROC-ENGAGEMENT",
+          "name": "Services Sourcing and Engagement",
+          "description": "The pre-delivery surface: author the statement of work, take in services proposals, stand up the engagement against the supplier and the contract, and amend scope through change orders. Masters the SOW, the engagement, the proposal, and the change order; consumes the supplier, the contract, and rate cards from their owning domains.",
+          "catalog_tagline": "Author the SOW, take in proposals, and stand up the engagement before the work begins.",
+          "catalog_description": "Turn an awarded services deal into a working engagement. Author the statement of work that scopes what the firm will deliver, take in the proposals or bids attached to it, and stand up the engagement against the supplier and the signed contract. When the work shifts, raise a change order and keep the SOW current instead of letting scope drift. The services firm stays your supplier and the SOW stays your contract; this module is where you shape the engagement they hang off of.",
+          "personas": [],
+          "processes": [],
+          "related_modules": ["CLM-REPOSITORY", "SRM-SUPPLIER-LIFECYCLE"]
+        },
+        {
+          "code": "SVCS-PROC-SETTLEMENT",
+          "name": "Milestone Delivery and Settlement",
+          "description": "The delivery and settlement surface: break the engagement into milestones and deliverables, track each to acceptance, and settle on what was delivered through milestone-based invoices. Masters the milestone, the deliverable, the milestone invoice, and the acceptance record.",
+          "catalog_tagline": "Track milestones and deliverables to acceptance, then pay on what was actually delivered.",
+          "catalog_description": "Run the delivery half of a services engagement. Break the statement of work into milestones and the deliverables that close them, then track each one to formal acceptance so payment follows delivered outcomes, not elapsed time. Raise milestone-based invoices against accepted work and keep a clear, auditable record of who accepted what and when. Outcome-based settlement that ties every payment back to a milestone the buyer signed off.",
+          "personas": [],
+          "processes": [],
+          "related_modules": []
+        }
+      ],
+      "personas": [],
+      "module_personas": [],
+      "processes": [],
+      "module_processes": [],
+      "related_domains": ["CLM", "SRM"]
     },
     {
       "code": "WORK-MGMT",

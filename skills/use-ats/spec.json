@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-18",
-  "catalog_snapshot": "catalog-2026-06-18",
+  "emitted": "2026-06-20",
+  "catalog_snapshot": "catalog-2026-06-20",
   "domain": {
     "code": "ATS",
     "name": "Applicant Tracking and Recruiting",
@@ -69,21 +69,20 @@
       "realizes_capabilities": [
         "BACKGROUND-SCREENING"
       ],
-      "masters": [
+      "masters": [],
+      "embedded_masters": [
         "adverse_action_notices",
         "background_check_adjudications",
         "background_check_components",
         "background_check_disputes",
         "background_check_packages",
         "background_checks",
+        "candidates",
         "drug_health_screenings",
         "fcra_disclosures",
         "fcra_summary_of_rights_acknowledgements",
+        "job_offers",
         "pre_adverse_action_notices"
-      ],
-      "embedded_masters": [
-        "candidates",
-        "job_offers"
       ],
       "consumers": [],
       "description": "Pre-employment background-check orchestration with adverse-action workflow. Coordinates external vendor handoffs and gates offer-to-firm conversion on clearance. Requires an external `send_email` tool for FCRA adverse-action notices."
@@ -175,12 +174,12 @@
         "OFFER-MGMT"
       ],
       "masters": [
-        "pre_employees",
-        "right_to_work_verifications"
+        "pre_employees"
       ],
       "embedded_masters": [
         "candidates",
-        "job_offers"
+        "job_offers",
+        "right_to_work_verifications"
       ],
       "consumers": [],
       "description": "The bridge between offer-accepted and start-date: ATS owns the pre-employee lifecycle stage (paperwork in flight, pre-boarding tasks open, background check pending). Realizes the `hired` state on `job_applications`. Publishes the `pre_employee.activated` event that hands the canonical reconciliation to HCM-mastered `employees`. Formerly NEW-HIRE-HANDOFF, renamed per §7.1 because HCM canonically masters `employees`."
@@ -262,46 +261,6 @@
     }
   ],
   "data_objects": [
-    {
-      "name": "adverse_action_notices",
-      "singular_label": "Adverse Action Notice",
-      "plural_label": "Adverse Action Notices",
-      "description": "FCRA-mandated notice issued when a background_check result is used to decline a candidate. Two-step process: pre-adverse notice + waiting period + post-adverse final notice. Carries notice type, sent timestamp, copy_of_report enclosure, dispute window expiry.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "pre_adverse_sent",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "dispute_filed",
-          "order": 2
-        },
-        {
-          "name": "waiting_period_elapsed",
-          "order": 3
-        },
-        {
-          "name": "post_adverse_sent",
-          "order": 4,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "send_post_adverse_notice"
-        },
-        {
-          "name": "rescinded",
-          "order": 5,
-          "is_terminal": true
-        }
-      ]
-    },
     {
       "name": "agency_submissions",
       "singular_label": "Agency Submission",
@@ -442,189 +401,6 @@
       },
       "aliases": [],
       "lifecycle_states": []
-    },
-    {
-      "name": "background_check_adjudications",
-      "singular_label": "Background Check Adjudication",
-      "plural_label": "Background Check Adjudications",
-      "description": "Human review decision on a completed background_check (Clear / Engaged / Decisional / Declined). Carries adjudicator, decision rationale, individualized assessment notes per EEOC guidance.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "pending",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "clear",
-          "order": 2,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "clear_adjudication"
-        },
-        {
-          "name": "engaged",
-          "order": 3,
-          "requires_permission": true,
-          "permission_verb_override": "engage_adjudication"
-        },
-        {
-          "name": "declined",
-          "order": 4,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "decline_adjudication"
-        }
-      ]
-    },
-    {
-      "name": "background_check_components",
-      "singular_label": "Background Check Component",
-      "plural_label": "Background Check Components",
-      "description": "Individual sub-check result inside a background_checks order (e.g. county_criminal, ssn_trace, employment_verification, drug_screen). Each component has its own status, result, and provider source.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "ordered",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "in_progress",
-          "order": 2
-        },
-        {
-          "name": "completed_clear",
-          "order": 3,
-          "is_terminal": true
-        },
-        {
-          "name": "completed_flagged",
-          "order": 4,
-          "is_terminal": true
-        },
-        {
-          "name": "unable_to_verify",
-          "order": 5,
-          "is_terminal": true
-        }
-      ]
-    },
-    {
-      "name": "background_check_disputes",
-      "singular_label": "Background Check Dispute",
-      "plural_label": "Background Check Disputes",
-      "description": "Candidate-initiated dispute of a background_check component result under FCRA rights. Carries disputed component, candidate statement, provider re-investigation result, resolution.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "filed",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "under_review",
-          "order": 2
-        },
-        {
-          "name": "upheld",
-          "order": 3,
-          "is_terminal": true
-        },
-        {
-          "name": "denied",
-          "order": 4,
-          "is_terminal": true
-        }
-      ]
-    },
-    {
-      "name": "background_check_packages",
-      "singular_label": "Background Check Package",
-      "plural_label": "Background Check Packages",
-      "description": "Configured bundle of check types (county criminal + national + MVR + drug screen + employment verification + education verification) that can be ordered as one unit. Catalog-shaped: defines what a 'standard package' looks like for a role tier.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": []
-    },
-    {
-      "name": "background_checks",
-      "singular_label": "Background Check",
-      "plural_label": "Background Checks",
-      "description": "External verification result for a candidate (criminal, employment history, education, credit, identity). Status and findings typically returned by an external screening provider.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
-      "aliases": [
-        {
-          "name": "Consumer Report",
-          "source": "synonym"
-        },
-        {
-          "name": "Pre-Employment Screening",
-          "source": "synonym"
-        },
-        {
-          "name": "Vetting",
-          "source": "synonym"
-        }
-      ],
-      "lifecycle_states": [
-        {
-          "name": "requested",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "in_progress",
-          "order": 2
-        },
-        {
-          "name": "completed_clear",
-          "order": 3,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "clear_background_check"
-        },
-        {
-          "name": "completed_consider",
-          "order": 4,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "adjudicate_background_check"
-        },
-        {
-          "name": "canceled",
-          "order": 5,
-          "is_terminal": true
-        }
-      ]
     },
     {
       "name": "candidate_assessment_templates",
@@ -1051,60 +827,6 @@
       ]
     },
     {
-      "name": "drug_health_screenings",
-      "singular_label": "Drug and Health Screening",
-      "plural_label": "Drug and Health Screenings",
-      "description": "Pre-employment drug test or occupational health screening ordered as a check distinct from the criminal and employment background check. Tracks the order, provider, result, and any adverse-finding review, and handles sensitive medical data subject to ADA and state-law restrictions.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [
-        {
-          "name": "Drug Test",
-          "source": "synonym"
-        },
-        {
-          "name": "Occupational Health Screening",
-          "source": "synonym"
-        },
-        {
-          "name": "Pre-Employment Drug Screening",
-          "source": "synonym"
-        }
-      ],
-      "lifecycle_states": [
-        {
-          "name": "ordered",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "in_progress",
-          "order": 2
-        },
-        {
-          "name": "passed",
-          "order": 3,
-          "is_terminal": true
-        },
-        {
-          "name": "failed",
-          "order": 4,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "review_failed_screening"
-        },
-        {
-          "name": "canceled",
-          "order": 5,
-          "is_terminal": true
-        }
-      ]
-    },
-    {
       "name": "eeo_responses",
       "singular_label": "EEO Response",
       "plural_label": "EEO Responses",
@@ -1133,54 +855,6 @@
           "is_terminal": true
         }
       ]
-    },
-    {
-      "name": "fcra_disclosures",
-      "singular_label": "FCRA Disclosure",
-      "plural_label": "FCRA Disclosures",
-      "description": "Pre-check legally required disclosure form presented to the candidate before any consumer report is requested. Carries the disclosure text version, candidate acknowledgment signature, timestamp, and jurisdiction-specific addenda (CA, NY, etc.).",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "presented",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "acknowledged",
-          "order": 2
-        },
-        {
-          "name": "refused",
-          "order": 3,
-          "is_terminal": true
-        },
-        {
-          "name": "expired",
-          "order": 4,
-          "is_terminal": true
-        }
-      ]
-    },
-    {
-      "name": "fcra_summary_of_rights_acknowledgements",
-      "singular_label": "FCRA Summary of Rights Acknowledgment",
-      "plural_label": "FCRA Summary of Rights Acknowledgments",
-      "description": "Candidate acknowledgment of receipt of the FCRA Summary of Consumer Rights at consent time, prior to a background check. Required by 15 U.S.C. §1681g(c). Captured separately from the consent itself so the disclosure copy and acknowledgment timestamp persist for audit.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": []
     },
     {
       "name": "hiring_team_assignments",
@@ -1899,54 +1573,6 @@
       ]
     },
     {
-      "name": "pre_adverse_action_notices",
-      "singular_label": "Pre-Adverse Action Notice",
-      "plural_label": "Pre-Adverse Action Notices",
-      "description": "FCRA-mandated notice sent to a candidate before a final adverse-action decision based on a consumer report. Carries a copy of the report and Summary of Rights, and opens a waiting period (typically 5 business days) during which the candidate may dispute findings before the final adverse-action notice issues.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
-      "aliases": [],
-      "lifecycle_states": [
-        {
-          "name": "sent",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "waiting_period_active",
-          "order": 2
-        },
-        {
-          "name": "waiting_period_elapsed",
-          "order": 3
-        },
-        {
-          "name": "under_dispute",
-          "order": 4,
-          "requires_permission": true,
-          "permission_verb_override": "mark_pre_adverse_dispute_filed"
-        },
-        {
-          "name": "cleared",
-          "order": 5,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "clear_pre_adverse_notice"
-        },
-        {
-          "name": "escalated",
-          "order": 6,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "escalate_to_final_adverse_action"
-        }
-      ]
-    },
-    {
       "name": "pre_employees",
       "singular_label": "Pre-Employee",
       "plural_label": "Pre-Employees",
@@ -2299,64 +1925,6 @@
       ]
     },
     {
-      "name": "right_to_work_verifications",
-      "singular_label": "Right to Work Verification",
-      "plural_label": "Right to Work Verifications",
-      "description": "Pre-hire right-to-work verification event (the I-9 employment eligibility check or E-Verify confirmation itself), distinct from the supporting documents the candidate provides. Tracks the verification method, status, verifier, completion date, and any tentative or final non-confirmation, and handles data subject to federal employment-eligibility law.",
-      "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
-      "aliases": [
-        {
-          "name": "E-Verify Check",
-          "source": "synonym"
-        },
-        {
-          "name": "Employment Eligibility Verification",
-          "source": "synonym"
-        },
-        {
-          "name": "I-9 Verification",
-          "source": "synonym"
-        }
-      ],
-      "lifecycle_states": [
-        {
-          "name": "pending",
-          "order": 1,
-          "is_initial": true
-        },
-        {
-          "name": "in_progress",
-          "order": 2
-        },
-        {
-          "name": "verified",
-          "order": 3,
-          "is_terminal": true,
-          "requires_permission": true,
-          "permission_verb_override": "verify_right_to_work"
-        },
-        {
-          "name": "tentative_nonconfirmation",
-          "order": 4
-        },
-        {
-          "name": "final_nonconfirmation",
-          "order": 5,
-          "is_terminal": true
-        },
-        {
-          "name": "closed",
-          "order": 6,
-          "is_terminal": true
-        }
-      ]
-    },
-    {
       "name": "talent_pool_memberships",
       "singular_label": "Talent Pool Membership",
       "plural_label": "Talent Pool Memberships",
@@ -2477,13 +2045,6 @@
   ],
   "relationships": [
     {
-      "from": "adverse_action_notices",
-      "verb": "has owner",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
-    },
-    {
       "from": "agency_submissions",
       "verb": "has owner",
       "to": "users",
@@ -2523,83 +2084,6 @@
       "verb": "lands_at",
       "to": "application_stage_transitions",
       "cardinality": "one_to_many",
-      "required": true
-    },
-    {
-      "from": "background_check_adjudications",
-      "verb": "triggers",
-      "to": "adverse_action_notices",
-      "cardinality": "one_to_one",
-      "required": false
-    },
-    {
-      "from": "background_check_adjudications",
-      "verb": "has adjudicator",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": true
-    },
-    {
-      "from": "background_check_components",
-      "verb": "disputed_via",
-      "to": "background_check_disputes",
-      "cardinality": "one_to_many",
-      "required": false
-    },
-    {
-      "from": "background_check_components",
-      "verb": "has owner",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
-    },
-    {
-      "from": "background_check_disputes",
-      "verb": "has owner",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
-    },
-    {
-      "from": "background_check_packages",
-      "verb": "shapes",
-      "to": "background_checks",
-      "cardinality": "one_to_many",
-      "required": true
-    },
-    {
-      "from": "background_checks",
-      "verb": "adjudicated_via",
-      "to": "background_check_adjudications",
-      "cardinality": "one_to_one",
-      "required": true
-    },
-    {
-      "from": "background_checks",
-      "verb": "contains",
-      "to": "background_check_components",
-      "cardinality": "one_to_many",
-      "required": true
-    },
-    {
-      "from": "background_checks",
-      "verb": "gated_by",
-      "to": "fcra_summary_of_rights_acknowledgements",
-      "cardinality": "one_to_one",
-      "required": true
-    },
-    {
-      "from": "background_checks",
-      "verb": "triggers_pre_notice",
-      "to": "pre_adverse_action_notices",
-      "cardinality": "one_to_many",
-      "required": false
-    },
-    {
-      "from": "background_checks",
-      "verb": "has requester",
-      "to": "users",
-      "cardinality": "many_to_many",
       "required": true
     },
     {
@@ -2815,13 +2299,6 @@
     {
       "from": "data_subject_requests",
       "verb": "has owner",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
-    },
-    {
-      "from": "drug_health_screenings",
-      "verb": "has coordinator",
       "to": "users",
       "cardinality": "many_to_many",
       "required": false
@@ -3135,13 +2612,6 @@
       "required": false
     },
     {
-      "from": "pre_adverse_action_notices",
-      "verb": "has owner",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
-    },
-    {
       "from": "pre_employees",
       "verb": "has owning hr_coordinator",
       "to": "users",
@@ -3252,13 +2722,6 @@
       "to": "users",
       "cardinality": "many_to_many",
       "required": true
-    },
-    {
-      "from": "right_to_work_verifications",
-      "verb": "has verifier",
-      "to": "users",
-      "cardinality": "many_to_many",
-      "required": false
     },
     {
       "from": "talent_pools",

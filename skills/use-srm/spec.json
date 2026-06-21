@@ -1,0 +1,1289 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-20",
+  "catalog_snapshot": "catalog-2026-06-20",
+  "domain": {
+    "code": "SRM",
+    "name": "Supplier Relationship Management",
+    "description": "Supplier onboarding, master data, performance, and relationship management.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Onboard new suppliers, qualify them against your standards, and monitor performance and risk on one supplier record.",
+    "catalog_description": "Run supplier onboarding from invite through KYC, banking, tax, and sanctions checks. Capture insurance, ISO, and SOC certifications with automatic expiry alerts so renewals never lapse.\n\nScore supplier performance against delivery, quality, and SLA targets. Roll KPIs into tiered scorecards your category managers and finance teams share.\n\nAssess supplier risk on financial, ESG, cyber, and operational axes. Escalate elevated scores to governance and procurement for re-qualification or replacement."
+  },
+  "aliases": [
+    "SLM",
+    "SRM",
+    "Supplier Lifecycle Management",
+    "Supplier Management",
+    "vendor management"
+  ],
+  "business_functions": {
+    "owner": [
+      "Procurement"
+    ],
+    "contributors": [
+      "Governance, Risk and Compliance",
+      "Legal"
+    ],
+    "consumers": []
+  },
+  "capabilities": [
+    {
+      "code": "SRM-COMPLIANCE-SCREENING",
+      "name": "Supplier Compliance Screening",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-CORRECTIVE-ACTION",
+      "name": "Supplier Corrective Action Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-ONBOARDING",
+      "name": "Supplier Onboarding",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-PERFORMANCE-MGMT",
+      "name": "Supplier Performance Management",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-QUALIFICATION",
+      "name": "Supplier Qualification",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-RISK-ASSESSMENT",
+      "name": "Supplier Risk Assessment",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-SEGMENTATION",
+      "name": "Supplier Segmentation",
+      "cross_cutting": false
+    },
+    {
+      "code": "SRM-SUPPLIER-INFO-MGMT",
+      "name": "Supplier Information Management",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "SRM-PERFORMANCE-MGMT",
+      "name": "Supplier Performance Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SRM-CORRECTIVE-ACTION",
+        "SRM-PERFORMANCE-MGMT"
+      ],
+      "masters": [
+        "supplier_corrective_actions",
+        "supplier_issues",
+        "supplier_kpis",
+        "supplier_performance_reviews",
+        "supplier_scorecards"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "supplier_questionnaires"
+      ],
+      "description": "Supplier performance scorecards, KPIs, reviews, and corrective actions. Measures and improves supplier delivery, quality, and service."
+    },
+    {
+      "code": "SRM-RISK-COMPLIANCE",
+      "name": "Supplier Risk and Compliance",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SRM-COMPLIANCE-SCREENING",
+        "SRM-RISK-ASSESSMENT"
+      ],
+      "masters": [
+        "supplier_attestations",
+        "supplier_beneficial_owners",
+        "supplier_certifications",
+        "supplier_diversity_classifications",
+        "supplier_insurance_certificates",
+        "supplier_risk_assessments",
+        "supplier_screening_records"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "supplier_esg_assessments",
+        "supplier_questionnaires"
+      ],
+      "description": "Supplier risk assessment, certifications, sanctions and compliance screening, and ESG. Operational, qualification-gated supplier risk, distinct from deep third-party due diligence (TPRM)."
+    },
+    {
+      "code": "SRM-SUPPLIER-LIFECYCLE",
+      "name": "Supplier Lifecycle Management",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SRM-ONBOARDING",
+        "SRM-QUALIFICATION",
+        "SRM-SEGMENTATION",
+        "SRM-SUPPLIER-INFO-MGMT"
+      ],
+      "masters": [
+        "supplier_bank_accounts",
+        "supplier_contacts",
+        "supplier_documents",
+        "supplier_information_requests",
+        "supplier_locations",
+        "supplier_onboardings",
+        "supplier_qualifications",
+        "supplier_questionnaires",
+        "supplier_registrations",
+        "supplier_relationships",
+        "supplier_segmentation_tiers",
+        "supplier_tasks",
+        "suppliers"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "Supplier master data, onboarding, registration, and qualification. The intake and master-record spine of supplier management."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "supplier_attestations",
+      "singular_label": "Supplier Attestation",
+      "plural_label": "Supplier Attestations",
+      "description": "Code-of-conduct, modern-slavery, and conflict-minerals declarations the supplier signs, tracked from request through signature and expiry.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "code of conduct attestations",
+          "source": "synonym"
+        },
+        {
+          "name": "compliance declarations",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "requested",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "signed",
+          "order": 20,
+          "requires_permission": true,
+          "permission_verb_override": "sign_attestation"
+        },
+        {
+          "name": "expired",
+          "order": 30,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_bank_accounts",
+      "singular_label": "Supplier Bank Account",
+      "plural_label": "Supplier Bank Accounts",
+      "description": "Validated remittance bank accounts per supplier: account and routing details, currency, and validation status. The payment-detail record AP consumes.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "payment details",
+          "source": "synonym"
+        },
+        {
+          "name": "remit-to account",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "unverified",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "pending_validation",
+          "order": 20
+        },
+        {
+          "name": "validated",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "validate_bank_account"
+        },
+        {
+          "name": "active",
+          "order": 40
+        },
+        {
+          "name": "inactive",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_beneficial_owners",
+      "singular_label": "Supplier Beneficial Owner",
+      "plural_label": "Supplier Beneficial Owners",
+      "description": "Beneficial-ownership records (25 percent or greater UBO) for know-your-business diligence: owner identity, ownership percentage, and verification source.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "UBO",
+          "source": "synonym"
+        },
+        {
+          "name": "ultimate beneficial owners",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_certifications",
+      "singular_label": "Supplier Certification",
+      "plural_label": "Supplier Certifications",
+      "description": "Supplier-issued certification document (GFSI, organic, kosher, halal, allergen statement, insurance COI) with expiry tracking.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "ISO certification",
+          "source": "synonym"
+        },
+        {
+          "name": "compliance certificate",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "uploaded",
+          "order": 0,
+          "is_initial": true
+        },
+        {
+          "name": "verified",
+          "order": 1,
+          "requires_permission": true
+        },
+        {
+          "name": "active",
+          "order": 2
+        },
+        {
+          "name": "expiring",
+          "order": 3
+        },
+        {
+          "name": "expired",
+          "order": 4
+        },
+        {
+          "name": "renewed",
+          "order": 5
+        },
+        {
+          "name": "revoked",
+          "order": 6,
+          "is_terminal": true,
+          "requires_permission": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_contacts",
+      "singular_label": "Supplier Contact",
+      "plural_label": "Supplier Contacts",
+      "description": "Per-supplier contact roster: named people (procurement, AP, legal, certification contacts) with role, email, phone, and primary-contact flag.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier contact roster",
+          "source": "synonym"
+        },
+        {
+          "name": "vendor contacts",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_corrective_actions",
+      "singular_label": "Supplier Corrective Action",
+      "plural_label": "Supplier Corrective Actions",
+      "description": "Corrective-action plans (CAPAs) opened against supplier underperformance and tracked to closure with root cause and verification.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "CAPA",
+          "source": "synonym"
+        },
+        {
+          "name": "corrective action plan",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 20
+        },
+        {
+          "name": "resolved",
+          "order": 30
+        },
+        {
+          "name": "verified",
+          "order": 40,
+          "requires_permission": true,
+          "permission_verb_override": "verify_corrective_action"
+        },
+        {
+          "name": "closed",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_diversity_classifications",
+      "singular_label": "Supplier Diversity Classification",
+      "plural_label": "Supplier Diversity Classifications",
+      "description": "Diversity and Tier-1/Tier-2 spend certifications (MBE, WBE, VBE, etc.) per supplier, with certifying body and expiry.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "MBE/WBE status",
+          "source": "synonym"
+        },
+        {
+          "name": "diversity certifications",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "valid",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "expiring_soon",
+          "order": 20
+        },
+        {
+          "name": "expired",
+          "order": 30,
+          "is_terminal": true
+        },
+        {
+          "name": "revoked",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_documents",
+      "singular_label": "Supplier Document",
+      "plural_label": "Supplier Documents",
+      "description": "Supplier-uploaded documents (W-9, tax forms, certificates, agreements) with document type, metadata, and expiry.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier files",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_information_requests",
+      "singular_label": "Supplier Information Request",
+      "plural_label": "Supplier Information Requests",
+      "description": "Data-refresh campaigns asking suppliers to update or re-attest their information, tracked from issue through response and closure.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "data refresh campaign",
+          "source": "synonym"
+        },
+        {
+          "name": "information update request",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "sent",
+          "order": 20
+        },
+        {
+          "name": "in_progress",
+          "order": 30
+        },
+        {
+          "name": "completed",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "close_information_request"
+        },
+        {
+          "name": "cancelled",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_insurance_certificates",
+      "singular_label": "Supplier Insurance Certificate",
+      "plural_label": "Supplier Insurance Certificates",
+      "description": "Certificate-of-insurance tracking per supplier: coverage type, limits, carrier, and expiry with renewal alerts.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "COI",
+          "source": "synonym"
+        },
+        {
+          "name": "certificate of insurance",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "valid",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "expiring_soon",
+          "order": 20
+        },
+        {
+          "name": "expired",
+          "order": 30,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_issues",
+      "singular_label": "Supplier Issue",
+      "plural_label": "Supplier Issues",
+      "description": "Logged supplier issues and complaints feeding performance and corrective-action workflows, from log through resolution.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier complaints",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "logged",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "triaged",
+          "order": 20
+        },
+        {
+          "name": "in_progress",
+          "order": 30
+        },
+        {
+          "name": "resolved",
+          "order": 40
+        },
+        {
+          "name": "closed",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_kpis",
+      "singular_label": "Supplier KPI",
+      "plural_label": "Supplier KPIs",
+      "description": "Defined performance metrics tracked per supplier (delivery, quality, responsiveness, savings) with target and weighting.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "performance indicators",
+          "source": "synonym"
+        },
+        {
+          "name": "supplier metrics",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_locations",
+      "singular_label": "Supplier Location",
+      "plural_label": "Supplier Locations",
+      "description": "Physical and operating sites per supplier: ship-from, remit-to, and manufacturing locations with address and site type.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier sites",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_onboardings",
+      "singular_label": "Supplier Onboarding",
+      "plural_label": "Supplier Onboardings",
+      "description": "Onboarding workflow instance for a new supplier: invitation, registration form, document collection (W-9, banking, insurance, compliance attestations), approval chain.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier setup",
+          "source": "synonym"
+        },
+        {
+          "name": "vendor onboarding",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_performance_reviews",
+      "singular_label": "Supplier Performance Review",
+      "plural_label": "Supplier Performance Reviews",
+      "description": "Periodic review records rolling KPIs into a shared assessment with the supplier, from draft through finalization and acknowledgment.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "QBRs",
+          "source": "synonym"
+        },
+        {
+          "name": "supplier business reviews",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_review",
+          "order": 20
+        },
+        {
+          "name": "finalized",
+          "order": 30,
+          "requires_permission": true,
+          "permission_verb_override": "finalize_performance_review"
+        },
+        {
+          "name": "acknowledged",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_qualifications",
+      "singular_label": "Supplier Qualification",
+      "plural_label": "Supplier Qualifications",
+      "description": "Risk and compliance profile for an active supplier: sanctions screening, financial-health rating, ESG scoring, ISO/SOC certifications, cyber-risk assessment. Periodically reassessed.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "supplier approval",
+          "source": "synonym"
+        },
+        {
+          "name": "vendor prequalification",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_questionnaires",
+      "singular_label": "Supplier Questionnaire",
+      "plural_label": "Supplier Questionnaires",
+      "description": "Reusable questionnaire templates and their instances (insurance, security, ESG, financial) used by qualification, performance, and risk workflows.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "RFI forms",
+          "source": "synonym"
+        },
+        {
+          "name": "qualification questionnaires",
+          "source": "synonym"
+        },
+        {
+          "name": "surveys",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_registrations",
+      "singular_label": "Supplier Registration",
+      "plural_label": "Supplier Registrations",
+      "description": "Self-service registration record a prospective supplier submits before onboarding, capturing company, tax, and contact basics for review.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "self-registration",
+          "source": "synonym"
+        },
+        {
+          "name": "supplier sign-up",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "draft",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "submitted",
+          "order": 20
+        },
+        {
+          "name": "under_review",
+          "order": 30
+        },
+        {
+          "name": "approved",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "approve_registration"
+        },
+        {
+          "name": "rejected",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_relationships",
+      "singular_label": "Supplier Relationship",
+      "plural_label": "Supplier Relationships",
+      "description": "Parent/child and affiliate hierarchy links between supplier records, with relationship type.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "parent/child suppliers",
+          "source": "synonym"
+        },
+        {
+          "name": "supplier hierarchy",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_risk_assessments",
+      "singular_label": "Supplier Risk Assessment",
+      "plural_label": "Supplier Risk Assessments",
+      "description": "Operational / financial / cyber risk-scoring record per supplier; feeds GRC consumption.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [
+        {
+          "name": "TPRM assessment",
+          "source": "synonym"
+        },
+        {
+          "name": "due diligence review",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_scorecards",
+      "singular_label": "Supplier Scorecard",
+      "plural_label": "Supplier Scorecards",
+      "description": "KPI-weighted performance rating of a supplier over a period: on-time delivery, quality, responsiveness, savings delivered. Drives tier preference in sourcing decisions.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "supplier performance review",
+          "source": "synonym"
+        },
+        {
+          "name": "vendor scorecard",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_screening_records",
+      "singular_label": "Supplier Screening Record",
+      "plural_label": "Supplier Screening Records",
+      "description": "Time-stamped sanctions, denied-party, and PEP screening events per supplier with hit results and adjudication trail.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": true,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "PEP screening",
+          "source": "synonym"
+        },
+        {
+          "name": "sanctions screening",
+          "source": "synonym"
+        },
+        {
+          "name": "watchlist screening",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": [
+        {
+          "name": "pending",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "screened",
+          "order": 20
+        },
+        {
+          "name": "hit_review",
+          "order": 30
+        },
+        {
+          "name": "adjudicated",
+          "order": 40,
+          "is_terminal": true,
+          "requires_permission": true,
+          "permission_verb_override": "adjudicate_screening"
+        },
+        {
+          "name": "cleared",
+          "order": 50,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "supplier_segmentation_tiers",
+      "singular_label": "Supplier Segmentation Tier",
+      "plural_label": "Supplier Segmentation Tiers",
+      "description": "Category and strategic tier classification scheme used to prioritize supplier-management effort (strategic, preferred, transactional).",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "category segmentation",
+          "source": "synonym"
+        },
+        {
+          "name": "supplier tiers",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    },
+    {
+      "name": "supplier_tasks",
+      "singular_label": "Supplier Task",
+      "plural_label": "Supplier Tasks",
+      "description": "Workflow tasks and to-dos assigned across the supplier-management lifecycle, with assignee, due date, and status.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": [
+        {
+          "name": "open",
+          "order": 10,
+          "is_initial": true
+        },
+        {
+          "name": "in_progress",
+          "order": 20
+        },
+        {
+          "name": "completed",
+          "order": 30,
+          "is_terminal": true
+        },
+        {
+          "name": "cancelled",
+          "order": 40,
+          "is_terminal": true
+        }
+      ]
+    },
+    {
+      "name": "suppliers",
+      "singular_label": "Supplier",
+      "plural_label": "Suppliers",
+      "description": "Vendor master record: legal name, tax id, addresses, payment terms, contacts, currency, statuses, risk profile. The supplier-side analog to the customer master.",
+      "is_canonical_bare_word": true,
+      "pattern_flags": {
+        "has_personal_content": true,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [
+        {
+          "name": "trading partner",
+          "source": "synonym"
+        },
+        {
+          "name": "vendor",
+          "source": "synonym"
+        }
+      ],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [
+    {
+      "from": "supplier_certifications",
+      "verb": "updates",
+      "to": "supplier_qualifications",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "supplier_esg_assessments",
+      "verb": "updates",
+      "to": "supplier_qualifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "supplier_onboardings",
+      "verb": "yields",
+      "to": "supplier_qualifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "supplier_qualifications",
+      "verb": "requires",
+      "to": "supplier_certifications",
+      "cardinality": "many_to_many",
+      "required": false
+    },
+    {
+      "from": "supplier_risk_assessments",
+      "verb": "feeds",
+      "to": "supplier_scorecards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "suppliers",
+      "verb": "holds",
+      "to": "supplier_certifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "suppliers",
+      "verb": "undergoes",
+      "to": "supplier_onboardings",
+      "cardinality": "one_to_many",
+      "required": true
+    },
+    {
+      "from": "suppliers",
+      "verb": "holds",
+      "to": "supplier_qualifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "suppliers",
+      "verb": "assessed_by",
+      "to": "supplier_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "suppliers",
+      "verb": "rated_by",
+      "to": "supplier_scorecards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "uploads",
+      "to": "supplier_certifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "supplier_onboardings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "runs",
+      "to": "supplier_onboardings",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "supplier_qualifications",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "approves",
+      "to": "supplier_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "authors",
+      "to": "supplier_risk_assessments",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "supplier_scorecards",
+      "cardinality": "one_to_many",
+      "required": false
+    },
+    {
+      "from": "users",
+      "verb": "owns",
+      "to": "suppliers",
+      "cardinality": "one_to_many",
+      "required": false
+    }
+  ],
+  "apqc_processes_touched": [
+    {
+      "external_id": "10280",
+      "name": "Manage suppliers"
+    },
+    {
+      "external_id": "10289",
+      "name": "Certify and validate suppliers"
+    },
+    {
+      "external_id": "10299",
+      "name": "Monitor/Manage supplier information"
+    },
+    {
+      "external_id": "10300",
+      "name": "Prepare/Analyze procurement and supplier performance"
+    },
+    {
+      "external_id": "17462",
+      "name": "Manage business unit and function risk"
+    }
+  ],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "srm",
+      "description": "Onboard and qualify suppliers, maintain the supplier master record and its documents, score supplier performance against delivery and quality targets, and assess supplier risk and compliance including sanctions screening, certifications, and ESG. Open corrective actions and re-qualify suppliers when risk or performance slips.",
+      "trigger_keywords": "supplier management, supplier relationship management, vendor management, supplier risk management, supplier onboarding, supplier qualification, supplier performance, supplier scorecards, supplier compliance, sanctions screening, KYC, ESG, supplier diversity, supplier information management, SIM",
+      "tools": [
+        {
+          "name": "approve_supplier_onboarding",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_supplier_qualification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_supplier_risk_assessment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_supplier",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_supplier_certification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_supplier_onboarding",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_supplier_qualification",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "create_supplier_risk_assessment",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "notify_team",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "publish_supplier_scorecard",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "query_supplier_certifications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_supplier_onboardings",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_supplier_qualifications",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_supplier_risk_assessments",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_supplier_scorecards",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_suppliers",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "update_supplier",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "update_supplier_certification",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "update_supplier_scorecard",
+          "kind": "mutate",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

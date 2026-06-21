@@ -245,11 +245,15 @@
       "description": "Enterprise risk, internal audit, compliance operations, privacy office, and policy management.",
       "parent": null,
       "record_status": "new",
-      "domain_count": 2,
+      "domain_count": 3,
       "persona_count": 1,
       "domains": [
         {
           "code": "LMS",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "SRM",
           "responsibility": "contributor"
         },
         {
@@ -1548,7 +1552,7 @@
       "description": "Function responsible for contracts, regulatory compliance, intellectual property, and dispute management.",
       "parent": null,
       "record_status": "new",
-      "domain_count": 3,
+      "domain_count": 4,
       "persona_count": 2,
       "domains": [
         {
@@ -1561,6 +1565,10 @@
         },
         {
           "code": "LMS",
+          "responsibility": "contributor"
+        },
+        {
+          "code": "SRM",
           "responsibility": "contributor"
         }
       ],
@@ -1796,9 +1804,13 @@
       "description": "Sub-function inside Finance (or independent in some orgs) that runs sourcing, supplier management, and purchase orders.",
       "parent": null,
       "record_status": "new",
-      "domain_count": 2,
+      "domain_count": 3,
       "persona_count": 2,
       "domains": [
+        {
+          "code": "SRM",
+          "responsibility": "owner"
+        },
         {
           "code": "CLM",
           "responsibility": "contributor"

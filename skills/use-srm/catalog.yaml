@@ -1,0 +1,42 @@
+# Projection of live catalog DB values for the use-srm skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: SRM
+domain_code_lower: srm
+domain_name: "Supplier Relationship Management"
+module_slug: srm
+skill_name: use-srm
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Onboard new suppliers, qualify them against your standards, and monitor performance and risk on one supplier record."
+catalog_description: |
+  Run supplier onboarding from invite through KYC, banking, tax, and sanctions checks. Capture insurance, ISO, and SOC certifications with automatic expiry alerts so renewals never lapse.
+
+  Score supplier performance against delivery, quality, and SLA targets. Roll KPIs into tiered scorecards your category managers and finance teams share.
+
+  Assess supplier risk on financial, ESG, cyber, and operational axes. Escalate elevated scores to governance and procurement for re-qualification or replacement.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Onboard and qualify suppliers, maintain the supplier master record and its documents, score supplier performance against delivery and quality targets, and assess supplier risk and compliance including sanctions screening, certifications, and ESG. Open corrective actions and re-qualify suppliers when risk or performance slips. Use for: supplier management, supplier relationship management, vendor management, supplier risk management, supplier onboarding, supplier qualification, supplier scorecards, supplier compliance, KYC, supplier diversity, supplier information management, SIM."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Supplier Compliance Screening
+  - Supplier Corrective Action Management
+  - Supplier Onboarding
+  - Supplier Performance Management
+  - Supplier Qualification
+  - Supplier Risk Assessment
+  - Supplier Segmentation
+  - Supplier Information Management
+
+depends_on_skills:
+  - use-semantius
+related_skills:
+  - use-ap-auto
+  - use-audit
+  - use-fin
+  - use-grc
+  - use-s2p

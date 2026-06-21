@@ -13,7 +13,7 @@ system_slug: clm-repository
 domain_modules:
   - clm-repository
 domain_code: CLM
-related_modules: [agency-mgmt-job-traffic, ats-recruitment-pipeline, clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-renewal, cpq-quote-builder, crm-pipeline-mgt, csm-entitlements, hcm-core-worker, hcm-org-positions, iga-access-request, lms-compliance-training, psa-project-delivery, real-estate-agent, sam-entitlement-mgmt, smp-renewal-vendor, training-records-starter]
+related_modules: [agency-mgmt-job-traffic, ats-recruitment-pipeline, clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-renewal, cpq-quote-builder, crm-pipeline-mgt, csm-entitlements, hcm-core-worker, hcm-org-positions, iga-access-request, lms-compliance-training, psa-project-delivery, real-estate-agent, sam-entitlement-mgmt, smp-renewal-vendor, svcs-proc-engagement, training-records-starter]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, LEGAL-COUNSEL, PEOPLE-MANAGER, PROCUREMENT-CONTRACT-LIAISON]
 created_at: 2026-06-19
 ---
@@ -193,6 +193,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `legal_contracts` | REAL-ESTATE-AGENT (Real Estate Agent (solo / small firm bundle)) - REAL-ESTATE-AGENT | embedded_master | required | - |
 | `legal_contracts` | SAM-ENTITLEMENT-MGMT (Entitlement Reconciliation and Renewal) - SAM | embedded_master | optional | - |
 | `legal_contracts` | SMP-RENEWAL-VENDOR (SMP Renewal and Vendor Management) - SMP | embedded_master | optional | - |
+| `legal_contracts` | SVCS-PROC-ENGAGEMENT (Services Sourcing and Engagement) - SVCS-PROC | consumer | optional | - |
 | `signature_records` | LMS-COMPLIANCE-TRAINING (Compliance Training) - LMS | embedded_master | required | - |
 | `signature_records` | TRAINING-RECORDS-STARTER (Training Records (Compliance Documentation Starter)) - LMS | embedded_master | required | - |
 

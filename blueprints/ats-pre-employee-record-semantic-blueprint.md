@@ -10,7 +10,7 @@ system_slug: ats-pre-employee-record
 domain_modules:
   - ats-pre-employee-record
 domain_code: ATS
-related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt]
+related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, bgv-continuous-identity, comp-statements, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-MANAGER, RECRUITING-RECRUITER]
 created_at: 2026-06-19
 ---
@@ -26,9 +26,9 @@ The bridge between offer-accepted and start-date: ATS owns the pre-employee life
 | Name | data_object | Description |
 | --- | --- | --- |
 | Pre-Employees | `pre_employees` | Pre-employment records covering the window between offer acceptance and start date, tracking paperwork, background checks, and pre-boarding tasks. |
-| Right to Work Verifications | `right_to_work_verifications` | Pre-hire right-to-work verification events, such as the I-9 or E-Verify check, recording method, status, verifier, and outcome under employment-eligibility law. |
 | Candidates | `candidates` | People known to the recruiting organization, with or without an active application, carrying contact details, resume, tags, consent, and source. |
 | Offers | `job_offers` | Formal employment offers extended to candidates, with compensation, start date, terms, approval chain, and status. |
+| Right to Work Verifications | `right_to_work_verifications` | Pre-hire right-to-work verification events, such as the I-9 or E-Verify check, recording method, status, verifier, and outcome under employment-eligibility law. |
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ flowchart TD
   class pre_employees master;
   class candidates embedded_master;
   class job_offers embedded_master;
-  class right_to_work_verifications master;
+  class right_to_work_verifications embedded_master;
   class users platform_builtin;
   style right_to_work_verifications stroke-dasharray:5 5;
 ```
@@ -60,9 +60,9 @@ flowchart TD
 | # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `pre_employees` | `pre_employees` | Pre-Employee | Pre-Employees | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `right_to_work_verifications` | `right_to_work_verifications` | Right to Work Verification | Right to Work Verifications | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 3 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `job_offers` | `job_offers` | Offer | Offers | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 2 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 3 | `job_offers` | `job_offers` | Offer | Offers | embedded_master | `ats-offers` | Offers | required | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 4 | `right_to_work_verifications` | `right_to_work_verifications` | Right to Work Verification | Right to Work Verifications | embedded_master | `bgv-continuous-identity` | Continuous and Identity | optional | personal_content | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -173,6 +173,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | --- | --- | --- | --- | --- |
 | `candidates` | embedded_master | required | ATS-CANDIDATE-CRM (ATS) | - |
 | `job_offers` | embedded_master | required | ATS-OFFERS (ATS) | - |
+| `right_to_work_verifications` | embedded_master | optional | BGV-CONTINUOUS-IDENTITY (BGV) | - |
 
 ## 7. Lifecycle states
 
@@ -213,6 +214,8 @@ _This scope holds `job_offers` as **embedded_master**; the canonical state machi
 | 5 | `canceled` | - | ✓ | - | - | Offer rescinded or candidate withdrew before activation. Record retained for audit. |
 
 ### `right_to_work_verifications` (Right to Work Verification)
+
+_This scope holds `right_to_work_verifications` as **embedded_master**; the canonical state machine is owned by `BGV-CONTINUOUS-IDENTITY`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |

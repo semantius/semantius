@@ -1,0 +1,29 @@
+# Projection of live catalog DB values for the use-svcs-proc skill.
+# Emitted by scripts/emit_skill_spec.ts. The database is the source of truth; do NOT hand-edit.
+# DB-derived only: buyer copy persisted from the domains table + the variables the SKILL.md
+# template ({{...}}) renders. No hand-authored / original content lives in this file.
+
+domain_code: SVCS-PROC
+domain_code_lower: svcs-proc
+domain_name: "Services Procurement"
+module_slug: svcs-proc
+skill_name: use-svcs-proc
+
+# Buyer copy, persisted from domains.catalog_tagline / domains.catalog_description.
+catalog_tagline: "Buy outsourced services under a statement of work (SOW), then track milestones to acceptance and payment."
+catalog_description: |
+  Procure outsourced services from a firm under a statement of work, not headcount you manage day to day. Author the SOW, take in proposals, and stand up the engagement, then break the work into milestones and deliverables and track each one to acceptance. Settle on what was delivered with milestone-based invoices, handle change orders when scope shifts, and keep a clear record of who accepted what and when. The services firm stays your supplier and the SOW stays your contract; this is where you run the engagement in between.
+
+# Rendered into the SKILL.md frontmatter description:.
+skill_description: "Procure outsourced services under a statement of work end to end. Author the SOW that scopes what a firm will deliver, take in services proposals and bids, and stand up the engagement against the supplier and the contract. Amend scope through change orders, then break the work into milestones and deliverables and track each to formal acceptance. Settle on delivered outcomes with milestone-based invoices, and keep a record of who accepted what and when. The services firm stays the supplier and the SOW stays the contract; this runs the engagement in between. Use for: SOW management, services procurement, services engagement, milestone invoice, milestone-based billing, outcome-based services, services bid, service acceptance, professional services procurement."
+
+# Rendered into the SKILL.md "Workflows / capabilities" line (domain_module_capabilities).
+capability_names:
+  - Milestone and deliverable settlement
+  - Services sourcing and bidding
+  - SOW authoring and engagement execution
+  - Services supplier performance
+
+depends_on_skills:
+  - use-semantius
+related_skills: []

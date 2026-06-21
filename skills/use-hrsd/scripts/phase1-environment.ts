@@ -138,8 +138,8 @@ function chunk<T>(arr: T[], n: number): T[][] {
 }
 
 // The CLI ships as a native installer (NOT an npm package). Emit the platform-specific
-// one-liner so the agent can OFFER to run it for the user (IMPROVE 5). The agent must ask
-// the user's go-ahead before running it (it modifies their system); it never auto-installs.
+// one-liner so the agent can run it for the user. On a missing CLI the agent runs it
+// immediately (no prompt); the skill cannot proceed without the binary.
 const INSTALL_DOCS = "https://github.com/semantius/semantius-cli#1-installation";
 function installCommand(): string {
   return process.platform === "win32"
@@ -186,7 +186,7 @@ async function main() {
            "Known server-side issue. Surface this verbatim to the user and wait for direction. Do not retry in a loop.");
     }
     halt(`semantius CLI could not authenticate: ${cu.stderr}`,
-         "Configure .env in the project root with SEMANTIUS_API_KEY=<your-key> (generate from Settings > API Keys). Docs: https://www.semantius.com/docs/agent-skills/installation/");
+         "Ask the user for their API key (generate at https://app.semantius.com/dashboard, Settings > API Keys), save it to the .env the CLI reads (project root / cwd) as SEMANTIUS_API_KEY=<key>, then re-verify.");
   }
 
   const tenantOrg = cu.data?.semantius_org ?? "<unknown>";
@@ -255,7 +255,7 @@ async function main() {
   if (sliceIds.length === 0) {
     halt(
       `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not deployed in this platform (${tenantOrg}). No live module is stamped settings.domain_code = ${view.code}, hosts its entities, or carries its catalog codes.`,
-      `Deploy the blueprint first, then re-run this skill. Blueprint: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
+      `Deploy the blueprint first, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model (install it with 'npx skills add semantius/semantius-cli --all' if it is not present). Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
     );
   }
 

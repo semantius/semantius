@@ -1,0 +1,309 @@
+{
+  "facts_major": 1,
+  "emitted": "2026-06-20",
+  "catalog_snapshot": "catalog-2026-06-20",
+  "domain": {
+    "code": "SVCS-PROC",
+    "name": "Services Procurement",
+    "description": "Buyer-side procurement of outsourced services from a firm under a statement of work: author the SOW, intake proposals, run the engagement, track milestones and deliverables, accept the work, and settle milestone-based invoices. The unit is the engagement and its deliverables from a firm, not an individual contractor as in contingent workforce. References the services firm as a supplier mastered elsewhere, the SOW or master agreement as a contract document mastered in contract lifecycle management, and rate cards where the work is rate-priced; masters the SOW engagement cluster itself.",
+    "parent_domain_code": null,
+    "certification_required": false,
+    "catalog_tagline": "Buy outsourced services under a statement of work (SOW), then track milestones to acceptance and payment.",
+    "catalog_description": "Procure outsourced services from a firm under a statement of work, not headcount you manage day to day. Author the SOW, take in proposals, and stand up the engagement, then break the work into milestones and deliverables and track each one to acceptance. Settle on what was delivered with milestone-based invoices, handle change orders when scope shifts, and keep a clear record of who accepted what and when. The services firm stays your supplier and the SOW stays your contract; this is where you run the engagement in between."
+  },
+  "aliases": [
+    "SOW",
+    "SOW management",
+    "services procurement",
+    "statement of work"
+  ],
+  "business_functions": {
+    "owner": [],
+    "contributors": [],
+    "consumers": []
+  },
+  "capabilities": [
+    {
+      "code": "SVCS-PROC-MILESTONE-SETTLEMENT",
+      "name": "Milestone and deliverable settlement",
+      "cross_cutting": false
+    },
+    {
+      "code": "SVCS-PROC-SOURCING",
+      "name": "Services sourcing and bidding",
+      "cross_cutting": false
+    },
+    {
+      "code": "SVCS-PROC-SOW-AUTHORING",
+      "name": "SOW authoring and engagement execution",
+      "cross_cutting": false
+    },
+    {
+      "code": "SVCS-PROC-SUPPLIER-PERFORMANCE",
+      "name": "Services supplier performance",
+      "cross_cutting": false
+    }
+  ],
+  "modules": [
+    {
+      "code": "SVCS-PROC-ENGAGEMENT",
+      "name": "Services Sourcing and Engagement",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SVCS-PROC-SOURCING",
+        "SVCS-PROC-SOW-AUTHORING"
+      ],
+      "masters": [
+        "services_engagements",
+        "services_proposals",
+        "sow_change_orders",
+        "statements_of_work"
+      ],
+      "embedded_masters": [],
+      "consumers": [
+        "legal_contracts",
+        "rate_cards",
+        "suppliers"
+      ],
+      "description": "The pre-delivery surface: author the statement of work, take in services proposals, stand up the engagement against the supplier and the contract, and amend scope through change orders. Masters the SOW, the engagement, the proposal, and the change order; consumes the supplier, the contract, and rate cards from their owning domains."
+    },
+    {
+      "code": "SVCS-PROC-SETTLEMENT",
+      "name": "Milestone Delivery and Settlement",
+      "kind": "full",
+      "realizes_capabilities": [
+        "SVCS-PROC-MILESTONE-SETTLEMENT",
+        "SVCS-PROC-SUPPLIER-PERFORMANCE"
+      ],
+      "masters": [
+        "milestone_invoices",
+        "service_acceptances",
+        "service_deliverables",
+        "sow_milestones"
+      ],
+      "embedded_masters": [],
+      "consumers": [],
+      "description": "The delivery and settlement surface: break the engagement into milestones and deliverables, track each to acceptance, and settle on what was delivered through milestone-based invoices. Masters the milestone, the deliverable, the milestone invoice, and the acceptance record."
+    }
+  ],
+  "data_objects": [
+    {
+      "name": "milestone_invoices",
+      "singular_label": "Milestone Invoice",
+      "plural_label": "Milestone Invoices",
+      "description": "Invoices a firm raises against an accepted milestone of a services engagement, so payment follows delivered outcomes rather than elapsed time. The settlement record for outcome-based services work, distinct from time-and-materials contingent invoices.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "service_acceptances",
+      "singular_label": "Service Acceptance",
+      "plural_label": "Service Acceptances",
+      "description": "Formal sign-off records capturing that the buyer accepted a deliverable or milestone, who accepted it, and when, gating the milestone invoice. Optional because some buyers accept implicitly on invoice rather than recording a typed acceptance.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "service_deliverables",
+      "singular_label": "Service Deliverable",
+      "plural_label": "Service Deliverables",
+      "description": "Concrete work products a firm produces under a statement of work, tracked from submission to acceptance against the milestone they close. Optional because some buyers settle on the milestone alone and inline deliverables as attributes.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "services_engagements",
+      "singular_label": "Services Engagement",
+      "plural_label": "Services Engagements",
+      "description": "The active firm-level engagement that executes a statement of work: the spine milestones, deliverables, and invoices bind to, carrying the supplier, the contract reference, and the engagement-scoped scorecard. One supplier can hold several distinct engagements.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "services_proposals",
+      "singular_label": "Services Proposal",
+      "plural_label": "Services Proposals",
+      "description": "Bids and proposals a firm submits against a specific statement of work, capturing the proposed scope, approach, and price for evaluation. Optional because some buyers run a SOW off a pre-awarded master agreement without a bid round.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "sow_change_orders",
+      "singular_label": "SOW Change Order",
+      "plural_label": "SOW Change Orders",
+      "description": "Amendments to an active statement of work that revise scope, schedule, deliverables, or price, tracked through approval so the SOW stays current. Optional because not every engagement amends.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": true
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "sow_milestones",
+      "singular_label": "SOW Milestone",
+      "plural_label": "SOW Milestones",
+      "description": "Schedule-and-payment checkpoints that break a services engagement into accountable stages, each tied to deliverables and to the milestone invoice it releases. The settlement mechanic that makes outcome-based services payment work.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    },
+    {
+      "name": "statements_of_work",
+      "singular_label": "Statement of Work",
+      "plural_label": "Statements of Work",
+      "description": "The buyer-side statement of work that scopes outsourced services a firm will deliver: the deliverables, the schedule, the price basis, and the acceptance terms. The headline document the whole engagement hangs off, distinct from the underlying contract that governs it.",
+      "is_canonical_bare_word": false,
+      "pattern_flags": {
+        "has_personal_content": false,
+        "has_submit_lock": false,
+        "has_single_approver": false
+      },
+      "aliases": [],
+      "lifecycle_states": []
+    }
+  ],
+  "relationships": [],
+  "apqc_processes_touched": [],
+  "system_skills": [
+    {
+      "skill_grain": "domain",
+      "skill_name": "svcs-proc",
+      "description": "Procure outsourced services under a statement of work end to end. Author the SOW that scopes what a firm will deliver, take in services proposals and bids, and stand up the engagement against the supplier and the contract. Amend scope through change orders, then break the work into milestones and deliverables and track each to formal acceptance. Settle on delivered outcomes with milestone-based invoices, and keep a record of who accepted what and when. The services firm stays the supplier and the SOW stays the contract; this runs the engagement in between.",
+      "trigger_keywords": "statement of work, SOW, SOW management, services procurement, services engagement, deliverable, milestone, milestone invoice, milestone-based billing, outcome-based services, services proposal, services bid, change order, service acceptance, outsourced services, professional services procurement",
+      "tools": [
+        {
+          "name": "accept_service_deliverable",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "activate_services_engagement",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_milestone_invoice",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "approve_sow_change_order",
+          "kind": "mutate",
+          "required": false
+        },
+        {
+          "name": "author_statement_of_work",
+          "kind": "mutate",
+          "required": true
+        },
+        {
+          "name": "notify_person",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "notify_team",
+          "kind": "side_effect",
+          "required": false
+        },
+        {
+          "name": "query_milestone_invoices",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_services_engagements",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_sow_milestones",
+          "kind": "query",
+          "required": true
+        },
+        {
+          "name": "query_statements_of_work",
+          "kind": "query",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "roles": [],
+  "enums": {
+    "trigger_event_category": [
+      "lifecycle",
+      "state_change",
+      "threshold",
+      "signal"
+    ],
+    "integration_pattern": [
+      "event_stream",
+      "api_call",
+      "batch_sync",
+      "manual_handoff",
+      "file_drop",
+      "lifecycle_progression"
+    ],
+    "friction_level": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "role_dmdo": [
+      "master",
+      "embedded_master",
+      "contributor",
+      "consumer",
+      "derived"
+    ],
+    "necessity": [
+      "required",
+      "optional"
+    ],
+    "record_status": [
+      "new",
+      "pending",
+      "approved",
+      "rejected"
+    ]
+  }
+}

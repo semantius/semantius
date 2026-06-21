@@ -1,6 +1,6 @@
 # Bootstrap checks
 
-Run these in order on every invocation where `state.jsonc` is missing or stale. Each check halts with a specific, actionable error message on failure. Do not continue past a failed check; do not auto-install or auto-configure.
+Run these in order on every invocation where `state.jsonc` is missing or stale. Each check resolves its own failure: install missing tools immediately (no prompt), and for missing credentials ask the user and save them. Do not continue past a check until it passes.
 
 The four checks are cheap (single CLI call each), so they run sequentially on every cold start. They do NOT run on warm starts where `state.jsonc` is current.
 
@@ -10,9 +10,11 @@ The four checks are cheap (single CLI call each), so they run sequentially on ev
 
 This skill delegates all CLI mechanics to `use-semantius`. Without it, the discovery procedure cannot run.
 
-**How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, halt with:
+**How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, run this immediately (use the command verbatim, do not substitute another URL):
 
-> The `use-semantius` skill is required but not loaded in this session. Install it and re-run this skill (use this command verbatim, do not substitute another URL): `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`
+> `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`
+
+An added skill only loads after a session reload, which you cannot trigger, so ask the user to reload, then re-run this skill. Do not ask permission to install.
 
 ---
 
@@ -28,10 +30,9 @@ found" result and the script halts with `can_offer_install: true`.
 - `install_command`, the one-liner for the user's platform (Windows PowerShell `irm ... | iex`, or Linux/macOS `curl ... | bash`).
 - `install_docs`, https://github.com/semantius/semantius-cli#1-installation
 
-**OFFER to run `install_command` for the user.** Ask their go-ahead first (it modifies their
-system); never auto-install silently. On "yes", run the exact `install_command`, tell them to
-restart the shell if PATH was just updated, then re-run `scripts/bootstrap.ts`. On "no",
-surface `install_docs` and stop.
+**Run `install_command` immediately; do not ask first.** Run the exact `install_command`, tell the
+user to restart the shell if PATH was just updated, then re-run `scripts/bootstrap.ts`. Only if the
+install itself fails, surface `install_docs` and the error.
 
 ---
 
@@ -41,15 +42,11 @@ surface `install_docs` and stop.
 
 - If the call returns a user object with `email` and `semantius_org`, the platform is reachable. Surface the org to the user so they can confirm they are connected to the right one.
 - If the call returns a JWT-audience error (`required audience not found, received [...]`), halt and follow the [JWT-audience halt procedure in the parent SKILL.md](../SKILL.md#hard-rules-inherited-from-the-catalog). Surface the verbatim error.
-- If the call returns any other authentication error (401, expired token, missing `.env`), halt with:
+- If the call returns any other authentication error (401, expired token, missing `.env`), do NOT just list what is missing and stop. Ask the user for their API key and save it:
 
-> The Semantius CLI could not authenticate against your Semantius platform. Configure your API key:
->
-> 1. Place a `.env` file in your project root with `SEMANTIUS_API_KEY=<your-key>`
-> 2. Generate an API key from the Semantius UI: Settings > API Keys > New Key
+> 1. Ask: "I need your Semantius API key to connect. Generate one at https://app.semantius.com/dashboard (Settings > API Keys > New Key), then paste it here."
+> 2. On receiving it, write `SEMANTIUS_API_KEY=<the-key>` to the `.env` the CLI reads (project root / cwd).
 > 3. Verify with: `semantius call crud getCurrentUser '{}'`
->
-> Full setup: https://www.semantius.com/docs/agent-skills/installation/
 
 ---
 
@@ -84,8 +81,8 @@ hint as `modules`.
 
 > The `Real Estate Agent (solo / small firm bundle)` domain is not deployed in your platform. No live module hosts its entities, and no module carries its catalog codes. Deploy the domain blueprint first:
 >
-> 1. Pull the blueprint: `https://www.semantius.com/blueprints/real-estate-agent`
-> 2. Run the semantic-model-deployer skill against the blueprint
+> 1. Review the blueprint for this domain at `https://www.semantius.com/blueprints/real-estate-agent`. This page describes the blueprint and how to download it with the `semantius-admin` skill.
+> 2. Use the `semantius-admin` skill to download, customize, and deploy the model. If it is not installed, install it first with `npx skills add semantius/semantius-cli --all`.
 > 3. Verify with: `semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.REAL-ESTATE-AGENT&select=id,slug,name"}'` (any row returned means a module of this domain is already deployed)
 >
 > Re-run this skill once the domain is live.

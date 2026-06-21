@@ -13,7 +13,7 @@ system_slug: hrsd-case-mgmt
 domain_modules:
   - hrsd-case-mgmt
 domain_code: HRSD
-related_modules: [ats-background-checks, ats-candidate-crm, ben-carrier-integ, ben-enrollment, comp-planning, comp-statements, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-employee-portal, hrsd-knowledge, iga-access-request, itsm-knowledge, lms-compliance-training, lms-course-delivery, onb-journey-mgmt, pa-engagement-surveys, pa-predictive-models, payroll-earnings-deductions, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, wfm-scheduling]
+related_modules: [ats-background-checks, ats-candidate-crm, ben-carrier-integ, ben-enrollment, bgv-screening-orders, comp-planning, comp-statements, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-employee-portal, hrsd-knowledge, iga-access-request, itsm-knowledge, lms-compliance-training, lms-course-delivery, onb-journey-mgmt, pa-engagement-surveys, pa-predictive-models, payroll-earnings-deductions, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, wfm-scheduling]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, HRSD-CASE-AGENT, HRSD-KNOWLEDGE-MANAGER, HRSD-SERVICE-MANAGER, PEOPLE-MANAGER]
 created_at: 2026-06-19
 ---
@@ -150,7 +150,7 @@ flowchart TD
 | 1 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
 | 3 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | consumer | `ats-background-checks` | Background Checks | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | consumer | `bgv-screening-orders` | Screening Orders and Packages | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
 | 5 | `carrier_feeds` | `carrier_feeds` | Carrier Feed | Carrier Feeds | consumer | `ben-carrier-integ` | Carrier Connectivity | optional | - | operational_workflow | `:manage` | - |
 | 6 | `compensation_statements` | `compensation_statements` | Compensation Statement | Compensation Statements | consumer | `comp-statements` | Total Rewards Statements | optional | personal_content | operational_workflow | `:manage` | - |
 | 7 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | personal_content | operational_workflow | `:manage` | - |
@@ -421,7 +421,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | data_object | role here | necessity | canonical owner(s) | slice notes |
 | --- | --- | --- | --- | --- |
 | `employees` | embedded_master | required | HCM-CORE-WORKER (HCM) | - |
-| `background_checks` | consumer | optional | ATS-BACKGROUND-CHECKS (ATS) | - |
+| `background_checks` | consumer | optional | BGV-SCREENING-ORDERS (BGV) | - |
 | `carrier_feeds` | consumer | optional | BEN-CARRIER-INTEG (BEN-ADMIN) | - |
 | `compensation_statements` | consumer | optional | COMP-STATEMENTS (COMP-MGMT) | - |
 | `compliance_assignments` | consumer | optional | LMS-COMPLIANCE-TRAINING (LMS) | - |
@@ -438,7 +438,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 ### `background_checks` (Background Check)
 
-_This scope holds `background_checks` as **consumer**; the canonical state machine is owned by `ATS-BACKGROUND-CHECKS`._
+_This scope holds `background_checks` as **consumer**; the canonical state machine is owned by `BGV-SCREENING-ORDERS`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |

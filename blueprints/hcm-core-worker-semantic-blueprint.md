@@ -13,7 +13,7 @@ system_slug: hcm-core-worker
 domain_modules:
   - hcm-core-worker
 domain_code: HCM
-related_modules: [agency-mgmt-job-traffic, ats-candidate-crm, ben-aca-compliance, ben-enrollment, comp-benchmarking, comp-incentives, comp-planning, comp-statements, dlp-enforcement-runtime, emp-advocacy-content-distribution, emp-exp-action-planning, emp-exp-continuous-listen, fin-gl-close, fleet-mgmt-driver-ops, frontline-comms-broadcast-engagement, frontline-comms-task-execution, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, hrsd-employee-portal, iga-access-certification, iga-access-request, iga-auto-provisioning, iga-sod-mgmt, insider-risk-investigation-case-mgmt, insider-risk-monitoring-detection, iwms-desk-reservation, iwms-location-master, iwms-room-reservation, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, onb-document-intake, onb-journey-mgmt, onb-welcome-experience, pa-dei-analytics, pa-engagement-surveys, pa-predictive-models, pa-workforce-metrics, payroll-earnings-deductions, payroll-employee-pay-statements, payroll-run, payroll-tax-compliance, psa-project-delivery, psa-resource-mgmt, real-est-space-ops, sem-operating-rhythm, skills-mgmt-profile, swp-cost-projections, swp-demand-forecast, swp-supply-planning, talent-continuous-feedback, talent-performance-mgmt, talent-succession-career, tlnt-intel-insights, tlnt-intel-marketplace, tlnt-intel-mobility, travel-mgmt-duty-of-care, travel-mgmt-profile-policy, vms-worker-sourcing, wfm-absence, wfm-scheduling, wfm-time-attendance]
+related_modules: [agency-mgmt-job-traffic, ats-candidate-crm, ben-aca-compliance, ben-enrollment, comp-benchmarking, comp-incentives, comp-planning, comp-statements, cwm-worker-sourcing, dlp-enforcement-runtime, emp-advocacy-content-distribution, emp-exp-action-planning, emp-exp-continuous-listen, fin-gl-close, fleet-mgmt-driver-ops, frontline-comms-broadcast-engagement, frontline-comms-task-execution, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, hrsd-employee-portal, iga-access-certification, iga-access-request, iga-auto-provisioning, iga-sod-mgmt, insider-risk-investigation-case-mgmt, insider-risk-monitoring-detection, iwms-desk-reservation, iwms-location-master, iwms-room-reservation, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, onb-document-intake, onb-journey-mgmt, onb-welcome-experience, pa-dei-analytics, pa-engagement-surveys, pa-predictive-models, pa-workforce-metrics, payroll-earnings-deductions, payroll-employee-pay-statements, payroll-run, payroll-tax-compliance, psa-project-delivery, psa-resource-mgmt, real-est-space-ops, sem-operating-rhythm, skills-mgmt-profile, swp-cost-projections, swp-demand-forecast, swp-supply-planning, talent-continuous-feedback, talent-performance-mgmt, talent-succession-career, tlnt-intel-insights, tlnt-intel-marketplace, tlnt-intel-mobility, travel-mgmt-duty-of-care, travel-mgmt-profile-policy, wfm-absence, wfm-scheduling, wfm-time-attendance]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, PEOPLE-MANAGER]
 created_at: 2026-06-19
 ---
@@ -151,7 +151,7 @@ flowchart TD
 | 8 | `worker_addresses` | `worker_addresses` | Worker Address | Worker Addresses | master | - | - | optional | personal_content | operational_record | `:manage` | - |
 | 9 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
 | 10 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | contributor | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 11 | `contingent_workers` | `contingent_workers` | Contingent Worker | Contingent Workers | consumer | `vms-worker-sourcing` | Worker Sourcing and Supplier Management | optional | - | operational_workflow | `:manage` | - |
+| 11 | `contingent_workers` | `contingent_workers` | Contingent Worker | Contingent Workers | consumer | `cwm-worker-sourcing` | Worker Sourcing and Supplier Management | optional | personal_content | operational_workflow | `:manage` | - |
 | 12 | `source_records` | `source_records` | MDM Source Record | MDM Source Records | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 | 13 | `onboarding_document_collections` | `onboarding_document_collections` | Onboarding Document Collection | Onboarding Document Collections | consumer | `onb-document-intake` | Onboarding Document Intake | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
 | 14 | `pay_slips` | `pay_slips` | Pay Slip | Pay Slips | consumer | `payroll-employee-pay-statements` | Pay Slips and Self-Service Statements | optional | personal_content | operational_workflow | `:manage` | - |
@@ -427,7 +427,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | HCM-CORE-WORKER | EMP-EXP | EMP-EXP-CONTINUOUS-LISTEN | `attrition_risk.high` | _(state_change)_ | `employees` | api_call | high | Attrition-risk inference from engagement signals surfaces to managers via HCM dashboards. Probabilistic-signal → deterministic-action pattern: a risk score is not a directive; intervention is gated by manager judgment, data-privacy rules (anonymity floor), and DEI-bias concerns. |
 | HCM-CORE-WORKER | PA | PA-WORKFORCE-METRICS | `people_kpi.snapshot_published` | _(lifecycle)_ | `people_kpis` | batch_sync | low | Refreshed people-KPI snapshot lands; HCM dashboards and workforce scorecards re-render against the new period. |
 | HCM-CORE-WORKER | PA | PA-PREDICTIVE-MODELS | `attrition_risk.high` | _(state_change)_ | `employees` | event_stream | high | Flight-risk score flagged on employee; HR-business-partner motion required. Probabilistic-signal-to-deterministic-action friction shape; false-positive volume drives mistrust. |
-| HCM-CORE-WORKER | VMS | VMS-WORKER-SOURCING | `worker.tenure_threshold` | _(threshold)_ | `contingent_workers` | manual_handoff | high | Contingent worker crossing co-employment-risk tenure threshold (typically 18-24 months) must be reclassified, off-boarded, or converted. Cross-vendor stack with same logical entity: VMS and HCM rarely share identity; the watch-list is built by exception report and processed manually. |
+| HCM-CORE-WORKER | CWM | CWM-WORKER-SOURCING | `worker.tenure_threshold` | _(threshold)_ | `contingent_workers` | manual_handoff | high | Contingent worker crossing co-employment-risk tenure threshold (typically 18-24 months) must be reclassified, off-boarded, or converted. Cross-vendor stack with same logical entity: VMS and HCM rarely share identity; the watch-list is built by exception report and processed manually. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `project_assignment.confirmed` | _(state_change)_ | `project_assignments` | event_stream | medium | Confirmed assignments decrement available capacity in HCM and link the consultant's calendar to the engagement. Friction stems from PSA and HCM frequently being separate vendors with different resource models. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `project_resource_allocation.committed` | _(state_change)_ | `project_resource_allocations` | event_stream | medium | Committed allocations book named hours in HCM's capacity view, locking the resource against other demand. |
 | HCM-CORE-WORKER | PSA | PSA-RESOURCE-MGMT | `resource_skill_inventory.updated` | _(state_change)_ | `resource_skill_inventories` | api_call | medium | Updated skill inventory enriches the HCM talent profile so non-billable internal moves and career planning use the same skill graph. |
@@ -441,7 +441,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | --- | --- | --- | --- | --- |
 | `locations` | embedded_master | optional | IWMS-LOCATION-MASTER (IWMS) | - |
 | `cost_centers` | contributor | optional | FIN-GL-CLOSE (FIN) | - |
-| `contingent_workers` | consumer | optional | VMS-WORKER-SOURCING (VMS) | - |
+| `contingent_workers` | consumer | optional | CWM-WORKER-SOURCING (CWM) | - |
 | `onboarding_document_collections` | consumer | optional | ONB-DOCUMENT-INTAKE (ONBOARDING) | - |
 | `pay_slips` | consumer | optional | PAYROLL-EMPLOYEE-PAY-STATEMENTS (PAYROLL) | - |
 | `people_kpis` | consumer | optional | PA-WORKFORCE-METRICS (PA) | - |
@@ -455,14 +455,14 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 ### `contingent_workers` (Contingent Worker)
 
-_This scope holds `contingent_workers` as **consumer**; the canonical state machine is owned by `VMS-WORKER-SOURCING`._
+_This scope holds `contingent_workers` as **consumer**; the canonical state machine is owned by `CWM-WORKER-SOURCING`._
 
 | order | state_name | initial? | terminal? | requires_permission? | derived gate | description |
 | --- | --- | --- | --- | --- | --- | --- |
 | 10 | `active` | ✓ | - | - | - | - |
-| 20 | `on_assignment` | - | - | ✓ | `vms-worker-sourcing:assign_worker` | - |
+| 20 | `on_assignment` | - | - | ✓ | `cwm-worker-sourcing:assign_worker` | - |
 | 30 | `tenure_threshold_reached` | - | - | - | - | - |
-| 40 | `terminated` | - | ✓ | ✓ | `vms-worker-sourcing:terminate_worker` | - |
+| 40 | `terminated` | - | ✓ | ✓ | `cwm-worker-sourcing:terminate_worker` | - |
 
 ### `employees` (Employee)
 
