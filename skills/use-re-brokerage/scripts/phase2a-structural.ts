@@ -343,6 +343,21 @@ async function main() {
       for (const r of rows ?? []) ids.add(r.module_id as number);
     }
     sliceModuleIds = [...ids];
+    // Mirror phase1's orphan guard: drop module_ids that have no /modules shell (entities
+    // stamped against a module that was never provisioned). The normal flow uses phase1's
+    // already-filtered slice from the cache; this re-derivation branch (cache miss / standalone
+    // run) would otherwise reintroduce the ghost-module bug phase1 fixes.
+    if (sliceModuleIds.length) {
+      try {
+        const live = new Set<number>();
+        for (const part of chunk(sliceModuleIds, 100)) {
+          if (!part.length) continue;
+          const rows = (await get(`/modules?id=in.(${part.join(",")})&select=id`)) as any[];
+          for (const r of rows ?? []) live.add(r.id as number);
+        }
+        sliceModuleIds = sliceModuleIds.filter((id) => live.has(id));
+      } catch { /* best-effort; if the shell probe fails, fall through with the unfiltered slice */ }
+    }
   }
   const presentModuleIds = new Set(sliceModuleIds);
 

@@ -202,6 +202,7 @@ async function main() {
 
   const entityModuleIds = new Set<number>();
   const entityHits = new Map<number, number>();
+  const entityCodesByModule = new Map<number, string[]>();
   try {
     for (const part of chunk(masterCodes, 100)) {
       if (part.length === 0) continue;
@@ -210,6 +211,12 @@ async function main() {
         const mid = r.module_id as number;
         entityModuleIds.add(mid);
         entityHits.set(mid, (entityHits.get(mid) ?? 0) + 1);
+        const code = r.catalog_entity_code as string;
+        if (code) {
+          const arr = entityCodesByModule.get(mid) ?? [];
+          arr.push(code);
+          entityCodesByModule.set(mid, arr);
+        }
       }
     }
   } catch (e: any) {
@@ -250,7 +257,7 @@ async function main() {
   const codeModuleIds = new Set<number>(byCode.map((m) => m.id));
   const slugModuleIds = new Set<number>(bySlug.map((m) => m.id));
 
-  const sliceIds = [...new Set<number>([...settingsModuleIds, ...entityModuleIds, ...codeModuleIds, ...slugModuleIds])];
+  let sliceIds = [...new Set<number>([...settingsModuleIds, ...entityModuleIds, ...codeModuleIds, ...slugModuleIds])];
 
   if (sliceIds.length === 0) {
     halt(
@@ -262,7 +269,7 @@ async function main() {
   // Resolve module detail for any slice members discovered only via entity codes.
   const sliceModuleById = new Map<number, LiveModule>();
   for (const m of [...byDomainCode, ...byCode, ...bySlug]) sliceModuleById.set(m.id, m);
-  const missing = sliceIds.filter((id) => !sliceModuleById.has(id));
+  let missing = sliceIds.filter((id) => !sliceModuleById.has(id));
   if (missing.length) {
     try {
       for (const part of chunk(missing, 100)) {
@@ -270,6 +277,80 @@ async function main() {
         for (const m of rows) sliceModuleById.set(m.id, m);
       }
     } catch { /* best-effort labels; module_id is what downstream needs */ }
+  }
+
+  // Drop orphaned module_ids: an entity carried a module_id (catalog_entity_code stamp) but
+  // /modules has NO shell for it. This happens when entities were deployed against a module
+  // that was never provisioned, so its permissions/RBAC do not exist. Keeping the id would
+  // let bootstrap write a ready.flag pointing at a ghost module, and every later write would
+  // fail RLS (42501). Only entity_code matches can be orphans: settings/code/slug ids all
+  // come from /modules queries and therefore always have a shell. Re-derive `missing` AFTER
+  // the fallback fetch above and drop whatever is still unresolved.
+  const droppedOrphanModuleIds: number[] = [];
+  missing = sliceIds.filter((id) => !sliceModuleById.has(id));
+  if (missing.length) {
+    droppedOrphanModuleIds.push(...missing);
+    sliceIds = sliceIds.filter((id) => sliceModuleById.has(id));
+    if (sliceIds.length === 0) {
+      halt(
+        `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not fully deployed in this platform (${tenantOrg}). Its entities reference module_id(s) ${missing.join(", ")}, but no module shell exists for them, so their permissions and RBAC were never created.`,
+        `Re-deploy the blueprint so each module shell (and its RBAC) is provisioned before its entities, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model. Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
+      );
+    }
+  }
+
+  // ---- RBAC guard: a slice module with no permissions/roles is a broken deploy. ----
+  // The ACTUAL cause of the recurring write-time failure (RLS 42501) is missing permissions/
+  // roles, not a missing module shell. The deploy scaffold seeds every module with three
+  // permissions and three roles; a module whose shell exists but whose RBAC seeding failed or
+  // partially ran passes every check above yet rejects every write. Probe /permissions and
+  // /roles for the slice and halt if any slice module has zero of either. This is the guard
+  // that the module-shell check only approximates.
+  const permModuleIds = new Set<number>();
+  const roleModuleIds = new Set<number>();
+  try {
+    for (const part of chunk(sliceIds, 100)) {
+      if (part.length === 0) continue;
+      const perms = await get(`/permissions?module_id=in.(${part.join(",")})&select=module_id`);
+      for (const p of perms) permModuleIds.add(p.module_id as number);
+      const roles = await get(`/roles?module_id=in.(${part.join(",")})&select=module_id`);
+      for (const r of roles) roleModuleIds.add(r.module_id as number);
+    }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e).toLowerCase();
+    if (msg.includes("audience") || msg.includes("jwt")) {
+      halt(`JWT-audience error querying RBAC (/permissions, /roles): ${e.message}`,
+           "Surface the verbatim error to the user and wait for direction. Do not retry in a loop.");
+    }
+    halt(`Could not query /permissions or /roles for the domain slice: ${e.message}`,
+         "Check platform connectivity. If this is a JWT error, surface it verbatim. RBAC must be verifiable before the skill can write.");
+  }
+  const rbacMissing = sliceIds.filter((id) => !permModuleIds.has(id) || !roleModuleIds.has(id));
+  if (rbacMissing.length) {
+    const detail = rbacMissing
+      .map((id) => {
+        const m = sliceModuleById.get(id);
+        const lacks = [!permModuleIds.has(id) ? "permissions" : null, !roleModuleIds.has(id) ? "roles" : null].filter(Boolean).join(" + ");
+        return `${id}${m?.module_slug ? ` (${m.module_slug})` : ""} lacks ${lacks}`;
+      })
+      .join("; ");
+    halt(
+      `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is in this platform (${tenantOrg}) but its RBAC is not fully provisioned: ${detail}. Writes to these modules will fail row-level security (42501).`,
+      `Re-deploy the blueprint so each module's RBAC (permissions, roles, role_permissions) is seeded, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model. Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
+    );
+  }
+
+  // Non-fatal warnings surfaced to the agent (the slice still resolved, but something is off).
+  const warnings: string[] = [];
+  if (droppedOrphanModuleIds.length) {
+    const codes = droppedOrphanModuleIds
+      .flatMap((id) => entityCodesByModule.get(id) ?? [])
+      .filter((c, i, a) => c && a.indexOf(c) === i);
+    warnings.push(
+      `Dropped ${droppedOrphanModuleIds.length} orphaned module_id(s) [${droppedOrphanModuleIds.join(", ")}] from the slice: entities` +
+      (codes.length ? ` (${codes.join(", ")})` : "") +
+      ` reference them via catalog_entity_code but no module shell exists. If the ${view.name} domain OWNS these, its deployment is incomplete; the skill proceeded against the remaining ${sliceIds.length} module(s).`,
+    );
   }
 
   const domainSlice = sliceIds
@@ -318,6 +399,7 @@ async function main() {
     domain: { code: view.code, name: view.name, kind: view.isBundle ? "bundle" : "domain" },
     domain_slice: domainSlice,
     modules: moduleStatus,
+    warnings,
     summary: {
       spec_modules_total: view.moduleHints.length,
       spec_modules_matched: specMatched,
