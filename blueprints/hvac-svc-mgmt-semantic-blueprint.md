@@ -12,7 +12,7 @@ domain_modules:
 domain_code: HVAC-SVC-MGMT
 related_modules: [b2c-comm-order-capture, cdp-unified-profile, cpq-product-catalog, cpq-quote-builder, crm-acct-mgt, crm-lead-mgt, crm-pipeline-mgt, fds-csa-mgmt, fds-wholesale, fsm-dispatch-ops, fsm-installed-base, fsm-mobile-tech, fsm-service-contracts, ham-warranty-parts, ma-campaign-authoring, sub-mgmt-billing, sub-mgmt-subscriptions]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-22
 ---
 
 # HVAC Service Management (small-org starter)
@@ -195,6 +195,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `customers` | buys at | `farmers_market_sales` | one_to_many | optional | none | n/a | - |
 | `contact_records` | enriches | `crm_contacts` | one_to_many | optional | none | n/a | - |
 | `ad_conversion_events` | converts | `customers` | one_to_many | optional | none | n/a | - |
+| `activity_bookings` | is booked by | `customers` | many_to_many | required | none (required-if-present) | n/a | - |
 
 ## 6. Cross-domain context
 

@@ -6,23 +6,16 @@
  *
  * Checks in order (halt on first failure):
  *   1. semantius CLI installed, on PATH, and able to authenticate (getCurrentUser).
- *   2. The domain is deployed: a live module is stamped settings.domain_code = <CODE>,
- *      OR hosts an entity stamped with one of the domain's canonical master codes
- *      (ENTITY-FIRST), OR carries one of the spec's catalog_module_code / module_slug
- *      values (fallback).
+ *   2. The domain is deployed: one or more live modules are stamped settings.domain_code = <CODE>.
  *
- * Domain membership is the UNION of two deterministic signals:
- *   (a) settings.domain_code, the deploy pipeline stamps every module it provisions
- *       with { domain_code: <CODE>, module_kind, ... } in its `settings` JSONB. This is
- *       the authoritative membership marker and, unlike the entity probe, holds even when
- *       a deployment's entities were created WITHOUT catalog_entity_code stamps.
- *   (b) ENTITY-FIRST, the module_ids that host the domain's OWNED entities, resolved
- *       from the canonical master codes (catalog_entity_code). This catches a deployment
- *       that packages the domain under any module name (e.g. a "hiring-starter" bundle)
- *       and a hand-built module whose settings were never stamped.
- * catalog_module_code / module_slug are kept only as weak hints. Keying the entity probe
- * on OWNED masters (not every referenced concept) keeps a foreign module that merely hosts
- * a shared/embedded master (e.g. an HR `org_units`) out of the slice.
+ * The deploy stamp is the ONE authoritative signal. The deploy pipeline writes
+ * { domain_code, module_kind, naming_mode, catalog_snapshot } into a module's `settings` JSONB
+ * ONLY on a module it has fully provisioned (shell + RBAC + entities). So "a stamped module
+ * exists" is both necessary and sufficient for "deployed", and a module without the stamp is, by
+ * definition, not a complete deployment. We deliberately do NOT fall back to entity-code stamps,
+ * catalog_module_code, or module_slug: those weaker signals also match half-provisioned modules,
+ * which is exactly what let the skill proceed against an unconfigured deployment. The slice is
+ * simply the set of stamped modules.
  *
  * Output: structured JSON on stdout (machine-parseable for the agent + Phase 2a).
  *   { ok, phase, tenant, domain, domain_slice: [{module_id, ...}], modules, summary }
@@ -57,32 +50,21 @@ type Spec = {
 };
 
 // Normalize a domain spec OR a domain-less bundle spec into one model.
-//   sliceCodes   = the entity codes used for the entity-first slice query. For a domain
-//                  these are the OWNED masters only (so a foreign module that hosts a shared
-//                  embedded master is not pulled in). A bundle owns nothing and its footprint
-//                  spans the host-domain modules, so it uses ALL composed entity codes.
-//   moduleHints  = [{code, name}] to probe by catalog_module_code / module_slug.
-function normalize(spec: Spec): { code: string; name: string; isBundle: boolean; sliceCodes: string[]; moduleHints: Array<{ code: string; name: string }> } {
+//   moduleHints  = [{code, name}] used only for the non-gating per-spec-module reporting hint.
+function normalize(spec: Spec): { code: string; name: string; isBundle: boolean; moduleHints: Array<{ code: string; name: string }> } {
   if (spec.bundle) {
-    const names = [...new Set((spec.composes ?? []).map((c) => c.name).filter(Boolean))];
     return {
       code: spec.bundle.code,
       name: spec.bundle.name,
       isBundle: true,
-      sliceCodes: names,
       moduleHints: [{ code: spec.bundle.code, name: spec.bundle.name }],
     };
   }
   const dom = spec.domain ?? { code: "<unknown>", name: "<unknown>" };
-  const sliceCodes = [...new Set([
-    ...(spec.modules ?? []).flatMap((m) => m.masters ?? []),
-    ...(spec.data_objects ?? []).map((o) => o.name),
-  ])].filter(Boolean);
   return {
     code: dom.code,
     name: dom.name,
     isBundle: false,
-    sliceCodes,
     moduleHints: (spec.modules ?? []).map((m) => ({ code: m.code, name: m.name })),
   };
 }
@@ -129,12 +111,6 @@ function halt(reason: string, fix: string): never {
 
 function moduleSlug(code: string): string {
   return code.toLowerCase().replace(/-/g, "_");
-}
-
-function chunk<T>(arr: T[], n: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-  return out;
 }
 
 // The CLI ships as a native installer (NOT an npm package). Emit the platform-specific
@@ -194,194 +170,52 @@ async function main() {
   // ui_baseurl powers UI deep-links (`{ui_baseurl}/{module_slug}/{table_name}`); never hardcode the org host.
   const tenantUiBaseurl = cu.data?.ui_baseurl ?? "";
 
-  // ---- Check 2: resolve the domain SLICE (entity-first). ----
-  // Canonical master codes = the entities the domain OWNS (spec.data_objects names ==
-  // the union of every module's `masters`). Querying entities by these codes finds the
-  // live modules hosting the domain regardless of how the deployment named them.
-  const masterCodes = view.sliceCodes;
-
-  const entityModuleIds = new Set<number>();
-  const entityHits = new Map<number, number>();
-  const entityCodesByModule = new Map<number, string[]>();
+  // ---- Check 2: is the domain deployed? ----
+  // The slice is the set of live modules stamped settings.domain_code = <CODE>. That stamp is
+  // written only on a fully provisioned module, so its presence IS deployment and its absence IS
+  // "not deployed". No fallback to weaker signals: that is what kept the skill from stopping when
+  // the domain was not configured.
+  let sliceModules: LiveModule[] = [];
   try {
-    for (const part of chunk(masterCodes, 100)) {
-      if (part.length === 0) continue;
-      const rows = await get(`/entities?catalog_entity_code=in.(${part.join(",")})&select=module_id,catalog_entity_code`);
-      for (const r of rows) {
-        const mid = r.module_id as number;
-        entityModuleIds.add(mid);
-        entityHits.set(mid, (entityHits.get(mid) ?? 0) + 1);
-        const code = r.catalog_entity_code as string;
-        if (code) {
-          const arr = entityCodesByModule.get(mid) ?? [];
-          arr.push(code);
-          entityCodesByModule.set(mid, arr);
-        }
-      }
-    }
+    sliceModules = (await get(`/modules?settings->>domain_code=eq.${view.code}&select=${MODULE_SELECT}`)) as LiveModule[];
   } catch (e: any) {
     const msg = String(e?.message ?? e).toLowerCase();
     if (msg.includes("audience") || msg.includes("jwt")) {
-      halt(`JWT-audience error querying /entities: ${e.message}`,
+      halt(`JWT-audience error querying /modules: ${e.message}`,
            "Surface the verbatim error to the user and wait for direction. Do not retry in a loop.");
     }
-    halt(`Could not query /entities for domain membership: ${e.message}`,
+    halt(`Could not query /modules for the deploy stamp: ${e.message}`,
          "Check platform connectivity. If this is a JWT error, surface it verbatim.");
   }
 
-  // ---- Authoritative deploy stamp: settings.domain_code = <CODE>. ----
-  // The deploy pipeline writes { domain_code, module_kind, naming_mode, catalog_snapshot }
-  // into each provisioned module's `settings` JSONB. Querying it resolves the slice directly,
-  // and (unlike the entity probe) survives a deployment whose entities carry no
-  // catalog_entity_code. Best-effort: a hand-built module may have settings = null, in which
-  // case the entity-first union below still finds it.
-  let byDomainCode: LiveModule[] = [];
-  try {
-    byDomainCode = (await get(`/modules?settings->>domain_code=eq.${view.code}&select=${MODULE_SELECT}`)) as LiveModule[];
-  } catch { /* best-effort; entity-first + code/slug still resolve the slice */ }
-  const settingsModuleIds = new Set<number>(byDomainCode.map((m) => m.id));
-
-  // ---- Fallback / hint: module catalog_module_code + module_slug match. ----
-  // SERIOUS 3: catalog_module_code is non-unique by design (clone-and-customize), so we
-  // collect ALL matching module_ids; never collapse by code into a single row.
-  const codes = view.moduleHints.map((m) => m.code).filter(Boolean);
-  const slugs = view.moduleHints.map((m) => moduleSlug(m.code));
-  let byCode: LiveModule[] = [];
-  let bySlug: LiveModule[] = [];
-  try {
-    if (codes.length) byCode = (await get(`/modules?catalog_module_code=in.(${codes.join(",")})&select=${MODULE_SELECT}`)) as LiveModule[];
-  } catch { /* hints are best-effort; entity-first is the source of truth */ }
-  try {
-    if (slugs.length) bySlug = (await get(`/modules?module_slug=in.(${slugs.join(",")})&select=${MODULE_SELECT}`)) as LiveModule[];
-  } catch { /* best-effort */ }
-  const codeModuleIds = new Set<number>(byCode.map((m) => m.id));
-  const slugModuleIds = new Set<number>(bySlug.map((m) => m.id));
-
-  let sliceIds = [...new Set<number>([...settingsModuleIds, ...entityModuleIds, ...codeModuleIds, ...slugModuleIds])];
-
-  if (sliceIds.length === 0) {
+  if (sliceModules.length === 0) {
     halt(
-      `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not deployed in this platform (${tenantOrg}). No live module is stamped settings.domain_code = ${view.code}, hosts its entities, or carries its catalog codes.`,
+      `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not deployed in this platform (${tenantOrg}). No live module is stamped settings.domain_code = ${view.code}.`,
       `Deploy the blueprint first, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model (install it with 'npx skills add semantius/semantius-cli --all' if it is not present). Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
     );
   }
 
-  // Resolve module detail for any slice members discovered only via entity codes.
-  const sliceModuleById = new Map<number, LiveModule>();
-  for (const m of [...byDomainCode, ...byCode, ...bySlug]) sliceModuleById.set(m.id, m);
-  let missing = sliceIds.filter((id) => !sliceModuleById.has(id));
-  if (missing.length) {
-    try {
-      for (const part of chunk(missing, 100)) {
-        const rows = (await get(`/modules?id=in.(${part.join(",")})&select=${MODULE_SELECT}`)) as LiveModule[];
-        for (const m of rows) sliceModuleById.set(m.id, m);
-      }
-    } catch { /* best-effort labels; module_id is what downstream needs */ }
-  }
-
-  // Drop orphaned module_ids: an entity carried a module_id (catalog_entity_code stamp) but
-  // /modules has NO shell for it. This happens when entities were deployed against a module
-  // that was never provisioned, so its permissions/RBAC do not exist. Keeping the id would
-  // let bootstrap write a ready.flag pointing at a ghost module, and every later write would
-  // fail RLS (42501). Only entity_code matches can be orphans: settings/code/slug ids all
-  // come from /modules queries and therefore always have a shell. Re-derive `missing` AFTER
-  // the fallback fetch above and drop whatever is still unresolved.
-  const droppedOrphanModuleIds: number[] = [];
-  missing = sliceIds.filter((id) => !sliceModuleById.has(id));
-  if (missing.length) {
-    droppedOrphanModuleIds.push(...missing);
-    sliceIds = sliceIds.filter((id) => sliceModuleById.has(id));
-    if (sliceIds.length === 0) {
-      halt(
-        `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not fully deployed in this platform (${tenantOrg}). Its entities reference module_id(s) ${missing.join(", ")}, but no module shell exists for them, so their permissions and RBAC were never created.`,
-        `Re-deploy the blueprint so each module shell (and its RBAC) is provisioned before its entities, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model. Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
-      );
-    }
-  }
-
-  // ---- RBAC guard: a slice module with no permissions/roles is a broken deploy. ----
-  // The ACTUAL cause of the recurring write-time failure (RLS 42501) is missing permissions/
-  // roles, not a missing module shell. The deploy scaffold seeds every module with three
-  // permissions and three roles; a module whose shell exists but whose RBAC seeding failed or
-  // partially ran passes every check above yet rejects every write. Probe /permissions and
-  // /roles for the slice and halt if any slice module has zero of either. This is the guard
-  // that the module-shell check only approximates.
-  const permModuleIds = new Set<number>();
-  const roleModuleIds = new Set<number>();
-  try {
-    for (const part of chunk(sliceIds, 100)) {
-      if (part.length === 0) continue;
-      const perms = await get(`/permissions?module_id=in.(${part.join(",")})&select=module_id`);
-      for (const p of perms) permModuleIds.add(p.module_id as number);
-      const roles = await get(`/roles?module_id=in.(${part.join(",")})&select=module_id`);
-      for (const r of roles) roleModuleIds.add(r.module_id as number);
-    }
-  } catch (e: any) {
-    const msg = String(e?.message ?? e).toLowerCase();
-    if (msg.includes("audience") || msg.includes("jwt")) {
-      halt(`JWT-audience error querying RBAC (/permissions, /roles): ${e.message}`,
-           "Surface the verbatim error to the user and wait for direction. Do not retry in a loop.");
-    }
-    halt(`Could not query /permissions or /roles for the domain slice: ${e.message}`,
-         "Check platform connectivity. If this is a JWT error, surface it verbatim. RBAC must be verifiable before the skill can write.");
-  }
-  const rbacMissing = sliceIds.filter((id) => !permModuleIds.has(id) || !roleModuleIds.has(id));
-  if (rbacMissing.length) {
-    const detail = rbacMissing
-      .map((id) => {
-        const m = sliceModuleById.get(id);
-        const lacks = [!permModuleIds.has(id) ? "permissions" : null, !roleModuleIds.has(id) ? "roles" : null].filter(Boolean).join(" + ");
-        return `${id}${m?.module_slug ? ` (${m.module_slug})` : ""} lacks ${lacks}`;
-      })
-      .join("; ");
-    halt(
-      `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is in this platform (${tenantOrg}) but its RBAC is not fully provisioned: ${detail}. Writes to these modules will fail row-level security (42501).`,
-      `Re-deploy the blueprint so each module's RBAC (permissions, roles, role_permissions) is seeded, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model. Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
-    );
-  }
-
-  // Non-fatal warnings surfaced to the agent (the slice still resolved, but something is off).
-  const warnings: string[] = [];
-  if (droppedOrphanModuleIds.length) {
-    const codes = droppedOrphanModuleIds
-      .flatMap((id) => entityCodesByModule.get(id) ?? [])
-      .filter((c, i, a) => c && a.indexOf(c) === i);
-    warnings.push(
-      `Dropped ${droppedOrphanModuleIds.length} orphaned module_id(s) [${droppedOrphanModuleIds.join(", ")}] from the slice: entities` +
-      (codes.length ? ` (${codes.join(", ")})` : "") +
-      ` reference them via catalog_entity_code but no module shell exists. If the ${view.name} domain OWNS these, its deployment is incomplete; the skill proceeded against the remaining ${sliceIds.length} module(s).`,
-    );
-  }
-
-  const domainSlice = sliceIds
-    .map((id) => {
-      const m = sliceModuleById.get(id);
-      const matchedBy: string[] = [];
-      if (settingsModuleIds.has(id)) matchedBy.push("settings_domain_code");
-      if (entityModuleIds.has(id)) matchedBy.push("entity_code");
-      if (codeModuleIds.has(id)) matchedBy.push("catalog_module_code");
-      if (slugModuleIds.has(id)) matchedBy.push("module_slug");
-      return {
-        module_id: id,
-        module_slug: m?.module_slug ?? null,
-        module_name: m?.module_name ?? null,
-        catalog_module_code: m?.catalog_module_code ?? null,
-        settings: m?.settings ?? null,
-        matched_by: matchedBy,
-        entity_hits: entityHits.get(id) ?? 0,
-      };
-    })
+  const domainSlice = sliceModules
+    .map((m) => ({
+      module_id: m.id,
+      module_slug: m.module_slug ?? null,
+      module_name: m.module_name ?? null,
+      catalog_module_code: m.catalog_module_code ?? null,
+      settings: m.settings ?? null,
+      matched_by: ["settings_domain_code"],
+    }))
     .sort((a, b) => a.module_id - b.module_id);
 
-  // Per-spec-module reporting hint (the "as-designed" mapping). Presence here no longer
-  // gates: a deployment that bundles every module under one package shows all spec
-  // modules present:false while domain_slice still carries the bundle's module_id.
-  const codeSet = new Set(byCode.map((m) => m.catalog_module_code));
-  const slugSet = new Set(bySlug.map((m) => m.module_slug));
+  // Per-spec-module reporting hint (the "as-designed" mapping). Non-gating: a deployment that
+  // bundles every spec module under one package shows all spec modules present:false while
+  // domain_slice still carries the bundle's module_id. Matched against the stamped slice's own
+  // catalog_module_code / module_slug, never a separate query.
+  const sliceCodeSet = new Set(sliceModules.map((m) => m.catalog_module_code).filter(Boolean));
+  const sliceSlugSet = new Set(sliceModules.map((m) => m.module_slug).filter(Boolean));
   const moduleStatus = view.moduleHints.map((m) => {
     const sl = moduleSlug(m.code);
-    const matchedCode = codeSet.has(m.code);
-    const matchedSlug = slugSet.has(sl);
+    const matchedCode = sliceCodeSet.has(m.code);
+    const matchedSlug = sliceSlugSet.has(sl);
     return {
       code: m.code,
       name: m.name,
@@ -399,14 +233,12 @@ async function main() {
     domain: { code: view.code, name: view.name, kind: view.isBundle ? "bundle" : "domain" },
     domain_slice: domainSlice,
     modules: moduleStatus,
-    warnings,
     summary: {
       spec_modules_total: view.moduleHints.length,
       spec_modules_matched: specMatched,
-      slice_modules: sliceIds.length,
-      entities_matched: [...entityHits.values()].reduce((a, b) => a + b, 0),
+      slice_modules: domainSlice.length,
       // Back-compat aliases consumed by bootstrap.ts:
-      present: sliceIds.length,
+      present: domainSlice.length,
       total: view.moduleHints.length,
     },
   }, null, 2));

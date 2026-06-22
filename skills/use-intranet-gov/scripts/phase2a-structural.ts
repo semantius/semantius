@@ -320,9 +320,10 @@ async function main() {
   // omitted-vs-external split and the slice). Each name IS its canonical code (D6).
   const concepts = view.concepts;
   const ownedConcepts = view.ownedConcepts;
-  const masterCodes = view.sliceCodes;
 
-  // ---- Resolve the domain slice (from Phase 1 cache, else re-derive entity-first). ----
+  // ---- Resolve the domain slice (from Phase 1 cache, else re-derive). ----
+  // Same single signal as phase1: the modules stamped settings.domain_code. The cache is the
+  // normal path; the re-derive covers a cache miss / standalone run.
   let sliceModuleIds: number[] = [];
   try {
     const phase1: Phase1Result = JSON.parse(readFileSync(phase1Path, "utf-8"));
@@ -331,33 +332,10 @@ async function main() {
     /* re-derive below */
   }
   if (sliceModuleIds.length === 0) {
-    const ids = new Set<number>();
-    // Authoritative deploy stamp first (mirrors phase1): modules tagged for this domain.
     try {
       const rows = (await get(`/modules?settings->>domain_code=eq.${view.code}&select=id`)) as any[];
-      for (const r of rows ?? []) ids.add(r.id as number);
-    } catch { /* best-effort; entity-first below still resolves the slice */ }
-    for (const part of chunk(masterCodes, 100)) {
-      if (!part.length) continue;
-      const rows = (await get(`/entities?catalog_entity_code=in.(${part.join(",")})&select=module_id`)) as any[];
-      for (const r of rows ?? []) ids.add(r.module_id as number);
-    }
-    sliceModuleIds = [...ids];
-    // Mirror phase1's orphan guard: drop module_ids that have no /modules shell (entities
-    // stamped against a module that was never provisioned). The normal flow uses phase1's
-    // already-filtered slice from the cache; this re-derivation branch (cache miss / standalone
-    // run) would otherwise reintroduce the ghost-module bug phase1 fixes.
-    if (sliceModuleIds.length) {
-      try {
-        const live = new Set<number>();
-        for (const part of chunk(sliceModuleIds, 100)) {
-          if (!part.length) continue;
-          const rows = (await get(`/modules?id=in.(${part.join(",")})&select=id`)) as any[];
-          for (const r of rows ?? []) live.add(r.id as number);
-        }
-        sliceModuleIds = sliceModuleIds.filter((id) => live.has(id));
-      } catch { /* best-effort; if the shell probe fails, fall through with the unfiltered slice */ }
-    }
+      sliceModuleIds = (rows ?? []).map((r) => r.id as number);
+    } catch { /* best-effort; an empty slice here yields zero discovery, which bootstrap handles */ }
   }
   const presentModuleIds = new Set(sliceModuleIds);
 

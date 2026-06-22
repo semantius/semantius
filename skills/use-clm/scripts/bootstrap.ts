@@ -104,29 +104,6 @@ async function main() {
     process.exit(0);
   }
 
-  // Gate: phase2a returns ok:true even when it discovered ZERO entities or some module reads
-  // failed (e.g. RLS denial recorded in fetch_errors). Either case means the domain is not
-  // actually usable: writing ready.flag here would let the skill proceed and every write would
-  // fail RLS (42501). Refuse the flag and report the concrete reason instead.
-  const entitiesDiscovered = Number(phase2a.entities_discovered ?? 0);
-  const fetchErrors = (phase2a.fetch_errors ?? []) as string[];
-  if (entitiesDiscovered === 0 || fetchErrors.length > 0) {
-    if (existsSync(readyFlagPath)) unlinkSync(readyFlagPath);
-    const reason = entitiesDiscovered === 0
-      ? `Phase 2a discovered ZERO entities in the domain slice (modules ${(phase2a.slice_module_ids ?? []).join(", ") || "none"}). The domain's module shell(s) exist but no readable entities were found, so the skill is not configured to operate. ready.flag NOT written.`
-      : `Phase 2a could not read ${fetchErrors.length} module(s) in the slice (likely missing RBAC / RLS denial), so discovery is incomplete. ready.flag NOT written.`;
-    console.log(JSON.stringify({
-      ok: false,
-      stage: "bootstrap",
-      phase: "2a-incomplete",
-      reason,
-      entities_discovered: entitiesDiscovered,
-      fetch_errors: fetchErrors,
-      fix: "Re-deploy the blueprint so every slice module is fully provisioned (entities + RBAC), then re-run this skill. If the reads failed with row-level security errors, the deploy did not seed permissions/roles for these modules.",
-    }, null, 2));
-    process.exit(1);
-  }
-
   // Stage 3: write ready.flag with fingerprint.
   const discovered = existsSync(discoveredPath)
     ? readFileSync(discoveredPath, "utf-8")
