@@ -12,9 +12,9 @@ This skill delegates all CLI mechanics to `use-semantius`. Without it, the disco
 
 **How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, run this immediately (use the command verbatim, do not substitute another URL):
 
-> `npx skills add https://github.com/semantius/semantius-cli/tree/main/skills/use-semantius`
+> `npx skills add semantius/semantius-cli --all`
 
-An added skill only loads after a session reload, which you cannot trigger, so ask the user to reload, then re-run this skill. Do not ask permission to install.
+This installs the whole Semantius CLI skill bundle (including `use-semantius` and `semantius-admin`) in one shot, so Check 4's deploy-blueprint path never has to install separately. An added skill only loads after a session reload, which you cannot trigger, so ask the user to reload, then re-run this skill. Do not ask permission to install.
 
 ---
 
@@ -82,7 +82,7 @@ hint as `modules`.
 > The `Learning Management` domain is not deployed in your platform. No live module hosts its entities, and no module carries its catalog codes. Deploy the domain blueprint first:
 >
 > 1. Review the blueprint for this domain at `https://www.semantius.com/blueprints/lms`. This page describes the blueprint and how to download it with the `semantius-admin` skill.
-> 2. Use the `semantius-admin` skill to download, customize, and deploy the model. If it is not installed, install it first with `npx skills add semantius/semantius-cli --all`.
+> 2. Use the `semantius-admin` skill to download, customize, and deploy the model. It was installed alongside `use-semantius` by Check 1's `npx skills add semantius/semantius-cli --all`; if it is somehow missing, re-run that command.
 > 3. Verify with: `semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.LMS&select=id,slug,name"}'` (any row returned means a module of this domain is already deployed)
 >
 > Re-run this skill once the domain is live.

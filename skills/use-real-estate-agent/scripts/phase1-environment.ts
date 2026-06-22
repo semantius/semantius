@@ -191,7 +191,7 @@ async function main() {
   if (sliceModules.length === 0) {
     halt(
       `The ${view.name} (${view.code}) ${view.isBundle ? "bundle" : "domain"} is not deployed in this platform (${tenantOrg}). No live module is stamped settings.domain_code = ${view.code}.`,
-      `Deploy the blueprint first, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model (install it with 'npx skills add semantius/semantius-cli --all' if it is not present). Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
+      `Deploy the blueprint first, then re-run this skill. Use the semantius-admin skill to download, customize, and deploy the model (it was installed alongside use-semantius by 'npx skills add semantius/semantius-cli --all'; re-run that command only if it is somehow missing). Blueprint info: https://www.semantius.com/blueprints/${view.code.toLowerCase()}`,
     );
   }
 
