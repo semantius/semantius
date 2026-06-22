@@ -27,12 +27,13 @@ SELECT authenticate_as('user3');
 
 INSERT INTO entities (
     table_name, singular, singular_label, plural_label, description,
-    view_permission, edit_permission, select_rule
+    view_permission, edit_permission, select_rule, module_id
 ) VALUES (
     'test_abac_read', 'test_abac_read_item', 'ABAC Read Item', 'ABAC Read Items',
     'Verifies DEFINER read helpers honor select_rule, not just view_permission',
     'public:read', 'admin',
-    '{"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}'::jsonb
+    '{"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}'::jsonb,
+    1
 );
 
 INSERT INTO fields (

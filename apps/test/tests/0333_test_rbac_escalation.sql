@@ -48,8 +48,8 @@ SELECT throws_ok(
 
 -- 4. Insert a brand-new permission (which would auto-grant to Administrator).
 SELECT throws_ok(
-    $$ INSERT INTO permissions (permission_name, description)
-       VALUES ('evil:escalate', 'should be rejected') $$,
+    $$ INSERT INTO permissions (permission_name, description, module_id)
+       VALUES ('evil:escalate', 'should be rejected', 1) $$,
     '42501', NULL,
     'I5: user1 cannot create a permission'
 );

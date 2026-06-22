@@ -21,14 +21,15 @@ SELECT authenticate_as('user3');
 -- =====================================================
 -- $today: a date-typed rule "valid_until >= $today"
 -- =====================================================
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
 VALUES (
     'sel_today_rule',
     'sel_today_rule_item',
     'Sel Today Rule Item',
     'Sel Today Rule Items',
     'select_rule referencing $today',
-    '{">=":[{"var":"valid_until"},{"var":"$today"}]}'::jsonb
+    '{">=":[{"var":"valid_until"},{"var":"$today"}]}'::jsonb,
+    1
 );
 
 INSERT INTO fields (table_name, field_name, title, format, field_order)
@@ -55,14 +56,15 @@ SELECT is(
 -- =====================================================
 -- $now: a date-time-typed rule "expires_at >= $now"
 -- =====================================================
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
 VALUES (
     'sel_now_rule',
     'sel_now_rule_item',
     'Sel Now Rule Item',
     'Sel Now Rule Items',
     'select_rule referencing $now',
-    '{">=":[{"var":"expires_at"},{"var":"$now"}]}'::jsonb
+    '{">=":[{"var":"expires_at"},{"var":"$now"}]}'::jsonb,
+    1
 );
 
 INSERT INTO fields (table_name, field_name, title, format, field_order)

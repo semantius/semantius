@@ -1,7 +1,7 @@
 -- Test that should fail
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(10);
 
 select authenticate_as('user1');
 
@@ -83,6 +83,28 @@ SELECT pgtap.has_column(
     'table1',    
     'field1',     
     'column test1 should exist in public.table1'
+);
+
+-- Test that permissions.module_id cannot be NULL
+SELECT throws_ok(
+    $$
+        INSERT INTO permissions(permission_name, description, module_id)
+        VALUES ('test:null_module', 'Should fail', NULL);
+    $$,
+    '23502',  -- not_null_violation
+    NULL,
+    'Inserting a permission with NULL module_id should fail'
+);
+
+-- Test that entities.module_id cannot be NULL
+SELECT throws_ok(
+    $$
+        INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+        VALUES ('null_module_tbl', 'null_module_tbl', 'null_module_tbl', 'Null Module Table', 'Null Module Tables', '', NULL, 'public:read', 'admin', 'id', 'label');
+    $$,
+    '23502',  -- not_null_violation
+    NULL,
+    'Inserting an entity with NULL module_id should fail'
 );
 
 

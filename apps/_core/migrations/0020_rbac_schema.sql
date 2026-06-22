@@ -73,13 +73,13 @@ CREATE TABLE permissions (
     id SERIAL PRIMARY KEY,
     permission_name TEXT UNIQUE NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
-    module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
-COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for logical grouping';
+COMMENT ON COLUMN permissions.module_id IS 'Required reference to the module this permission belongs to';
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (

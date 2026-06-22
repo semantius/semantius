@@ -10,8 +10,8 @@ SELECT plan(17);
 -- =====================================================
 
 -- Create test table first
-INSERT INTO entities (table_name, singular_label, managed)
-VALUES ('test_table', 'Test Table', FALSE);
+INSERT INTO entities (table_name, singular_label, managed, module_id)
+VALUES ('test_table', 'Test Table', FALSE, 1);
 
 -- Test that we CAN insert a field with reference_delete_mode='' when reference_table is empty
 SELECT lives_ok(
@@ -42,8 +42,8 @@ DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_field2
 -- =====================================================
 
 -- First, create a test table to reference
-INSERT INTO entities (table_name, singular_label, managed)
-VALUES ('test_ref_table', 'Test Ref Table', FALSE);
+INSERT INTO entities (table_name, singular_label, managed, module_id)
+VALUES ('test_ref_table', 'Test Ref Table', FALSE, 1);
 
 -- Test that we CAN insert a field with reference_delete_mode='restrict' when reference_table is non-empty
 SELECT lives_ok(
@@ -147,8 +147,8 @@ DELETE FROM entities WHERE table_name = 'test_ref_table';
 -- TEST 9: reference_delete_mode can be 'cascade' with reference format
 -- =====================================================
 
-INSERT INTO entities (table_name, singular_label, managed)
-VALUES ('test_ref_table2', 'Test Ref Table 2', FALSE);
+INSERT INTO entities (table_name, singular_label, managed, module_id)
+VALUES ('test_ref_table2', 'Test Ref Table 2', FALSE, 1);
 
 SELECT lives_ok(
     $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode) 
