@@ -21,8 +21,8 @@ CREATE TEMP TABLE admin_permissions_before AS
 SELECT permission_id FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE role_name = 'Administrator');
 
 -- Test 1: Insert a new test permission
-INSERT INTO permissions (permission_name, description) 
-VALUES ('test:new_permission', 'Test permission for auto-grant feature');
+INSERT INTO permissions (permission_name, description, module_id) 
+VALUES ('test:new_permission', 'Test permission for auto-grant feature', 1);
 
 -- Get the id of the newly created permission
 SELECT ok(
@@ -42,8 +42,8 @@ SELECT ok(
 );
 
 -- Test 3: Insert another test permission
-INSERT INTO permissions (permission_name, description) 
-VALUES ('test:another_permission', 'Another test permission for auto-grant feature');
+INSERT INTO permissions (permission_name, description, module_id) 
+VALUES ('test:another_permission', 'Another test permission for auto-grant feature', 1);
 
 -- Verify that this permission was also automatically granted to Administrator role
 SELECT ok(

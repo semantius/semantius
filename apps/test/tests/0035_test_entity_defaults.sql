@@ -31,7 +31,7 @@ SELECT is(snake_to_label('label'),          'Label',          'snake_to_label: l
 -- =====================================================
 -- label_column defaults to 'label', so singular_label derives to 'Label'.
 
-INSERT INTO entities (table_name) VALUES ('tdef_items');
+INSERT INTO entities (table_name, module_id) VALUES ('tdef_items', 1);
 
 SELECT is((SELECT singular       FROM entities WHERE table_name = 'tdef_items'), 'tdef_item',  'bare insert: singular de-pluralized from table_name');
 SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_items'), 'Label',      'bare insert: singular_label derived from default label_column');
@@ -43,7 +43,7 @@ SELECT is(
 );
 
 -- De-pluralize '...ies' branch.
-INSERT INTO entities (table_name) VALUES ('tdef_entries');
+INSERT INTO entities (table_name, module_id) VALUES ('tdef_entries', 1);
 SELECT is((SELECT singular FROM entities WHERE table_name = 'tdef_entries'), 'tdef_entry', 'bare insert: ...ies de-pluralized to ...y');
 
 -- =====================================================
@@ -51,7 +51,7 @@ SELECT is((SELECT singular FROM entities WHERE table_name = 'tdef_entries'), 'td
 --                 -> singular_label derived from the provided label_column
 -- =====================================================
 
-INSERT INTO entities (table_name, label_column) VALUES ('tdef_tenants', 'tenant_name');
+INSERT INTO entities (table_name, label_column, module_id) VALUES ('tdef_tenants', 'tenant_name', 1);
 
 SELECT is((SELECT singular       FROM entities WHERE table_name = 'tdef_tenants'), 'tdef_tenant', 'derived: singular de-pluralized from table_name');
 SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_tenants'), 'Tenant Name', 'derived: singular_label from provided label_column tenant_name');
@@ -66,8 +66,8 @@ SELECT is(
 --         -> caller values preserved verbatim; fields defined correctly
 -- =====================================================
 
-INSERT INTO entities (table_name, singular, singular_label, label_column)
-VALUES ('tdef_records', 'record', 'Record', 'record_no');
+INSERT INTO entities (table_name, singular, singular_label, label_column, module_id)
+VALUES ('tdef_records', 'record', 'Record', 'record_no', 1);
 
 SELECT is((SELECT singular       FROM entities WHERE table_name = 'tdef_records'), 'record',       'full insert: provided singular preserved');
 SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_records'), 'Record',       'full insert: provided singular_label preserved (not overwritten)');

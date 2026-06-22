@@ -12,14 +12,15 @@ SELECT authenticate_as('user3');
 -- Rule: admin can see all rows, otherwise only rows where assigned_to = $user_id
 -- {"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}
 
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
 VALUES (
     'test_select_rule',
     'test_select_rule_item',
     'Test Select Rule Item',
     'Test Select Rule Items',
     'Table for testing select_rule',
-    '{"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}'::jsonb
+    '{"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}'::jsonb,
+    1
 );
 
 -- Add an assigned_to field (reference to users)

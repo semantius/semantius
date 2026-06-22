@@ -101,8 +101,8 @@ SELECT is(
 -- delete the permission, verify user_permissions record is cascade-deleted
 -- =====================================================
 
-INSERT INTO permissions (permission_name, description)
-VALUES ('test:test', 'Temporary test permission');
+INSERT INTO permissions (permission_name, description, module_id)
+VALUES ('test:test', 'Temporary test permission', 1);
 
 INSERT INTO user_permissions (user_id, permission_id)
 SELECT u.id, p.id
