@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- closed data-class axis (write tier derives from it)
     pattern_flags JSONB NOT NULL DEFAULT '{}'::jsonb,    -- sparse {flag:true} of authored behaviour flags
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
+    order_column TEXT NOT NULL DEFAULT '',                    -- column name for fixed row ordering; empty = no ordering
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -67,7 +68,9 @@ CREATE TABLE IF NOT EXISTS entities (
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
     CONSTRAINT pattern_flags_is_object CHECK (jsonb_typeof(pattern_flags) = 'object'),
-    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array')
+    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
+    -- order_column must be empty or a valid column identifier
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -93,6 +96,8 @@ COMMENT ON COLUMN entities.validation_rules IS
 'Ordered list of {code, message, jsonlogic, description?} entries. Each entry must evaluate truthy for the write to succeed. Default [].';
 COMMENT ON COLUMN entities.select_rule IS
 'JsonLogic rule evaluated per row for FOR SELECT RLS policy. When non-empty, generates a policy function that returns true only when the rule evaluates truthy. Default {}.';
+COMMENT ON COLUMN entities.order_column IS
+'Column name used for fixed row ordering. When set, this column is added to the target table and auto-populated on INSERT. Empty = no ordering.';
 
 -- =====================================================
 -- FIELDS TABLE
@@ -540,6 +545,7 @@ VALUES
     ('entities', 'canonical_owner_module', 'Canonical Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'pattern_flags',          'Pattern Flags',          'Authored behaviour flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behaviour.', '', 'json', FALSE, 128, 'default', 'w', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
+    ('entities', 'order_column',   'Order Column',   'Store a fixed row order in this column',                  '',             'text',      FALSE, 119, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '');
 

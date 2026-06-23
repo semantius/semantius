@@ -345,33 +345,40 @@ CREATE TRIGGER create_table_trigger
     EXECUTE FUNCTION create_dd_table();
 
 -- =====================================================
--- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
+-- TRIGGER FUNCTION: AUTO-SET ROW ORDER ON INSERT
 -- =====================================================
--- When a new field is inserted with field_order = 0 (the default),
--- automatically assign it to max(field_order) + 10 for that table,
--- so new fields are always appended to the end of the fields list.
+-- Generic row-order auto-assignment. Installed on any table whose entity
+-- has a non-empty order_column. When a row is inserted with the order
+-- column = 0 (the default), assigns max(order_column WHERE value < 900000) + 10,
+-- starting at 10 for the first record. The 900000 ceiling lets callers
+-- pin rows above that threshold without affecting auto-numbering.
 
-CREATE OR REPLACE FUNCTION auto_set_field_order()
+CREATE OR REPLACE FUNCTION auto_set_row_order()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_order_col TEXT;
+    v_current   INTEGER;
 BEGIN
-    IF NEW.field_order = 0 THEN
-        SELECT COALESCE(MAX(field_order), 0) + 10
-        INTO NEW.field_order
-        FROM fields
-        WHERE table_name = NEW.table_name;
+    -- The trigger is only installed when order_column is set; the column name
+    -- is baked into a per-table wrapper, so we receive it via TG_ARGV[0].
+    v_order_col := TG_ARGV[0];
+
+    EXECUTE format('SELECT ($1.%I)::integer', v_order_col) INTO v_current USING NEW;
+    IF v_current = 0 THEN
+        EXECUTE format(
+            'SELECT COALESCE(MAX(%I) FILTER (WHERE %I < 900000), 0) + 10 FROM %I',
+            v_order_col, v_order_col, TG_TABLE_NAME
+        ) INTO v_current;
+        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_order_col, v_current));
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
-COMMENT ON FUNCTION auto_set_field_order IS
-'Trigger function that auto-assigns field_order to max(field_order)+10 when field_order=0 is inserted.';
+COMMENT ON FUNCTION auto_set_row_order IS
+'Generic BEFORE INSERT trigger that auto-assigns a row-order value. Receives the column name via TG_ARGV[0]. Assigns max(col WHERE col < 900000) + 10 when the value is 0.';
 
--- Apply trigger BEFORE INSERT on fields (must run before add_dd_field)
-CREATE TRIGGER auto_set_field_order_trigger
-    BEFORE INSERT ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_field_order();
+REVOKE EXECUTE ON FUNCTION auto_set_row_order() FROM PUBLIC;
 
 -- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
@@ -413,8 +420,6 @@ CREATE TRIGGER fields_ctype_lock
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION lock_field_ctype();
-
-REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
 -- =====================================================
 -- TRIGGER FUNCTION: ADD FIELD ON INSERT

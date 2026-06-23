@@ -96,7 +96,9 @@ SELECT is(
             'build_record_logic_trigger',
             'build_select_rule_policy',
             'raci_install_or_drop_emit_trigger',
-            'rebuild_entity_label_functions'
+            'rebuild_entity_label_functions',
+            'install_order_column',
+            'uninstall_order_column'
         )
         -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
         AND p.proname NOT LIKE 'select\_rule\_%'
