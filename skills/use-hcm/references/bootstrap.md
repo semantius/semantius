@@ -10,7 +10,7 @@ The four checks are cheap (single CLI call each), so they run sequentially on ev
 
 This skill delegates all CLI mechanics to `use-semantius`. Without it, the discovery procedure cannot run.
 
-**How to check:** look for the `use-semantius` skill in your available-skills list (the skills the harness has surfaced to you this session; in Claude Code this is the system reminder, other harnesses surface it differently). If absent, run this immediately (use the command verbatim, do not substitute another URL):
+**How to check (from context, not disk):** use the load-canary **count** from the runbook's step 1: count how many times `use-semantius`'s load-canary token appears in the skill bodies loaded into your context (not the conversation history). The SKILL.md writes that token exactly once (in Runbook step 1), and `use-semantius` adds one more when loaded, so 2 or more means loaded and 1 or 0 means not loaded. Decide from context, not the filesystem (right after `npx skills add` the files exist but the skill is not yet in context, so do not answer from file paths or `npx skills list`). If not loaded (count of 1 or 0), run this immediately (use the command verbatim, do not substitute another URL):
 
 > `npx skills add semantius/semantius-cli --all`
 
