@@ -10,7 +10,7 @@ The four checks are cheap (single CLI call each), so they run sequentially on ev
 
 This skill delegates all CLI mechanics to `use-semantius`. Without it, the discovery procedure cannot run.
 
-**How to check (from context, not disk):** use the load-canary **count** from the runbook's step 1: count how many times `use-semantius`'s load-canary token appears in the skill bodies loaded into your context (not the conversation history). The SKILL.md writes that token exactly once (in Runbook step 1), and `use-semantius` adds one more when loaded, so 2 or more means loaded and 1 or 0 means not loaded. Decide from context, not the filesystem (right after `npx skills add` the files exist but the skill is not yet in context, so do not answer from file paths or `npx skills list`). If not loaded (count of 1 or 0), run this immediately (use the command verbatim, do not substitute another URL):
+**How to check (from context, not disk):** use the load-canary **count** from the runbook's step 1: count how many times `use-semantius`'s load-canary token appears anywhere in your context, the available-skills list / skill descriptions AND any loaded skill bodies (not the conversation history). `use-semantius` carries the token in its frontmatter `description`, so it is present whenever the skill is installed and surfaced. The SKILL.md writes the token exactly once (in Runbook step 1), and `use-semantius` adds one more, so 2 or more means available and 1 or 0 means not. Decide from context, not the filesystem (do not answer from file paths or `npx skills list`). If not available (count of 1 or 0), run this immediately (use the command verbatim, do not substitute another URL):
 
 > `npx skills add semantius/semantius-cli --all`
 
@@ -22,9 +22,9 @@ Do NOT continue to Check 2 (or any later check). Do NOT run bootstrap, discovery
 
 You CANNOT make the skill load yourself. Do NOT re-source config, restart anything, or re-check whether it "already took effect". Re-reading the skill list is the client's job, triggered by the user.
 
-Your ONLY action is to say the following, then stop:
+Your ONLY action is to say the following, with the user's ACTUAL request filled in place of the placeholder, then stop:
 
-> I've installed the Semantius CLI skill bundle to disk, but I can't use it until your client loads it into my available skills. Clients read that list at startup, so it likely won't appear until you restart the session (however your client does that). Once `use-semantius` shows up, ask me again and I'll pick up right where we left off.
+> I had to install the Semantius tools to do that, and they only work in a new session. Please start a new session, then send your request again, for example: «&lt;the user's original request&gt;». I'll continue from there.
 
 Anti-patterns (do NOT do any of these): continuing to the next check "in the meantime"; running bootstrap or discovery without `use-semantius` loaded; calling `semantius` directly as a fallback; offering unrelated work while the user restarts.
 
