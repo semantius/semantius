@@ -12,7 +12,7 @@ domain_modules:
 domain_code: HVAC-SVC-MGMT
 related_modules: [b2c-comm-order-capture, cdp-unified-profile, cpq-product-catalog, cpq-quote-builder, crm-acct-mgt, crm-lead-mgt, crm-pipeline-mgt, fds-csa-mgmt, fds-wholesale, fsm-dispatch-ops, fsm-installed-base, fsm-mobile-tech, fsm-service-contracts, ham-warranty-parts, ma-campaign-authoring, sub-mgmt-billing, sub-mgmt-subscriptions]
 persona: []
-created_at: 2026-06-22
+created_at: 2026-06-24
 ---
 
 # HVAC Service Management (small-org starter)
@@ -311,11 +311,9 @@ _This scope holds `customers` as **embedded_master**; the canonical state machin
 | 1 | `prospect` | ✓ | - | - | - | Pre-customer account being courted by sales. |
 | 2 | `active` | - | - | - | - | Customer is engaged and in good standing. |
 | 3 | `inactive` | - | - | - | - | Customer is dormant but not churned. |
-| 3 | `past_due` | - | - | - | - | Customer carries an overdue invoice or failed payment. |
-| 4 | `canceled` | - | - | - | - | Customer ended all subscriptions; no active billing. |
-| 4 | `churned` | - | ✓ | - | - | Customer has terminated the relationship. |
-
-> ⚠ **state-machine shape:** state_order not unique/monotonic.
+| 4 | `past_due` | - | - | - | - | Customer carries an overdue invoice or failed payment. |
+| 5 | `canceled` | - | - | - | - | Customer ended all subscriptions; no active billing. |
+| 6 | `churned` | - | ✓ | - | - | Customer has terminated the relationship. |
 
 ### `dispatch_records` (Dispatch Record)
 

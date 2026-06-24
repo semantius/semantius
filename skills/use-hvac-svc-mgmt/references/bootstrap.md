@@ -10,11 +10,23 @@ The four checks are cheap (single CLI call each), so they run sequentially on ev
 
 This skill delegates all CLI mechanics to `use-semantius`. Without it, the discovery procedure cannot run.
 
-**How to check:** look for the `use-semantius` skill in the available-skills list in the system reminder. If absent, run this immediately (use the command verbatim, do not substitute another URL):
+**How to check:** look for the `use-semantius` skill in your available-skills list (the skills the harness has surfaced to you this session; in Claude Code this is the system reminder, other harnesses surface it differently). If absent, run this immediately (use the command verbatim, do not substitute another URL):
 
 > `npx skills add semantius/semantius-cli --all`
 
-This installs the whole Semantius CLI skill bundle (including `use-semantius` and `semantius-admin`) in one shot, so Check 4's deploy-blueprint path never has to install separately. An added skill only loads after a session reload, which you cannot trigger, so ask the user to reload, then re-run this skill. Do not ask permission to install.
+This installs the whole Semantius CLI skill bundle (including `use-semantius` and `semantius-admin`) in one shot, so Check 4's deploy-blueprint path never has to install separately. Do not ask permission to install.
+
+⛔ **HARD STOP after this install. The install is the END of this turn, not a step in it.** The skill is on disk now, but your client cached its skill list at startup and won't see the new skill until it re-reads that list. That is a client event, not a shell or filesystem event, so you cannot trigger it. Until it happens, `use-semantius` is NOT available and nothing downstream can run correctly.
+
+Do NOT continue to Check 2 (or any later check). Do NOT run bootstrap, discovery, or any script. Do NOT "verify" the install (you cannot verify a skill that is not loaded yet). Do NOT try to use the `semantius` CLI directly to work around the missing skill.
+
+You CANNOT make the skill load yourself. Do NOT re-source config, restart anything, or re-check whether it "already took effect". Re-reading the skill list is the client's job, triggered by the user.
+
+Your ONLY action is to say the following, then stop:
+
+> I've installed the Semantius CLI skill bundle to disk, but I can't use it until your client loads it into my available skills. Clients read that list at startup, so it likely won't appear until you restart the session (however your client does that). Once `use-semantius` shows up, ask me again and I'll pick up right where we left off.
+
+Anti-patterns (do NOT do any of these): continuing to the next check "in the meantime"; running bootstrap or discovery without `use-semantius` loaded; calling `semantius` directly as a fallback; offering unrelated work while the user restarts.
 
 ---
 
@@ -30,9 +42,24 @@ found" result and the script halts with `can_offer_install: true`.
 - `install_command`, the one-liner for the user's platform (Windows PowerShell `irm ... | iex`, or Linux/macOS `curl ... | bash`).
 - `install_docs`, https://github.com/semantius/semantius-cli#1-installation
 
-**Run `install_command` immediately; do not ask first.** Run the exact `install_command`, tell the
-user to restart the shell if PATH was just updated, then re-run `scripts/bootstrap.ts`. Only if the
-install itself fails, surface `install_docs` and the error.
+**Run `install_command` immediately; do not ask first.** Run the exact `install_command`, then re-run
+`scripts/bootstrap.ts` **once**. Two outcomes:
+
+- Bootstrap now passes this check (the new PATH was already live for the process your shells spawn from) → continue.
+- Bootstrap STILL reports the CLI not installed → ⛔ **HARD STOP. Do NOT re-run bootstrap again in a
+  loop.** The installer wrote the new PATH to the system, but the process your shells are spawned from
+  captured its environment at startup, so freshly spawned shells keep inheriting the stale PATH, and
+  you cannot make that process re-read it. Do NOT try `npx`, an absolute path to the binary, or any
+  other workaround. Do NOT retry the install with a different method (npm, brew, manual download).
+
+  Your ONLY action is to say the following, then stop:
+
+  > I've installed the Semantius CLI, but it isn't on PATH for the process I run commands from. That
+  > environment was captured when your client started, so the new PATH likely won't apply until you
+  > restart the session (however your client does that). Once that's done, ask me again and I'll continue.
+
+If the install command **itself** fails (not a PATH issue, an actual install error), surface
+`install_docs` and the error and STOP.
 
 ---
 
@@ -77,7 +104,7 @@ slice. `scripts/phase1-environment.ts` emits the slice as `domain_slice` and the
 hint as `modules`.
 
 - If the slice is **non-empty**, record its `module_id`s in `state.jsonc` under `deployment` and proceed. A spec module that does not appear is a deployment choice (or a bundled package), not a failure.
-- If the slice is **empty**, halt with the error template below:
+- If the slice is **empty**, this is a ⛔ **HARD STOP.** The domain is not deployed, so the skill has nothing to operate on. Your ONLY action is to deliver the message below and wait for the user's answer. Do NOT call `semantius-admin` to deploy it yourself, do NOT provision or configure anything, do NOT hunt for a dashboard link, and do NOT improvise an alternative. Deploying begins only after the user says yes, and only by walking THEM through the `semantius-admin` path (steps 1-3 below), never unilaterally. Halt with the message template:
 
 > The `HVAC Service Management (small-org starter)` domain is not deployed in your platform. No live module hosts its entities, and no module carries its catalog codes. Deploy the domain blueprint first:
 >

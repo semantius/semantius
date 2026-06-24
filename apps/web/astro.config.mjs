@@ -317,7 +317,8 @@ const docsLegacyRedirects = {
   '/docs/agent-skills-installation': '/docs/agent-skills/installation',
   '/docs/cli-overview': '/docs/cli',
   '/docs/cli-command': '/docs/cli/command',
-  '/docs/cli-skill': '/docs/cli/skill',
+  '/docs/cli-skill': '/docs/cli/use-semantius',
+  '/docs/cli/skill': '/docs/cli/use-semantius',
 };
 
 // https://astro.build/config
