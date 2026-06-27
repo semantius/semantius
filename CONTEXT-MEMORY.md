@@ -58,6 +58,17 @@ Derive values with:
 
 **Never invent a `github.com/user-attachments/assets/` URL.** Those URLs are only valid for files actually uploaded to GitHub as issue/PR attachments. Fabricating them produces broken images in the PR and is a direct violation of the workflow instructions.
 
+### Custom response headers — use `public/_headers`, not per-adapter config
+
+The site deploys to **both Cloudflare (Workers static assets) and Netlify**. Both
+honor a `_headers` file in their published asset root, so `apps/web/public/_headers`
+is the single source of truth for custom response headers (e.g. RFC 8288 `Link`
+headers for agent discovery). Astro copies it to `dist/client/_headers` for the
+Cloudflare adapter and `dist/_headers` for the Netlify adapter; each adapter also
+prepends its own auto-generated entries (cache rules, redirects) without clobbering
+ours. Do **not** add `[[headers]]` to `netlify.toml` or a Worker middleware for this:
+that would duplicate the header on one platform and let the two targets drift.
+
 ### nodejs_compat required (RESOLVED)
 
 `multiformats@9.9.0` imports Node.js `crypto` module. Without `nodejs_compat` Cloudflare Workers reject it. Add to both `apps/web/wrangler.jsonc` and `workplace/wrangler.jsonc`:

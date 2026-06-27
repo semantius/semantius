@@ -1,0 +1,11 @@
+# RFC 8288 Link response headers for agent / machine discovery.
+# A single source honored by BOTH deploy targets: Astro copies this file from
+# public/ into the published output (dist/client for the Cloudflare adapter,
+# dist root for the Netlify adapter), and each platform's static asset handler
+# applies it. Keep this as the only place these headers are defined so the two
+# targets never drift.
+# Relation types are IANA-registered and point to resources that exist:
+#   describedby -> /llms.txt   (LLM-readable description of this site, RFC 8288)
+#   service-doc -> /docs       (human-oriented documentation, RFC 8631)
+/*
+  Link: </llms.txt>; rel="describedby"; type="text/plain", </docs>; rel="service-doc"; type="text/html"
