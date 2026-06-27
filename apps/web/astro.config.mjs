@@ -1,4 +1,5 @@
 import { defineConfig, fontProviders } from 'astro/config';
+import { unified } from '@astrojs/markdown-remark';
 import sitemap from "@astrojs/sitemap";
 import react from "@astrojs/react";
 import mdx from "@astrojs/mdx";
@@ -81,53 +82,54 @@ function remarkSkillInstallCommand() {
 }
 
 /**
- * Custom Astro integration that replaces astro-mermaid.
- * Converts mermaid fenced code blocks to <pre class="mermaid"> elements
- * without HTML-escaping the content (keeps < and > as raw characters so
- * the diagram source can be copy-pasted directly from view-source).
- * Pan/zoom and toolbar are added client-side via @mostlylucid/mermaid-enhancements.
+ * Remark plugin (used by the mermaid-enhanced integration below). Walks the
+ * mdast tree and replaces code[lang=mermaid] nodes with raw HTML nodes. Node
+ * value is inserted verbatim; no entity encoding.
+ *
+ * In Astro 7 the markdown pipeline moved to `markdown.processor: unified()`,
+ * which no longer merges integration-injected `markdown.remarkPlugins`. So this
+ * plugin is now registered directly in the top-level `unified()` call rather
+ * than pushed in via the integration's `updateConfig`.
  */
-function mermaidEnhanced() {
-    // Remark plugin: walk the mdast tree and replace code[lang=mermaid] nodes
-    // with raw HTML nodes. Node value is inserted verbatim; no entity encoding.
-    function remarkMermaid() {
-        return function transformer(tree) {
-            function walk(node, parent, index) {
-                if (
-                    node.type === 'code' &&
-                    node.lang === 'mermaid' &&
-                    parent !== null &&
-                    index >= 0
-                ) {
-                    // Insert the raw mermaid source verbatim. No HTML-escaping
-                    // so < and > are preserved as-is for easy view-source
-                    // copy-paste. Content comes from repo .md files (developer-
-                    // controlled), not from user input, so no XSS risk here.
-                    parent.children[index] = {
-                        type: 'html',
-                        value: `<pre class="mermaid">${node.value}</pre>`,
-                    };
-                } else if (node.children) {
-                    for (let i = 0; i < node.children.length; i++) {
-                        walk(node.children[i], node, i);
-                    }
+function remarkMermaid() {
+    return function transformer(tree) {
+        function walk(node, parent, index) {
+            if (
+                node.type === 'code' &&
+                node.lang === 'mermaid' &&
+                parent !== null &&
+                index >= 0
+            ) {
+                // Insert the raw mermaid source verbatim. No HTML-escaping
+                // so < and > are preserved as-is for easy view-source
+                // copy-paste. Content comes from repo .md files (developer-
+                // controlled), not from user input, so no XSS risk here.
+                parent.children[index] = {
+                    type: 'html',
+                    value: `<pre class="mermaid">${node.value}</pre>`,
+                };
+            } else if (node.children) {
+                for (let i = 0; i < node.children.length; i++) {
+                    walk(node.children[i], node, i);
                 }
             }
-            walk(tree, null, -1);
-        };
-    }
+        }
+        walk(tree, null, -1);
+    };
+}
 
+/**
+ * Custom Astro integration that replaces astro-mermaid.
+ * The mermaid -> <pre class="mermaid"> transform is handled by remarkMermaid
+ * (registered in the top-level markdown processor). This integration adds the
+ * client-side enhancement: pan/zoom and toolbar via @mostlylucid/mermaid-enhancements.
+ */
+function mermaidEnhanced() {
     return {
         name: 'mermaid-enhanced',
         hooks: {
-            'astro:config:setup': ({ config, updateConfig, injectScript }) => {
+            'astro:config:setup': ({ updateConfig, injectScript }) => {
                 updateConfig({
-                    markdown: {
-                        remarkPlugins: [
-                            ...(config.markdown?.remarkPlugins || []),
-                            remarkMermaid,
-                        ],
-                    },
                     vite: {
                         optimizeDeps: {
                             include: ['mermaid'],
@@ -351,14 +353,19 @@ export default defineConfig({
     domains: ['vitejs.dev', 'upload.wikimedia.org', 'astro.build', 'pagepro.co'],
   },
   adapter: getAdapter(),
+  // Astro 7 defaults markdown to the Sätteri processor. We opt back into the
+  // remark/rehype (unified) pipeline so the custom plugins below keep working.
   markdown: {
-    remarkPlugins: [
-      remarkSkillInstallCommand,
-    ],
-    rehypePlugins: [
-      rehypeSlug,
-      [rehypeAutolinkHeadings, autolinkHeadingsOptions],
-    ],
+    processor: unified({
+      remarkPlugins: [
+        remarkSkillInstallCommand,
+        remarkMermaid,
+      ],
+      rehypePlugins: [
+        rehypeSlug,
+        [rehypeAutolinkHeadings, autolinkHeadingsOptions],
+      ],
+    }),
   },
   integrations: [
     sitemap({

@@ -8,3 +8,8 @@ Two asset collections are available for direct download:
 
 - **Semantius Models** — [`/models`](./models/)
 - **Semantius Skills** — [`/skills`](./skills/)
+
+
+## Review
+
+https://isitagentready.com/www.semantius.com
