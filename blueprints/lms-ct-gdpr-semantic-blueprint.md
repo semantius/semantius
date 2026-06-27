@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-CT-GDPR
-system_description: Learner Data Privacy
+system_name: Learner Data Privacy
 tagline: Handle learner data-subject requests, consent, and retention so training data stays privacy-compliant.
 description: Give learners control over their training data. Capture and track consent, process data-subject access and deletion requests, and enforce retention policies that remove records when they should expire. Keep a defensible trail of how learner data is handled.
 system_slug: lms-ct-gdpr
 domain_modules:
   - lms-ct-gdpr
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-background-checks, ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, ecm-records-gov, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-case-mgmt, iga-access-request, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Learner Data Privacy
@@ -62,12 +62,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `data_deletion_requests` | `data_deletion_requests` | Data Deletion Request | Data Deletion Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 2 | `gdpr_consent_records` | `gdpr_consent_records` | GDPR Consent Record | GDPR Consent Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 3 | `subject_access_requests` | `subject_access_requests` | Subject Access Request | Subject Access Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `data_deletion_requests` | `data_deletion_requests` | Data Deletion Request | Data Deletion Requests | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 2 | `gdpr_consent_records` | `gdpr_consent_records` | GDPR Consent Record | GDPR Consent Records | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 3 | `subject_access_requests` | `subject_access_requests` | Subject Access Request | Subject Access Requests | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 4 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 5 | `records_retention_policies` | `records_retention_policies` | Records Retention Policy | Records Retention Policies | consumer | `ecm-records-gov` | Records Management and Information Governance | optional | - | operational_workflow | `:manage` | - |
 | 6 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
@@ -300,27 +300,21 @@ _This scope holds `records_retention_policies` as **consumer**; the canonical st
 | `lms-ct-gdpr:decline` | workflow-gate (lifecycle) | Transition `data_deletion_requests` into state `declined` | ✓ |
 | `lms-ct-gdpr:view_all_subject_access_requests` | override (personal_content) | View all `subject_access_requests` rows beyond row-scope | ✓ |
 | `lms-ct-gdpr:manage_all_subject_access_requests` | override (personal_content) | Manage all `subject_access_requests` rows beyond row-scope | ✓ |
-| `lms-ct-gdpr:submit_subject_access_request` | override (submit_lock) | Submit and lock a `subject_access_requests` row (post-submit edits gated) | ✓ |
 | `lms-ct-gdpr:view_all_data_deletion_requests` | override (personal_content) | View all `data_deletion_requests` rows beyond row-scope | ✓ |
 | `lms-ct-gdpr:manage_all_data_deletion_requests` | override (personal_content) | Manage all `data_deletion_requests` rows beyond row-scope | ✓ |
-| `lms-ct-gdpr:submit_data_deletion_request` | override (submit_lock) | Submit and lock a `data_deletion_requests` row (post-submit edits gated) | ✓ |
 | `lms-ct-gdpr:view_all_employees` | override (personal_content) | View all `employees` rows beyond row-scope | ✓ |
 | `lms-ct-gdpr:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
 | `lms-ct-gdpr:view_all_gdpr_consent_records` | override (personal_content) | View all `gdpr_consent_records` rows beyond row-scope | ✓ |
 | `lms-ct-gdpr:manage_all_gdpr_consent_records` | override (personal_content) | Manage all `gdpr_consent_records` rows beyond row-scope | ✓ |
-| `lms-ct-gdpr:submit_gdpr_consent_record` | override (submit_lock) | Submit and lock a `gdpr_consent_records` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `subject_access_request_edit_scope` | `subject_access_requests` | has_personal_content | Row-scope by default; override via `lms-ct-gdpr:view_all_subject_access_requests` / `lms-ct-gdpr:manage_all_subject_access_requests` |
-| `submit_restricted_to_subject_access_request_owner` | `subject_access_requests` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-ct-gdpr:manage_all_subject_access_requests` |
 | `data_deletion_request_edit_scope` | `data_deletion_requests` | has_personal_content | Row-scope by default; override via `lms-ct-gdpr:view_all_data_deletion_requests` / `lms-ct-gdpr:manage_all_data_deletion_requests` |
-| `submit_restricted_to_data_deletion_request_owner` | `data_deletion_requests` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-ct-gdpr:manage_all_data_deletion_requests` |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-ct-gdpr:view_all_employees` / `lms-ct-gdpr:manage_all_employees` |
 | `gdpr_consent_record_edit_scope` | `gdpr_consent_records` | has_personal_content | Row-scope by default; override via `lms-ct-gdpr:view_all_gdpr_consent_records` / `lms-ct-gdpr:manage_all_gdpr_consent_records` |
-| `submit_restricted_to_gdpr_consent_record_owner` | `gdpr_consent_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-ct-gdpr:manage_all_gdpr_consent_records` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -351,15 +345,12 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:decline` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:view_all_subject_access_requests` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:manage_all_subject_access_requests` |
-| `lms-ct-gdpr:admin` | `lms-ct-gdpr:submit_subject_access_request` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:view_all_data_deletion_requests` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:manage_all_data_deletion_requests` |
-| `lms-ct-gdpr:admin` | `lms-ct-gdpr:submit_data_deletion_request` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:view_all_employees` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:manage_all_employees` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:view_all_gdpr_consent_records` |
 | `lms-ct-gdpr:admin` | `lms-ct-gdpr:manage_all_gdpr_consent_records` |
-| `lms-ct-gdpr:admin` | `lms-ct-gdpr:submit_gdpr_consent_record` |
 
 **Processes wired:**
 

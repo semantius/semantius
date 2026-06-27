@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: WORK-MGMT-INTAKE
-system_description: Request Intake
+system_name: Work Request Intake
 tagline: Capture work requests through structured forms and route them straight into the right project.
 description: |
   Replace ad-hoc requests with structured intake forms that collect exactly what the team needs to start. Submissions are triaged and converted into work items in the right project, with the requester's details captured along the way.
@@ -13,12 +12,13 @@ system_slug: work-mgmt-intake
 domain_modules:
   - work-mgmt-intake
 domain_code: WORK-MGMT
+icon_name: kanban
 related_modules: [work-mgmt-goals-okr, work-mgmt-task-exec]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Request Intake
+# Work Request Intake
 
 ## 1. Overview
 
@@ -48,9 +48,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `work_form_submissions` | `work_form_submissions` | Form Submission | Form Submissions | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `work_form_submissions` | `work_form_submissions` | Form Submission | Form Submissions | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 2 | `work_forms` | `work_forms` | Form | Forms | master | - | - | required | - | catalog | `:admin` | - |
 
 ## 4. Aliases and industry synonyms

@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: CLM-OBLIGATION-MGMT
-system_description: Obligation Management
+system_name: Obligation Management
 tagline: Track every commitment a contract creates and act before a deadline slips.
 description: |
   Turn the promises buried in a signed contract into tracked obligations with owners, due dates, and status. Watch performance, payment, delivery, reporting, and compliance commitments move from open to satisfied, and catch the ones at risk of breach.
@@ -13,9 +12,10 @@ system_slug: clm-obligation-mgmt
 domain_modules:
   - clm-obligation-mgmt
 domain_code: CLM
+icon_name: file-pen
 related_modules: [clm-authoring, clm-negotiation, clm-renewal, clm-repository]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Obligation Management
@@ -48,7 +48,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `contract_milestones` | `contract_milestones` | Contract Milestone | Contract Milestones | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 2 | `contract_obligations` | `contract_obligations` | Contract Obligation | Contract Obligations | master | - | - | required | - | operational_workflow | `:manage` | - |

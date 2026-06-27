@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "HCM",
     "name": "Human Capital Management",
@@ -172,11 +172,7 @@
       "plural_label": "Emergency Contacts",
       "description": "People to contact in an emergency for a worker, with priority ordering and relationship. Holds personal data on third parties beyond the employee.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -186,11 +182,7 @@
       "plural_label": "Employee Dependents",
       "description": "Spouse, children, and other dependents of a worker, held as person-level records on the worker. Benefits administration reads these for eligibility and beneficiary designation; the plan-enrollment record is held separately by benefits.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Dependents",
@@ -205,11 +197,7 @@
       "plural_label": "Employees",
       "description": "Canonical record of a person currently or formerly employed by the organization. Carries identity (legal name, contact, IDs), employment metadata (start date, end date, employment type, country), and pointers to position, job profile, org unit, manager, and life-event history. The most multi-mastered data object in the catalog: HCM masters the core HR slice, Payroll masters the comp/withholding slice, and IGA masters the identity/access slice. Onboarding, PA, and Talent Management consume or contribute.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "personnel",
@@ -255,11 +243,7 @@
       "plural_label": "Employment Contracts",
       "description": "Contractual terms of employment: contract type (permanent, fixed-term, contractor, intern), start and end dates, governing jurisdiction, working hours, notice period, IP and non-compete clauses, references to the signed document. HCM masters; HRSD contributes when employee-relations cases reference contract terms.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": true
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "employment agreement",
@@ -311,11 +295,7 @@
       "plural_label": "Employment Events",
       "description": "Lifecycle event records for an employee: hire, promotion, transfer, leave start, leave return, comp change, termination. The audit history that drives plan-vs-actual analytics (PA consumer) and downstream system updates. HCM masters; PA derives metrics from the event stream.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": true
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "personnel action",
@@ -368,11 +348,7 @@
       "plural_label": "Positions",
       "description": "Approved slot in the org, a 'chair' with role definition, cost center, reporting line, location, and FTE allocation. Distinct from job_profiles (the catalog definition) and from employees (the person filling the slot). A position can be open, filled, or eliminated. SWP designs future positions via org_designs; HCM operationalizes them once approved.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "headcount slot",
@@ -423,11 +399,7 @@
       "plural_label": "Job Profiles",
       "description": "Canonical role definition in the job catalog: title, family, level, responsibilities, required skills and competencies, pay range, FLSA classification. Distinct from positions (which are slots referencing a profile). Many positions share a single job profile.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "job catalog entry",
@@ -468,11 +440,7 @@
       "plural_label": "National IDs",
       "description": "Government-issued identity numbers for a worker, such as social security or national insurance numbers, held with restricted access and validity dates. Jurisdiction-specific.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Government ID",
@@ -495,11 +463,7 @@
       "plural_label": "Org Units",
       "description": "Node in the organizational hierarchy: division, business unit, department, team. Carries manager, cost center alignment, geographic scope, and parent/child relationships. HCM masters the operational hierarchy; EPM contributes the cost-center mapping (which would be Finance-mastered once a Finance/GL domain is loaded).",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Organization",
@@ -561,11 +525,7 @@
       "plural_label": "Work Eligibility Documents",
       "description": "Right-to-work evidence for a worker: visa, work permit, or equivalent authorization, effective-dated with an expiry the system tracks. Jurisdiction-conditional and access-restricted. Distinct from the US-specific hiring I-9 record.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Right to Work Document",
@@ -609,11 +569,7 @@
       "plural_label": "Worker Addresses",
       "description": "Home, work, and mailing addresses for a worker, effective-dated and typed by purpose, supporting multi-jurisdiction and country-variant formats.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -623,11 +579,7 @@
       "plural_label": "Worker Change Requests",
       "description": "Self-service request raised by an employee or manager to change worker data (personal details, address, job, or org assignment), routed through an approval workflow before it commits to the worker record. The self-service surface's first-class request object.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Personal Data Change Request",

@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SMP-RENEWAL-VENDOR
-system_description: SMP Renewal and Vendor Management
+system_name: SMP Renewal and Vendor Management
 tagline: "Run every SaaS renewal on your terms, not the vendor's deadline."
 description: Track every upcoming renewal, assign renewal tasks, and manage vendor negotiations from first outreach to signed agreement. Allocate spend across cost centers, coordinate contracts with procurement and legal, and keep a per-vendor risk and attestation record so renewals are decisions, not surprises.
 system_slug: smp-renewal-vendor
 domain_modules:
   - smp-renewal-vendor
 domain_code: SMP
+icon_name: cloud-cog
 related_modules: [agency-mgmt-job-traffic, apm-portfolio-registry, ats-recruitment-pipeline, clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-quote-builder, expense-capture-and-reporting, hcm-core-worker, hcm-org-positions, iga-access-request, iga-entitlement-catalog, it-ops-starter, psa-project-delivery, smp-automation, smp-discovery, smp-optimization]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, IT-SAAS-ADMIN, ITAM-SAAS-PORTFOLIO-MANAGER, LEGAL-COUNSEL, PEOPLE-MANAGER, PROCUREMENT-CONTRACT-LIAISON, PROCUREMENT-SAAS-RENEWAL-OWNER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # SMP Renewal and Vendor Management
@@ -88,7 +88,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `smp_renewal_engagements` | `smp_renewal_engagements` | Renewal Engagement | Renewal Engagements | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `smp_renewal_tasks` | `smp_renewal_tasks` | Renewal Task | Renewal Tasks | master | - | - | required | - | operational_workflow | `:manage` | - |
@@ -96,7 +96,7 @@ flowchart TD
 | 4 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 5 | `smp_vendor_negotiations` | `smp_vendor_negotiations` | Vendor Negotiation | Vendor Negotiations | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 6 | `smp_vendor_risk_assessments` | `smp_vendor_risk_assessments` | Vendor Risk Assessment | Vendor Risk Assessments | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 7 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | optional | yes | operational_workflow | `:manage` | - |
 | 8 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 | 9 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | embedded_master | `smp-discovery` | SMP Discovery and Catalog | required | - | operational_workflow | `:manage` | - |
 
@@ -416,14 +416,12 @@ _This scope holds `saas_applications` as **embedded_master**; the canonical stat
 | `smp-renewal-vendor:flag_remediation` | workflow-gate (lifecycle) | Transition `smp_vendor_risk_assessments` into state `remediation_required` | ✓ |
 | `smp-renewal-vendor:view_all_contracts` | override (personal_content) | View all `legal_contracts` rows beyond row-scope | ✓ |
 | `smp-renewal-vendor:manage_all_contracts` | override (personal_content) | Manage all `legal_contracts` rows beyond row-scope | ✓ |
-| `smp-renewal-vendor:submit_contract` | override (submit_lock) | Submit and lock a `legal_contracts` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `contract_edit_scope` | `legal_contracts` | has_personal_content | Row-scope by default; override via `smp-renewal-vendor:view_all_contracts` / `smp-renewal-vendor:manage_all_contracts` |
-| `submit_restricted_to_contract_owner` | `legal_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `smp-renewal-vendor:manage_all_contracts` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -473,7 +471,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `smp-renewal-vendor:admin` | `smp-renewal-vendor:flag_remediation` |
 | `smp-renewal-vendor:admin` | `smp-renewal-vendor:view_all_contracts` |
 | `smp-renewal-vendor:admin` | `smp-renewal-vendor:manage_all_contracts` |
-| `smp-renewal-vendor:admin` | `smp-renewal-vendor:submit_contract` |
 
 **Processes wired:**
 

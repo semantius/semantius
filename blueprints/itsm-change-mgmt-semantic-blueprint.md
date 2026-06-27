@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-CHANGE-MGMT
-system_description: Change and Release Management
+system_name: Change and Release Management
 tagline: Ship changes to production with the right approvals and a clear rollback path.
 description: |
   Change and Release Management governs how work reaches your live environment. Every change is proposed, assessed for risk, approved by the right authority, and scheduled so it lands without colliding with other work or breaking dependent services.
@@ -13,9 +12,10 @@ system_slug: itsm-change-mgmt
 domain_modules:
   - itsm-change-mgmt
 domain_code: ITSM
+icon_name: headset
 related_modules: [ats-recruitment-pipeline, cmdb-core, hcm-core-worker, hcm-org-positions, iga-access-request, itsm-incident-mgmt, iwms-location-master, rmm-agent-mgmt, rmm-patch-mgmt]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Change and Release Management
@@ -74,11 +74,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `cab_meetings` | `cab_meetings` | CAB Meeting | CAB Meetings | master | - | - | required | - | operational_record | `:manage` | - |
 | 2 | `change_collisions` | `change_collisions` | Change Collision | Change Collisions | master | - | - | required | - | operational_record | `:manage` | - |
-| 3 | `service_changes` | `service_changes` | Change | Changes | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 3 | `service_changes` | `service_changes` | Change | Changes | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 4 | `service_releases` | `service_releases` | Service Release | Service Releases | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 5 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |
 | 6 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
@@ -259,14 +259,10 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `itsm-change-mgmt:register_ci` | workflow-gate (lifecycle) | Transition `configuration_items` into state `registered` | ✓ |
 | `itsm-change-mgmt:retire_ci` | workflow-gate (lifecycle) | Transition `configuration_items` into state `retired` | ✓ |
 | `itsm-change-mgmt:archive_ci` | workflow-gate (lifecycle) | Transition `configuration_items` into state `archived` | ✓ |
-| `itsm-change-mgmt:submit_change` | override (submit_lock) | Submit and lock a `service_changes` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `submit_restricted_to_change_owner` | `service_changes` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `itsm-change-mgmt:manage_all_changes` |
-| `approve_change_requires_approver` | `service_changes` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`itsm-change-mgmt:approve_change` if surfaced as a lifecycle workflow gate). |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -294,7 +290,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `itsm-change-mgmt:admin` | `itsm-change-mgmt:register_ci` |
 | `itsm-change-mgmt:admin` | `itsm-change-mgmt:retire_ci` |
 | `itsm-change-mgmt:admin` | `itsm-change-mgmt:archive_ci` |
-| `itsm-change-mgmt:admin` | `itsm-change-mgmt:submit_change` |
 
 **Processes wired:**
 

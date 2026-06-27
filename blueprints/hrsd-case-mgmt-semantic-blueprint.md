@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HRSD-CASE-MGMT
-system_description: HR Case Management
+system_name: HR Case Management
 tagline: Capture, triage, and resolve every employee HR request in one tracked queue.
 description: |
   Turn employee questions and requests into structured cases that move through a clear workflow: intake, triage, assignment, work, approval, and resolution. Each case lands with the right specialist, carries its full history, and closes against a service level everyone can see.
@@ -15,7 +14,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [ats-background-checks, ats-candidate-crm, ben-carrier-integ, ben-enrollment, bgv-screening-orders, comp-planning, comp-statements, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-employee-portal, hrsd-knowledge, iga-access-request, itsm-knowledge, lms-compliance-training, lms-course-delivery, onb-journey-mgmt, pa-engagement-surveys, pa-predictive-models, payroll-earnings-deductions, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt, wfm-scheduling]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, HRSD-CASE-AGENT, HRSD-KNOWLEDGE-MANAGER, HRSD-SERVICE-MANAGER, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # HR Case Management
@@ -145,21 +144,21 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | consumer | `bgv-screening-orders` | Screening Orders and Packages | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 3 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
+| 4 | `background_checks` | `background_checks` | Background Check | Background Checks | consumer | `bgv-screening-orders` | Screening Orders and Packages | optional | yes | operational_workflow | `:manage` | - |
 | 5 | `carrier_feeds` | `carrier_feeds` | Carrier Feed | Carrier Feeds | consumer | `ben-carrier-integ` | Carrier Connectivity | optional | - | operational_workflow | `:manage` | - |
-| 6 | `compensation_statements` | `compensation_statements` | Compensation Statement | Compensation Statements | consumer | `comp-statements` | Total Rewards Statements | optional | personal_content | operational_workflow | `:manage` | - |
-| 7 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | personal_content | operational_workflow | `:manage` | - |
+| 6 | `compensation_statements` | `compensation_statements` | Compensation Statement | Compensation Statements | consumer | `comp-statements` | Total Rewards Statements | optional | yes | operational_workflow | `:manage` | - |
+| 7 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | yes | operational_workflow | `:manage` | - |
 | 8 | `engagement_surveys` | `engagement_surveys` | Engagement Survey | Engagement Surveys | consumer | `pa-engagement-surveys` | Engagement Surveys | optional | - | operational_workflow | `:manage` | - |
 | 9 | `garnishment_orders` | `garnishment_orders` | Garnishment Order | Garnishment Orders | consumer | `payroll-earnings-deductions` | Earnings, Deductions and Garnishments | optional | - | operational_workflow | `:manage` | - |
-| 10 | `iga_access_requests` | `iga_access_requests` | IGA Access Request | IGA Access Requests | consumer | `iga-access-request` | IGA Access Request | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 11 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | consumer | `itsm-knowledge` | Knowledge Management | optional | submit_lock | operational_workflow | `:manage` | - |
-| 12 | `knowledge_base_articles` | `knowledge_base_articles` | Knowledge Base Article | Knowledge Base Articles | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
-| 13 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 10 | `iga_access_requests` | `iga_access_requests` | IGA Access Request | IGA Access Requests | consumer | `iga-access-request` | IGA Access Request | optional | - | operational_workflow | `:manage` | - |
+| 11 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | consumer | `itsm-knowledge` | IT Knowledge Management | optional | - | operational_workflow | `:manage` | - |
+| 12 | `knowledge_base_articles` | `knowledge_base_articles` | Knowledge Base Article | Knowledge Base Articles | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
+| 13 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | yes | operational_workflow | `:manage` | - |
 | 14 | `policy_attestations` | `policy_attestations` | Policy Attestation | Policy Attestations | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 | 15 | `work_shifts` | `work_shifts` | Shift | Shifts | consumer | `wfm-scheduling` | Workforce Scheduling | optional | - | operational_record | `:manage` | - |
 
@@ -591,7 +590,6 @@ _This scope holds `onboarding_tasks` as **consumer**; the canonical state machin
 | `hrsd-case-mgmt:reopen_hr_case` | workflow-gate (lifecycle) | Transition `hr_cases` into state `reopened` | ✓ |
 | `hrsd-case-mgmt:view_all_hr_cases` | override (personal_content) | View all `hr_cases` rows beyond row-scope | ✓ |
 | `hrsd-case-mgmt:manage_all_hr_cases` | override (personal_content) | Manage all `hr_cases` rows beyond row-scope | ✓ |
-| `hrsd-case-mgmt:submit_hr_case` | override (submit_lock) | Submit and lock a `hr_cases` row (post-submit edits gated) | ✓ |
 | `hrsd-case-mgmt:view_all_employees` | override (personal_content) | View all `employees` rows beyond row-scope | ✓ |
 | `hrsd-case-mgmt:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
 
@@ -600,8 +598,6 @@ _This scope holds `onboarding_tasks` as **consumer**; the canonical state machin
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `hr_case_edit_scope` | `hr_cases` | has_personal_content | Row-scope by default; override via `hrsd-case-mgmt:view_all_hr_cases` / `hrsd-case-mgmt:manage_all_hr_cases` |
-| `submit_restricted_to_hr_case_owner` | `hr_cases` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hrsd-case-mgmt:manage_all_hr_cases` |
-| `approve_hr_case_requires_approver` | `hr_cases` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hrsd-case-mgmt:approve_hr_case` if surfaced as a lifecycle workflow gate). |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `hrsd-case-mgmt:view_all_employees` / `hrsd-case-mgmt:manage_all_employees` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
@@ -635,7 +631,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:reopen_hr_case` |
 | `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:view_all_hr_cases` |
 | `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:manage_all_hr_cases` |
-| `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:submit_hr_case` |
 | `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:view_all_employees` |
 | `hrsd-case-mgmt:admin` | `hrsd-case-mgmt:manage_all_employees` |
 

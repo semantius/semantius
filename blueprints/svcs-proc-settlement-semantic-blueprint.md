@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SVCS-PROC-SETTLEMENT
-system_description: Milestone Delivery and Settlement
+system_name: Services Milestone Delivery and Settlement
 tagline: Track milestones and deliverables to acceptance, then pay on what was actually delivered.
 description: Run the delivery half of a services engagement. Break the statement of work into milestones and the deliverables that close them, then track each one to formal acceptance so payment follows delivered outcomes, not elapsed time. Raise milestone-based invoices against accepted work and keep a clear, auditable record of who accepted what and when. Outcome-based settlement that ties every payment back to a milestone the buyer signed off.
 system_slug: svcs-proc-settlement
@@ -11,10 +10,10 @@ domain_modules:
   - svcs-proc-settlement
 domain_code: SVCS-PROC
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Milestone Delivery and Settlement
+# Services Milestone Delivery and Settlement
 
 ## 1. Overview
 
@@ -46,10 +45,10 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `milestone_invoices` | `milestone_invoices` | Milestone Invoice | Milestone Invoices | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 2 | `service_acceptances` | `service_acceptances` | Service Acceptance | Service Acceptances | master | - | - | optional | single_approver | operational_record | `:manage` | - |
+| 2 | `service_acceptances` | `service_acceptances` | Service Acceptance | Service Acceptances | master | - | - | optional | - | operational_record | `:manage` | - |
 | 3 | `service_deliverables` | `service_deliverables` | Service Deliverable | Service Deliverables | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 4 | `sow_milestones` | `sow_milestones` | SOW Milestone | SOW Milestones | master | - | - | required | - | operational_workflow | `:manage` | - |
 
@@ -114,9 +113,7 @@ _(none: no lifecycle states for the entities in this scope)_
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `approve_service_acceptance_requires_approver` | `service_acceptances` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`svcs-proc-settlement:approve_service_acceptance` if surfaced as a lifecycle workflow gate). |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 

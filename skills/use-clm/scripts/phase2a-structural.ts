@@ -145,8 +145,7 @@ type LiveEntity = {
   plural_label: string;
   module_id: number;
   catalog_entity_code: string;
-  canonical_owner_module: string;
-  pattern_flags: Record<string, boolean>;
+  catalog_owner_module: string;
   entity_type: string;
   catalog_entity_aliases: AliasElement[];
   // Operational shape (persisted so the skill never re-queries it at runtime).
@@ -211,8 +210,6 @@ function chunk<T>(arr: T[], n: number): T[][] {
 // Empty-value tests (core v0.1.2): never IS NULL.
 const codeEmpty = (v: unknown): boolean => !v || v === "";
 const asAliases = (v: unknown): AliasElement[] => (Array.isArray(v) ? (v as AliasElement[]) : []);
-const asFlags = (v: unknown): Record<string, boolean> =>
-  v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, boolean>) : {};
 
 // ---------- state.jsonc reader (SERIOUS 2: loop termination) ----------
 //
@@ -371,7 +368,7 @@ async function main() {
   // column is entity-specific: candidate_name, application_ref, ...), so they are read, not guessed.
   const ENT_SELECT =
     "table_name,singular_label,plural_label,module_id,catalog_entity_code," +
-    "canonical_owner_module,pattern_flags,catalog_entity_aliases,entity_type," +
+    "catalog_owner_module,catalog_entity_aliases,entity_type," +
     "id_column,label_column,description,view_permission,edit_permission,icon_url," +
     "validation_rules,select_rule,computed_fields,edit_mode,is_child,label_parent," +
     "audit_log,cube_mode,managed,searchable,updated_at";
@@ -623,9 +620,8 @@ async function main() {
     const lifecycleField = fields.find((f: any) => f.field_name === "workflow_state");
     discoveredEntities[e.table_name] = {
       catalog_entity_code: e.catalog_entity_code || "",
-      canonical_owner_module: e.canonical_owner_module || "",
+      catalog_owner_module: e.catalog_owner_module || "",
       entity_type: e.entity_type || "unclassified",
-      pattern_flags: asFlags(e.pattern_flags),
       catalog_entity_aliases: asAliases(e.catalog_entity_aliases),
       module_id: e.module_id,
       singular_label: e.singular_label,

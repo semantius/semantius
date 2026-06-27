@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: INTGOV-INVENTORY
-system_description: Inventory and Sources
+system_name: Intranet Content Inventory and Sources
 tagline: See every piece of content across all your intranets in one map.
 description: Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress and automatically build a living inventory of every page, hub, library, and form. Classify content by type, score its health and accessibility, and know exactly what exists before you decide what to fix.
 system_slug: intgov-inventory
@@ -12,10 +11,10 @@ domain_modules:
 domain_code: INTRANET-GOV
 related_modules: [intgov-governance]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Inventory and Sources
+# Intranet Content Inventory and Sources
 
 ## 1. Overview
 
@@ -48,7 +47,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `connected_intranets` | `connected_intranets` | Connected Intranet | Connected Intranets | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `intranet_content_health_scores` | `intranet_content_health_scores` | Content Health Score | Content Health Scores | master | - | - | required | - | computed | read-only | - |

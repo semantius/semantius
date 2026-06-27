@@ -133,7 +133,7 @@
         },
         {
           "code": "ATS-INTERVIEWS",
-          "name": "Interviews",
+          "name": "Candidate Interviews",
           "description": "Interview scheduling, panel coordination, scorecards, and structured assessments. Realizes INTERVIEW-MGMT. Realizes the `interviewing` lifecycle state on `job_applications` (state pruned when this module is not installed).",
           "catalog_tagline": "Run consistent, structured interviews and collect comparable feedback.",
           "catalog_description": "Schedule interviews against panel availability, equip interviewers with kits and question banks, and gather scorecards and assessments in a single structured record. Consistent inputs make hiring decisions easier to defend and faster to reach.",
@@ -175,7 +175,7 @@
         },
         {
           "code": "ATS-OFFERS",
-          "name": "Offers",
+          "name": "Job Offers",
           "description": "Offer drafting, approval, extension, signature, and acceptance. Realizes OFFER-MGMT. Realizes the `offer_extended` state on `job_applications`. Requires an external `sign_document` tool, drops module Semantius coverage to ~83%.",
           "catalog_tagline": "Generate, approve, and send offers without losing a version.",
           "catalog_description": "Draft offers from templates, route them through approval chains, and track every version until acceptance. Generated offer letters stay linked to the offer record, so what was approved is exactly what was sent.",
@@ -393,7 +393,7 @@
         },
         {
           "code": "ATS-TALENT-POOLS",
-          "name": "Talent Pools",
+          "name": "Candidate Talent Pools",
           "description": "Curated candidate groupings for nurture and pipeline-building (`talent_pools`). Embedded-masters `candidates`; deployed alone, materializes a thin candidate shell. Mirrors standalone talent-acquisition CRM products.",
           "catalog_tagline": "Group and segment candidates so the right shortlist is one search away.",
           "catalog_description": "Organize candidates into pools and segments, tag them by skill or stage, and save the searches you run most. When a requisition opens, your shortlist is already assembled instead of rebuilt from scratch.",
@@ -834,7 +834,7 @@
         },
         {
           "code": "CLM-RENEWAL",
-          "name": "Renewal Management",
+          "name": "Contract Renewal Management",
           "description": "Date-based renewal alerting, auto-renewal-clause detection, and renewal execution. Consumes legal_contracts; publishes renewal.30_day_warning and legal_contract.renewed. Distinct from amendments which run through CLM-REPOSITORY.",
           "catalog_tagline": "Get ahead of every expiry and renewal so no contract lapses by accident.",
           "catalog_description": "Know which contracts are coming up for renewal well before they expire, and decide deliberately whether to renew, renegotiate, or let them end. Renewal countdowns and early warnings turn a reactive scramble into a planned workflow.\n\nCapture each renewal against the original agreement so the repository always reflects the live commitment, and value is never lost to a missed deadline.",
@@ -2319,7 +2319,7 @@
       "modules": [
         {
           "code": "INTGOV-GOVERNANCE",
-          "name": "Ownership, Lifecycle and Planning",
+          "name": "Intranet Content Governance and Lifecycle",
           "description": "Accountable ownership assignments, recertification attestations, and the improvement backlog.",
           "catalog_tagline": "Put a name on every page and keep it accountable over time.",
           "catalog_description": "Assign an accountable owner and review cadence to each piece of content, run recertification cycles so owners confirm what is current or flag what is stale, and turn the gaps into a prioritized improvement backlog. The accountability layer that keeps your intranet from decaying into a ghost town.",
@@ -2356,7 +2356,7 @@
         },
         {
           "code": "INTGOV-INVENTORY",
-          "name": "Inventory and Sources",
+          "name": "Intranet Content Inventory and Sources",
           "description": "Connector registry, cross-platform content inventory, content-type policy, and health scoring.",
           "catalog_tagline": "See every piece of content across all your intranets in one map.",
           "catalog_description": "Connect SharePoint, Viva, Staffbase, Simpplr, or WordPress and automatically build a living inventory of every page, hub, library, and form. Classify content by type, score its health and accessibility, and know exactly what exists before you decide what to fix.",
@@ -2511,7 +2511,7 @@
         },
         {
           "code": "ITSM-AGENT-WORKSPACE",
-          "name": "Agent Workspace and Reporting",
+          "name": "Service Agent Workspace and Reporting",
           "description": "Unified agent experience: workspace, walk-up support, virtual agent / conversational ITSM, and continuous-improvement reporting.",
           "catalog_tagline": "Give agents one workspace and leaders the reporting to run the service desk.",
           "catalog_description": "Agent Workspace and Reporting brings the agent's queue, context, and tools into a single view so they can work tickets without hunting across screens. Everything needed to understand and act on the next item is in one place.\n\nFor team leads, built-in reporting turns daily activity into the trends, volumes, and service metrics that drive staffing and improvement decisions. A productive agent and an informed manager together raise the whole desk's performance.",
@@ -2673,7 +2673,7 @@
         },
         {
           "code": "ITSM-KNOWLEDGE",
-          "name": "Knowledge Management",
+          "name": "IT Knowledge Management",
           "description": "Authoring, review, publication, and consumption of knowledge articles supporting ITSM agents and self-service portals.",
           "catalog_tagline": "Capture what your team knows and put it to work for agents and self-service.",
           "catalog_description": "Knowledge Management gives experts a place to write, review, and publish the articles that resolve issues faster. Content moves through a clear authoring and review lifecycle so what reaches your users is accurate and current.\n\nPublished articles power both agent-assisted resolution and self-service deflection, so common questions get answered without a ticket. Every reuse of a good article is time your team gets back.",
@@ -4193,7 +4193,7 @@
         },
         {
           "code": "SVCS-PROC-SETTLEMENT",
-          "name": "Milestone Delivery and Settlement",
+          "name": "Services Milestone Delivery and Settlement",
           "description": "The delivery and settlement surface: break the engagement into milestones and deliverables, track each to acceptance, and settle on what was delivered through milestone-based invoices. Masters the milestone, the deliverable, the milestone invoice, and the acceptance record.",
           "catalog_tagline": "Track milestones and deliverables to acceptance, then pay on what was actually delivered.",
           "catalog_description": "Run the delivery half of a services engagement. Break the statement of work into milestones and the deliverables that close them, then track each one to formal acceptance so payment follows delivered outcomes, not elapsed time. Raise milestone-based invoices against accepted work and keep a clear, auditable record of who accepted what and when. Outcome-based settlement that ties every payment back to a milestone the buyer signed off.",
@@ -4268,7 +4268,7 @@
         },
         {
           "code": "WORK-MGMT-INTAKE",
-          "name": "Request Intake",
+          "name": "Work Request Intake",
           "description": "Structured request-intake surface: form definitions, form submissions, routing rules. Pre-task surface that converts a submission into a work_item in the target TASK-EXEC project. Backs the WORK-INTAKE-FORMS capability with entities. Vendor reference: Asana Forms, Monday Forms, ClickUp Forms, Workfront Request Queues, Smartsheet Forms.",
           "catalog_tagline": "Capture work requests through structured forms and route them straight into the right project.",
           "catalog_description": "Replace ad-hoc requests with structured intake forms that collect exactly what the team needs to start. Submissions are triaged and converted into work items in the right project, with the requester's details captured along the way.\n\nStandardized intake means no lost requests in chat or email, a consistent starting point for every piece of work, and a clear record of what was asked and what happened next.",

@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "SVCS-PROC",
     "name": "Services Procurement",
@@ -69,7 +69,7 @@
     },
     {
       "code": "SVCS-PROC-SETTLEMENT",
-      "name": "Milestone Delivery and Settlement",
+      "name": "Services Milestone Delivery and Settlement",
       "kind": "full",
       "realizes_capabilities": [
         "SVCS-PROC-MILESTONE-SETTLEMENT",
@@ -93,11 +93,7 @@
       "plural_label": "Milestone Invoices",
       "description": "Invoices a firm raises against an accepted milestone of a services engagement, so payment follows delivered outcomes rather than elapsed time. The settlement record for outcome-based services work, distinct from time-and-materials contingent invoices.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -107,11 +103,7 @@
       "plural_label": "Service Acceptances",
       "description": "Formal sign-off records capturing that the buyer accepted a deliverable or milestone, who accepted it, and when, gating the milestone invoice. Optional because some buyers accept implicitly on invoice rather than recording a typed acceptance.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -121,11 +113,7 @@
       "plural_label": "Service Deliverables",
       "description": "Concrete work products a firm produces under a statement of work, tracked from submission to acceptance against the milestone they close. Optional because some buyers settle on the milestone alone and inline deliverables as attributes.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -135,11 +123,7 @@
       "plural_label": "Services Engagements",
       "description": "The active firm-level engagement that executes a statement of work: the spine milestones, deliverables, and invoices bind to, carrying the supplier, the contract reference, and the engagement-scoped scorecard. One supplier can hold several distinct engagements.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -149,11 +133,7 @@
       "plural_label": "Services Proposals",
       "description": "Bids and proposals a firm submits against a specific statement of work, capturing the proposed scope, approach, and price for evaluation. Optional because some buyers run a SOW off a pre-awarded master agreement without a bid round.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -163,11 +143,7 @@
       "plural_label": "SOW Change Orders",
       "description": "Amendments to an active statement of work that revise scope, schedule, deliverables, or price, tracked through approval so the SOW stays current. Optional because not every engagement amends.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -177,11 +153,7 @@
       "plural_label": "SOW Milestones",
       "description": "Schedule-and-payment checkpoints that break a services engagement into accountable stages, each tied to deliverables and to the milestone invoice it releases. The settlement mechanic that makes outcome-based services payment work.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -191,11 +163,7 @@
       "plural_label": "Statements of Work",
       "description": "The buyer-side statement of work that scopes outsourced services a firm will deliver: the deliverables, the schedule, the price basis, and the acceptance terms. The headline document the whole engagement hangs off, distinct from the underlying contract that governs it.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     }

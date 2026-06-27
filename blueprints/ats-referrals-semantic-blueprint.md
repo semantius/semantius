@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ATS-REFERRALS
-system_description: Employee Referrals
+system_name: Employee Referrals
 tagline: Turn your employees into your best sourcing channel.
 description: Let employees submit referrals, track each one through the pipeline, and pay out rewards automatically when a hire sticks. Campaigns and reward tiers keep participation high without manual bookkeeping.
 system_slug: ats-referrals
 domain_modules:
   - ats-referrals
 domain_code: ATS
+icon_name: user-plus
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-talent-pools, ben-enrollment, hcm-core-worker, hcm-lifecycle-workflows, onb-journey-mgmt, payroll-earnings-deductions]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Employee Referrals
@@ -61,13 +61,13 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `referral_campaigns` | `referral_campaigns` | Referral Campaign | Referral Campaigns | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 2 | `referral_payouts` | `referral_payouts` | Referral Payout | Referral Payouts | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 3 | `referral_rewards` | `referral_rewards` | Referral Reward | Referral Rewards | master | - | - | required | - | catalog | `:admin` | - |
 | 4 | `candidate_referrals` | `candidate_referrals` | Referral | Referrals | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 5 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 

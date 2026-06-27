@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SVCS-PROC-ENGAGEMENT
-system_description: Services Sourcing and Engagement
+system_name: Services Sourcing and Engagement
 tagline: Author the SOW, take in proposals, and stand up the engagement before the work begins.
 description: "Turn an awarded services deal into a working engagement. Author the statement of work that scopes what the firm will deliver, take in the proposals or bids attached to it, and stand up the engagement against the supplier and the signed contract. When the work shifts, raise a change order and keep the SOW current instead of letting scope drift. The services firm stays your supplier and the SOW stays your contract; this module is where you shape the engagement they hang off of."
 system_slug: svcs-proc-engagement
@@ -12,7 +11,7 @@ domain_modules:
 domain_code: SVCS-PROC
 related_modules: [clm-repository, cwm-worker-sourcing, srm-supplier-lifecycle]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Services Sourcing and Engagement
@@ -68,15 +67,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `services_engagements` | `services_engagements` | Services Engagement | Services Engagements | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `services_proposals` | `services_proposals` | Services Proposal | Services Proposals | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 3 | `sow_change_orders` | `sow_change_orders` | SOW Change Order | SOW Change Orders | master | - | - | optional | single_approver | operational_workflow | `:manage` | - |
+| 3 | `sow_change_orders` | `sow_change_orders` | SOW Change Order | SOW Change Orders | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 4 | `statements_of_work` | `statements_of_work` | Statement of Work | Statements of Work | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `legal_contracts` | `legal_contracts` | Contract | Contracts | consumer | `clm-repository` | Contract Repository | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `rate_cards` | `rate_cards` | Rate Card | Rate Cards | consumer | `cwm-worker-sourcing` | Worker Sourcing and Supplier Management | optional | single_approver | catalog | `:admin` | - |
-| 7 | `suppliers` | `suppliers` | Supplier | Suppliers | consumer | `srm-supplier-lifecycle` | Supplier Lifecycle Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 5 | `legal_contracts` | `legal_contracts` | Contract | Contracts | consumer | `clm-repository` | Contract Repository | optional | yes | operational_workflow | `:manage` | - |
+| 6 | `rate_cards` | `rate_cards` | Rate Card | Rate Cards | consumer | `cwm-worker-sourcing` | Worker Sourcing and Supplier Management | optional | - | catalog | `:admin` | - |
+| 7 | `suppliers` | `suppliers` | Supplier | Suppliers | consumer | `srm-supplier-lifecycle` | Supplier Lifecycle Management | optional | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -225,9 +224,7 @@ _This scope holds `rate_cards` as **consumer**; the canonical state machine is o
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `approve_sow_change_order_requires_approver` | `sow_change_orders` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`svcs-proc-engagement:approve_sow_change_order` if surfaced as a lifecycle workflow gate). |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 

@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: RE-BROK-BROKERAGE-OPS
-system_description: Brokerage Oversight and Commission Management
+system_name: Brokerage Oversight and Commission Management
 tagline: Give the broker oversight of money and compliance.
 description: Run multi-agent commission splits with franchise overrides and per-agent caps, review transactions and disclosures for compliance before close, and keep trust and escrow accounts reconciled. Add broker-level MLS conformance review so the brokerage scales past informal supervision without losing control of the deal.
 system_slug: re-brok-brokerage-ops
 domain_modules:
   - re-brok-brokerage-ops
 domain_code: RE-BROKERAGE
+icon_name: key
 related_modules: [re-brok-agent-ops]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Brokerage Oversight and Commission Management
@@ -53,11 +53,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | master | - | - | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 2 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
+| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -195,25 +195,17 @@ _This scope holds `real_estate_transactions` as **embedded_master**; the canonic
 | `re-brok-brokerage-ops:disburse_commission` | workflow-gate (lifecycle) | Transition `commission_splits` into state `paid` | ✓ |
 | `re-brok-brokerage-ops:deliver_disclosure` | workflow-gate (lifecycle) | Transition `disclosure_documents` into state `delivered` | ✓ |
 | `re-brok-brokerage-ops:acknowledge_disclosure` | workflow-gate (lifecycle) | Transition `disclosure_documents` into state `acknowledged` | ✓ |
-| `re-brok-brokerage-ops:submit_commission_split` | override (submit_lock) | Submit and lock a `commission_splits` row (post-submit edits gated) | ✓ |
 | `re-brok-brokerage-ops:view_all_disclosure_documents` | override (personal_content) | View all `disclosure_documents` rows beyond row-scope | ✓ |
 | `re-brok-brokerage-ops:manage_all_disclosure_documents` | override (personal_content) | Manage all `disclosure_documents` rows beyond row-scope | ✓ |
-| `re-brok-brokerage-ops:submit_disclosure_document` | override (submit_lock) | Submit and lock a `disclosure_documents` row (post-submit edits gated) | ✓ |
 | `re-brok-brokerage-ops:view_all_real_estate_transactions` | override (personal_content) | View all `real_estate_transactions` rows beyond row-scope | ✓ |
 | `re-brok-brokerage-ops:manage_all_real_estate_transactions` | override (personal_content) | Manage all `real_estate_transactions` rows beyond row-scope | ✓ |
-| `re-brok-brokerage-ops:submit_real_estate_transaction` | override (submit_lock) | Submit and lock a `real_estate_transactions` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `submit_restricted_to_commission_split_owner` | `commission_splits` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-brokerage-ops:manage_all_commission_splits` |
-| `approve_commission_split_requires_approver` | `commission_splits` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-brokerage-ops:approve_commission_split` if surfaced as a lifecycle workflow gate). |
 | `disclosure_document_edit_scope` | `disclosure_documents` | has_personal_content | Row-scope by default; override via `re-brok-brokerage-ops:view_all_disclosure_documents` / `re-brok-brokerage-ops:manage_all_disclosure_documents` |
-| `submit_restricted_to_disclosure_document_owner` | `disclosure_documents` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-brokerage-ops:manage_all_disclosure_documents` |
-| `approve_disclosure_document_requires_approver` | `disclosure_documents` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-brokerage-ops:approve_disclosure_document` if surfaced as a lifecycle workflow gate). |
 | `real_estate_transaction_edit_scope` | `real_estate_transactions` | has_personal_content | Row-scope by default; override via `re-brok-brokerage-ops:view_all_real_estate_transactions` / `re-brok-brokerage-ops:manage_all_real_estate_transactions` |
-| `submit_restricted_to_real_estate_transaction_owner` | `real_estate_transactions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-brokerage-ops:manage_all_real_estate_transactions` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -247,13 +239,10 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:disburse_commission` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:deliver_disclosure` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:acknowledge_disclosure` |
-| `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:submit_commission_split` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:view_all_disclosure_documents` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:manage_all_disclosure_documents` |
-| `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:submit_disclosure_document` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:view_all_real_estate_transactions` |
 | `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:manage_all_real_estate_transactions` |
-| `re-brok-brokerage-ops:admin` | `re-brok-brokerage-ops:submit_real_estate_transaction` |
 
 **RACI realization:**
 

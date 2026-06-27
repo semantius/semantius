@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-PATHS
-system_description: Learning Paths
+system_name: Learning Paths
 tagline: Guide learners along structured paths that build the skills each role needs.
 description: Sequence courses into curricula and learning paths so learners always know what comes next. Tie each step to the skills and proficiency a role requires, recommend the next best course, and roll individual development into longer-term career plans. Track progress across the whole path, not just one course at a time.
 system_slug: lms-paths
 domain_modules:
   - lms-paths
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-benchmarking, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ilt-delivery, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, swp-demand-forecast, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Learning Paths
@@ -131,24 +131,24 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `curricula` | `curricula` | Curriculum | Curricula | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `learning_path_assignments` | `learning_path_assignments` | Learning Path Assignment | Learning Path Assignments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 2 | `learning_path_assignments` | `learning_path_assignments` | Learning Path Assignment | Learning Path Assignments | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 3 | `learning_path_steps` | `learning_path_steps` | Learning Path Step | Learning Path Steps | master | - | - | required | - | junction | `:admin` | - |
 | 4 | `learning_paths` | `learning_paths` | Learning Path | Learning Paths | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `learning_plans` | `learning_plans` | Learning Plan | Learning Plans | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `learning_recommendations` | `learning_recommendations` | Learning Recommendation | Learning Recommendations | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 5 | `learning_plans` | `learning_plans` | Learning Plan | Learning Plans | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 6 | `learning_recommendations` | `learning_recommendations` | Learning Recommendation | Learning Recommendations | master | - | - | optional | yes | operational_workflow | `:manage` | - |
 | 7 | `prerequisite_rules` | `prerequisite_rules` | Prerequisite Rule | Prerequisite Rules | master | - | - | required | - | catalog | `:admin` | - |
 | 8 | `skill_targets` | `skill_targets` | Skill Target | Skill Targets | master | - | - | optional | - | catalog | `:admin` | - |
-| 9 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 10 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
-| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 9 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | yes | operational_workflow | `:manage` | - |
+| 10 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | yes | operational_workflow | `:manage` | - |
+| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 12 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | catalog | `:admin` | - |
 | 13 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 14 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
-| 15 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | personal_content | operational_workflow | `:manage` | - |
-| 16 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | personal_content | operational_workflow | `:manage` | - |
+| 14 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 15 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | yes | operational_workflow | `:manage` | - |
+| 16 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | yes | operational_workflow | `:manage` | - |
 | 17 | `skills_gap_analyses` | `skills_gap_analyses` | Skills Gap Analysis | Skills Gap Analyses | consumer | `swp-demand-forecast` | Demand Forecast | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -596,7 +596,6 @@ _This scope holds `skills_gap_analyses` as **consumer**; the canonical state mac
 | `lms-paths:manage_all_course_enrollments` | override (personal_content) | Manage all `course_enrollments` rows beyond row-scope | ✓ |
 | `lms-paths:view_all_certifications` | override (personal_content) | View all `learner_certifications` rows beyond row-scope | ✓ |
 | `lms-paths:manage_all_certifications` | override (personal_content) | Manage all `learner_certifications` rows beyond row-scope | ✓ |
-| `lms-paths:submit_certification` | override (submit_lock) | Submit and lock a `learner_certifications` row (post-submit edits gated) | ✓ |
 | `lms-paths:view_all_learning_path_assignments` | override (personal_content) | View all `learning_path_assignments` rows beyond row-scope | ✓ |
 | `lms-paths:manage_all_learning_path_assignments` | override (personal_content) | Manage all `learning_path_assignments` rows beyond row-scope | ✓ |
 | `lms-paths:view_all_learning_plans` | override (personal_content) | View all `learning_plans` rows beyond row-scope | ✓ |
@@ -609,10 +608,8 @@ _This scope holds `skills_gap_analyses` as **consumer**; the canonical state mac
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_employees` / `lms-paths:manage_all_employees` |
-| `approve_position_requires_approver` | `hcm_positions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`lms-paths:approved_position`). |
 | `course_enrollment_edit_scope` | `course_enrollments` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_course_enrollments` / `lms-paths:manage_all_course_enrollments` |
 | `certification_edit_scope` | `learner_certifications` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_certifications` / `lms-paths:manage_all_certifications` |
-| `submit_restricted_to_certification_owner` | `learner_certifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-paths:manage_all_certifications` |
 | `learning_path_assignment_edit_scope` | `learning_path_assignments` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_learning_path_assignments` / `lms-paths:manage_all_learning_path_assignments` |
 | `learning_plan_edit_scope` | `learning_plans` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_learning_plans` / `lms-paths:manage_all_learning_plans` |
 | `learning_recommendation_edit_scope` | `learning_recommendations` | has_personal_content | Row-scope by default; override via `lms-paths:view_all_learning_recommendations` / `lms-paths:manage_all_learning_recommendations` |
@@ -671,7 +668,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-paths:admin` | `lms-paths:manage_all_course_enrollments` |
 | `lms-paths:admin` | `lms-paths:view_all_certifications` |
 | `lms-paths:admin` | `lms-paths:manage_all_certifications` |
-| `lms-paths:admin` | `lms-paths:submit_certification` |
 | `lms-paths:admin` | `lms-paths:view_all_learning_path_assignments` |
 | `lms-paths:admin` | `lms-paths:manage_all_learning_path_assignments` |
 | `lms-paths:admin` | `lms-paths:view_all_learning_plans` |

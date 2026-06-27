@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ATS-RECRUITMENT-PIPELINE
-system_description: Recruitment Pipeline
+system_name: Recruitment Pipeline
 tagline: Move applicants from requisition to decision on a structured, auditable pipeline.
 description: |
   Open and approve requisitions, distribute postings, collect applications, and advance candidates through configurable stages, with screening questions, stage transitions, and hiring-team assignments captured as you go.
@@ -13,9 +12,10 @@ system_slug: ats-recruitment-pipeline
 domain_modules:
   - ats-recruitment-pipeline
 domain_code: ATS
+icon_name: user-plus
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ats-referrals, ats-talent-pools, ben-enrollment, comp-benchmarking, comp-planning, cwm-worker-sourcing, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, iga-access-request, iwms-location-master, lms-compliance-training, lms-ct-gdpr, onb-journey-mgmt, psa-resource-mgmt, skills-mgmt-profile, swp-demand-forecast, tlnt-intel-mobility]
 persona: [HIRING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, LEGAL-COMPLIANCE-SPECIALIST, PEOPLE-MANAGER, RECRUITING-MANAGER, RECRUITING-RECRUITER, RECRUITING-SOURCER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Recruitment Pipeline
@@ -146,28 +146,28 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `applicant_flow_records` | `applicant_flow_records` | Applicant Flow Record | Applicant Flow Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `applicant_flow_records` | `applicant_flow_records` | Applicant Flow Record | Applicant Flow Records | master | - | - | optional | yes | operational_workflow | `:manage` | - |
 | 2 | `application_dispositions` | `application_dispositions` | Application Disposition | Application Dispositions | master | - | - | optional | - | operational_record | `:manage` | - |
-| 3 | `application_screening_answers` | `application_screening_answers` | Application Screening Answer | Application Screening Answers | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 3 | `application_screening_answers` | `application_screening_answers` | Application Screening Answer | Application Screening Answers | master | - | - | required | yes | operational_record | `:manage` | - |
 | 4 | `application_screening_questions` | `application_screening_questions` | Application Screening Question | Application Screening Questions | master | - | - | required | - | catalog | `:admin` | - |
 | 5 | `application_stage_transitions` | `application_stage_transitions` | Application Stage Transition | Application Stage Transitions | master | - | - | required | - | operational_record | `:manage` | - |
 | 6 | `application_stages` | `application_stages` | Application Stage | Application Stages | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `job_applications` | `job_applications` | Application | Applications | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 8 | `eeo_responses` | `eeo_responses` | EEO Response | EEO Responses | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 7 | `job_applications` | `job_applications` | Application | Applications | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 8 | `eeo_responses` | `eeo_responses` | EEO Response | EEO Responses | master | - | - | optional | yes | operational_workflow | `:manage` | - |
 | 9 | `hiring_team_assignments` | `hiring_team_assignments` | Hiring Team Assignment | Hiring Team Assignments | master | - | - | required | - | junction | `:manage` | - |
 | 10 | `job_posting_distributions` | `job_posting_distributions` | Job Posting Distribution | Job Posting Distributions | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 11 | `job_postings` | `job_postings` | Job Posting | Job Postings | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 12 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 13 | `ofccp_audit_trails` | `ofccp_audit_trails` | OFCCP Audit Trail | OFCCP Audit Trails | master | - | - | optional | submit_lock | operational_record | `:manage` | - |
-| 14 | `requisition_approvals` | `requisition_approvals` | Requisition Approval | Requisition Approvals | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 15 | `voluntary_self_identifications` | `voluntary_self_identifications` | Voluntary Self-Identification | Voluntary Self-Identifications | master | - | - | optional | personal_content, submit_lock | operational_record | `:manage` | - |
-| 16 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 12 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 13 | `ofccp_audit_trails` | `ofccp_audit_trails` | OFCCP Audit Trail | OFCCP Audit Trails | master | - | - | optional | - | operational_record | `:manage` | - |
+| 14 | `requisition_approvals` | `requisition_approvals` | Requisition Approval | Requisition Approvals | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 15 | `voluntary_self_identifications` | `voluntary_self_identifications` | Voluntary Self-Identification | Voluntary Self-Identifications | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 16 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | yes | operational_workflow | `:manage` | - |
 | 17 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | embedded_master | `hcm-org-positions` | Organization and Position Management | required | - | catalog | `:admin` | - |
 | 18 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
 | 19 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 20 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
+| 20 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -304,8 +304,8 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 
 | data_object | other module / domain | role | necessity | notes |
 | --- | --- | --- | --- | --- |
-| `job_applications` | ATS-INTERVIEWS (Interviews) - ATS | embedded_master | required | - |
-| `job_applications` | ATS-OFFERS (Offers) - ATS | embedded_master | required | - |
+| `job_applications` | ATS-INTERVIEWS (Candidate Interviews) - ATS | embedded_master | required | - |
+| `job_applications` | ATS-OFFERS (Job Offers) - ATS | embedded_master | required | - |
 | `job_applications` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
 | `job_postings` | HIRING-STARTER (Hiring Starter) - ATS | embedded_master | required | - |
 | `job_postings` | TLNT-INTEL-MOBILITY (Mobility, Succession and Fit) - TLNT-INTEL | consumer | required | - |
@@ -534,32 +534,21 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `ats-recruitment-pipeline:manage_all_application_screening_answers` | override (personal_content) | Manage all `application_screening_answers` rows beyond row-scope | ✓ |
 | `ats-recruitment-pipeline:view_all_eeo_responses` | override (personal_content) | View all `eeo_responses` rows beyond row-scope | ✓ |
 | `ats-recruitment-pipeline:manage_all_eeo_responses` | override (personal_content) | Manage all `eeo_responses` rows beyond row-scope | ✓ |
-| `ats-recruitment-pipeline:submit_eeo_response` | override (submit_lock) | Submit and lock a `eeo_responses` row (post-submit edits gated) | ✓ |
-| `ats-recruitment-pipeline:submit_ofccp_audit_trail` | override (submit_lock) | Submit and lock a `ofccp_audit_trails` row (post-submit edits gated) | ✓ |
 | `ats-recruitment-pipeline:view_all_applicant_flow_records` | override (personal_content) | View all `applicant_flow_records` rows beyond row-scope | ✓ |
 | `ats-recruitment-pipeline:manage_all_applicant_flow_records` | override (personal_content) | Manage all `applicant_flow_records` rows beyond row-scope | ✓ |
-| `ats-recruitment-pipeline:submit_applicant_flow_record` | override (submit_lock) | Submit and lock a `applicant_flow_records` row (post-submit edits gated) | ✓ |
 | `ats-recruitment-pipeline:view_all_voluntary_self-identifications` | override (personal_content) | View all `voluntary_self_identifications` rows beyond row-scope | ✓ |
 | `ats-recruitment-pipeline:manage_all_voluntary_self-identifications` | override (personal_content) | Manage all `voluntary_self_identifications` rows beyond row-scope | ✓ |
-| `ats-recruitment-pipeline:submit_voluntary_self-identification` | override (submit_lock) | Submit and lock a `voluntary_self_identifications` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `approve_job_requisition_requires_approver` | `job_requisitions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`ats-recruitment-pipeline:approve_requisition`). |
 | `application_edit_scope` | `job_applications` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_applications` / `ats-recruitment-pipeline:manage_all_applications` |
 | `candidate_edit_scope` | `candidates` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_candidates` / `ats-recruitment-pipeline:manage_all_candidates` |
-| `approve_position_requires_approver` | `hcm_positions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`ats-recruitment-pipeline:approved_position`). |
-| `approve_requisition_approval_requires_approver` | `requisition_approvals` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`ats-recruitment-pipeline:approve_requisition`). |
 | `application_screening_answer_edit_scope` | `application_screening_answers` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_application_screening_answers` / `ats-recruitment-pipeline:manage_all_application_screening_answers` |
 | `eeo_response_edit_scope` | `eeo_responses` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_eeo_responses` / `ats-recruitment-pipeline:manage_all_eeo_responses` |
-| `submit_restricted_to_eeo_response_owner` | `eeo_responses` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-recruitment-pipeline:manage_all_eeo_responses` |
-| `submit_restricted_to_ofccp_audit_trail_owner` | `ofccp_audit_trails` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-recruitment-pipeline:manage_all_ofccp_audit_trails` |
 | `applicant_flow_record_edit_scope` | `applicant_flow_records` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_applicant_flow_records` / `ats-recruitment-pipeline:manage_all_applicant_flow_records` |
-| `submit_restricted_to_applicant_flow_record_owner` | `applicant_flow_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-recruitment-pipeline:manage_all_applicant_flow_records` |
 | `voluntary_self-identification_edit_scope` | `voluntary_self_identifications` | has_personal_content | Row-scope by default; override via `ats-recruitment-pipeline:view_all_voluntary_self-identifications` / `ats-recruitment-pipeline:manage_all_voluntary_self-identifications` |
-| `submit_restricted_to_voluntary_self-identification_owner` | `voluntary_self_identifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-recruitment-pipeline:manage_all_voluntary_self-identifications` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -607,14 +596,10 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:manage_all_application_screening_answers` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:view_all_eeo_responses` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:manage_all_eeo_responses` |
-| `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:submit_eeo_response` |
-| `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:submit_ofccp_audit_trail` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:view_all_applicant_flow_records` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:manage_all_applicant_flow_records` |
-| `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:submit_applicant_flow_record` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:view_all_voluntary_self-identifications` |
 | `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:manage_all_voluntary_self-identifications` |
-| `ats-recruitment-pipeline:admin` | `ats-recruitment-pipeline:submit_voluntary_self-identification` |
 
 **Processes wired:**
 

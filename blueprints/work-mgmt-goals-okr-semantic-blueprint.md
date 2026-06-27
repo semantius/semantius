@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: WORK-MGMT-GOALS-OKR
-system_description: Team-Execution Goals and OKRs
+system_name: Team-Execution Goals and OKRs
 tagline: Set objectives, score key results, and see progress roll up from the work behind them.
 description: |
   Define objectives and measurable key results for the quarter or year, assign owners, and keep them current with regular check-ins. Link objectives to the tasks and projects that drive them so progress updates as work gets done instead of being re-entered by hand.
@@ -13,9 +12,10 @@ system_slug: work-mgmt-goals-okr
 domain_modules:
   - work-mgmt-goals-okr
 domain_code: WORK-MGMT
+icon_name: kanban
 related_modules: [eap-portfolio-roadmap, intgov-governance, mrm-planning, pm-roadmap-delivery, psa-project-delivery, sem-execution-tracking, sem-operating-rhythm, sem-strategy-definition, talent-performance-mgmt, work-mgmt-intake, work-mgmt-task-exec]
 persona: [OKR-OWNER, OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Team-Execution Goals and OKRs
@@ -68,11 +68,11 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `okr_key_results` | `okr_key_results` | Key Result | Key Results | master | - | - | required | - | operational_record | `:manage` | - |
-| 2 | `okr_objectives` | `okr_objectives` | Objective / OKR | Objective / OKRs | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `okr_check_ins` | `okr_check_ins` | OKR Check-in | OKR Check-ins | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 2 | `okr_objectives` | `okr_objectives` | Objective / OKR | Objective / OKRs | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 3 | `okr_check_ins` | `okr_check_ins` | OKR Check-in | OKR Check-ins | master | - | - | required | yes | operational_record | `:manage` | - |
 | 4 | `work_goal_links` | `work_goal_links` | Work-to-Goal Link | Work-to-Goal Links | master | - | - | optional | - | junction | `:manage` | - |
 | 5 | `work_items` | `work_items` | Work Item | Work Items | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | required | - | operational_workflow | `:manage` | - |
 

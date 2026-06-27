@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: RE-BROK-AGENT-OPS
-system_description: Real Estate Agent Operations
+system_name: Real Estate Agent Operations
 tagline: Work every deal from lead to close in one place.
 description: Capture leads and turn them into listings, syndicate to the MLS, and schedule showings with access windows and follow-ups. Drive each transaction from accepted offer through inspection, financing, and contingencies to a clean close, with buyer and seller disclosures tracked at every step. The deployable unit for solo agents and small firms.
 system_slug: re-brok-agent-ops
 domain_modules:
   - re-brok-agent-ops
 domain_code: RE-BROKERAGE
+icon_name: key
 related_modules: [crm-acct-mgt, crm-activity, crm-lead-mgt, ma-campaign-authoring, ma-lead-scoring, re-brok-brokerage-ops, re-invest-portfolio-val, real-estate-agent]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Real Estate Agent Operations
@@ -74,15 +74,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | master | - | - | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 2 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | embedded_master | `re-brok-brokerage-ops` | Brokerage Oversight and Commission Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 6 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
-| 7 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 2 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 3 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 4 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 5 | `commission_splits` | `commission_splits` | Commission Split | Commission Splits | embedded_master | `re-brok-brokerage-ops` | Brokerage Oversight and Commission Management | optional | - | operational_workflow | `:manage` | - |
+| 6 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | yes | operational_record | `:manage` | - |
+| 7 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -307,16 +307,12 @@ _This scope holds `crm_leads` as **embedded_master**; the canonical state machin
 | `re-brok-agent-ops:manage_all_tour_appointments` | override (personal_content) | Manage all `tour_appointments` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:view_all_real_estate_transactions` | override (personal_content) | View all `real_estate_transactions` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_real_estate_transactions` | override (personal_content) | Manage all `real_estate_transactions` rows beyond row-scope | ✓ |
-| `re-brok-agent-ops:submit_real_estate_transaction` | override (submit_lock) | Submit and lock a `real_estate_transactions` row (post-submit edits gated) | ✓ |
-| `re-brok-agent-ops:submit_commission_split` | override (submit_lock) | Submit and lock a `commission_splits` row (post-submit edits gated) | ✓ |
 | `re-brok-agent-ops:view_all_disclosure_documents` | override (personal_content) | View all `disclosure_documents` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_disclosure_documents` | override (personal_content) | Manage all `disclosure_documents` rows beyond row-scope | ✓ |
-| `re-brok-agent-ops:submit_disclosure_document` | override (submit_lock) | Submit and lock a `disclosure_documents` row (post-submit edits gated) | ✓ |
 | `re-brok-agent-ops:view_all_contacts` | override (personal_content) | View all `crm_contacts` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_contacts` | override (personal_content) | Manage all `crm_contacts` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:view_all_leads` | override (personal_content) | View all `crm_leads` rows beyond row-scope | ✓ |
 | `re-brok-agent-ops:manage_all_leads` | override (personal_content) | Manage all `crm_leads` rows beyond row-scope | ✓ |
-| `re-brok-agent-ops:submit_lead` | override (submit_lock) | Submit and lock a `crm_leads` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
@@ -325,15 +321,9 @@ _This scope holds `crm_leads` as **embedded_master**; the canonical state machin
 | `real_estate_listing_edit_scope` | `real_estate_listings` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_real_estate_listings` / `re-brok-agent-ops:manage_all_real_estate_listings` |
 | `tour_appointment_edit_scope` | `tour_appointments` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_tour_appointments` / `re-brok-agent-ops:manage_all_tour_appointments` |
 | `real_estate_transaction_edit_scope` | `real_estate_transactions` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_real_estate_transactions` / `re-brok-agent-ops:manage_all_real_estate_transactions` |
-| `submit_restricted_to_real_estate_transaction_owner` | `real_estate_transactions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_real_estate_transactions` |
-| `submit_restricted_to_commission_split_owner` | `commission_splits` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_commission_splits` |
-| `approve_commission_split_requires_approver` | `commission_splits` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-agent-ops:approve_commission_split` if surfaced as a lifecycle workflow gate). |
 | `disclosure_document_edit_scope` | `disclosure_documents` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_disclosure_documents` / `re-brok-agent-ops:manage_all_disclosure_documents` |
-| `submit_restricted_to_disclosure_document_owner` | `disclosure_documents` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_disclosure_documents` |
-| `approve_disclosure_document_requires_approver` | `disclosure_documents` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`re-brok-agent-ops:approve_disclosure_document` if surfaced as a lifecycle workflow gate). |
 | `contact_edit_scope` | `crm_contacts` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_contacts` / `re-brok-agent-ops:manage_all_contacts` |
 | `lead_edit_scope` | `crm_leads` | has_personal_content | Row-scope by default; override via `re-brok-agent-ops:view_all_leads` / `re-brok-agent-ops:manage_all_leads` |
-| `submit_restricted_to_lead_owner` | `crm_leads` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `re-brok-agent-ops:manage_all_leads` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -379,16 +369,12 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_tour_appointments` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_real_estate_transactions` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_real_estate_transactions` |
-| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_real_estate_transaction` |
-| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_commission_split` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_disclosure_documents` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_disclosure_documents` |
-| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_disclosure_document` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_contacts` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_contacts` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:view_all_leads` |
 | `re-brok-agent-ops:admin` | `re-brok-agent-ops:manage_all_leads` |
-| `re-brok-agent-ops:admin` | `re-brok-agent-ops:submit_lead` |
 
 **RACI realization:**
 

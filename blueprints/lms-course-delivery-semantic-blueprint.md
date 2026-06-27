@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-COURSE-DELIVERY
-system_description: Course Delivery
+system_name: Course Delivery
 tagline: Build, publish, and deliver online courses, then track every enrollment through to completion.
 description: Create courses from lessons, content assets, and assessments, and publish new versions when material changes. Enroll learners, deliver self-paced training in the browser, and grade quizzes and exams as they go. Watch progress and completion in real time, and keep a clean record of who finished what.
 system_slug: lms-course-delivery
 domain_modules:
   - lms-course-delivery
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, emp-exp-continuous-listen, fin-gl-close, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, lms-automation, lms-compliance-training, lms-credentials, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Course Delivery
@@ -177,37 +177,37 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `assessment_attempts` | `assessment_attempts` | Assessment Attempt | Assessment Attempts | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `assessment_attempts` | `assessment_attempts` | Assessment Attempt | Assessment Attempts | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 2 | `assessment_questions` | `assessment_questions` | Assessment Question | Assessment Questions | master | - | - | required | - | catalog | `:admin` | - |
 | 3 | `cmi5_assignable_units` | `cmi5_assignable_units` | cmi5 Assignable Unit | cmi5 Assignable Units | master | - | - | optional | - | catalog | `:admin` | - |
-| 4 | `course_assessments` | `course_assessments` | Course Assessment | Course Assessments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 4 | `course_assessments` | `course_assessments` | Course Assessment | Course Assessments | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 5 | `course_catalogs` | `course_catalogs` | Course Catalog | Course Catalogs | master | - | - | required | - | catalog | `:admin` | - |
 | 6 | `course_categories` | `course_categories` | Course Category | Course Categories | master | - | - | required | - | catalog | `:admin` | - |
-| 7 | `course_completions` | `course_completions` | Course Completion | Course Completions | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 8 | `course_discussions` | `course_discussions` | Course Discussion | Course Discussions | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 9 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 7 | `course_completions` | `course_completions` | Course Completion | Course Completions | master | - | - | required | yes | operational_record | `:manage` | - |
+| 8 | `course_discussions` | `course_discussions` | Course Discussion | Course Discussions | master | - | - | required | yes | operational_record | `:manage` | - |
+| 9 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 10 | `course_modules` | `course_modules` | Course Module | Course Modules | master | - | - | required | - | catalog | `:admin` | - |
-| 11 | `course_ratings` | `course_ratings` | Course Rating | Course Ratings | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 12 | `course_reviews` | `course_reviews` | Course Review | Course Reviews | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 11 | `course_ratings` | `course_ratings` | Course Rating | Course Ratings | master | - | - | required | yes | operational_record | `:manage` | - |
+| 12 | `course_reviews` | `course_reviews` | Course Review | Course Reviews | master | - | - | required | yes | operational_record | `:manage` | - |
 | 13 | `course_tags` | `course_tags` | Course Tag | Course Tags | master | - | - | required | - | catalog | `:admin` | - |
-| 14 | `course_versions` | `course_versions` | Course Version | Course Versions | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 14 | `course_versions` | `course_versions` | Course Version | Course Versions | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 15 | `courses` | `courses` | Course | Courses | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 16 | `learning_content_assets` | `learning_content_assets` | Learning Content Asset | Learning Content Assets | master | - | - | required | - | catalog | `:admin` | - |
-| 17 | `learning_records` | `learning_records` | Learning Record | Learning Records | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 17 | `learning_records` | `learning_records` | Learning Record | Learning Records | master | - | - | required | yes | operational_record | `:manage` | - |
 | 18 | `lessons` | `lessons` | Lesson | Lessons | master | - | - | required | - | catalog | `:admin` | - |
 | 19 | `lrs_statement_endpoints` | `lrs_statement_endpoints` | LRS Statement Endpoint | LRS Statement Endpoints | master | - | - | optional | - | catalog | `:admin` | - |
-| 20 | `observation_checklist_results` | `observation_checklist_results` | Observation Checklist Result | Observation Checklist Results | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 20 | `observation_checklist_results` | `observation_checklist_results` | Observation Checklist Result | Observation Checklist Results | master | - | - | optional | yes | operational_workflow | `:manage` | - |
 | 21 | `observation_checklists` | `observation_checklists` | Observation Checklist | Observation Checklists | master | - | - | optional | - | catalog | `:admin` | - |
 | 22 | `question_banks` | `question_banks` | Question Bank | Question Banks | master | - | - | optional | - | catalog | `:admin` | - |
-| 23 | `quiz_responses` | `quiz_responses` | Quiz Response | Quiz Responses | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
+| 23 | `quiz_responses` | `quiz_responses` | Quiz Response | Quiz Responses | master | - | - | required | yes | operational_record | `:manage` | - |
 | 24 | `scorm_packages` | `scorm_packages` | SCORM Package | SCORM Packages | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 25 | `xapi_statements` | `xapi_statements` | xAPI Statement | xAPI Statements | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 25 | `xapi_statements` | `xapi_statements` | xAPI Statement | xAPI Statements | master | - | - | required | yes | operational_record | `:manage` | - |
 | 26 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 27 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 27 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 28 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 29 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
+| 29 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -656,24 +656,18 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `lms-course-delivery:manage_all_learning_records` | override (personal_content) | Manage all `learning_records` rows beyond row-scope | ✓ |
 | `lms-course-delivery:view_all_employees` | override (personal_content) | View all `employees` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
-| `lms-course-delivery:submit_course_version` | override (submit_lock) | Submit and lock a `course_versions` row (post-submit edits gated) | ✓ |
 | `lms-course-delivery:view_all_xapi_statements` | override (personal_content) | View all `xapi_statements` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_xapi_statements` | override (personal_content) | Manage all `xapi_statements` rows beyond row-scope | ✓ |
 | `lms-course-delivery:view_all_course_completions` | override (personal_content) | View all `course_completions` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_course_completions` | override (personal_content) | Manage all `course_completions` rows beyond row-scope | ✓ |
-| `lms-course-delivery:submit_course_completion` | override (submit_lock) | Submit and lock a `course_completions` row (post-submit edits gated) | ✓ |
-| `lms-course-delivery:submit_course_assessment` | override (submit_lock) | Submit and lock a `course_assessments` row (post-submit edits gated) | ✓ |
 | `lms-course-delivery:view_all_assessment_attempts` | override (personal_content) | View all `assessment_attempts` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_assessment_attempts` | override (personal_content) | Manage all `assessment_attempts` rows beyond row-scope | ✓ |
-| `lms-course-delivery:submit_assessment_attempt` | override (submit_lock) | Submit and lock a `assessment_attempts` row (post-submit edits gated) | ✓ |
 | `lms-course-delivery:view_all_quiz_responses` | override (personal_content) | View all `quiz_responses` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_quiz_responses` | override (personal_content) | Manage all `quiz_responses` rows beyond row-scope | ✓ |
-| `lms-course-delivery:submit_quiz_response` | override (submit_lock) | Submit and lock a `quiz_responses` row (post-submit edits gated) | ✓ |
 | `lms-course-delivery:view_all_course_discussions` | override (personal_content) | View all `course_discussions` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_course_discussions` | override (personal_content) | Manage all `course_discussions` rows beyond row-scope | ✓ |
 | `lms-course-delivery:view_all_course_reviews` | override (personal_content) | View all `course_reviews` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_course_reviews` | override (personal_content) | Manage all `course_reviews` rows beyond row-scope | ✓ |
-| `lms-course-delivery:submit_course_review` | override (submit_lock) | Submit and lock a `course_reviews` row (post-submit edits gated) | ✓ |
 | `lms-course-delivery:view_all_course_ratings` | override (personal_content) | View all `course_ratings` rows beyond row-scope | ✓ |
 | `lms-course-delivery:manage_all_course_ratings` | override (personal_content) | Manage all `course_ratings` rows beyond row-scope | ✓ |
 | `lms-course-delivery:view_all_observation_checklist_results` | override (personal_content) | View all `observation_checklist_results` rows beyond row-scope | ✓ |
@@ -686,19 +680,12 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `course_enrollment_edit_scope` | `course_enrollments` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_course_enrollments` / `lms-course-delivery:manage_all_course_enrollments` |
 | `learning_record_edit_scope` | `learning_records` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_learning_records` / `lms-course-delivery:manage_all_learning_records` |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_employees` / `lms-course-delivery:manage_all_employees` |
-| `approve_position_requires_approver` | `hcm_positions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`lms-course-delivery:approved_position`). |
-| `submit_restricted_to_course_version_owner` | `course_versions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_course_versions` |
 | `xapi_statement_edit_scope` | `xapi_statements` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_xapi_statements` / `lms-course-delivery:manage_all_xapi_statements` |
 | `course_completion_edit_scope` | `course_completions` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_course_completions` / `lms-course-delivery:manage_all_course_completions` |
-| `submit_restricted_to_course_completion_owner` | `course_completions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_course_completions` |
-| `submit_restricted_to_course_assessment_owner` | `course_assessments` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_course_assessments` |
 | `assessment_attempt_edit_scope` | `assessment_attempts` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_assessment_attempts` / `lms-course-delivery:manage_all_assessment_attempts` |
-| `submit_restricted_to_assessment_attempt_owner` | `assessment_attempts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_assessment_attempts` |
 | `quiz_response_edit_scope` | `quiz_responses` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_quiz_responses` / `lms-course-delivery:manage_all_quiz_responses` |
-| `submit_restricted_to_quiz_response_owner` | `quiz_responses` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_quiz_responses` |
 | `course_discussion_edit_scope` | `course_discussions` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_course_discussions` / `lms-course-delivery:manage_all_course_discussions` |
 | `course_review_edit_scope` | `course_reviews` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_course_reviews` / `lms-course-delivery:manage_all_course_reviews` |
-| `submit_restricted_to_course_review_owner` | `course_reviews` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-course-delivery:manage_all_course_reviews` |
 | `course_rating_edit_scope` | `course_ratings` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_course_ratings` / `lms-course-delivery:manage_all_course_ratings` |
 | `observation_checklist_result_edit_scope` | `observation_checklist_results` | has_personal_content | Row-scope by default; override via `lms-course-delivery:view_all_observation_checklist_results` / `lms-course-delivery:manage_all_observation_checklist_results` |
 
@@ -755,24 +742,18 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_learning_records` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_employees` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_employees` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_course_version` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_xapi_statements` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_xapi_statements` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_course_completions` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_course_completions` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_course_completion` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_course_assessment` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_assessment_attempts` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_assessment_attempts` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_assessment_attempt` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_quiz_responses` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_quiz_responses` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_quiz_response` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_course_discussions` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_course_discussions` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_course_reviews` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_course_reviews` |
-| `lms-course-delivery:admin` | `lms-course-delivery:submit_course_review` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_course_ratings` |
 | `lms-course-delivery:admin` | `lms-course-delivery:manage_all_course_ratings` |
 | `lms-course-delivery:admin` | `lms-course-delivery:view_all_observation_checklist_results` |

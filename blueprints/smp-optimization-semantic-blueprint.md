@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SMP-OPTIMIZATION
-system_description: SMP License Optimization
+system_name: SMP License Optimization
 tagline: Stop paying for licenses nobody uses.
 description: Track real usage for every SaaS seat, surface rightsizing and savings recommendations, and reclaim idle or duplicate licenses with a safe grace period. Benchmark your cost-per-seat against peers so you know where you are overspending and act on it.
 system_slug: smp-optimization
 domain_modules:
   - smp-optimization
 domain_code: SMP
+icon_name: cloud-cog
 related_modules: [smp-automation, smp-discovery, smp-renewal-vendor]
 persona: [ITAM-SAAS-PORTFOLIO-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # SMP License Optimization
@@ -57,7 +57,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `smp_optimization_recommendations` | `smp_optimization_recommendations` | Optimization Recommendation | Optimization Recommendations | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `smp_reclamation_actions` | `smp_reclamation_actions` | Reclamation Action | Reclamation Actions | master | - | - | required | - | operational_workflow | `:manage` | - |

@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-PROBLEM-MGMT
-system_description: Problem Management
+system_name: Problem Management
 tagline: Find the root cause behind recurring incidents and stop them coming back.
 description: |
   Problem Management connects the dots across repeated incidents to surface the underlying fault, document the known error, and drive a permanent fix. Instead of firefighting the same outage week after week, your team works the cause once.
@@ -13,9 +12,10 @@ system_slug: itsm-problem-mgmt
 domain_modules:
   - itsm-problem-mgmt
 domain_code: ITSM
+icon_name: headset
 related_modules: [aiops-predictive-intelligence, ats-recruitment-pipeline, cmdb-core, hcm-core-worker, hcm-org-positions, iga-access-request, itsm-incident-mgmt, iwms-location-master, rmm-agent-mgmt]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Problem Management
@@ -61,7 +61,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `service_problems` | `service_problems` | Problem | Problems | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |

@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-STARTER
-system_description: IT Service Desk Starter
+system_name: IT Service Desk Starter
 tagline: "Stand up a lightweight IT help desk in a day: log tickets, take requests, and answer the same questions once."
 description: A simple service desk for a small IT team. Log incidents when something breaks, take service requests from a catalog or by free text, and move each ticket from new to resolved to closed without a heavyweight tool. Turn on a knowledge base so common answers get written once and reused, a request catalog so people ask for the right things, and SLA clocks so nothing sits too long, each when you are ready. Start with just tickets and grow into the rest as your team and your process mature. Built for IT teams that want ticketing and self-service without standing up a full enterprise service-management suite.
 system_slug: itsm-starter
 domain_modules:
   - itsm-starter
 domain_code: ITSM
+icon_name: headset
 related_modules: [aiops-event-correlation, aiops-predictive-intelligence, apm-portfolio-registry, data-ai-plat-ml, dcim-asset-space, dcim-power-env, dlp-enforcement-runtime, hcm-core-worker, hrsd-employee-portal, iga-access-request, iga-auto-provisioning, iga-entitlement-catalog, itom-infra-mon, itsm-incident-mgmt, itsm-knowledge, itsm-service-request, itsm-sla-mgmt, lcap-visual-composition, remote-access-session, rmm-automation, rmm-monitoring, smp-discovery, uem-compliance-posture, uem-config-apps, uem-device-lifecycle, work-mgmt-task-exec, wsc-channels-conversations]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # IT Service Desk Starter
@@ -73,12 +73,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | embedded_master | `itsm-incident-mgmt` | Incident Management | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | Knowledge Management | optional | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | embedded_master | `itsm-incident-mgmt` | Incident Management | required | yes | operational_workflow | `:manage` | - |
+| 2 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | IT Knowledge Management | optional | - | operational_workflow | `:manage` | - |
 | 3 | `service_catalog_items` | `service_catalog_items` | Service Catalog Item | Service Catalog Items | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | - | catalog | `:admin` | - |
-| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | required | single_approver | operational_workflow | `:manage` | - |
+| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | required | - | operational_workflow | `:manage` | - |
 | 5 | `service_slas` | `service_slas` | SLA | SLAs | embedded_master | `itsm-sla-mgmt` | SLA and Chargeback Management | optional | - | catalog | `:admin` | - |
 | 6 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
@@ -333,15 +333,12 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | `itsm-starter:retire_catalog_item` | workflow-gate (lifecycle) | Transition `service_catalog_items` into state `retired` | ✓ |
 | `itsm-starter:view_all_incidents` | override (personal_content) | View all `service_incidents` rows beyond row-scope | ✓ |
 | `itsm-starter:manage_all_incidents` | override (personal_content) | Manage all `service_incidents` rows beyond row-scope | ✓ |
-| `itsm-starter:submit_knowledge_article` | override (submit_lock) | Submit and lock a `knowledge_articles` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `incident_edit_scope` | `service_incidents` | has_personal_content | Row-scope by default; override via `itsm-starter:view_all_incidents` / `itsm-starter:manage_all_incidents` |
-| `approve_service_request_requires_approver` | `service_requests` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`itsm-starter:approved_service_request`). |
-| `submit_restricted_to_knowledge_article_owner` | `knowledge_articles` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `itsm-starter:manage_all_knowledge_articles` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -370,7 +367,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `itsm-starter:admin` | `itsm-starter:retire_catalog_item` |
 | `itsm-starter:admin` | `itsm-starter:view_all_incidents` |
 | `itsm-starter:admin` | `itsm-starter:manage_all_incidents` |
-| `itsm-starter:admin` | `itsm-starter:submit_knowledge_article` |
 
 **RACI realization:**
 

@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "ITSM",
     "name": "IT Service Management",
@@ -130,7 +130,7 @@
   "modules": [
     {
       "code": "ITSM-AGENT-WORKSPACE",
-      "name": "Agent Workspace and Reporting",
+      "name": "Service Agent Workspace and Reporting",
       "kind": "full",
       "realizes_capabilities": [
         "ITSM-REPORTING",
@@ -216,7 +216,7 @@
     },
     {
       "code": "ITSM-KNOWLEDGE",
-      "name": "Knowledge Management",
+      "name": "IT Knowledge Management",
       "kind": "full",
       "realizes_capabilities": [
         "KNOWLEDGE-MGMT"
@@ -295,11 +295,7 @@
       "plural_label": "CAB Meetings",
       "description": "A Change Advisory Board meeting record: agenda, attendees, the changes reviewed, decisions, and minutes. The first-class artifact of the CAB review step in change management.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -309,11 +305,7 @@
       "plural_label": "Change Collisions",
       "description": "A detected conflict between overlapping changes or a change scheduled inside a blackout window. Records the colliding changes, the window in question, and the resolution. Surfaces scheduling conflicts before they reach implementation.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -323,11 +315,7 @@
       "plural_label": "Knowledge Articles",
       "description": "KB content backing both self-service portals and agent-assist tooling. Lifecycle: draft → review → published → retired. Quality and freshness are the silent ITSM KPIs that drive deflection rate.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "KB article",
@@ -367,11 +355,7 @@
       "plural_label": "Service Catalog Items",
       "description": "Definition of what can be requested: the form schema, fulfillment workflow, approval routing, SLA, and the price/charge-back rules. Each service request instance references a catalog item.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "catalog item",
@@ -409,11 +393,7 @@
       "plural_label": "Changes",
       "description": "Planned modification to a service or configuration item. Carries change type (standard, normal, emergency), risk score, CAB approval state, implementation window, and back-out plan. The boundary object between ITSM and CMDB, CIs are updated as a result of an executed change.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "RFC",
@@ -475,11 +455,7 @@
       "plural_label": "Incidents",
       "description": "Unplanned interruption of, or quality reduction to, a service. Carries severity, priority, category, assignee, affected CI(s), and the MTTR clock. The flagship ITSM work item. ITOM and SECOPS feed in (events become incidents, security alerts become incidents).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "incident ticket",
@@ -528,11 +504,7 @@
       "plural_label": "Service Offerings",
       "description": "The back-end service definition (commitments, supported configurations, and fulfillment details) split from its user-facing catalog item presentation. One offering can back several catalog items, and a catalog item can present one offering.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -542,11 +514,7 @@
       "plural_label": "Service Outages",
       "description": "A customer-facing outage or status record, separate from the internal incident. Captures the affected service, the public status (investigating, identified, monitoring, resolved), start and end times, and the customer-facing message. Distinct from the internal incident work item.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -556,11 +524,7 @@
       "plural_label": "Problems",
       "description": "Root-cause record for one or more incidents that recur or share a pattern. Carries known-error workaround, permanent fix candidate, and links to the change that will resolve it. Problem management is a discipline mature ITSM tools support but most orgs underuse.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "known error",
@@ -603,11 +567,7 @@
       "plural_label": "Service Releases",
       "description": "A release or deployment record that bundles one or more changes into a single shippable unit. Carries the release window, the included changes, deployment status, and rollback plan. Distinct from a single change ticket.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -617,11 +577,7 @@
       "plural_label": "Service Requests",
       "description": "Planned, catalog-driven request: access, hardware, software, information. Distinct from incidents, incidents are reactive, service requests are proactive. The fulfillment for many requests crosses domains (provisioning ↔ IGA, asset assignment ↔ ITAM, HR exception ↔ HRSD).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "request fulfillment",
@@ -669,11 +625,7 @@
       "plural_label": "SLAs",
       "description": "Service-level agreement record: response-time, resolution-time, and availability targets per priority / category / customer tier. SLAs attach to incidents, service requests, and changes; breach metrics roll up to operational KPIs.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "SLA",
@@ -692,11 +644,7 @@
       "plural_label": "Virtual Agent Conversations",
       "description": "A chatbot or virtual-agent conversation transcript: the turn-by-turn exchange, the resolved intent, any deflection or escalation to a human agent, and the ticket it produced. Backs the Virtual Agent capability.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -706,11 +654,7 @@
       "plural_label": "Walk-Up Visits",
       "description": "A walk-up or onsite check-in record: the visitor, the reason for the visit, queue position, estimated service time, and outcome. Backs the Walk-Up capability. The kiosk is treated as a location attribute, not a separate entity.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     }

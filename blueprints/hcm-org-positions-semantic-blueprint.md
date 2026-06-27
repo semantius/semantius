@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HCM-ORG-POSITIONS
-system_description: Organization and Position Management
+system_name: Organization and Position Management
 tagline: "Design your organization: build the job catalog, define positions, and shape the org structure headcount planning runs on."
 description: |
   The org and positions module is where you model the shape of the organization rather than the people in it. Author and publish job profiles, approve and open positions against budgeted headcount, and maintain the org-unit hierarchy through creation, reorganization, merges, and closures.
@@ -13,9 +12,10 @@ system_slug: hcm-org-positions
 domain_modules:
   - hcm-org-positions
 domain_code: HCM
+icon_name: users
 related_modules: [ats-candidate-crm, ats-interviews, ats-offers, ats-recruitment-pipeline, ben-enrollment, ben-plan-design, clm-repository, cmdb-core, comp-benchmarking, comp-incentives, comp-planning, comp-statements, csm-case-mgmt, cwm-worker-sourcing, emp-exp-action-planning, emp-exp-continuous-listen, epm-plan-budget, expense-capture-and-reporting, fin-gl-close, fleet-maint-work-order, hcm-core-worker, hcm-lifecycle-workflows, iga-access-request, iga-entitlement-catalog, itam-lifecycle, itsm-agent-workspace, itsm-change-mgmt, itsm-incident-mgmt, itsm-problem-mgmt, itsm-service-request, itsm-sla-mgmt, iwms-space-analytics, iwms-workplace-service-desk, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ilt-delivery, lms-paths, onb-journey-mgmt, onb-welcome-experience, pa-dei-analytics, pa-predictive-models, pa-workforce-metrics, payroll-run, psa-project-delivery, psa-resource-mgmt, sam-catalog-discovery, sem-strategy-definition, skills-mgmt-profile, skills-mgmt-taxonomy, smp-renewal-vendor, swp-cost-projections, swp-demand-forecast, swp-scenario-modeling, swp-supply-planning, talent-performance-mgmt, talent-succession-career, tlnt-intel-mobility, vuln-mgmt-detect, vuln-mgmt-remediate, vuln-mgmt-risk, wfm-absence, wfm-scheduling, wfm-time-attendance]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Organization and Position Management
@@ -74,14 +74,14 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `job_profiles` | `job_profiles` | Job Profile | Job Profiles | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `org_units` | `org_units` | Org Unit | Org Units | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 3 | `hcm_positions` | `hcm_positions` | Position | Positions | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 3 | `hcm_positions` | `hcm_positions` | Position | Positions | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 4 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | contributor | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
 | 5 | `financial_plans` | `financial_plans` | Financial Plan | Financial Plans | consumer | `epm-plan-budget` | Planning and Budgeting | optional | - | operational_workflow | `:manage` | - |
-| 6 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | consumer | `ats-recruitment-pipeline` | Recruitment Pipeline | optional | single_approver | operational_workflow | `:manage` | - |
+| 6 | `job_requisitions` | `job_requisitions` | Job Requisition | Job Requisitions | consumer | `ats-recruitment-pipeline` | Recruitment Pipeline | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -220,7 +220,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `org_units` | IGA-ACCESS-REQUEST (IGA Access Request) - IGA | embedded_master | required | - |
 | `org_units` | IGA-ENTITLEMENT-CATALOG (IGA Entitlement Catalog) - IGA | embedded_master | required | - |
 | `org_units` | ITAM-LIFECYCLE (Unified Asset Lifecycle Log) - ITAM | embedded_master | optional | - |
-| `org_units` | ITSM-AGENT-WORKSPACE (Agent Workspace and Reporting) - ITSM | embedded_master | optional | - |
+| `org_units` | ITSM-AGENT-WORKSPACE (Service Agent Workspace and Reporting) - ITSM | embedded_master | optional | - |
 | `org_units` | ITSM-CHANGE-MGMT (Change and Release Management) - ITSM | embedded_master | optional | - |
 | `org_units` | ITSM-INCIDENT-MGMT (Incident Management) - ITSM | embedded_master | optional | - |
 | `org_units` | ITSM-PROBLEM-MGMT (Problem Management) - ITSM | embedded_master | optional | - |
@@ -385,9 +385,7 @@ _This scope holds `job_requisitions` as **consumer**; the canonical state machin
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `approve_position_requires_approver` | `hcm_positions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hcm-org-positions:approved_position`). |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 

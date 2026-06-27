@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "LMS",
     "name": "Learning Management",
@@ -305,11 +305,7 @@
       "plural_label": "Assessment Attempts",
       "description": "Per-learner per-attempt audit row: start time, score, pass/fail, time-on-task. FINRA / Part 11 evidence substrate.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "exam attempt",
@@ -352,11 +348,7 @@
       "plural_label": "Assessment Questions",
       "description": "Item-bank entry: question stem, choices, scoring, and metadata for randomization.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -366,11 +358,7 @@
       "plural_label": "Audiences",
       "description": "Dynamic learner segment defined by attributes (department, location, role) and used by auto-enrollment and notification rules.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "dynamic group",
@@ -389,11 +377,7 @@
       "plural_label": "Automated Enrollment Rules",
       "description": "Rule engine entry that auto-enrolls learners into courses or paths based on audience membership and lifecycle events.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "auto-assign rule",
@@ -433,11 +417,7 @@
       "plural_label": "Certificate Templates",
       "description": "PDF / image template used to issue a certificate to a learner; carries layout and dynamic fields.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -447,11 +427,7 @@
       "plural_label": "Certification Definitions",
       "description": "Catalog of certification types: name, issuing authority, validity period, recertification policy, prerequisite courses.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "certification template",
@@ -489,11 +465,7 @@
       "plural_label": "Certification Renewals",
       "description": "Renewal cycle of an existing certification, distinct from initial issuance.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -522,11 +494,7 @@
       "plural_label": "CEU Records",
       "description": "Earned-credit ledger row per learner; CEU evidence for state-CE, NASBA, and similar professional licensure reporting.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "CE credit ledger entry",
@@ -566,11 +534,7 @@
       "plural_label": "cmi5 Assignable Units",
       "description": "cmi5 (ADL) assignable unit launched against an LRS; modern course-package standard supplanting SCORM.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -580,11 +544,7 @@
       "plural_label": "Compliance Training Assignments",
       "description": "Mandatory training assignment tied to a regulation, role, location, or hire-event (anti-harassment, AML, GDPR, OSHA, HIPAA). Carries due date, escalation policy, audit log.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "mandatory training assignment",
@@ -638,11 +598,7 @@
       "plural_label": "Compliance Audit Records",
       "description": "Regulator-facing audit trail row capturing who did what training when, with version and evidence reference. Distinct from learning_records: audit-purpose subset, retention-locked.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "training audit row",
@@ -682,11 +638,7 @@
       "plural_label": "Compliance Regulations",
       "description": "Tenant-scoped reference table of statutes a tenant is subject to (jurisdiction, citation, retention period). Each tenant activates only its applicable subset; the regulation field on training_evidence_records is an FK into this table, and the active rows gate which compliance evidence applies.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -696,11 +648,7 @@
       "plural_label": "Compliance Training Campaigns",
       "description": "Campaign container that bundles assignments by audience and due-date: annual code-of-conduct cycle, harassment refresh, security awareness wave.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "annual training cycle",
@@ -749,11 +697,7 @@
       "plural_label": "Continuing Education Credits",
       "description": "CEU credit-value master: credit hours, accrediting body, eligible courses.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -763,11 +707,7 @@
       "plural_label": "Course Assessments",
       "description": "Quiz or exam definition associated with a course or lesson; carries passing score and attempt policy.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "course exam",
@@ -805,11 +745,7 @@
       "plural_label": "Course Catalogs",
       "description": "Scoped catalog view: subset of courses surfaced to a specific audience, branch, or domain.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "learning catalog",
@@ -828,11 +764,7 @@
       "plural_label": "Course Categories",
       "description": "Hierarchical taxonomy for catalog browsing and reporting.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -842,11 +774,7 @@
       "plural_label": "Course Completions",
       "description": "Terminal completion record per learner per course version. Distinct from learning_records (event log).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "training completion",
@@ -880,11 +808,7 @@
       "plural_label": "Course Discussions",
       "description": "Forum-style discussion thread attached to a course or lesson; collaborative-learning surface.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -913,11 +837,7 @@
       "plural_label": "Course Enrollments",
       "description": "Per-learner per-course state record: assigned date, due date, attempts, status (not_started, in_progress, completed, expired), score. The operational unit of learning tracking.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "learner enrollment",
@@ -974,11 +894,7 @@
       "plural_label": "Course Modules",
       "description": "Intra-course composition unit grouping related lessons; supports completion tracking at sub-course granularity.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "course unit",
@@ -997,11 +913,7 @@
       "plural_label": "Course Offerings",
       "description": "Scheduled instance of a course: date range, location, capacity, language, delivery mode.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "class instance",
@@ -1050,11 +962,7 @@
       "plural_label": "Course Ratings",
       "description": "Numeric rating (typically 1-5) per learner per course; aggregate analytics surface.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1064,11 +972,7 @@
       "plural_label": "Course Resources",
       "description": "Handout, supplementary material, or pre-read attached to an offering or session.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1078,11 +982,7 @@
       "plural_label": "Course Reviews",
       "description": "Learner-authored qualitative review of a course post-completion.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1115,11 +1015,7 @@
       "plural_label": "Course Sessions",
       "description": "Individual session within a multi-day offering; carries per-session attendance and instructor assignment.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "class session",
@@ -1158,11 +1054,7 @@
       "plural_label": "Course Tags",
       "description": "Free-form taxonomy alongside categories; supports faceted search.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1172,11 +1064,7 @@
       "plural_label": "Course Versions",
       "description": "Versioned snapshot of a course's content lineage. Required for compliance retention: regulators ask which version of training each learner completed.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "course revision",
@@ -1218,11 +1106,7 @@
       "plural_label": "Courses",
       "description": "Atomic learning unit: e-learning module, video, live session, blended program, external content. Carries content reference, duration, format, language, prerequisites, certification award.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "learning module",
@@ -1264,11 +1148,7 @@
       "plural_label": "Credential Badges",
       "description": "Open Badges / micro-credential definition: criteria, image, issuer, expiration policy. Distinct from visitor_badges (physical access).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Open Badge",
@@ -1306,11 +1186,7 @@
       "plural_label": "Credential Verifications",
       "description": "Third-party verification handshake for an issued badge or credential (Open Badges 3.0).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1339,11 +1215,7 @@
       "plural_label": "Curricula",
       "description": "Grouped paths and courses targeting a role, function, or compliance scope. Used by Workday and Cornerstone as the primary noun for role-based learning.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "curriculum program",
@@ -1377,11 +1249,7 @@
       "plural_label": "Data Deletion Requests",
       "description": "GDPR Article 17 right-to-erasure request: scope, anonymisation policy, regulator deadline, fulfillment status.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "right to erasure request",
@@ -1420,11 +1288,7 @@
       "plural_label": "Escalation Rules",
       "description": "Policy that escalates overdue training through manager, skip-level, HR Business Partner, or compliance officer.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1459,11 +1323,7 @@
       "plural_label": "FDA Part 11 Audit Trails",
       "description": "21 CFR Part 11 audit trail row for GxP-relevant training; tamper-evident, retention-locked.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1492,11 +1352,7 @@
       "plural_label": "FINRA CE Records",
       "description": "FINRA Rule 1240 continuing-education ledger row per registered representative; regulator-evidence retention.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "FINRA continuing education entry",
@@ -1537,11 +1393,7 @@
       "plural_label": "GDPR Consent Records",
       "description": "GDPR Article 6 / 7 consent capture for learner training data: purpose, lawful basis, granted timestamp, withdrawal timestamp.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "consent receipt",
@@ -1574,11 +1426,7 @@
       "plural_label": "GxP Training Signoffs",
       "description": "Witnessed e-signature binding learner, course, content version and timestamp for FDA 21 CFR Part 11 life-sciences training.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1607,11 +1455,7 @@
       "plural_label": "Harassment Training Acknowledgments",
       "description": "Statutory acknowledgment of harassment training completion per CA SB-1343, NY 201-g, IL 2-109; carries signed timestamp and IP.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "SB-1343 acknowledgment",
@@ -1645,11 +1489,7 @@
       "plural_label": "Instructor Assignments",
       "description": "Junction assigning an instructor to a session or offering, with role (primary / assistant / observer).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1683,11 +1523,7 @@
       "plural_label": "Instructors",
       "description": "Instructor master separate from employees; covers internal trainers, contracted SMEs, and external vendor instructors.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "facilitator",
@@ -1725,11 +1561,7 @@
       "plural_label": "Learner Badges",
       "description": "Earned-badge junction per learner per badge; carries earn date, evidence URL, and verification token.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "earned badge",
@@ -1758,11 +1590,7 @@
       "plural_label": "Certifications",
       "description": "Issued credential against a worker (internal certification, vendor cert, regulatory cert) with issue date, expiry, issuing body, and renewal rules. Drives recertification campaigns.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "credential",
@@ -1815,11 +1643,7 @@
       "plural_label": "Learner Notifications",
       "description": "Per-learner sent-notification log row for reminders, nudges, completions, and escalations.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "reminder log",
@@ -1856,11 +1680,7 @@
       "plural_label": "Learning Content Assets",
       "description": "Reusable content asset (video, PDF, image, audio) referenced by lessons and modules.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1891,11 +1711,7 @@
       "plural_label": "Learning Path Assignments",
       "description": "Path-to-learner assignment row distinct from course_enrollments; tracks overall path progress and completion percentage.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "path enrollment",
@@ -1932,11 +1748,7 @@
       "plural_label": "Learning Path Steps",
       "description": "Ordered step inside a learning path: pointer to a course, sub-path, or external resource with sequencing rules.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1946,11 +1758,7 @@
       "plural_label": "Learning Paths",
       "description": "Curated sequence of courses targeting a role, skill, or certification. Drives ordered enrollment and progress tracking across multiple courses.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "curriculum",
@@ -1988,11 +1796,7 @@
       "plural_label": "Learning Plans",
       "description": "Personalized plan composed of multiple paths or courses, often manager-curated or AI-recommended against skill gaps.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "individual development plan",
@@ -2033,11 +1837,7 @@
       "plural_label": "Learning Recommendations",
       "description": "Per-learner suggested content generated from skill gaps and role profile.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2066,11 +1866,7 @@
       "plural_label": "Learning Records",
       "description": "Granular completion event for a course or activity, often xAPI / SCORM / cmi5 statement: actor, verb, object, result, timestamp. Feeds skill_profiles and certifications.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "learning activity record",
@@ -2109,11 +1905,7 @@
       "plural_label": "Lessons",
       "description": "Leaf consumable inside a course module: video, document, SCORM block, or live activity.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "topic",
@@ -2128,11 +1920,7 @@
       "plural_label": "LRS Statement Endpoints",
       "description": "External Learning Record Store endpoints xAPI statements are routed to.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2142,11 +1930,7 @@
       "plural_label": "Manager Nudges",
       "description": "Manager-directed reminder triggered when a direct report has overdue or upcoming training.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "manager prompt",
@@ -2183,11 +1967,7 @@
       "plural_label": "Notification Templates",
       "description": "Reusable email / in-app / chat template with merge fields, used by automation rules and manager nudges.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2197,11 +1977,7 @@
       "plural_label": "Observation Checklist Results",
       "description": "A learner's scored result against an observation checklist, with observer signoff.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2230,11 +2006,7 @@
       "plural_label": "Observation Checklists",
       "description": "On-the-job competency checklist an observer scores against; field-skill assessment.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2263,11 +2035,7 @@
       "plural_label": "Phishing Simulation Results",
       "description": "Per-recipient outcome of a phishing simulation (clicked, reported, ignored).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2277,11 +2045,7 @@
       "plural_label": "Phishing Simulations",
       "description": "Configured simulated-phishing campaign for security-awareness training (PCI DSS 12.6).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2310,11 +2074,7 @@
       "plural_label": "Prerequisite Rules",
       "description": "Gating logic that controls path progression: required completions, scores, certifications, or competencies.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2324,11 +2084,7 @@
       "plural_label": "Question Banks",
       "description": "Reusable pools of assessment questions independent of any single assessment, drawn from for randomized quizzes and recertification exams.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2338,11 +2094,7 @@
       "plural_label": "Quiz Responses",
       "description": "Item-level learner response capture for psychometric analysis and per-question review.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2352,11 +2104,7 @@
       "plural_label": "Recertification Schedules",
       "description": "Periodic recurrence configuration that drives FINRA / BSA-AML / HIPAA / OSHA refresh assignment cycles.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2366,11 +2114,7 @@
       "plural_label": "Regulator Filing Exports",
       "description": "Export artifact for regulator submissions: OSHA 300, FINRA CE filings, state-CE rollups.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "compliance filing",
@@ -2410,11 +2154,7 @@
       "plural_label": "Reminder Schedules",
       "description": "Configured nudge cadence driving automated learner and manager reminders.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2424,11 +2164,7 @@
       "plural_label": "SCORM Packages",
       "description": "SCORM / AICC / cmi5 content package import; carries content interop manifest and runtime state.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "AICC package",
@@ -2470,11 +2206,7 @@
       "plural_label": "Session Attendances",
       "description": "Per-session attendance roster row per learner. OSHA-mandated evidence for required workplace training.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "attendance roster",
@@ -2502,11 +2234,7 @@
       "plural_label": "Session Cancellations",
       "description": "Cancellation or no-show record for an ILT session, driving waitlist promotion.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2516,11 +2244,7 @@
       "plural_label": "Session Rosters",
       "description": "Pre-session enrollment snapshot for an ILT session; attendance proof basis.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2530,11 +2254,7 @@
       "plural_label": "Skill Targets",
       "description": "A learning-path step bound to a skill plus a target proficiency threshold.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -2544,11 +2264,7 @@
       "plural_label": "Subject Access Requests",
       "description": "GDPR Article 15 subject-access-request ticket: requester, scope, fulfillment status, regulator deadline.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "SAR ticket",
@@ -2586,11 +2302,7 @@
       "plural_label": "Training Evidence Records",
       "description": "Inspection-ready evidence package: signed roster, certificate hash, content version, signature record reference. Generated for regulator submission.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "compliance evidence package",
@@ -2630,11 +2342,7 @@
       "plural_label": "Training Room Bookings",
       "description": "Reservation of a physical or virtual room and resources for an instructor-led session.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2663,11 +2371,7 @@
       "plural_label": "Virtual Classroom Meetings",
       "description": "Linkage to an external video meeting (Zoom / Teams / Webex) for a virtual session; carries join URL and recording reference.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "VILT session",
@@ -2708,11 +2412,7 @@
       "plural_label": "Waitlist Entries",
       "description": "Capacity overflow queue for a course offering; priority order and notify-on-seat-open policy.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2745,11 +2445,7 @@
       "plural_label": "xAPI Statements",
       "description": "Experience-API event log row capturing actor-verb-object learning activity inside or outside the LMS.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "experience API statement",

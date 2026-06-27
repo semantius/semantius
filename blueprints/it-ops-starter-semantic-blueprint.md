@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: IT-OPS-STARTER
-system_description: IT Operations Starter
+system_name: IT Operations Starter
 tagline: "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets."
 description: One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.
 system_slug: it-ops-starter
@@ -12,7 +11,7 @@ domain_modules:
 domain_code: IT-OPS-STARTER
 related_modules: [aiops-event-correlation, aiops-predictive-intelligence, apm-portfolio-registry, clm-repository, data-ai-plat-ml, dcim-asset-space, dcim-power-env, dlp-enforcement-runtime, ham-asset-registry, hcm-core-worker, hrsd-employee-portal, iga-access-request, iga-auto-provisioning, iga-entitlement-catalog, itam-contracts, itam-lifecycle, itom-infra-mon, itsm-incident-mgmt, itsm-service-request, lcap-visual-composition, remote-access-session, rmm-agent-mgmt, rmm-automation, rmm-monitoring, sam-entitlement-mgmt, smp-discovery, smp-renewal-vendor, uem-compliance-posture, uem-config-apps, uem-device-lifecycle, work-mgmt-task-exec, wsc-channels-conversations]
 persona: [IT-SAAS-ADMIN, ITAM-SAAS-PORTFOLIO-MANAGER, PROCUREMENT-SAAS-RENEWAL-OWNER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # IT Operations Starter
@@ -89,14 +88,14 @@ Coexistence: these flat fields are a standalone-only denormalization. They are n
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `asset_contracts` | `asset_contracts` | Asset Contract | Asset Contracts | embedded_master | `itam-contracts` | Cross-Asset Contract Management | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 1 | `asset_contracts` | `asset_contracts` | Asset Contract | Asset Contracts | embedded_master | `itam-contracts` | Cross-Asset Contract Management | required | - | operational_workflow | `:manage` | - |
 | 2 | `hardware_assets` | `hardware_assets` | Hardware Asset | Hardware Assets | embedded_master | `ham-asset-registry` | Hardware Asset Registry | optional | - | operational_workflow | `:manage` | - |
-| 3 | `service_incidents` | `service_incidents` | Incident | Incidents | embedded_master | `itsm-incident-mgmt` | Incident Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 3 | `service_incidents` | `service_incidents` | Incident | Incidents | embedded_master | `itsm-incident-mgmt` | Incident Management | optional | yes | operational_workflow | `:manage` | - |
 | 4 | `saas_applications` | `saas_applications` | SaaS Application | SaaS Applications | embedded_master | `smp-discovery` | SMP Discovery and Catalog | optional | - | operational_workflow | `:manage` | - |
 | 5 | `saas_subscriptions` | `saas_subscriptions` | SaaS Subscription | SaaS Subscriptions | embedded_master | `smp-renewal-vendor` | SMP Renewal and Vendor Management | required | - | operational_workflow | `:manage` | - |
-| 6 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
+| 6 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | - | operational_workflow | `:manage` | - |
 | 7 | `software_licenses` | `software_licenses` | Software License | Software Licenses | embedded_master | `sam-entitlement-mgmt` | Entitlement Reconciliation and Renewal | optional | - | operational_workflow | `:manage` | - |
 | 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
@@ -411,7 +410,6 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | `it-ops-starter:initiate_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewing` | ✓ |
 | `it-ops-starter:approve_renewal` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `renewed` | ✓ |
 | `it-ops-starter:cancel_subscription` | workflow-gate (lifecycle) | Transition `saas_subscriptions` into state `canceled` | ✓ |
-| `it-ops-starter:submit_asset_contract` | override (submit_lock) | Submit and lock a `asset_contracts` row (post-submit edits gated) | ✓ |
 | `it-ops-starter:view_all_incidents` | override (personal_content) | View all `service_incidents` rows beyond row-scope | ✓ |
 | `it-ops-starter:manage_all_incidents` | override (personal_content) | Manage all `service_incidents` rows beyond row-scope | ✓ |
 
@@ -419,10 +417,7 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `submit_restricted_to_asset_contract_owner` | `asset_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `it-ops-starter:manage_all_asset_contracts` |
-| `approve_asset_contract_requires_approver` | `asset_contracts` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`it-ops-starter:approve_asset_contract` if surfaced as a lifecycle workflow gate). |
 | `incident_edit_scope` | `service_incidents` | has_personal_content | Row-scope by default; override via `it-ops-starter:view_all_incidents` / `it-ops-starter:manage_all_incidents` |
-| `approve_service_request_requires_approver` | `service_requests` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`it-ops-starter:approved_service_request`). |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -454,7 +449,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `it-ops-starter:admin` | `it-ops-starter:initiate_renewal` |
 | `it-ops-starter:admin` | `it-ops-starter:approve_renewal` |
 | `it-ops-starter:admin` | `it-ops-starter:cancel_subscription` |
-| `it-ops-starter:admin` | `it-ops-starter:submit_asset_contract` |
 | `it-ops-starter:admin` | `it-ops-starter:view_all_incidents` |
 | `it-ops-starter:admin` | `it-ops-starter:manage_all_incidents` |
 

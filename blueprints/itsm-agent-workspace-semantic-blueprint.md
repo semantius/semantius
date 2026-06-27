@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-AGENT-WORKSPACE
-system_description: Agent Workspace and Reporting
+system_name: Service Agent Workspace and Reporting
 tagline: Give agents one workspace and leaders the reporting to run the service desk.
 description: |
   Agent Workspace and Reporting brings the agent's queue, context, and tools into a single view so they can work tickets without hunting across screens. Everything needed to understand and act on the next item is in one place.
@@ -13,12 +12,13 @@ system_slug: itsm-agent-workspace
 domain_modules:
   - itsm-agent-workspace
 domain_code: ITSM
+icon_name: headset
 related_modules: [ats-recruitment-pipeline, hcm-core-worker, hcm-org-positions, iga-access-request, iwms-location-master]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Agent Workspace and Reporting
+# Service Agent Workspace and Reporting
 
 ## 1. Overview
 
@@ -59,7 +59,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `virtual_agent_conversations` | `virtual_agent_conversations` | Virtual Agent Conversation | Virtual Agent Conversations | master | - | - | required | - | operational_record | `:manage` | - |
 | 2 | `walkup_visits` | `walkup_visits` | Walk-Up Visit | Walk-Up Visits | master | - | - | required | - | operational_workflow | `:manage` | - |

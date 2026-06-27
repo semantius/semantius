@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-CREDENTIALS
-system_description: Credentials, Badges and Continuing Education
+system_name: Credentials, Badges and Continuing Education
 tagline: Issue certifications and digital badges, then manage renewals and let others verify them.
 description: Define certifications and badges, issue them when learners qualify, and track expiry and renewal across the workforce. Let learners share verifiable credentials and let third parties confirm them, so a qualification is easy to prove long after the course is done.
 system_slug: lms-credentials
 domain_modules:
   - lms-credentials
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-automation, lms-compliance-training, lms-course-delivery, lms-ct-gdpr, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Credentials, Badges and Continuing Education
@@ -98,21 +98,21 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `certificate_templates` | `certificate_templates` | Certificate Template | Certificate Templates | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `certification_definitions` | `certification_definitions` | Certification Definition | Certification Definitions | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `certification_renewals` | `certification_renewals` | Certification Renewal | Certification Renewals | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 4 | `learner_certifications` | `learner_certifications` | Certification | Certifications | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `ceu_records` | `ceu_records` | CEU Record | CEU Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 3 | `certification_renewals` | `certification_renewals` | Certification Renewal | Certification Renewals | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 4 | `learner_certifications` | `learner_certifications` | Certification | Certifications | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 5 | `ceu_records` | `ceu_records` | CEU Record | CEU Records | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 6 | `continuing_education_credits` | `continuing_education_credits` | Continuing Education Credit | Continuing Education Credits | master | - | - | required | - | catalog | `:admin` | - |
 | 7 | `credential_badges` | `credential_badges` | Credential Badge | Credential Badges | master | - | - | required | - | catalog | `:admin` | - |
-| 8 | `credential_verifications` | `credential_verifications` | Credential Verification | Credential Verifications | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 9 | `finra_ce_records` | `finra_ce_records` | FINRA CE Record | FINRA CE Records | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 10 | `learner_badges` | `learner_badges` | Learner Badge | Learner Badges | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 11 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
+| 8 | `credential_verifications` | `credential_verifications` | Credential Verification | Credential Verifications | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 9 | `finra_ce_records` | `finra_ce_records` | FINRA CE Record | FINRA CE Records | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 10 | `learner_badges` | `learner_badges` | Learner Badge | Learner Badges | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 11 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | yes | operational_workflow | `:manage` | - |
 | 12 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 13 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 13 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -445,20 +445,16 @@ _This scope holds `employees` as **embedded_master**; the canonical state machin
 | `lms-credentials:renew` | workflow-gate (lifecycle) | Transition `certification_renewals` into state `renewed` | ✓ |
 | `lms-credentials:view_all_learner_badges` | override (personal_content) | View all `learner_badges` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_learner_badges` | override (personal_content) | Manage all `learner_badges` rows beyond row-scope | ✓ |
-| `lms-credentials:submit_learner_badge` | override (submit_lock) | Submit and lock a `learner_badges` row (post-submit edits gated) | ✓ |
 | `lms-credentials:view_all_ceu_records` | override (personal_content) | View all `ceu_records` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_ceu_records` | override (personal_content) | Manage all `ceu_records` rows beyond row-scope | ✓ |
-| `lms-credentials:submit_ceu_record` | override (submit_lock) | Submit and lock a `ceu_records` row (post-submit edits gated) | ✓ |
 | `lms-credentials:view_all_certifications` | override (personal_content) | View all `learner_certifications` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_certifications` | override (personal_content) | Manage all `learner_certifications` rows beyond row-scope | ✓ |
-| `lms-credentials:submit_certification` | override (submit_lock) | Submit and lock a `learner_certifications` row (post-submit edits gated) | ✓ |
 | `lms-credentials:view_all_employees` | override (personal_content) | View all `employees` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
 | `lms-credentials:view_all_course_enrollments` | override (personal_content) | View all `course_enrollments` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_course_enrollments` | override (personal_content) | Manage all `course_enrollments` rows beyond row-scope | ✓ |
 | `lms-credentials:view_all_finra_ce_records` | override (personal_content) | View all `finra_ce_records` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_finra_ce_records` | override (personal_content) | Manage all `finra_ce_records` rows beyond row-scope | ✓ |
-| `lms-credentials:submit_finra_ce_record` | override (submit_lock) | Submit and lock a `finra_ce_records` row (post-submit edits gated) | ✓ |
 | `lms-credentials:view_all_credential_verifications` | override (personal_content) | View all `credential_verifications` rows beyond row-scope | ✓ |
 | `lms-credentials:manage_all_credential_verifications` | override (personal_content) | Manage all `credential_verifications` rows beyond row-scope | ✓ |
 | `lms-credentials:view_all_certification_renewals` | override (personal_content) | View all `certification_renewals` rows beyond row-scope | ✓ |
@@ -469,15 +465,11 @@ _This scope holds `employees` as **embedded_master**; the canonical state machin
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `learner_badge_edit_scope` | `learner_badges` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_learner_badges` / `lms-credentials:manage_all_learner_badges` |
-| `submit_restricted_to_learner_badge_owner` | `learner_badges` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-credentials:manage_all_learner_badges` |
 | `ceu_record_edit_scope` | `ceu_records` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_ceu_records` / `lms-credentials:manage_all_ceu_records` |
-| `submit_restricted_to_ceu_record_owner` | `ceu_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-credentials:manage_all_ceu_records` |
 | `certification_edit_scope` | `learner_certifications` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_certifications` / `lms-credentials:manage_all_certifications` |
-| `submit_restricted_to_certification_owner` | `learner_certifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-credentials:manage_all_certifications` |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_employees` / `lms-credentials:manage_all_employees` |
 | `course_enrollment_edit_scope` | `course_enrollments` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_course_enrollments` / `lms-credentials:manage_all_course_enrollments` |
 | `finra_ce_record_edit_scope` | `finra_ce_records` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_finra_ce_records` / `lms-credentials:manage_all_finra_ce_records` |
-| `submit_restricted_to_finra_ce_record_owner` | `finra_ce_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-credentials:manage_all_finra_ce_records` |
 | `credential_verification_edit_scope` | `credential_verifications` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_credential_verifications` / `lms-credentials:manage_all_credential_verifications` |
 | `certification_renewal_edit_scope` | `certification_renewals` | has_personal_content | Row-scope by default; override via `lms-credentials:view_all_certification_renewals` / `lms-credentials:manage_all_certification_renewals` |
 
@@ -521,20 +513,16 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-credentials:admin` | `lms-credentials:renew` |
 | `lms-credentials:admin` | `lms-credentials:view_all_learner_badges` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_learner_badges` |
-| `lms-credentials:admin` | `lms-credentials:submit_learner_badge` |
 | `lms-credentials:admin` | `lms-credentials:view_all_ceu_records` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_ceu_records` |
-| `lms-credentials:admin` | `lms-credentials:submit_ceu_record` |
 | `lms-credentials:admin` | `lms-credentials:view_all_certifications` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_certifications` |
-| `lms-credentials:admin` | `lms-credentials:submit_certification` |
 | `lms-credentials:admin` | `lms-credentials:view_all_employees` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_employees` |
 | `lms-credentials:admin` | `lms-credentials:view_all_course_enrollments` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_course_enrollments` |
 | `lms-credentials:admin` | `lms-credentials:view_all_finra_ce_records` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_finra_ce_records` |
-| `lms-credentials:admin` | `lms-credentials:submit_finra_ce_record` |
 | `lms-credentials:admin` | `lms-credentials:view_all_credential_verifications` |
 | `lms-credentials:admin` | `lms-credentials:manage_all_credential_verifications` |
 | `lms-credentials:admin` | `lms-credentials:view_all_certification_renewals` |

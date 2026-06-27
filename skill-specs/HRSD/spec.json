@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "HRSD",
     "name": "HR Service Delivery",
@@ -116,11 +116,7 @@
       "plural_label": "HR Case Categories",
       "description": "Taxonomy of HR ask types (Pay, Benefits, Leave, Policy, Time, Compensation, Performance, Employee Relations, Compliance). Drives routing, SLA, knowledge-article lookup, and trend analytics.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "HR case taxonomy",
@@ -139,11 +135,7 @@
       "plural_label": "HR Cases",
       "description": "Employee inquiry or service request routed to HR Operations (pay question, benefits change, policy clarification, leave request, complaint). The HRSD analog of ITSM service_requests, scoped to HR-owned workflows.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": true
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "HR ticket",

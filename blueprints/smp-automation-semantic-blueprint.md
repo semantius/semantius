@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SMP-AUTOMATION
-system_description: SMP Automation and Self-Service Requests
+system_name: SMP Automation and Self-Service Requests
 tagline: Automate the busywork of granting, moving, and removing app access.
 description: Build declarative workflows that provision and deprovision SaaS access automatically, track every run, and give employees a self-service way to request the apps they need with manager and IT approval built in. Less manual ticket-pushing, faster access, cleaner offboarding.
 system_slug: smp-automation
 domain_modules:
   - smp-automation
 domain_code: SMP
+icon_name: cloud-cog
 related_modules: [smp-discovery, smp-optimization, smp-renewal-vendor]
 persona: [IT-SAAS-ADMIN]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # SMP Automation and Self-Service Requests
@@ -48,9 +48,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `smp_app_requests` | `smp_app_requests` | App Access Request | App Access Requests | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `smp_app_requests` | `smp_app_requests` | App Access Request | App Access Requests | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 2 | `smp_automation_workflows` | `smp_automation_workflows` | Automation Workflow | Automation Workflows | master | - | - | required | - | catalog | `:admin` | - |
 | 3 | `smp_workflow_runs` | `smp_workflow_runs` | Workflow Run | Workflow Runs | master | - | - | required | - | operational_record | `:manage` | - |
 
@@ -163,14 +163,12 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `smp-automation:cancel_app_request` | workflow-gate (lifecycle) | Transition `smp_app_requests` into state `canceled` | ✓ |
 | `smp-automation:view_all_app_access_requests` | override (personal_content) | View all `smp_app_requests` rows beyond row-scope | ✓ |
 | `smp-automation:manage_all_app_access_requests` | override (personal_content) | Manage all `smp_app_requests` rows beyond row-scope | ✓ |
-| `smp-automation:submit_app_access_request` | override (submit_lock) | Submit and lock a `smp_app_requests` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `app_access_request_edit_scope` | `smp_app_requests` | has_personal_content | Row-scope by default; override via `smp-automation:view_all_app_access_requests` / `smp-automation:manage_all_app_access_requests` |
-| `submit_restricted_to_app_access_request_owner` | `smp_app_requests` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `smp-automation:manage_all_app_access_requests` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -204,7 +202,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `smp-automation:admin` | `smp-automation:cancel_app_request` |
 | `smp-automation:admin` | `smp-automation:view_all_app_access_requests` |
 | `smp-automation:admin` | `smp-automation:manage_all_app_access_requests` |
-| `smp-automation:admin` | `smp-automation:submit_app_access_request` |
 
 **Processes wired:**
 

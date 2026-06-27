@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-ILT-DELIVERY
-system_description: Instructor-Led and Virtual-Instructor-Led Training
+system_name: Instructor-Led and Virtual-Instructor-Led Training
 tagline: "Run instructor-led and virtual classroom training: schedule sessions, book rooms, and track attendance."
 description: Plan classroom and virtual instructor-led training from one place. Schedule offerings and sessions, reserve rooms and resources, and manage rosters, waitlists, and cancellations. Record attendance and completion so classroom learning lands in the same record as everything else.
 system_slug: lms-ilt-delivery
 domain_modules:
   - lms-ilt-delivery
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iwms-location-master, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, training-records-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Instructor-Led and Virtual-Instructor-Led Training
@@ -116,22 +116,22 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `course_offerings` | `course_offerings` | Course Offering | Course Offerings | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `course_resources` | `course_resources` | Course Resource | Course Resources | master | - | - | required | - | catalog | `:admin` | - |
 | 3 | `course_sessions` | `course_sessions` | Course Session | Course Sessions | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 4 | `instructor_assignments` | `instructor_assignments` | Instructor Assignment | Instructor Assignments | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 5 | `instructors` | `instructors` | Instructor | Instructors | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `session_attendances` | `session_attendances` | Session Attendance | Session Attendances | master | - | - | required | personal_content, submit_lock | operational_record | `:manage` | - |
-| 7 | `session_cancellations` | `session_cancellations` | Session Cancellation | Session Cancellations | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 8 | `session_rosters` | `session_rosters` | Session Roster | Session Rosters | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 9 | `training_room_bookings` | `training_room_bookings` | Training Room Booking | Training Room Bookings | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
+| 5 | `instructors` | `instructors` | Instructor | Instructors | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 6 | `session_attendances` | `session_attendances` | Session Attendance | Session Attendances | master | - | - | required | yes | operational_record | `:manage` | - |
+| 7 | `session_cancellations` | `session_cancellations` | Session Cancellation | Session Cancellations | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 8 | `session_rosters` | `session_rosters` | Session Roster | Session Rosters | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 9 | `training_room_bookings` | `training_room_bookings` | Training Room Booking | Training Room Bookings | master | - | - | optional | yes | operational_workflow | `:manage` | - |
 | 10 | `virtual_classroom_meetings` | `virtual_classroom_meetings` | Virtual Classroom Meeting | Virtual Classroom Meetings | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 11 | `waitlist_entries` | `waitlist_entries` | Waitlist Entry | Waitlist Entries | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | personal_content | operational_workflow | `:manage` | - |
+| 11 | `waitlist_entries` | `waitlist_entries` | Waitlist Entry | Waitlist Entries | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 12 | `course_enrollments` | `course_enrollments` | Course Enrollment | Course Enrollments | embedded_master | `lms-course-delivery` | Course Delivery | required | yes | operational_workflow | `:manage` | - |
 | 13 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 14 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 14 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 15 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
 | 16 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
@@ -505,7 +505,6 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `lms-ilt-delivery:manage_all_instructors` | override (personal_content) | Manage all `instructors` rows beyond row-scope | ✓ |
 | `lms-ilt-delivery:view_all_session_attendances` | override (personal_content) | View all `session_attendances` rows beyond row-scope | ✓ |
 | `lms-ilt-delivery:manage_all_session_attendances` | override (personal_content) | Manage all `session_attendances` rows beyond row-scope | ✓ |
-| `lms-ilt-delivery:submit_session_attendance` | override (submit_lock) | Submit and lock a `session_attendances` row (post-submit edits gated) | ✓ |
 | `lms-ilt-delivery:view_all_waitlist_entries` | override (personal_content) | View all `waitlist_entries` rows beyond row-scope | ✓ |
 | `lms-ilt-delivery:manage_all_waitlist_entries` | override (personal_content) | Manage all `waitlist_entries` rows beyond row-scope | ✓ |
 | `lms-ilt-delivery:view_all_course_enrollments` | override (personal_content) | View all `course_enrollments` rows beyond row-scope | ✓ |
@@ -525,7 +524,6 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | --- | --- | --- | --- |
 | `instructor_edit_scope` | `instructors` | has_personal_content | Row-scope by default; override via `lms-ilt-delivery:view_all_instructors` / `lms-ilt-delivery:manage_all_instructors` |
 | `session_attendance_edit_scope` | `session_attendances` | has_personal_content | Row-scope by default; override via `lms-ilt-delivery:view_all_session_attendances` / `lms-ilt-delivery:manage_all_session_attendances` |
-| `submit_restricted_to_session_attendance_owner` | `session_attendances` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-ilt-delivery:manage_all_session_attendances` |
 | `waitlist_entry_edit_scope` | `waitlist_entries` | has_personal_content | Row-scope by default; override via `lms-ilt-delivery:view_all_waitlist_entries` / `lms-ilt-delivery:manage_all_waitlist_entries` |
 | `course_enrollment_edit_scope` | `course_enrollments` | has_personal_content | Row-scope by default; override via `lms-ilt-delivery:view_all_course_enrollments` / `lms-ilt-delivery:manage_all_course_enrollments` |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-ilt-delivery:view_all_employees` / `lms-ilt-delivery:manage_all_employees` |
@@ -578,7 +576,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:manage_all_instructors` |
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:view_all_session_attendances` |
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:manage_all_session_attendances` |
-| `lms-ilt-delivery:admin` | `lms-ilt-delivery:submit_session_attendance` |
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:view_all_waitlist_entries` |
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:manage_all_waitlist_entries` |
 | `lms-ilt-delivery:admin` | `lms-ilt-delivery:view_all_course_enrollments` |

@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-EVENT-MGMT
-system_description: Event and Alert Handling
+system_name: Event and Alert Handling
 tagline: Turn the flood of monitoring alerts into the few incidents that actually matter.
 description: |
   Event and Alert Handling sits between your monitoring tools and your service desk, taking in the constant stream of alerts and deciding what deserves a human response. Noise is filtered, related signals are grouped, and only meaningful events become tracked incidents.
@@ -13,9 +12,10 @@ system_slug: itsm-event-mgmt
 domain_modules:
   - itsm-event-mgmt
 domain_code: ITSM
+icon_name: headset
 related_modules: [itom-infra-mon]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Event and Alert Handling
@@ -43,7 +43,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `monitoring_alerts` | `monitoring_alerts` | Alert | Alerts | embedded_master | `itom-infra-mon` | Infrastructure Monitoring and Event Management | required | - | operational_workflow | `:manage` | - |
 

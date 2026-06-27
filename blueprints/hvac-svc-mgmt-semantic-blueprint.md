@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HVAC-SVC-MGMT
-system_description: HVAC Service Management (small-org starter)
+system_name: HVAC Service Management (small-org starter)
 tagline: A ready-to-run home-services starter that takes an HVAC job from customer call to scheduled visit and invoice.
 description: This starter packages the field-service essentials a heating and cooling service business needs on day one. It bundles the customer and contact record, the installed equipment at each site, work orders and field visits, service contracts, and the quote-to-invoice path so a small team can book a call, schedule a technician, complete the job, and bill it without stitching tools together. It is a fast on-ramp to field service for trades operators who want the core workflow working immediately and can grow into the full modules later.
 system_slug: hvac-svc-mgmt
 domain_modules:
   - hvac-svc-mgmt
 domain_code: HVAC-SVC-MGMT
+icon_name: air-vent
 related_modules: [b2c-comm-order-capture, cdp-unified-profile, cpq-product-catalog, cpq-quote-builder, crm-acct-mgt, crm-lead-mgt, crm-pipeline-mgt, fds-csa-mgmt, fds-wholesale, fsm-dispatch-ops, fsm-installed-base, fsm-mobile-tech, fsm-service-contracts, ham-warranty-parts, ma-campaign-authoring, sub-mgmt-billing, sub-mgmt-subscriptions]
 persona: []
-created_at: 2026-06-24
+created_at: 2026-06-27
 ---
 
 # HVAC Service Management (small-org starter)
@@ -94,19 +94,19 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
+| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | yes | operational_record | `:manage` | - |
 | 2 | `customer_invoices` | `customer_invoices` | Customer Invoice | Customer Invoices | embedded_master | `sub-mgmt-billing` | Recurring Billing and Dunning | required | - | operational_workflow | `:manage` | - |
 | 3 | `customer_sites` | `customer_sites` | Customer Site | Customer Sites | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
-| 4 | `customers` | `customers` | Customer | Customers | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `dispatch_records` | `dispatch_records` | Dispatch Record | Dispatch Records | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
-| 6 | `field_visits` | `field_visits` | Field Visit | Field Visits | embedded_master | `fsm-mobile-tech` | Mobile Technician | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `customers` | `customers` | Customer | Customers | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | yes | operational_workflow | `:manage` | - |
+| 5 | `dispatch_records` | `dispatch_records` | Dispatch Record | Dispatch Records | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | - | operational_workflow | `:manage` | - |
+| 6 | `field_visits` | `field_visits` | Field Visit | Field Visits | embedded_master | `fsm-mobile-tech` | Mobile Technician | required | yes | operational_workflow | `:manage` | - |
 | 7 | `installed_equipment` | `installed_equipment` | Installed Equipment Unit | Installed Equipment | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
-| 8 | `sales_quotes` | `sales_quotes` | Sales Quote | Sales Quotes | embedded_master | `cpq-quote-builder` | Quote Construction and Discounting | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 9 | `service_contracts` | `service_contracts` | Service Contract | Service Contracts | embedded_master | `fsm-service-contracts` | Service Contracts and SLAs | required | submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 10 | `service_pm_schedules` | `service_pm_schedules` | Service PM Schedule | Service PM Schedules | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | submit_lock | operational_workflow | `:manage` | - |
-| 11 | `service_work_orders` | `service_work_orders` | Service Work Order | Service Work Orders | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | submit_lock | operational_workflow | `:manage` | - |
+| 8 | `sales_quotes` | `sales_quotes` | Sales Quote | Sales Quotes | embedded_master | `cpq-quote-builder` | Quote Construction and Discounting | required | - | operational_workflow | `:manage` | - |
+| 9 | `service_contracts` | `service_contracts` | Service Contract | Service Contracts | embedded_master | `fsm-service-contracts` | Service Contracts and SLAs | required | - | operational_workflow | `:manage` | - |
+| 10 | `service_pm_schedules` | `service_pm_schedules` | Service PM Schedule | Service PM Schedules | embedded_master | `fsm-installed-base` | Installed Equipment and Preventive Maintenance | required | - | operational_workflow | `:manage` | - |
+| 11 | `service_work_orders` | `service_work_orders` | Service Work Order | Service Work Orders | embedded_master | `fsm-dispatch-ops` | Field Service Dispatch Operations | required | - | operational_workflow | `:manage` | - |
 | 12 | `spare_parts_inventory` | `spare_parts_inventory` | Spare Part Inventory Item | Spare Part Inventory Items | embedded_master | `ham-warranty-parts` | Warranty, Disposal, and Spare Parts | required | - | operational_record | `:manage` | - |
 | 13 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
@@ -429,13 +429,8 @@ _This scope holds `service_work_orders` as **embedded_master**; the canonical st
 | `hvac-svc-mgmt:manage_all_customers` | override (personal_content) | Manage all `customers` rows beyond row-scope | ✓ |
 | `hvac-svc-mgmt:view_all_contacts` | override (personal_content) | View all `crm_contacts` rows beyond row-scope | ✓ |
 | `hvac-svc-mgmt:manage_all_contacts` | override (personal_content) | Manage all `crm_contacts` rows beyond row-scope | ✓ |
-| `hvac-svc-mgmt:submit_service_pm_schedule` | override (submit_lock) | Submit and lock a `service_pm_schedules` row (post-submit edits gated) | ✓ |
-| `hvac-svc-mgmt:submit_service_work_order` | override (submit_lock) | Submit and lock a `service_work_orders` row (post-submit edits gated) | ✓ |
 | `hvac-svc-mgmt:view_all_field_visits` | override (personal_content) | View all `field_visits` rows beyond row-scope | ✓ |
 | `hvac-svc-mgmt:manage_all_field_visits` | override (personal_content) | Manage all `field_visits` rows beyond row-scope | ✓ |
-| `hvac-svc-mgmt:submit_dispatch_record` | override (submit_lock) | Submit and lock a `dispatch_records` row (post-submit edits gated) | ✓ |
-| `hvac-svc-mgmt:submit_service_contract` | override (submit_lock) | Submit and lock a `service_contracts` row (post-submit edits gated) | ✓ |
-| `hvac-svc-mgmt:submit_sales_quote` | override (submit_lock) | Submit and lock a `sales_quotes` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
@@ -443,14 +438,7 @@ _This scope holds `service_work_orders` as **embedded_master**; the canonical st
 | --- | --- | --- | --- |
 | `customer_edit_scope` | `customers` | has_personal_content | Row-scope by default; override via `hvac-svc-mgmt:view_all_customers` / `hvac-svc-mgmt:manage_all_customers` |
 | `contact_edit_scope` | `crm_contacts` | has_personal_content | Row-scope by default; override via `hvac-svc-mgmt:view_all_contacts` / `hvac-svc-mgmt:manage_all_contacts` |
-| `submit_restricted_to_service_pm_schedule_owner` | `service_pm_schedules` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hvac-svc-mgmt:manage_all_service_pm_schedules` |
-| `submit_restricted_to_service_work_order_owner` | `service_work_orders` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hvac-svc-mgmt:manage_all_service_work_orders` |
 | `field_visit_edit_scope` | `field_visits` | has_personal_content | Row-scope by default; override via `hvac-svc-mgmt:view_all_field_visits` / `hvac-svc-mgmt:manage_all_field_visits` |
-| `submit_restricted_to_dispatch_record_owner` | `dispatch_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hvac-svc-mgmt:manage_all_dispatch_records` |
-| `submit_restricted_to_service_contract_owner` | `service_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hvac-svc-mgmt:manage_all_service_contracts` |
-| `approve_service_contract_requires_approver` | `service_contracts` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hvac-svc-mgmt:approve_service_contract` if surfaced as a lifecycle workflow gate). |
-| `submit_restricted_to_sales_quote_owner` | `sales_quotes` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hvac-svc-mgmt:manage_all_sales_quotes` |
-| `approve_sales_quote_requires_approver` | `sales_quotes` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hvac-svc-mgmt:approve_sales_quote` if surfaced as a lifecycle workflow gate). |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -487,13 +475,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:manage_all_customers` |
 | `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:view_all_contacts` |
 | `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:manage_all_contacts` |
-| `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:submit_service_pm_schedule` |
-| `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:submit_service_work_order` |
 | `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:view_all_field_visits` |
 | `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:manage_all_field_visits` |
-| `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:submit_dispatch_record` |
-| `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:submit_service_contract` |
-| `hvac-svc-mgmt:admin` | `hvac-svc-mgmt:submit_sales_quote` |
 
 **RACI realization:**
 

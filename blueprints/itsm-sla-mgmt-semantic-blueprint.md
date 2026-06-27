@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-SLA-MGMT
-system_description: SLA and Chargeback Management
+system_name: SLA and Chargeback Management
 tagline: Set service-level targets, track them in real time, and account for the cost.
 description: |
   SLA and Chargeback Management defines the response and resolution commitments your service desk operates to, then measures every ticket against them so breaches are caught before they become escalations. Targets are explicit and performance is visible.
@@ -13,9 +12,10 @@ system_slug: itsm-sla-mgmt
 domain_modules:
   - itsm-sla-mgmt
 domain_code: ITSM
+icon_name: headset
 related_modules: [ats-recruitment-pipeline, fin-gl-close, hcm-core-worker, hcm-org-positions, iga-access-request, itsm-starter]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # SLA and Chargeback Management
@@ -58,7 +58,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `service_slas` | `service_slas` | SLA | SLAs | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |

@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SRM-RISK-COMPLIANCE
-system_description: Supplier Risk and Compliance
+system_name: Supplier Risk and Compliance
 tagline: Assess supplier risk and prove compliance before and after you sign.
 description: Score each supplier for financial, operational, cyber, and ESG risk, and keep certifications and insurance current with automatic expiry alerts. Screen suppliers for sanctions and compliance gaps, escalate elevated risk to governance and procurement, and keep a defensible record of every check behind each supplier decision.
 system_slug: srm-risk-compliance
 domain_modules:
   - srm-risk-compliance
 domain_code: SRM
+icon_name: handshake
 related_modules: [food-trace-supplier-provenance, fsqm-audit-supplier, srm-supplier-lifecycle]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Supplier Risk and Compliance
@@ -74,15 +74,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `supplier_attestations` | `supplier_attestations` | Supplier Attestation | Supplier Attestations | master | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `supplier_beneficial_owners` | `supplier_beneficial_owners` | Supplier Beneficial Owner | Supplier Beneficial Owners | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 3 | `supplier_certifications` | `supplier_certifications` | Supplier Certification | Supplier Certifications | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `supplier_attestations` | `supplier_attestations` | Supplier Attestation | Supplier Attestations | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 2 | `supplier_beneficial_owners` | `supplier_beneficial_owners` | Supplier Beneficial Owner | Supplier Beneficial Owners | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 3 | `supplier_certifications` | `supplier_certifications` | Supplier Certification | Supplier Certifications | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 4 | `supplier_diversity_classifications` | `supplier_diversity_classifications` | Supplier Diversity Classification | Supplier Diversity Classifications | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 5 | `supplier_insurance_certificates` | `supplier_insurance_certificates` | Supplier Insurance Certificate | Supplier Insurance Certificates | master | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
-| 6 | `supplier_risk_assessments` | `supplier_risk_assessments` | Supplier Risk Assessment | Supplier Risk Assessments | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 7 | `supplier_screening_records` | `supplier_screening_records` | Supplier Screening Record | Supplier Screening Records | master | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
+| 5 | `supplier_insurance_certificates` | `supplier_insurance_certificates` | Supplier Insurance Certificate | Supplier Insurance Certificates | master | - | - | optional | - | operational_workflow | `:manage` | - |
+| 6 | `supplier_risk_assessments` | `supplier_risk_assessments` | Supplier Risk Assessment | Supplier Risk Assessments | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 7 | `supplier_screening_records` | `supplier_screening_records` | Supplier Screening Record | Supplier Screening Records | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 8 | `supplier_esg_assessments` | `supplier_esg_assessments` | Supplier ESG Assessment | Supplier ESG Assessments | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 | 9 | `supplier_questionnaires` | `supplier_questionnaires` | Supplier Questionnaire | Supplier Questionnaires | consumer | `srm-supplier-lifecycle` | Supplier Lifecycle Management | optional | - | catalog | `:admin` | - |
 
@@ -219,23 +219,14 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | `srm-risk-compliance:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `srm-risk-compliance:adjudicate_screening` | workflow-gate (lifecycle) | Transition `supplier_screening_records` into state `adjudicated` | ✓ |
 | `srm-risk-compliance:sign_attestation` | workflow-gate (lifecycle) | Transition `supplier_attestations` into state `signed` | ✓ |
-| `srm-risk-compliance:submit_supplier_certification` | override (submit_lock) | Submit and lock a `supplier_certifications` row (post-submit edits gated) | ✓ |
-| `srm-risk-compliance:submit_supplier_screening_record` | override (submit_lock) | Submit and lock a `supplier_screening_records` row (post-submit edits gated) | ✓ |
 | `srm-risk-compliance:view_all_supplier_beneficial_owners` | override (personal_content) | View all `supplier_beneficial_owners` rows beyond row-scope | ✓ |
 | `srm-risk-compliance:manage_all_supplier_beneficial_owners` | override (personal_content) | Manage all `supplier_beneficial_owners` rows beyond row-scope | ✓ |
-| `srm-risk-compliance:submit_supplier_insurance_certificate` | override (submit_lock) | Submit and lock a `supplier_insurance_certificates` row (post-submit edits gated) | ✓ |
-| `srm-risk-compliance:submit_supplier_attestation` | override (submit_lock) | Submit and lock a `supplier_attestations` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `approve_supplier_risk_assessment_requires_approver` | `supplier_risk_assessments` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`srm-risk-compliance:approve_supplier_risk_assessment` if surfaced as a lifecycle workflow gate). |
-| `submit_restricted_to_supplier_certification_owner` | `supplier_certifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `srm-risk-compliance:manage_all_supplier_certifications` |
-| `submit_restricted_to_supplier_screening_record_owner` | `supplier_screening_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `srm-risk-compliance:manage_all_supplier_screening_records` |
 | `supplier_beneficial_owner_edit_scope` | `supplier_beneficial_owners` | has_personal_content | Row-scope by default; override via `srm-risk-compliance:view_all_supplier_beneficial_owners` / `srm-risk-compliance:manage_all_supplier_beneficial_owners` |
-| `submit_restricted_to_supplier_insurance_certificate_owner` | `supplier_insurance_certificates` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `srm-risk-compliance:manage_all_supplier_insurance_certificates` |
-| `submit_restricted_to_supplier_attestation_owner` | `supplier_attestations` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `srm-risk-compliance:manage_all_supplier_attestations` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -258,12 +249,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `srm-risk-compliance:manage` | `srm-risk-compliance:read` |
 | `srm-risk-compliance:admin` | `srm-risk-compliance:adjudicate_screening` |
 | `srm-risk-compliance:admin` | `srm-risk-compliance:sign_attestation` |
-| `srm-risk-compliance:admin` | `srm-risk-compliance:submit_supplier_certification` |
-| `srm-risk-compliance:admin` | `srm-risk-compliance:submit_supplier_screening_record` |
 | `srm-risk-compliance:admin` | `srm-risk-compliance:view_all_supplier_beneficial_owners` |
 | `srm-risk-compliance:admin` | `srm-risk-compliance:manage_all_supplier_beneficial_owners` |
-| `srm-risk-compliance:admin` | `srm-risk-compliance:submit_supplier_insurance_certificate` |
-| `srm-risk-compliance:admin` | `srm-risk-compliance:submit_supplier_attestation` |
 
 **RACI realization:**
 

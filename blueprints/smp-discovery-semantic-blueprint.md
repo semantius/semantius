@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SMP-DISCOVERY
-system_description: SMP Discovery and Catalog
+system_name: SMP Discovery and Catalog
 tagline: Find every SaaS app in use, including the ones nobody told you about.
 description: Automatically discover sanctioned and shadow SaaS across your org, assign an owner to each app, and connect the integrations that feed usage and spend data. Publish a clean app catalog, stage each application through its portfolio lifecycle, and get alerted the moment something needs attention.
 system_slug: smp-discovery
 domain_modules:
   - smp-discovery
 domain_code: SMP
+icon_name: cloud-cog
 related_modules: [apm-portfolio-registry, iga-entitlement-catalog, it-ops-starter, itam-portfolio-reporting, smp-automation, smp-optimization, smp-renewal-vendor, spend-mgmt-cards]
 persona: [IT-SAAS-ADMIN, ITAM-SAAS-PORTFOLIO-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # SMP Discovery and Catalog
@@ -70,7 +70,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `smp_app_catalog_listings` | `smp_app_catalog_listings` | App Catalog Listing | App Catalog Listings | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `smp_app_lifecycle_stages` | `smp_app_lifecycle_stages` | App Lifecycle Stage | App Lifecycle Stages | master | - | - | required | - | operational_workflow | `:manage` | - |

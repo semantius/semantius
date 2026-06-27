@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "CLM",
     "name": "Contract Lifecycle Management",
@@ -120,7 +120,7 @@
     },
     {
       "code": "CLM-RENEWAL",
-      "name": "Renewal Management",
+      "name": "Contract Renewal Management",
       "kind": "full",
       "realizes_capabilities": [
         "CLM-RENEWAL-MGMT"
@@ -162,11 +162,7 @@
       "plural_label": "Clause Libraries",
       "description": "A versioned, governed collection of approved contract clauses, often organized by jurisdiction or contract type, that authors draw from.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "clause bank",
@@ -185,11 +181,7 @@
       "plural_label": "Contract Amendments",
       "description": "A formal change to the terms of an executed contract, tracked as its own record with an approval and signature trail.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "amendment",
@@ -229,11 +221,7 @@
       "plural_label": "Contract Clauses",
       "description": "Reusable clause library: preferred and fallback language for indemnification, IP, termination, SLA, payment terms, data-protection, AI-use, audit rights. Drives consistency in authoring and accelerates negotiation.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "clause",
@@ -279,11 +267,7 @@
       "plural_label": "Contract Counterparties",
       "description": "The external party to a contract, held as its own record because a counterparty is not always a CRM account or supplier and may sign many contracts.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "contracting party",
@@ -302,11 +286,7 @@
       "plural_label": "Contract Milestones",
       "description": "A date-driven checkpoint in a contract (for example a delivery date or review date), distinct from a deliverable obligation.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "contract checkpoint",
@@ -342,11 +322,7 @@
       "plural_label": "Negotiation Threads",
       "description": "A structured thread of negotiation rounds and counterparty exchanges on a contract, separate from the clauses and the contract itself.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "negotiation round",
@@ -386,11 +362,7 @@
       "plural_label": "Contract Obligations",
       "description": "Specific performance, payment, delivery, reporting, or compliance commitment extracted from a contract, each with its own owner, due date, and status. Post-signature obligation tracking is where contracts deliver (or fail to deliver) value.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "SLA commitment",
@@ -448,11 +420,7 @@
       "plural_label": "Contract Renewal Records",
       "description": "A record of a single renewal of an existing contract, capturing the renewed term, pricing, and outcome distinct from the original agreement.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "renewal",
@@ -492,11 +460,7 @@
       "plural_label": "Contract Risk Assessments",
       "description": "A structured assessment of the legal or commercial risk in a contract or clause, produced during review and dispositioned by a reviewer.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "compliance score",
@@ -536,11 +500,7 @@
       "plural_label": "Contract Templates",
       "description": "Pre-approved drafts (NDA, MSA, DPA, SOW, order form) assembled from the clause library, used to author new contracts. Carries versioning, approval state, and risk-tier classification.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "template",
@@ -582,11 +542,7 @@
       "plural_label": "Data Protection Addenda",
       "description": "A data processing addendum attached to a contract that governs how personal data is handled, with its own approval and renewal cycle.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "DPA",
@@ -621,11 +577,7 @@
       "plural_label": "Contracts",
       "description": "Canonical contract record: counterparty / supplier, contract type (MSA, SOW, NDA, DPA, subscription, lease), effective and expiry dates, total value, governing law, status (draft, in-negotiation, signed, active, expired, terminated). The most multi-mastered SaaS-related object, CLM owns the document, S2P and SMP contribute context.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "MSA",
@@ -707,11 +659,7 @@
       "plural_label": "Negotiation Playbooks",
       "description": "A set of negotiation rules and fallback positions that guide how clauses may be redlined and what concessions are pre-approved.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "negotiation guide",
@@ -730,11 +678,7 @@
       "plural_label": "Signature Records",
       "description": "E-signature envelope: signing audit trail, IP addresses, external e-signature provider envelope and document reference IDs, and the signed PDF artifact. Distinct from contracts, one contract may have many signature events (counterpart, amendment, renewal).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "execution record",

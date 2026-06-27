@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: CLM-RENEWAL
-system_description: Renewal Management
+system_name: Contract Renewal Management
 tagline: Get ahead of every expiry and renewal so no contract lapses by accident.
 description: |
   Know which contracts are coming up for renewal well before they expire, and decide deliberately whether to renew, renegotiate, or let them end. Renewal countdowns and early warnings turn a reactive scramble into a planned workflow.
@@ -13,12 +12,13 @@ system_slug: clm-renewal
 domain_modules:
   - clm-renewal
 domain_code: CLM
+icon_name: file-pen
 related_modules: [clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-repository]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Renewal Management
+# Contract Renewal Management
 
 ## 1. Overview
 
@@ -43,9 +43,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_renewal_records` | `contract_renewal_records` | Contract Renewal Record | Contract Renewal Records | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `contract_renewal_records` | `contract_renewal_records` | Contract Renewal Record | Contract Renewal Records | master | - | - | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -118,13 +118,10 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `clm-renewal:manage` | baseline-manage | Edit operational records | ✓ |
 | `clm-renewal:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `clm-renewal:renewed_contract_renewal_record` | workflow-gate (lifecycle) | Transition `contract_renewal_records` into state `renewed` | ✓ |
-| `clm-renewal:submit_contract_renewal_record` | override (submit_lock) | Submit and lock a `contract_renewal_records` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `submit_restricted_to_contract_renewal_record_owner` | `contract_renewal_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `clm-renewal:manage_all_contract_renewal_records` |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -146,7 +143,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `clm-renewal:admin` | `clm-renewal:manage` |
 | `clm-renewal:manage` | `clm-renewal:read` |
 | `clm-renewal:admin` | `clm-renewal:renewed_contract_renewal_record` |
-| `clm-renewal:admin` | `clm-renewal:submit_contract_renewal_record` |
 
 **RACI realization:**
 

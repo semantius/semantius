@@ -2,20 +2,20 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ATS-OFFERS
-system_description: Offers
+system_name: Job Offers
 tagline: Generate, approve, and send offers without losing a version.
 description: Draft offers from templates, route them through approval chains, and track every version until acceptance. Generated offer letters stay linked to the offer record, so what was approved is exactly what was sent.
 system_slug: ats-offers
 domain_modules:
   - ats-offers
 domain_code: ATS
+icon_name: user-plus
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, comp-statements, cwm-worker-sourcing, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, onb-journey-mgmt]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Offers
+# Job Offers
 
 ## 1. Overview
 
@@ -72,15 +72,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `offer_approvals` | `offer_approvals` | Offer Approval | Offer Approvals | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
-| 2 | `offer_letter_documents` | `offer_letter_documents` | Offer Letter Document | Offer Letter Documents | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `offer_approvals` | `offer_approvals` | Offer Approval | Offer Approvals | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `offer_letter_documents` | `offer_letter_documents` | Offer Letter Document | Offer Letter Documents | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 3 | `offer_letter_templates` | `offer_letter_templates` | Offer Letter Template | Offer Letter Templates | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `offer_versions` | `offer_versions` | Offer Version | Offer Versions | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 5 | `job_offers` | `job_offers` | Offer | Offers | master | - | - | required | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 6 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
-| 7 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `offer_versions` | `offer_versions` | Offer Version | Offer Versions | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 5 | `job_offers` | `job_offers` | Offer | Offers | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 6 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | yes | operational_workflow | `:manage` | - |
+| 7 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -322,11 +322,9 @@ _This scope holds `job_applications` as **embedded_master**; the canonical state
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `offer_edit_scope` | `job_offers` | has_personal_content | Row-scope by default; override via `ats-offers:view_all_offers` / `ats-offers:manage_all_offers` |
-| `approve_offer_requires_approver` | `job_offers` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`ats-offers:approve_offer` if surfaced as a lifecycle workflow gate). |
 | `candidate_edit_scope` | `candidates` | has_personal_content | Row-scope by default; override via `ats-offers:view_all_candidates` / `ats-offers:manage_all_candidates` |
 | `application_edit_scope` | `job_applications` | has_personal_content | Row-scope by default; override via `ats-offers:view_all_applications` / `ats-offers:manage_all_applications` |
 | `offer_version_edit_scope` | `offer_versions` | has_personal_content | Row-scope by default; override via `ats-offers:view_all_offer_versions` / `ats-offers:manage_all_offer_versions` |
-| `approve_offer_approval_requires_approver` | `offer_approvals` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`ats-offers:approve_offer`). |
 | `offer_letter_document_edit_scope` | `offer_letter_documents` | has_personal_content | Row-scope by default; override via `ats-offers:view_all_offer_letter_documents` / `ats-offers:manage_all_offer_letter_documents` |
 
 ## 9. Roles, RACI, and responsibilities (derived)

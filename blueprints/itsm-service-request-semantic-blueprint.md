@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-SERVICE-REQUEST
-system_description: Service Request Fulfillment
+system_name: Service Request Fulfillment
 tagline: Let employees order the services they need and fulfill each one with confidence.
 description: |
   Service Request Fulfillment gives your workforce a single front door for the everyday things they need from IT: access, equipment, software, and standard changes. Each request follows a defined path through submission, approval, and fulfillment so nothing stalls in someone's inbox.
@@ -13,9 +12,10 @@ system_slug: itsm-service-request
 domain_modules:
   - itsm-service-request
 domain_code: ITSM
+icon_name: headset
 related_modules: [ats-recruitment-pipeline, cmdb-core, hcm-core-worker, hcm-org-positions, hrsd-case-mgmt, hrsd-employee-portal, iga-access-request, iga-entitlement-catalog, it-ops-starter, itsm-incident-mgmt, itsm-starter, iwms-location-master, iwms-workplace-service-desk, lms-compliance-training, onb-journey-mgmt, rmm-agent-mgmt, rmm-monitoring]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Service Request Fulfillment
@@ -79,14 +79,14 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `service_catalog_items` | `service_catalog_items` | Service Catalog Item | Service Catalog Items | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `service_offerings` | `service_offerings` | Service Offering | Service Offerings | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `service_requests` | `service_requests` | Service Request | Service Requests | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 3 | `service_requests` | `service_requests` | Service Request | Service Requests | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | optional | - | operational_workflow | `:manage` | - |
 | 5 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
-| 6 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | embedded_master | `onb-journey-mgmt` | Onboarding Journey Management | required | personal_content | operational_workflow | `:manage` | ITSM-SERVICE-REQUEST receives onboarding tasks (IT provisioning, workplace setup) as service-request payloads. |
+| 6 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | embedded_master | `onb-journey-mgmt` | Onboarding Journey Management | required | yes | operational_workflow | `:manage` | ITSM-SERVICE-REQUEST receives onboarding tasks (IT provisioning, workplace setup) as service-request payloads. |
 | 7 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -330,7 +330,6 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `approve_service_request_requires_approver` | `service_requests` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`itsm-service-request:approved_service_request`). |
 | `onboarding_task_edit_scope` | `onboarding_tasks` | has_personal_content | Row-scope by default; override via `itsm-service-request:view_all_onboarding_tasks` / `itsm-service-request:manage_all_onboarding_tasks` |
 
 ## 9. Roles, RACI, and responsibilities (derived)

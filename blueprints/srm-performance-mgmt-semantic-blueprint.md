@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SRM-PERFORMANCE-MGMT
-system_description: Supplier Performance Management
+system_name: Supplier Performance Management
 tagline: Score supplier performance and drive improvement where it slips.
 description: Measure suppliers against delivery, quality, responsiveness, and savings targets, and roll the results into weighted scorecards your category managers and finance teams share. Spot underperformers early, open corrective actions, and track them to closure so supplier performance improves cycle over cycle.
 system_slug: srm-performance-mgmt
 domain_modules:
   - srm-performance-mgmt
 domain_code: SRM
+icon_name: handshake
 related_modules: [srm-supplier-lifecycle]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Supplier Performance Management
@@ -61,7 +61,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `supplier_corrective_actions` | `supplier_corrective_actions` | Supplier Corrective Action | Supplier Corrective Actions | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 2 | `supplier_issues` | `supplier_issues` | Supplier Issue | Supplier Issues | master | - | - | optional | - | operational_workflow | `:manage` | - |

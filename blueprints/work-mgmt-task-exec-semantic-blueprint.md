@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: WORK-MGMT-TASK-EXEC
-system_description: Task and Project Execution
+system_name: Task and Project Execution
 tagline: Plan projects, assign tasks, and track them from kickoff to done.
 description: |
   Organize work into projects and sections, then assign tasks with owners, due dates, priorities, and dependencies. Track everything on boards, lists, and timelines, and keep work moving with approval steps, milestones, and automations that handle routine status changes and notifications.
@@ -13,9 +12,10 @@ system_slug: work-mgmt-task-exec
 domain_modules:
   - work-mgmt-task-exec
 domain_code: WORK-MGMT
+icon_name: kanban
 related_modules: [crm-pipeline-mgt, emp-exp-action-planning, intgov-governance, mrm-planning, pm-discovery, pm-roadmap-delivery, psa-project-delivery, psa-resource-mgmt, sem-execution-tracking, spm-demand-mgmt, spm-portfolio-planning, spm-resource-capacity, work-mgmt-goals-okr, work-mgmt-intake, wsc-channels-conversations]
 persona: [OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Task and Project Execution
@@ -231,19 +231,19 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `work_approval_chains` | `work_approval_chains` | Approval Chain | Approval Chains | master | - | - | required | - | catalog | `:admin` | - |
-| 2 | `work_approval_steps` | `work_approval_steps` | Approval Step | Approval Steps | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 2 | `work_approval_steps` | `work_approval_steps` | Approval Step | Approval Steps | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 3 | `work_custom_field_values` | `work_custom_field_values` | Custom Field Value | Custom Field Values | master | - | - | required | - | junction | `:admin` | - |
 | 4 | `work_custom_fields` | `work_custom_fields` | Custom Field | Custom Fields | master | - | - | required | - | catalog | `:admin` | - |
 | 5 | `work_item_attachments` | `work_item_attachments` | Item Attachment | Item Attachments | master | - | - | required | - | operational_record | `:manage` | - |
-| 6 | `work_item_comments` | `work_item_comments` | Item Comment | Item Comments | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 6 | `work_item_comments` | `work_item_comments` | Item Comment | Item Comments | master | - | - | required | yes | operational_record | `:manage` | - |
 | 7 | `work_item_tags` | `work_item_tags` | Item Tag Assignment | Item Tag Assignments | master | - | - | required | - | junction | `:admin` | - |
 | 8 | `work_milestones` | `work_milestones` | Milestone | Milestones | master | - | - | required | - | operational_record | `:manage` | - |
 | 9 | `work_project_templates` | `work_project_templates` | Project Template | Project Templates | master | - | - | required | - | catalog | `:admin` | - |
 | 10 | `proofing_annotations` | `proofing_annotations` | Proofing Annotation | Proofing Annotations | master | - | - | optional | - | operational_record | `:manage` | - |
-| 11 | `proofing_sessions` | `proofing_sessions` | Proofing Session | Proofing Sessions | master | - | - | optional | single_approver | operational_workflow | `:manage` | - |
+| 11 | `proofing_sessions` | `proofing_sessions` | Proofing Session | Proofing Sessions | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 12 | `work_sections` | `work_sections` | Section | Sections | master | - | - | required | - | catalog | `:admin` | - |
 | 13 | `work_tags` | `work_tags` | Tag | Tags | master | - | - | required | - | catalog | `:admin` | - |
 | 14 | `work_task_templates` | `work_task_templates` | Task Template | Task Templates | master | - | - | required | - | catalog | `:admin` | - |
@@ -252,19 +252,19 @@ flowchart TD
 | 17 | `work_dependencies` | `work_dependencies` | Work Dependency | Work Dependencies | master | - | - | required | - | junction | `:manage` | - |
 | 18 | `work_items` | `work_items` | Work Item | Work Items | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 19 | `work_portfolios` | `work_portfolios` | Work Portfolio | Work Portfolios | master | - | - | optional | - | catalog | `:admin` | - |
-| 20 | `work_projects` | `work_projects` | Work Project | Work Projects | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 20 | `work_projects` | `work_projects` | Work Project | Work Projects | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 21 | `work_status_updates` | `work_status_updates` | Work Status Update | Work Status Updates | master | - | - | optional | - | operational_record | `:manage` | - |
 | 22 | `work_statuses` | `work_statuses` | Work Status | Work Statuses | master | - | - | optional | - | catalog | `:admin` | - |
-| 23 | `work_time_entries` | `work_time_entries` | Work Time Entry | Work Time Entries | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 23 | `work_time_entries` | `work_time_entries` | Work Time Entry | Work Time Entries | master | - | - | optional | yes | operational_record | `:manage` | - |
 | 24 | `work_views` | `work_views` | Work View | Work Views | master | - | - | optional | - | catalog | `:admin` | - |
 | 25 | `work_user_workloads` | `work_user_workloads` | Workload | Workloads | master | - | - | required | - | computed | read-only | - |
-| 26 | `business_value_assessments` | `business_value_assessments` | Business Value Assessment | Business Value Assessments | consumer | `spm-demand-mgmt` | Demand and Value Management | optional | submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 26 | `business_value_assessments` | `business_value_assessments` | Business Value Assessment | Business Value Assessments | consumer | `spm-demand-mgmt` | Demand and Value Management | optional | - | operational_workflow | `:manage` | - |
 | 27 | `action_plans` | `action_plans` | Engagement Action Plan | Engagement Action Plans | consumer | `emp-exp-action-planning` | Action Planning | optional | - | operational_workflow | `:manage` | - |
-| 28 | `feature_requests` | `feature_requests` | Feature Request | Feature Requests | consumer | `pm-discovery` | Product Discovery and Prioritization | optional | personal_content | operational_workflow | `:manage` | - |
-| 29 | `crm_opportunities` | `crm_opportunities` | Opportunity | Opportunities | consumer | `crm-pipeline-mgt` | Opportunity and Pipeline Management | optional | personal_content, single_approver | operational_workflow | `:manage` | - |
+| 28 | `feature_requests` | `feature_requests` | Feature Request | Feature Requests | consumer | `pm-discovery` | Product Discovery and Prioritization | optional | yes | operational_workflow | `:manage` | - |
+| 29 | `crm_opportunities` | `crm_opportunities` | Opportunity | Opportunities | consumer | `crm-pipeline-mgt` | Opportunity and Pipeline Management | optional | yes | operational_workflow | `:manage` | - |
 | 30 | `strategic_portfolios` | `strategic_portfolios` | Portfolio | Portfolios | consumer | `spm-portfolio-planning` | Portfolio Planning | optional | - | operational_workflow | `:manage` | - |
-| 31 | `product_releases` | `product_releases` | Product Release | Product Releases | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
-| 32 | `product_roadmaps` | `product_roadmaps` | Product Roadmap | Product Roadmaps | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | submit_lock | operational_workflow | `:manage` | - |
+| 31 | `product_releases` | `product_releases` | Product Release | Product Releases | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | - | operational_workflow | `:manage` | - |
+| 32 | `product_roadmaps` | `product_roadmaps` | Product Roadmap | Product Roadmaps | consumer | `pm-roadmap-delivery` | Roadmap, Release, and Strategy | optional | - | operational_workflow | `:manage` | - |
 | 33 | `project_assignments` | `project_assignments` | Project Assignment | Project Assignments | consumer | `psa-resource-mgmt` | Resource Management | optional | - | operational_workflow | `:manage` | - |
 | 34 | `project_tasks` | `project_tasks` | Project Task | Project Tasks | consumer | `psa-project-delivery` | Project Delivery | optional | - | operational_workflow | `:manage` | - |
 | 35 | `strategic_initiatives` | `strategic_initiatives` | Strategic Initiative | Strategic Initiatives | consumer | `sem-execution-tracking` | Execution Tracking | optional | - | operational_workflow | `:manage` | - |
@@ -418,7 +418,7 @@ _Edges the canonical owner drives, shown for context: the in-scope endpoint has 
 | --- | --- | --- | --- | --- |
 | `work_automations` | PM-ROADMAP-DELIVERY (Roadmap, Release, and Strategy) - PROD-MGMT | consumer | optional | - |
 | `work_automations` | WSC-CHANNELS-CONVERSATIONS (Channels and Conversations) - WSC | consumer | optional | - |
-| `work_items` | INTGOV-GOVERNANCE (Ownership, Lifecycle and Planning) - INTRANET-GOV | embedded_master | optional | - |
+| `work_items` | INTGOV-GOVERNANCE (Intranet Content Governance and Lifecycle) - INTRANET-GOV | embedded_master | optional | - |
 | `work_items` | MRM-PLANNING (Marketing Planning and Calendar) - MRM | consumer | optional | - |
 | `work_items` | PM-ROADMAP-DELIVERY (Roadmap, Release, and Strategy) - PROD-MGMT | consumer | optional | - |
 | `work_items` | SPM-RESOURCE-CAPACITY (Resource and Capacity Planning) - SPM | consumer | optional | - |
@@ -705,7 +705,6 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 | `work-mgmt-task-exec:publish_task_template` | workflow-gate (lifecycle) | Transition `work_task_templates` into state `published` | ✓ |
 | `work-mgmt-task-exec:approve_proofing_session` | workflow-gate (lifecycle) | Transition `proofing_sessions` into state `approved` | ✓ |
 | `work-mgmt-task-exec:reject_proofing_session` | workflow-gate (lifecycle) | Transition `proofing_sessions` into state `rejected` | ✓ |
-| `work-mgmt-task-exec:submit_work_project` | override (submit_lock) | Submit and lock a `work_projects` row (post-submit edits gated) | ✓ |
 | `work-mgmt-task-exec:view_all_item_comments` | override (personal_content) | View all `work_item_comments` rows beyond row-scope | ✓ |
 | `work-mgmt-task-exec:manage_all_item_comments` | override (personal_content) | Manage all `work_item_comments` rows beyond row-scope | ✓ |
 | `work-mgmt-task-exec:view_all_work_time_entries` | override (personal_content) | View all `work_time_entries` rows beyond row-scope | ✓ |
@@ -715,10 +714,7 @@ _This scope holds `strategic_portfolios` as **consumer**; the canonical state ma
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
-| `submit_restricted_to_work_project_owner` | `work_projects` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `work-mgmt-task-exec:manage_all_work_projects` |
-| `approve_approval_step_requires_approver` | `work_approval_steps` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`work-mgmt-task-exec:approve_step`). |
 | `item_comment_edit_scope` | `work_item_comments` | has_personal_content | Row-scope by default; override via `work-mgmt-task-exec:view_all_item_comments` / `work-mgmt-task-exec:manage_all_item_comments` |
-| `approve_proofing_session_requires_approver` | `proofing_sessions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`work-mgmt-task-exec:approve_proofing_session` if surfaced as a lifecycle workflow gate). |
 | `work_time_entry_edit_scope` | `work_time_entries` | has_personal_content | Row-scope by default; override via `work-mgmt-task-exec:view_all_work_time_entries` / `work-mgmt-task-exec:manage_all_work_time_entries` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
@@ -756,7 +752,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:publish_task_template` |
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:approve_proofing_session` |
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:reject_proofing_session` |
-| `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:submit_work_project` |
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:view_all_item_comments` |
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:manage_all_item_comments` |
 | `work-mgmt-task-exec:admin` | `work-mgmt-task-exec:view_all_work_time_entries` |

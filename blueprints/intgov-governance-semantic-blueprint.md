@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: INTGOV-GOVERNANCE
-system_description: Ownership, Lifecycle and Planning
+system_name: Intranet Content Governance and Lifecycle
 tagline: Put a name on every page and keep it accountable over time.
 description: Assign an accountable owner and review cadence to each piece of content, run recertification cycles so owners confirm what is current or flag what is stale, and turn the gaps into a prioritized improvement backlog. The accountability layer that keeps your intranet from decaying into a ghost town.
 system_slug: intgov-governance
@@ -12,10 +11,10 @@ domain_modules:
 domain_code: INTRANET-GOV
 related_modules: [intgov-inventory, mrm-planning, pm-roadmap-delivery, psa-project-delivery, work-mgmt-goals-okr, work-mgmt-intake, work-mgmt-task-exec]
 persona: [CONTENT-OWNER, DIGITAL-WORKPLACE-GOV-LEAD, ITOPS-INTRANET-ADMIN, OPERATIONS-WORK-CONTRIBUTOR, OPERATIONS-WORK-PROGRAM-LEAD]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Ownership, Lifecycle and Planning
+# Intranet Content Governance and Lifecycle
 
 ## 1. Overview
 
@@ -53,9 +52,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `intranet_content_attestations` | `intranet_content_attestations` | Content Attestation | Content Attestations | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 1 | `intranet_content_attestations` | `intranet_content_attestations` | Content Attestation | Content Attestations | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `intranet_content_ownership_assignments` | `intranet_content_ownership_assignments` | Content Ownership Assignment | Content Ownership Assignments | master | - | - | required | - | junction | `:manage` | - |
 | 3 | `work_items` | `work_items` | Work Item | Work Items | embedded_master | `work-mgmt-task-exec` | Task and Project Execution | optional | - | operational_workflow | `:manage` | - |
 | 4 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
@@ -195,9 +194,7 @@ _This scope holds `work_items` as **embedded_master**; the canonical state machi
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `approve_content_attestation_requires_approver` | `intranet_content_attestations` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`intgov-governance:approve_content_attestation` if surfaced as a lifecycle workflow gate). |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 

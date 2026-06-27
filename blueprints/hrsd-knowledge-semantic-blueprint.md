@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HRSD-KNOWLEDGE
-system_description: HR Knowledge
+system_name: HR Knowledge
 tagline: Build and publish the HR knowledge that answers employees before they ask.
 description: |
   Maintain a living library of HR answers, policies, and how-to guidance that employees can find from the portal and that agents can attach to a case in seconds. Articles are organized by the same categories that classify cases, so the right answer surfaces in the right context.
@@ -15,7 +14,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [hrsd-case-mgmt, hrsd-employee-portal, itsm-knowledge]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # HR Knowledge
@@ -53,9 +52,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | IT Knowledge Management | required | - | operational_workflow | `:manage` | - |
 | 2 | `case_categories` | `case_categories` | HR Case Category | HR Case Categories | consumer | `hrsd-case-mgmt` | HR Case Management | optional | - | catalog | `:admin` | - |
 
 ## 4. Aliases and industry synonyms
@@ -153,13 +152,10 @@ _This scope holds `knowledge_articles` as **embedded_master**; the canonical sta
 | `hrsd-knowledge:manage` | baseline-manage | Edit operational records | ✓ |
 | `hrsd-knowledge:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `hrsd-knowledge:publish_article` | workflow-gate (lifecycle) | Transition `knowledge_articles` into state `published` | ✓ |
-| `hrsd-knowledge:submit_knowledge_article` | override (submit_lock) | Submit and lock a `knowledge_articles` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `submit_restricted_to_knowledge_article_owner` | `knowledge_articles` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hrsd-knowledge:manage_all_knowledge_articles` |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -181,7 +177,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `hrsd-knowledge:admin` | `hrsd-knowledge:manage` |
 | `hrsd-knowledge:manage` | `hrsd-knowledge:read` |
 | `hrsd-knowledge:admin` | `hrsd-knowledge:publish_article` |
-| `hrsd-knowledge:admin` | `hrsd-knowledge:submit_knowledge_article` |
 
 **RACI realization:**
 

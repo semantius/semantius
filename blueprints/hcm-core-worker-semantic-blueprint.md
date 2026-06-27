@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HCM-CORE-WORKER
-system_description: Core Worker Record
+system_name: Core Worker Record
 tagline: Maintain the authoritative worker record, employment contracts, and the personal data the rest of HR depends on.
 description: |
   The core worker module is where every employee profile lives: identity, status, manager, position, org unit, and the employment contracts that bind them. Capture each worker from pre-hire through active employment to termination, with personal-content fields protected by the access controls a workforce of record requires.
@@ -13,9 +12,10 @@ system_slug: hcm-core-worker
 domain_modules:
   - hcm-core-worker
 domain_code: HCM
+icon_name: users
 related_modules: [agency-mgmt-job-traffic, ats-candidate-crm, ben-aca-compliance, ben-enrollment, comp-benchmarking, comp-incentives, comp-planning, comp-statements, cwm-worker-sourcing, dlp-enforcement-runtime, emp-advocacy-content-distribution, emp-exp-action-planning, emp-exp-continuous-listen, fin-gl-close, fleet-mgmt-driver-ops, frontline-comms-broadcast-engagement, frontline-comms-task-execution, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, hrsd-employee-portal, iga-access-certification, iga-access-request, iga-auto-provisioning, iga-sod-mgmt, insider-risk-investigation-case-mgmt, insider-risk-monitoring-detection, iwms-desk-reservation, iwms-location-master, iwms-room-reservation, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, onb-document-intake, onb-journey-mgmt, onb-welcome-experience, pa-dei-analytics, pa-engagement-surveys, pa-predictive-models, pa-workforce-metrics, payroll-earnings-deductions, payroll-employee-pay-statements, payroll-run, payroll-tax-compliance, psa-project-delivery, psa-resource-mgmt, real-est-space-ops, sem-operating-rhythm, skills-mgmt-profile, swp-cost-projections, swp-demand-forecast, swp-supply-planning, talent-continuous-feedback, talent-performance-mgmt, talent-succession-career, tlnt-intel-insights, tlnt-intel-marketplace, tlnt-intel-mobility, travel-mgmt-duty-of-care, travel-mgmt-profile-policy, wfm-absence, wfm-scheduling, wfm-time-attendance]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Core Worker Record
@@ -139,22 +139,22 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `emergency_contacts` | `emergency_contacts` | Emergency Contact | Emergency Contacts | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 2 | `employee_dependents` | `employee_dependents` | Employee Dependent | Employee Dependents | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 3 | `employees` | `employees` | Employee | Employees | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `employment_contracts` | `employment_contracts` | Employment Contract | Employment Contracts | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 5 | `employment_events` | `employment_events` | Employment Event | Employment Events | master | - | - | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 6 | `national_ids` | `national_ids` | National ID | National IDs | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 7 | `work_eligibility_documents` | `work_eligibility_documents` | Work Eligibility Document | Work Eligibility Documents | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 8 | `worker_addresses` | `worker_addresses` | Worker Address | Worker Addresses | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 1 | `emergency_contacts` | `emergency_contacts` | Emergency Contact | Emergency Contacts | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 2 | `employee_dependents` | `employee_dependents` | Employee Dependent | Employee Dependents | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 3 | `employees` | `employees` | Employee | Employees | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 4 | `employment_contracts` | `employment_contracts` | Employment Contract | Employment Contracts | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 5 | `employment_events` | `employment_events` | Employment Event | Employment Events | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 6 | `national_ids` | `national_ids` | National ID | National IDs | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 7 | `work_eligibility_documents` | `work_eligibility_documents` | Work Eligibility Document | Work Eligibility Documents | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 8 | `worker_addresses` | `worker_addresses` | Worker Address | Worker Addresses | master | - | - | optional | yes | operational_record | `:manage` | - |
 | 9 | `locations` | `locations` | Location | Locations | embedded_master | `iwms-location-master` | Location and Property Master | optional | - | catalog | `:admin` | - |
 | 10 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | contributor | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
-| 11 | `contingent_workers` | `contingent_workers` | Contingent Worker | Contingent Workers | consumer | `cwm-worker-sourcing` | Worker Sourcing and Supplier Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 11 | `contingent_workers` | `contingent_workers` | Contingent Worker | Contingent Workers | consumer | `cwm-worker-sourcing` | Worker Sourcing and Supplier Management | optional | yes | operational_workflow | `:manage` | - |
 | 12 | `source_records` | `source_records` | MDM Source Record | MDM Source Records | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
-| 13 | `onboarding_document_collections` | `onboarding_document_collections` | Onboarding Document Collection | Onboarding Document Collections | consumer | `onb-document-intake` | Onboarding Document Intake | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 14 | `pay_slips` | `pay_slips` | Pay Slip | Pay Slips | consumer | `payroll-employee-pay-statements` | Pay Slips and Self-Service Statements | optional | personal_content | operational_workflow | `:manage` | - |
+| 13 | `onboarding_document_collections` | `onboarding_document_collections` | Onboarding Document Collection | Onboarding Document Collections | consumer | `onb-document-intake` | Onboarding Document Intake | optional | yes | operational_workflow | `:manage` | - |
+| 14 | `pay_slips` | `pay_slips` | Pay Slip | Pay Slips | consumer | `payroll-employee-pay-statements` | Pay Slips and Self-Service Statements | optional | yes | operational_workflow | `:manage` | - |
 | 15 | `people_kpis` | `people_kpis` | People KPI | People KPIs | consumer | `pa-workforce-metrics` | Workforce Metrics | optional | - | computed | read-only | - |
 | 16 | `project_assignments` | `project_assignments` | Project Assignment | Project Assignments | consumer | `psa-resource-mgmt` | Resource Management | optional | - | operational_workflow | `:manage` | - |
 | 17 | `project_resource_allocations` | `project_resource_allocations` | Project Resource Allocation | Project Resource Allocations | consumer | `psa-resource-mgmt` | Resource Management | optional | - | operational_workflow | `:manage` | - |
@@ -579,10 +579,8 @@ _This scope holds `project_resource_allocations` as **consumer**; the canonical 
 | `hcm-core-worker:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
 | `hcm-core-worker:view_all_employment_contracts` | override (personal_content) | View all `employment_contracts` rows beyond row-scope | ✓ |
 | `hcm-core-worker:manage_all_employment_contracts` | override (personal_content) | Manage all `employment_contracts` rows beyond row-scope | ✓ |
-| `hcm-core-worker:submit_employment_contract` | override (submit_lock) | Submit and lock a `employment_contracts` row (post-submit edits gated) | ✓ |
 | `hcm-core-worker:view_all_employment_events` | override (personal_content) | View all `employment_events` rows beyond row-scope | ✓ |
 | `hcm-core-worker:manage_all_employment_events` | override (personal_content) | Manage all `employment_events` rows beyond row-scope | ✓ |
-| `hcm-core-worker:submit_employment_event` | override (submit_lock) | Submit and lock a `employment_events` row (post-submit edits gated) | ✓ |
 | `hcm-core-worker:view_all_emergency_contacts` | override (personal_content) | View all `emergency_contacts` rows beyond row-scope | ✓ |
 | `hcm-core-worker:manage_all_emergency_contacts` | override (personal_content) | Manage all `emergency_contacts` rows beyond row-scope | ✓ |
 | `hcm-core-worker:view_all_work_eligibility_documents` | override (personal_content) | View all `work_eligibility_documents` rows beyond row-scope | ✓ |
@@ -600,11 +598,7 @@ _This scope holds `project_resource_allocations` as **consumer**; the canonical 
 | --- | --- | --- | --- |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_employees` / `hcm-core-worker:manage_all_employees` |
 | `employment_contract_edit_scope` | `employment_contracts` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_employment_contracts` / `hcm-core-worker:manage_all_employment_contracts` |
-| `submit_restricted_to_employment_contract_owner` | `employment_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hcm-core-worker:manage_all_employment_contracts` |
-| `approve_employment_contract_requires_approver` | `employment_contracts` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hcm-core-worker:approved_employment_contract`). |
 | `employment_event_edit_scope` | `employment_events` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_employment_events` / `hcm-core-worker:manage_all_employment_events` |
-| `submit_restricted_to_employment_event_owner` | `employment_events` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hcm-core-worker:manage_all_employment_events` |
-| `approve_employment_event_requires_approver` | `employment_events` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hcm-core-worker:approved_employment_event`). |
 | `emergency_contact_edit_scope` | `emergency_contacts` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_emergency_contacts` / `hcm-core-worker:manage_all_emergency_contacts` |
 | `work_eligibility_document_edit_scope` | `work_eligibility_documents` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_work_eligibility_documents` / `hcm-core-worker:manage_all_work_eligibility_documents` |
 | `national_id_edit_scope` | `national_ids` | has_personal_content | Row-scope by default; override via `hcm-core-worker:view_all_national_ids` / `hcm-core-worker:manage_all_national_ids` |
@@ -649,10 +643,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `hcm-core-worker:admin` | `hcm-core-worker:manage_all_employees` |
 | `hcm-core-worker:admin` | `hcm-core-worker:view_all_employment_contracts` |
 | `hcm-core-worker:admin` | `hcm-core-worker:manage_all_employment_contracts` |
-| `hcm-core-worker:admin` | `hcm-core-worker:submit_employment_contract` |
 | `hcm-core-worker:admin` | `hcm-core-worker:view_all_employment_events` |
 | `hcm-core-worker:admin` | `hcm-core-worker:manage_all_employment_events` |
-| `hcm-core-worker:admin` | `hcm-core-worker:submit_employment_event` |
 | `hcm-core-worker:admin` | `hcm-core-worker:view_all_emergency_contacts` |
 | `hcm-core-worker:admin` | `hcm-core-worker:manage_all_emergency_contacts` |
 | `hcm-core-worker:admin` | `hcm-core-worker:view_all_work_eligibility_documents` |

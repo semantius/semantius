@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "ATS",
     "name": "Applicant Tracking and Recruiting",
@@ -123,7 +123,7 @@
     },
     {
       "code": "ATS-INTERVIEWS",
-      "name": "Interviews",
+      "name": "Candidate Interviews",
       "kind": "full",
       "realizes_capabilities": [
         "INTERVIEW-MGMT"
@@ -147,7 +147,7 @@
     },
     {
       "code": "ATS-OFFERS",
-      "name": "Offers",
+      "name": "Job Offers",
       "kind": "full",
       "realizes_capabilities": [
         "OFFER-MGMT"
@@ -240,7 +240,7 @@
     },
     {
       "code": "ATS-TALENT-POOLS",
-      "name": "Talent Pools",
+      "name": "Candidate Talent Pools",
       "kind": "full",
       "realizes_capabilities": [
         "SOURCING"
@@ -267,11 +267,7 @@
       "plural_label": "Agency Submissions",
       "description": "Record of a staffing or search agency submitting a candidate against a requisition. Carries the submission date, the ownership and dedup window that determines which agency owns a placement when more than one submits the same person, and the fee terms that apply if the submission converts to a hire.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Agency Candidate Submission",
@@ -290,11 +286,7 @@
       "plural_label": "Applicant Flow Records",
       "description": "OFCCP-mandated log of every Internet Applicant against a requisition, capturing demographic data, expressed interest, basic qualifications, and disposition. Federal contractors must retain for OFCCP audit; the record is independent of EEO voluntary self-id.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -325,11 +317,7 @@
       "plural_label": "Application Dispositions",
       "description": "Typed reason-for-non-selection on a job application. Drives OFCCP applicant-flow reporting and internal hiring analytics; distinct from `application_stage_transitions` which logs the stage change but not the categorized business reason.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Archive Reason",
@@ -352,11 +340,7 @@
       "plural_label": "Application Screening Answers",
       "description": "Candidate-supplied answer to an application_screening_question on a specific job_application. Drives auto-disqualify on knockout rules.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -366,11 +350,7 @@
       "plural_label": "Application Screening Questions",
       "description": "Custom screening question attached to a job_posting or template (knockout questions, qualifying questions). Carries question text, type (boolean/single-select/free-text), required, knockout rule.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -380,11 +360,7 @@
       "plural_label": "Application Stage Transitions",
       "description": "Audit-trail record of an application moving between stages. Carries from_stage, to_stage, actor, timestamp, reason. Source of cycle-time, time-in-stage, and conversion-rate analytics.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -394,11 +370,7 @@
       "plural_label": "Application Stages",
       "description": "Configured stage in the recruiting pipeline (sourced, applied, screened, phone_screen, onsite, offer, hired). Per-requisition or per-template ordered list; defines the lifecycle of a job_application.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -408,11 +380,7 @@
       "plural_label": "Candidate Assessment Templates",
       "description": "Library item for assessments (coding challenge, work sample, take-home, skills test). Carries title, vendor, time limit, scoring rubric. Materializes into candidate_assessments when assigned.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -437,11 +405,7 @@
       "plural_label": "Assessments",
       "description": "Skills, cognitive, technical, or personality test result attached to an application. Often sourced from an external assessment provider and referenced here.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Pre-Hire Assessment",
@@ -489,11 +453,7 @@
       "plural_label": "Candidate Consents",
       "description": "Per-candidate opt-in record for GDPR / CCPA / data retention. Carries consent type, jurisdiction, granted timestamp, withdrawal timestamp, retention window.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -521,11 +481,7 @@
       "plural_label": "Candidate Documents",
       "description": "File artifact attached to a candidate (resume, cover letter, portfolio, work sample, signed disclosure, reference letter, right-to-work proof). Carries document type, MIME type, storage URI, uploaded-by actor, uploaded-at timestamp, and visibility scope.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -535,11 +491,7 @@
       "plural_label": "Candidate Emails",
       "description": "Persisted email correspondence with a candidate as a first-class threaded record, distinct from free-text application notes and engagement summaries. Captures sent and received messages, the template used, and delivery status across the candidate relationship.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Candidate Correspondence",
@@ -558,11 +510,7 @@
       "plural_label": "Candidate Engagements",
       "description": "Single recruiter-to-candidate touchpoint (email, InMail, call, SMS, event invite). Carries channel, direction, timestamp, status, and content reference.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -596,11 +544,7 @@
       "plural_label": "Candidate Notes",
       "description": "Free-form recruiter or hiring-team note on a candidate, internal-only, never sent to the candidate. Carries author, body, visibility scope (private to author, team, or hiring panel), timestamp, and optional at-mentions to other team members.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -610,11 +554,7 @@
       "plural_label": "Candidate Nurture Campaigns",
       "description": "Multi-touch automated outreach sequence targeting talent-pool segments. Carries cadence, step templates, audience filter, and lifecycle state.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -643,11 +583,7 @@
       "plural_label": "Referrals",
       "description": "Employee-submitted candidate suggestion linked to a requisition. Tracks the referring employee, candidate, status, and any payable bonus.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Employee Referral",
@@ -697,11 +633,7 @@
       "plural_label": "Candidate Tag Assignments",
       "description": "Many-to-many junction between candidates and candidate_tags. Carries assigned_by, assigned_at, and optional context.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -711,11 +643,7 @@
       "plural_label": "Candidate Tags",
       "description": "Free-form label applied to a candidate to support segmentation, search, and pool inclusion rules. Distinct from talent pools (curated membership lists). Carries name, optional category, and color.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -725,11 +653,7 @@
       "plural_label": "Candidates",
       "description": "Person known to the recruiting org, with or without an active application. Carries contact details, resume, tags, GDPR consent, and source. Distinct from Employee until hired.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Applicant",
@@ -781,11 +705,7 @@
       "plural_label": "Data Subject Requests",
       "description": "GDPR Articles 15-22 (and analogous CPRA/PIPEDA) request from a candidate exercising access, rectification, erasure, restriction, portability, or objection rights against personal data the ATS holds. Tracks request type, intake channel, due date, fulfillment, and verification.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -832,11 +752,7 @@
       "plural_label": "EEO Responses",
       "description": "Voluntary self-identification submitted by an applicant for EEO-1 / OFCCP / VEVRAA reporting (gender, race/ethnicity, veteran status, disability). Required compliance artifact for US employers >100 employees; stored separately from candidates record per regulation.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -862,11 +778,7 @@
       "plural_label": "Hiring Team Assignments",
       "description": "Per-requisition role-scoped staffing junction: assigns specific users to recruiter, hiring manager, coordinator, interviewer, and reviewer roles on a single requisition. Captures team composition without requiring global RBAC for transient interview-panel membership.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -876,11 +788,7 @@
       "plural_label": "Interview Kits",
       "description": "Reusable interview template per role / stage. Bundles assigned questions, target competencies, recommended scorecard, expected duration. Greenhouse's core authoring unit.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -905,11 +813,7 @@
       "plural_label": "Interview Panels",
       "description": "Composition of interviewers assigned to a specific interview, including their role on the panel (lead, technical, behavioral, debrief moderator) and weighting on the consolidated scorecard.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -939,11 +843,7 @@
       "plural_label": "Interview Questions",
       "description": "Question bank entry tied to competencies. Carries question text, type (behavioral / technical / situational), competency tags, suggested follow-ups, rubric.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -953,11 +853,7 @@
       "plural_label": "Interview Scorecards",
       "description": "Structured interviewer feedback against a defined rubric: per-competency ratings, written notes, and a hire/no-hire recommendation.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Evaluation Form",
@@ -989,11 +885,7 @@
       "plural_label": "Interviewer Availability Slots",
       "description": "Bookable time window an interviewer has marked available. Drives self-serve scheduling (Goodtime / Modern Hire / Calendly for Recruiting). Carries interviewer, start, end, allowed interview types.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1023,11 +915,7 @@
       "plural_label": "Interviews",
       "description": "Scheduled assessment event between a candidate and one or more interviewers. Carries time, location/medium, panel, interview kit, and outcome.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Interview Schedule",
@@ -1076,11 +964,7 @@
       "plural_label": "Applications",
       "description": "A candidate's submission against a specific requisition. Carries pipeline stage, status (active / rejected / withdrawn / hired), source, and the full evaluation history.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Candidacy",
@@ -1138,11 +1022,7 @@
       "plural_label": "Offers",
       "description": "Formal employment offer extended to a candidate. Carries compensation components, start date, terms, approval chain, and status (draft / approved / sent / accepted / declined / rescinded).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Job Offer",
@@ -1198,11 +1078,7 @@
       "plural_label": "Job Posting Distributions",
       "description": "Syndication of a job_posting to an external board (LinkedIn, Indeed, ZipRecruiter, Glassdoor, internal mobility portal). Carries board name, post timestamp, expiry, cost, applicant attribution.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1232,11 +1108,7 @@
       "plural_label": "Job Postings",
       "description": "Published, candidate-facing version of a requisition on a career site or job board. One requisition can have many postings (per board, language, or region).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Career Site Posting",
@@ -1285,11 +1157,7 @@
       "plural_label": "Job Requisitions",
       "description": "Approved request to hire for a specific role. The master ATS work item, carries headcount, level, location, hiring manager, recruiter, and status (draft / open / on_hold / filled / canceled).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Headcount Request",
@@ -1344,11 +1212,7 @@
       "plural_label": "OFCCP Audit Trails",
       "description": "Federal-contractor audit log of every applicant-flow event (requisition open, application receipt, disposition, hire) carrying the actor, timestamp, and OFCCP-relevant fields needed to reconstruct compliance decisions during an audit. Immutable append-only.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1358,11 +1222,7 @@
       "plural_label": "Offer Approvals",
       "description": "Approval step in the offer-approval chain (HRBP -> Comp -> Finance -> Exec). Triggered when an offer exceeds band, includes non-standard equity, or matches other escalation rules.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1396,11 +1256,7 @@
       "plural_label": "Offer Letter Documents",
       "description": "Generated PDF artifact of the offer terms, distinct from the structured offer record. Versioned in lockstep with offer_versions. Carries template_id, render timestamp, e-sign envelope link.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1430,11 +1286,7 @@
       "plural_label": "Offer Letter Templates",
       "description": "Reusable letter template with merge tokens (candidate name, role, base salary, start date, equity, bonus terms). Versioned. Renders offer_letter_documents at offer time. Carries template name, body, token schema, jurisdiction, language, active flag, and version.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1477,11 +1329,7 @@
       "plural_label": "Offer Versions",
       "description": "Versioned snapshot of a job_offer during negotiation (initial -> counter -> revised -> accepted). Each version carries the structured terms (base, bonus, equity, start_date) and the author of the change.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1515,11 +1363,7 @@
       "plural_label": "Outreach Sequence Steps",
       "description": "One ordered step within an outreach sequence: the channel, the day offset from enrollment, the message template, and whether the step is automated or requires a recruiter action. Defines the cadence the platform follows when a candidate is enrolled in the parent sequence.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Cadence Step",
@@ -1534,11 +1378,7 @@
       "plural_label": "Outreach Sequences",
       "description": "Named multi-step sourcing cadence definition (for example day 0 email, day 3 nudge, day 7 message) that automates candidate outreach. Holds the sequence name, owner, channel mix, and active status, and is the parent of its ordered steps.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Outreach Campaign",
@@ -1578,11 +1418,7 @@
       "plural_label": "Pre-Employees",
       "description": "ATS-owned pre-employment record covering the post-offer-acceptance window before the new-hire start date: paperwork in flight, background check pending, pre-boarding tasks open. At start-date the pre-employee row is reconciled into HCM-mastered `employees` (the canonical employee record). HCM owns the canonical employee record; ATS owns the pre-employee lifecycle stage so recruiting and HCM can each move at their own pace.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "Day-Zero Record",
@@ -1631,11 +1467,7 @@
       "plural_label": "Recruiter Interactions",
       "description": "Free-text recruiter note attached to a candidate, application, or pool, time-stamped and authored by a user.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1645,11 +1477,7 @@
       "plural_label": "Recruiter Saved Searches",
       "description": "Persisted recruiter boolean query over the candidate database. Carries filter expression, last_run timestamp, alert preferences.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1659,11 +1487,7 @@
       "plural_label": "Recruiting Event Attendances",
       "description": "Junction between candidates and recruitment_events recording registration, check-in, attendance, and conversion outcome.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1693,11 +1517,7 @@
       "plural_label": "Recruitment Agencies",
       "description": "Third-party recruiter or staffing firm supplying candidates. Tracks contract terms, contact, performance, and the candidates they have submitted.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Recruitment Vendor",
@@ -1739,11 +1559,7 @@
       "plural_label": "Recruitment Events",
       "description": "Career fair, on-campus event, hackathon, or meetup used as a sourcing channel. Tracks attendees, captured leads, and event ROI.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Hiring Event",
@@ -1782,11 +1598,7 @@
       "plural_label": "Recruitment Sources",
       "description": "Channel a candidate came from: job board, referral, agency, sourcing campaign, career event, or inbound. Used for source-of-hire analytics and channel ROI.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Source Channel",
@@ -1805,11 +1617,7 @@
       "plural_label": "Referral Campaigns",
       "description": "Time-bounded promotion offering bonus referral rewards (e.g. 'double bonus for engineering Q3 2026', 'spot-bonus for hard-to-fill roles'). Scopes a referral_rewards override.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1834,11 +1642,7 @@
       "plural_label": "Referral Payouts",
       "description": "Individual payout instance triggered when a referred candidate is hired and meets tenure conditions. Lifecycle: pending -> approved -> paid (-> clawed_back).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1877,11 +1681,7 @@
       "plural_label": "Referral Rewards",
       "description": "Bounty rule defining the payout amount and conditions for a successful referral (e.g. $5000 paid 90 days after hire start, scaled by role level).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -1891,11 +1691,7 @@
       "plural_label": "Requisition Approvals",
       "description": "Approval step in the chain that gates opening a job_requisition (hiring manager -> finance -> exec). Each step carries approver, decision, timestamp, rationale.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1930,11 +1726,7 @@
       "plural_label": "Talent Pool Memberships",
       "description": "Junction between candidates and talent_pools. Carries added timestamp, source, status_in_pool (cold/warm/hot), match score, and last_engagement timestamp.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -1963,11 +1755,7 @@
       "plural_label": "Talent Pools",
       "description": "Curated segment or pipeline of candidates kept warm for future roles (e.g. silver medallists, alumni, target-school grads, hard-to-fill skill clusters).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "Candidate Pool",
@@ -2005,11 +1793,7 @@
       "plural_label": "Talent Segments",
       "description": "Rule-based pool definition (boolean filter over candidates) that materializes membership automatically. Examples: 'Senior PMs in NYC with FinTech experience', 'Engineering alumni who left in the last 2 years'.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -2034,11 +1818,7 @@
       "plural_label": "Voluntary Self-Identifications",
       "description": "Voluntary candidate disclosure of protected-class membership (race, ethnicity, gender, veteran status, disability status) per EEOC and OFCCP self-id requirements. Distinct from `eeo_responses` which captures the survey response: this row captures the offer/decline-to-answer decision and audit metadata.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [],
       "lifecycle_states": []
     }

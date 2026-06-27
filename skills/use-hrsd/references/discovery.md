@@ -19,8 +19,7 @@ never `IS NULL`:
 | Column | Empty value | Empty means |
 |---|---|---|
 | `catalog_entity_code`, `catalog_field_code`, `catalog_module_code`, `catalog_role_code` | `''` | created outside the deploy pipeline (hand-built / pre-provenance) |
-| `canonical_owner_module` | `''` | this module owns it, or the entity is local |
-| `pattern_flags` | `'{}'` | no special behavior |
+| `catalog_owner_module` | `''` | this module owns it, or the entity is local |
 | `catalog_entity_aliases` | `'[]'` | never a merge target |
 | `entity_type` | `'unclassified'` | unclassified upstream; derive locally |
 
@@ -229,8 +228,8 @@ provenance reads:
   "fetch_errors": [],
   "entities": {
     "job_applications": {
-      "catalog_entity_code": "job_applications", "canonical_owner_module": "", "entity_type": "operational_workflow",
-      "pattern_flags": { "personal_content": true }, "catalog_entity_aliases": [],
+      "catalog_entity_code": "job_applications", "catalog_owner_module": "", "entity_type": "operational_workflow",
+      "catalog_entity_aliases": [],
       "module_id": 1033, "singular_label": "Application", "plural_label": "Applications",
       "description": "...", "id_column": "id", "label_column": "application_ref", "label_parent": "candidate_id",
       "view_permission": "hiring-starter:read", "edit_permission": "hiring-starter:manage",

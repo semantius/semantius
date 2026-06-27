@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: CLM-NEGOTIATION
-system_description: Negotiation and Redlining
+system_name: Negotiation and Redlining
 tagline: Redline counterparty terms and reach agreement without losing track of changes.
 description: |
   Work through counterparty markups in a structured negotiation, comparing proposed language against approved positions and capturing each round of changes. Surface the terms that need legal attention and route them for sign-off.
@@ -13,9 +12,10 @@ system_slug: clm-negotiation
 domain_modules:
   - clm-negotiation
 domain_code: CLM
+icon_name: file-pen
 related_modules: [clm-authoring, clm-obligation-mgmt, clm-renewal, clm-repository]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Negotiation and Redlining
@@ -53,7 +53,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `contract_risk_assessments` | `contract_risk_assessments` | Contract Risk Assessment | Contract Risk Assessments | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 2 | `negotiation_playbooks` | `negotiation_playbooks` | Negotiation Playbook | Negotiation Playbooks | master | - | - | optional | - | catalog | `:admin` | - |

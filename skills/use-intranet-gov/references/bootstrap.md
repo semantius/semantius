@@ -108,7 +108,7 @@ hint as `modules`.
 
 > The `Intranet Governance` domain is not deployed in your platform. No live module hosts its entities, and no module carries its catalog codes. Deploy the domain blueprint first:
 >
-> 1. Review the blueprint for this domain at `https://www.semantius.com/blueprints/intranet-gov`. This page describes the blueprint and how to download it with the `semantius-admin` skill.
+> 1. Review the blueprint for this domain at `https://www.semantius.com/blueprints/intranet-gov/`. This page describes the blueprint and how to download it with the `semantius-admin` skill.
 > 2. Use the `semantius-admin` skill to download, customize, and deploy the model. It was installed alongside `use-semantius` by Check 1's `npx skills add semantius/semantius-cli --all`; if it is somehow missing, re-run that command.
 > 3. Verify with: `semantius call crud postgrestRequest '{"method":"GET","path":"/modules?settings->>domain_code=eq.INTRANET-GOV&select=id,slug,name"}'` (any row returned means a module of this domain is already deployed)
 >

@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-KNOWLEDGE
-system_description: Knowledge Management
+system_name: IT Knowledge Management
 tagline: Capture what your team knows and put it to work for agents and self-service.
 description: |
   Knowledge Management gives experts a place to write, review, and publish the articles that resolve issues faster. Content moves through a clear authoring and review lifecycle so what reaches your users is accurate and current.
@@ -13,12 +12,13 @@ system_slug: itsm-knowledge
 domain_modules:
   - itsm-knowledge
 domain_code: ITSM
+icon_name: headset
 related_modules: [csm-case-mgmt, csm-knowledge, hrsd-case-mgmt, hrsd-employee-portal, hrsd-knowledge, itsm-starter]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Knowledge Management
+# IT Knowledge Management
 
 ## 1. Overview
 
@@ -46,9 +46,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | master | - | - | required | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -139,13 +139,10 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `itsm-knowledge:manage` | baseline-manage | Edit operational records | ✓ |
 | `itsm-knowledge:admin` | baseline-admin | Edit reference data and inherit every workflow gate below | - |
 | `itsm-knowledge:publish_article` | workflow-gate (lifecycle) | Transition `knowledge_articles` into state `published` | ✓ |
-| `itsm-knowledge:submit_knowledge_article` | override (submit_lock) | Submit and lock a `knowledge_articles` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
-| rule_name | data_object | source flag | intent |
-| --- | --- | --- | --- |
-| `submit_restricted_to_knowledge_article_owner` | `knowledge_articles` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `itsm-knowledge:manage_all_knowledge_articles` |
+_(none: no flag-derived business rules)_
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -167,7 +164,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `itsm-knowledge:admin` | `itsm-knowledge:manage` |
 | `itsm-knowledge:manage` | `itsm-knowledge:read` |
 | `itsm-knowledge:admin` | `itsm-knowledge:publish_article` |
-| `itsm-knowledge:admin` | `itsm-knowledge:submit_knowledge_article` |
 
 **RACI realization:**
 

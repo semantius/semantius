@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-AUTOMATION
-system_description: Learning Automation
+system_name: Learning Automation
 tagline: Automate enrollments, reminders, and escalations so the right training reaches the right people on time.
 description: Put routine learning administration on autopilot. Enroll people automatically based on role, team, or hire date, send reminders and nudges before deadlines, and escalate when training slips. Set the cadence once and let the rules keep learners on track.
 system_slug: lms-automation
 domain_modules:
   - lms-automation
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-compliance-training, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, training-records-starter]
 persona: [GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, LEGAL-COMPLIANCE-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Learning Automation
@@ -89,19 +89,19 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `audiences` | `audiences` | Audience | Audiences | master | - | - | required | - | catalog | `:admin` | - |
 | 2 | `automated_enrollment_rules` | `automated_enrollment_rules` | Automated Enrollment Rule | Automated Enrollment Rules | master | - | - | required | - | catalog | `:admin` | - |
 | 3 | `escalation_rules` | `escalation_rules` | Escalation Rule | Escalation Rules | master | - | - | required | - | catalog | `:admin` | - |
-| 4 | `learner_notifications` | `learner_notifications` | Learner Notification | Learner Notifications | master | - | - | required | personal_content | operational_record | `:manage` | - |
-| 5 | `manager_nudges` | `manager_nudges` | Manager Nudge | Manager Nudges | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 4 | `learner_notifications` | `learner_notifications` | Learner Notification | Learner Notifications | master | - | - | required | yes | operational_record | `:manage` | - |
+| 5 | `manager_nudges` | `manager_nudges` | Manager Nudge | Manager Nudges | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 6 | `notification_templates` | `notification_templates` | Notification Template | Notification Templates | master | - | - | required | - | catalog | `:admin` | - |
 | 7 | `reminder_schedules` | `reminder_schedules` | Reminder Schedule | Reminder Schedules | master | - | - | optional | - | catalog | `:admin` | - |
-| 8 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | embedded_master | `lms-compliance-training` | Compliance Training | required | personal_content | operational_workflow | `:manage` | - |
+| 8 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | yes | operational_workflow | `:manage` | - |
+| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | embedded_master | `lms-compliance-training` | Compliance Training | required | yes | operational_workflow | `:manage` | - |
 | 10 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 11 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 12 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -427,7 +427,6 @@ _This scope holds `learner_certifications` as **embedded_master**; the canonical
 | `lms-automation:manage_all_compliance_training_assignments` | override (personal_content) | Manage all `compliance_assignments` rows beyond row-scope | ✓ |
 | `lms-automation:view_all_certifications` | override (personal_content) | View all `learner_certifications` rows beyond row-scope | ✓ |
 | `lms-automation:manage_all_certifications` | override (personal_content) | Manage all `learner_certifications` rows beyond row-scope | ✓ |
-| `lms-automation:submit_certification` | override (submit_lock) | Submit and lock a `learner_certifications` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
@@ -438,7 +437,6 @@ _This scope holds `learner_certifications` as **embedded_master**; the canonical
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-automation:view_all_employees` / `lms-automation:manage_all_employees` |
 | `compliance_training_assignment_edit_scope` | `compliance_assignments` | has_personal_content | Row-scope by default; override via `lms-automation:view_all_compliance_training_assignments` / `lms-automation:manage_all_compliance_training_assignments` |
 | `certification_edit_scope` | `learner_certifications` | has_personal_content | Row-scope by default; override via `lms-automation:view_all_certifications` / `lms-automation:manage_all_certifications` |
-| `submit_restricted_to_certification_owner` | `learner_certifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-automation:manage_all_certifications` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -486,7 +484,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-automation:admin` | `lms-automation:manage_all_compliance_training_assignments` |
 | `lms-automation:admin` | `lms-automation:view_all_certifications` |
 | `lms-automation:admin` | `lms-automation:manage_all_certifications` |
-| `lms-automation:admin` | `lms-automation:submit_certification` |
 
 **Processes wired:**
 

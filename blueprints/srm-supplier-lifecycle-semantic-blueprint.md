@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: SRM-SUPPLIER-LIFECYCLE
-system_description: Supplier Lifecycle Management
+system_name: Supplier Lifecycle Management
 tagline: Onboard, qualify, and maintain every supplier on one trusted master record.
 description: Run supplier onboarding from invitation through registration, document collection, and approval. Qualify new suppliers against your standards before they go active, and keep the supplier master, contacts, and documents current as the relationship evolves. One clean record per supplier that procurement, finance, and compliance all work from.
 system_slug: srm-supplier-lifecycle
 domain_modules:
   - srm-supplier-lifecycle
 domain_code: SRM
+icon_name: handshake
 related_modules: [agency-mgmt-media-buy, dairy-mgmt-herd, food-trace-supplier-provenance, fsqm-audit-supplier, inv-replenishment, pim-product-content, plm-compliance, spend-mgmt-bill-pay, srm-performance-mgmt, srm-risk-compliance, svcs-proc-engagement, tprm-onboarding-intake, tprm-supply-chain-risk]
 persona: []
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Supplier Lifecycle Management
@@ -87,21 +87,21 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `supplier_bank_accounts` | `supplier_bank_accounts` | Supplier Bank Account | Supplier Bank Accounts | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `supplier_contacts` | `supplier_contacts` | Supplier Contact | Supplier Contacts | master | - | - | required | personal_content | operational_record | `:manage` | - |
+| 1 | `supplier_bank_accounts` | `supplier_bank_accounts` | Supplier Bank Account | Supplier Bank Accounts | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `supplier_contacts` | `supplier_contacts` | Supplier Contact | Supplier Contacts | master | - | - | required | yes | operational_record | `:manage` | - |
 | 3 | `supplier_documents` | `supplier_documents` | Supplier Document | Supplier Documents | master | - | - | required | - | operational_record | `:manage` | - |
 | 4 | `supplier_information_requests` | `supplier_information_requests` | Supplier Information Request | Supplier Information Requests | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 5 | `supplier_locations` | `supplier_locations` | Supplier Location | Supplier Locations | master | - | - | optional | - | operational_record | `:manage` | - |
 | 6 | `supplier_onboardings` | `supplier_onboardings` | Supplier Onboarding | Supplier Onboardings | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 7 | `supplier_qualifications` | `supplier_qualifications` | Supplier Qualification | Supplier Qualifications | master | - | - | required | single_approver | operational_workflow | `:manage` | - |
+| 7 | `supplier_qualifications` | `supplier_qualifications` | Supplier Qualification | Supplier Qualifications | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 8 | `supplier_questionnaires` | `supplier_questionnaires` | Supplier Questionnaire | Supplier Questionnaires | master | - | - | optional | - | catalog | `:admin` | - |
 | 9 | `supplier_registrations` | `supplier_registrations` | Supplier Registration | Supplier Registrations | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 10 | `supplier_relationships` | `supplier_relationships` | Supplier Relationship | Supplier Relationships | master | - | - | optional | - | junction | `:manage` | - |
 | 11 | `supplier_segmentation_tiers` | `supplier_segmentation_tiers` | Supplier Segmentation Tier | Supplier Segmentation Tiers | master | - | - | optional | - | catalog | `:admin` | - |
 | 12 | `supplier_tasks` | `supplier_tasks` | Supplier Task | Supplier Tasks | master | - | - | optional | - | operational_workflow | `:manage` | - |
-| 13 | `suppliers` | `suppliers` | Supplier | Suppliers | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 13 | `suppliers` | `suppliers` | Supplier | Suppliers | master | - | - | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -255,16 +255,13 @@ _(none: this scope embeds no masters owned elsewhere; every entity is mastered h
 | `srm-supplier-lifecycle:manage_all_suppliers` | override (personal_content) | Manage all `suppliers` rows beyond row-scope | ✓ |
 | `srm-supplier-lifecycle:view_all_supplier_contacts` | override (personal_content) | View all `supplier_contacts` rows beyond row-scope | ✓ |
 | `srm-supplier-lifecycle:manage_all_supplier_contacts` | override (personal_content) | Manage all `supplier_contacts` rows beyond row-scope | ✓ |
-| `srm-supplier-lifecycle:submit_supplier_bank_account` | override (submit_lock) | Submit and lock a `supplier_bank_accounts` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `supplier_edit_scope` | `suppliers` | has_personal_content | Row-scope by default; override via `srm-supplier-lifecycle:view_all_suppliers` / `srm-supplier-lifecycle:manage_all_suppliers` |
-| `approve_supplier_qualification_requires_approver` | `supplier_qualifications` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`srm-supplier-lifecycle:approve_supplier_qualification` if surfaced as a lifecycle workflow gate). |
 | `supplier_contact_edit_scope` | `supplier_contacts` | has_personal_content | Row-scope by default; override via `srm-supplier-lifecycle:view_all_supplier_contacts` / `srm-supplier-lifecycle:manage_all_supplier_contacts` |
-| `submit_restricted_to_supplier_bank_account_owner` | `supplier_bank_accounts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `srm-supplier-lifecycle:manage_all_supplier_bank_accounts` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -293,7 +290,6 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `srm-supplier-lifecycle:admin` | `srm-supplier-lifecycle:manage_all_suppliers` |
 | `srm-supplier-lifecycle:admin` | `srm-supplier-lifecycle:view_all_supplier_contacts` |
 | `srm-supplier-lifecycle:admin` | `srm-supplier-lifecycle:manage_all_supplier_contacts` |
-| `srm-supplier-lifecycle:admin` | `srm-supplier-lifecycle:submit_supplier_bank_account` |
 
 **RACI realization:**
 

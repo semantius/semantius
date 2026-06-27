@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "SRM",
     "name": "Supplier Relationship Management",
@@ -153,11 +153,7 @@
       "plural_label": "Supplier Attestations",
       "description": "Code-of-conduct, modern-slavery, and conflict-minerals declarations the supplier signs, tracked from request through signature and expiry.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "code of conduct attestations",
@@ -193,11 +189,7 @@
       "plural_label": "Supplier Bank Accounts",
       "description": "Validated remittance bank accounts per supplier: account and routing details, currency, and validation status. The payment-detail record AP consumes.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "payment details",
@@ -241,11 +233,7 @@
       "plural_label": "Supplier Beneficial Owners",
       "description": "Beneficial-ownership records (25 percent or greater UBO) for know-your-business diligence: owner identity, ownership percentage, and verification source.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "UBO",
@@ -264,11 +252,7 @@
       "plural_label": "Supplier Certifications",
       "description": "Supplier-issued certification document (GFSI, organic, kosher, halal, allergen statement, insurance COI) with expiry tracking.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "ISO certification",
@@ -320,11 +304,7 @@
       "plural_label": "Supplier Contacts",
       "description": "Per-supplier contact roster: named people (procurement, AP, legal, certification contacts) with role, email, phone, and primary-contact flag.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "supplier contact roster",
@@ -343,11 +323,7 @@
       "plural_label": "Supplier Corrective Actions",
       "description": "Corrective-action plans (CAPAs) opened against supplier underperformance and tracked to closure with root cause and verification.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "CAPA",
@@ -391,11 +367,7 @@
       "plural_label": "Supplier Diversity Classifications",
       "description": "Diversity and Tier-1/Tier-2 spend certifications (MBE, WBE, VBE, etc.) per supplier, with certifying body and expiry.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "MBE/WBE status",
@@ -434,11 +406,7 @@
       "plural_label": "Supplier Documents",
       "description": "Supplier-uploaded documents (W-9, tax forms, certificates, agreements) with document type, metadata, and expiry.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier files",
@@ -453,11 +421,7 @@
       "plural_label": "Supplier Information Requests",
       "description": "Data-refresh campaigns asking suppliers to update or re-attest their information, tracked from issue through response and closure.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "data refresh campaign",
@@ -502,11 +466,7 @@
       "plural_label": "Supplier Insurance Certificates",
       "description": "Certificate-of-insurance tracking per supplier: coverage type, limits, carrier, and expiry with renewal alerts.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "COI",
@@ -540,11 +500,7 @@
       "plural_label": "Supplier Issues",
       "description": "Logged supplier issues and complaints feeding performance and corrective-action workflows, from log through resolution.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier complaints",
@@ -582,11 +538,7 @@
       "plural_label": "Supplier KPIs",
       "description": "Defined performance metrics tracked per supplier (delivery, quality, responsiveness, savings) with target and weighting.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "performance indicators",
@@ -605,11 +557,7 @@
       "plural_label": "Supplier Locations",
       "description": "Physical and operating sites per supplier: ship-from, remit-to, and manufacturing locations with address and site type.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier sites",
@@ -624,11 +572,7 @@
       "plural_label": "Supplier Onboardings",
       "description": "Onboarding workflow instance for a new supplier: invitation, registration form, document collection (W-9, banking, insurance, compliance attestations), approval chain.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier setup",
@@ -647,11 +591,7 @@
       "plural_label": "Supplier Performance Reviews",
       "description": "Periodic review records rolling KPIs into a shared assessment with the supplier, from draft through finalization and acknowledgment.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "QBRs",
@@ -691,11 +631,7 @@
       "plural_label": "Supplier Qualifications",
       "description": "Risk and compliance profile for an active supplier: sanctions screening, financial-health rating, ESG scoring, ISO/SOC certifications, cyber-risk assessment. Periodically reassessed.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier approval",
@@ -714,11 +650,7 @@
       "plural_label": "Supplier Questionnaires",
       "description": "Reusable questionnaire templates and their instances (insurance, security, ESG, financial) used by qualification, performance, and risk workflows.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "RFI forms",
@@ -741,11 +673,7 @@
       "plural_label": "Supplier Registrations",
       "description": "Self-service registration record a prospective supplier submits before onboarding, capturing company, tax, and contact basics for review.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "self-registration",
@@ -790,11 +718,7 @@
       "plural_label": "Supplier Relationships",
       "description": "Parent/child and affiliate hierarchy links between supplier records, with relationship type.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "parent/child suppliers",
@@ -813,11 +737,7 @@
       "plural_label": "Supplier Risk Assessments",
       "description": "Operational / financial / cyber risk-scoring record per supplier; feeds GRC consumption.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "TPRM assessment",
@@ -836,11 +756,7 @@
       "plural_label": "Supplier Scorecards",
       "description": "KPI-weighted performance rating of a supplier over a period: on-time delivery, quality, responsiveness, savings delivered. Drives tier preference in sourcing decisions.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "supplier performance review",
@@ -859,11 +775,7 @@
       "plural_label": "Supplier Screening Records",
       "description": "Time-stamped sanctions, denied-party, and PEP screening events per supplier with hit results and adjudication trail.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": true,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "PEP screening",
@@ -912,11 +824,7 @@
       "plural_label": "Supplier Segmentation Tiers",
       "description": "Category and strategic tier classification scheme used to prioritize supplier-management effort (strategic, preferred, transactional).",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "category segmentation",
@@ -935,11 +843,7 @@
       "plural_label": "Supplier Tasks",
       "description": "Workflow tasks and to-dos assigned across the supplier-management lifecycle, with assignee, due date, and status.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": [
         {
@@ -969,11 +873,7 @@
       "plural_label": "Suppliers",
       "description": "Vendor master record: legal name, tax id, addresses, payment terms, contacts, currency, statuses, risk profile. The supplier-side analog to the customer master.",
       "is_canonical_bare_word": true,
-      "pattern_flags": {
-        "has_personal_content": true,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": true,
       "aliases": [
         {
           "name": "trading partner",

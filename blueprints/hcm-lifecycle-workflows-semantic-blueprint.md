@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HCM-LIFECYCLE-WORKFLOWS
-system_description: Employee Lifecycle Workflows
+system_name: Employee Lifecycle Workflows
 tagline: "Move people through the moments that matter: onboarding, job and leave changes, and a coordinated offboarding."
 description: |
   The lifecycle workflows module orchestrates the transitions in an employee's journey. Reconcile new hires arriving from recruiting into active workers, route everyday change requests like transfers and leaves of absence, and coordinate a clean offboarding across IT, identity, and payroll.
@@ -13,9 +12,10 @@ system_slug: hcm-lifecycle-workflows
 domain_modules:
   - hcm-lifecycle-workflows
 domain_code: HCM
+icon_name: users
 related_modules: [ats-background-checks, ats-candidate-crm, ats-interviews, ats-offers, ats-pre-employee-record, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-org-positions, hrsd-case-mgmt, itam-lifecycle, lms-automation, lms-compliance-training, lms-course-delivery, lms-credentials, lms-paths, lsd-legal-hold, pa-workforce-metrics, skills-mgmt-profile, talent-performance-mgmt, talent-succession-career, wfm-absence]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Employee Lifecycle Workflows
@@ -188,30 +188,30 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `worker_change_requests` | `worker_change_requests` | Worker Change Request | Worker Change Requests | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `pre_employees` | `pre_employees` | Pre-Employee | Pre-Employees | embedded_master | `ats-pre-employee-record` | Pre-Employee Record | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `worker_change_requests` | `worker_change_requests` | Worker Change Request | Worker Change Requests | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 2 | `pre_employees` | `pre_employees` | Pre-Employee | Pre-Employees | embedded_master | `ats-pre-employee-record` | Pre-Employee Record | required | yes | operational_workflow | `:manage` | - |
 | 3 | `asset_lifecycle_events` | `asset_lifecycle_events` | Asset Lifecycle Event | Asset Lifecycle Events | contributor | `itam-lifecycle` | Unified Asset Lifecycle Log | optional | - | operational_record | `:manage` | - |
 | 4 | `absence_balances` | `absence_balances` | Absence Balance | Absence Balances | consumer | `wfm-absence` | Absence and Leave | optional | - | computed | read-only | - |
 | 5 | `absence_requests` | `absence_requests` | Absence Request | Absence Requests | consumer | `wfm-absence` | Absence and Leave | optional | - | operational_workflow | `:manage` | - |
-| 6 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | consumer | `ats-interviews` | Interviews | optional | submit_lock | operational_workflow | `:manage` | - |
-| 7 | `candidates` | `candidates` | Candidate | Candidates | consumer | `ats-candidate-crm` | Candidate CRM | optional | personal_content | operational_workflow | `:manage` | - |
+| 6 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | consumer | `ats-interviews` | Candidate Interviews | optional | - | operational_workflow | `:manage` | - |
+| 7 | `candidates` | `candidates` | Candidate | Candidates | consumer | `ats-candidate-crm` | Candidate CRM | optional | yes | operational_workflow | `:manage` | - |
 | 8 | `compensation_plans` | `compensation_plans` | Compensation Plan | Compensation Plans | consumer | `comp-planning` | Compensation Planning Cycles | optional | - | operational_workflow | `:manage` | - |
-| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | personal_content | operational_workflow | `:manage` | - |
-| 10 | `course_completions` | `course_completions` | Course Completion | Course Completions | consumer | `lms-course-delivery` | Course Delivery | optional | personal_content, submit_lock | operational_record | `:manage` | - |
-| 11 | `employees` | `employees` | Employee | Employees | consumer | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 12 | `employment_events` | `employment_events` | Employment Event | Employment Events | consumer | `hcm-core-worker` | Core Worker Record | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
+| 9 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | consumer | `lms-compliance-training` | Compliance Training | optional | yes | operational_workflow | `:manage` | - |
+| 10 | `course_completions` | `course_completions` | Course Completion | Course Completions | consumer | `lms-course-delivery` | Course Delivery | optional | yes | operational_record | `:manage` | - |
+| 11 | `employees` | `employees` | Employee | Employees | consumer | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
+| 12 | `employment_events` | `employment_events` | Employment Event | Employment Events | consumer | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 13 | `engagement_drivers` | `engagement_drivers` | Engagement Driver | Engagement Drivers | consumer | `emp-exp-continuous-listen` | Continuous Listening | optional | - | computed | read-only | - |
-| 14 | `hr_cases` | `hr_cases` | HR Case | HR Cases | consumer | `hrsd-case-mgmt` | HR Case Management | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 15 | `learning_records` | `learning_records` | Learning Record | Learning Records | consumer | `lms-course-delivery` | Course Delivery | optional | personal_content | operational_record | `:manage` | - |
+| 14 | `hr_cases` | `hr_cases` | HR Case | HR Cases | consumer | `hrsd-case-mgmt` | HR Case Management | optional | yes | operational_workflow | `:manage` | - |
+| 15 | `learning_records` | `learning_records` | Learning Record | Learning Records | consumer | `lms-course-delivery` | Course Delivery | optional | yes | operational_record | `:manage` | - |
 | 16 | `legal_holds` | `legal_holds` | Legal Hold | Legal Holds | consumer | `lsd-legal-hold` | Legal Hold and eDiscovery | optional | - | operational_workflow | `:manage` | - |
-| 17 | `life_events` | `life_events` | Life Event | Life Events | consumer | `ben-enrollment` | Enrollment and Life Events | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 18 | `merit_recommendations` | `merit_recommendations` | Merit Recommendation | Merit Recommendations | consumer | `comp-planning` | Compensation Planning Cycles | optional | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 19 | `job_offers` | `job_offers` | Offer | Offers | consumer | `ats-offers` | Offers | optional | personal_content, single_approver | operational_workflow | `:manage` | - |
-| 20 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | personal_content | operational_workflow | `:manage` | - |
-| 21 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | personal_content | operational_workflow | `:manage` | - |
-| 22 | `succession_plans` | `succession_plans` | Succession Plan | Succession Plans | consumer | `talent-succession-career` | Succession and Career Planning | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 17 | `life_events` | `life_events` | Life Event | Life Events | consumer | `ben-enrollment` | Enrollment and Life Events | optional | yes | operational_workflow | `:manage` | - |
+| 18 | `merit_recommendations` | `merit_recommendations` | Merit Recommendation | Merit Recommendations | consumer | `comp-planning` | Compensation Planning Cycles | optional | yes | operational_workflow | `:manage` | - |
+| 19 | `job_offers` | `job_offers` | Offer | Offers | consumer | `ats-offers` | Job Offers | optional | yes | operational_workflow | `:manage` | - |
+| 20 | `performance_goals` | `performance_goals` | Performance Goal | Performance Goals | consumer | `talent-performance-mgmt` | Performance and Goal Management | optional | yes | operational_workflow | `:manage` | - |
+| 21 | `skill_profiles` | `skill_profiles` | Skill Profile | Skill Profiles | consumer | `skills-mgmt-profile` | Worker Skill Profiles and Assessments | optional | yes | operational_workflow | `:manage` | - |
+| 22 | `succession_plans` | `succession_plans` | Succession Plan | Succession Plans | consumer | `talent-succession-career` | Succession and Career Planning | optional | yes | operational_workflow | `:manage` | - |
 | 23 | `workforce_segments` | `workforce_segments` | Workforce Segment | Workforce Segments | consumer | `pa-workforce-metrics` | Workforce Metrics | optional | - | computed | read-only | - |
 
 ## 4. Aliases and industry synonyms

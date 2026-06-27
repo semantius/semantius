@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ITSM-INCIDENT-MGMT
-system_description: Incident Management
+system_name: Incident Management
 tagline: Capture, prioritize, and resolve outages and disruptions before they spread.
 description: |
   Incident Management turns every report of something broken into a tracked ticket with an owner, a priority, and a clock. Agents triage incoming issues, route them to the right team, and drive each one from new to resolved while keeping the requester informed.
@@ -13,9 +12,10 @@ system_slug: itsm-incident-mgmt
 domain_modules:
   - itsm-incident-mgmt
 domain_code: ITSM
+icon_name: headset
 related_modules: [aiops-event-correlation, aiops-predictive-intelligence, apm-portfolio-registry, ats-recruitment-pipeline, cmdb-core, data-ai-plat-ml, dcim-asset-space, dcim-power-env, dlp-enforcement-runtime, hcm-core-worker, hcm-org-positions, iga-access-request, iga-auto-provisioning, it-ops-starter, itam-lifecycle, itam-portfolio-reporting, itom-infra-mon, itsm-starter, iwms-location-master, lcap-visual-composition, msp-psa-svc-desk, remote-access-session, rmm-agent-mgmt, rmm-automation, rmm-monitoring, smp-discovery, uem-compliance-posture, uem-config-apps, uem-device-lifecycle, work-mgmt-task-exec, wsc-channels-conversations]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Incident Management
@@ -89,9 +89,9 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `service_incidents` | `service_incidents` | Incident | Incidents | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 2 | `service_outages` | `service_outages` | Service Outage | Service Outages | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 3 | `asset_lifecycle_events` | `asset_lifecycle_events` | Asset Lifecycle Event | Asset Lifecycle Events | embedded_master | `itam-lifecycle` | Unified Asset Lifecycle Log | optional | - | operational_record | `:manage` | - |
 | 4 | `configuration_items` | `configuration_items` | Configuration Item | Configuration Items | embedded_master | `cmdb-core` | CMDB Core Repository | required | - | operational_workflow | `:manage` | - |

@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: CLM-AUTHORING
-system_description: Contract Authoring
+system_name: Contract Authoring
 tagline: Assemble new contracts fast from a library of approved clauses and templates.
 description: |
   Build new agreements from pre-approved language instead of starting from a blank page. Pull clauses and templates from a maintained library, assemble a draft, and route it through legal and business review with a clear approval trail.
@@ -13,9 +12,10 @@ system_slug: clm-authoring
 domain_modules:
   - clm-authoring
 domain_code: CLM
+icon_name: file-pen
 related_modules: [clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-approvals-contracts]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Contract Authoring
@@ -64,7 +64,7 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `clause_libraries` | `clause_libraries` | Clause Library | Clause Libraries | master | - | - | optional | - | catalog | `:admin` | - |
 | 2 | `contract_clauses` | `contract_clauses` | Contract Clause | Contract Clauses | master | - | - | required | - | catalog | `:admin` | - |

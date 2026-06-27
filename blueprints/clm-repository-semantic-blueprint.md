@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: CLM-REPOSITORY
-system_description: Contract Repository
+system_name: Contract Repository
 tagline: Store every executed contract in one searchable, always-current system of record.
 description: |
   Keep every signed agreement in a single repository with the counterparty, contract type, key dates, value, and governing terms captured as structured data. Find any contract in seconds and see its full history, including amendments and renewals.
@@ -13,9 +12,10 @@ system_slug: clm-repository
 domain_modules:
   - clm-repository
 domain_code: CLM
+icon_name: file-pen
 related_modules: [agency-mgmt-job-traffic, ats-recruitment-pipeline, clm-authoring, clm-negotiation, clm-obligation-mgmt, clm-renewal, cpq-quote-builder, crm-pipeline-mgt, csm-entitlements, hcm-core-worker, hcm-org-positions, iga-access-request, lms-compliance-training, psa-project-delivery, real-estate-agent, sam-entitlement-mgmt, smp-renewal-vendor, svcs-proc-engagement, training-records-starter]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, LEGAL-COUNSEL, PEOPLE-MANAGER, PROCUREMENT-CONTRACT-LIAISON]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Contract Repository
@@ -82,15 +82,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `contract_amendments` | `contract_amendments` | Contract Amendment | Contract Amendments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 2 | `contract_counterparties` | `contract_counterparties` | Contract Counterparty | Contract Counterparties | master | - | - | optional | personal_content | operational_record | `:manage` | - |
-| 3 | `legal_contracts` | `legal_contracts` | Contract | Contracts | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 4 | `data_protection_addenda` | `data_protection_addenda` | Data Protection Addendum | Data Protection Addenda | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `signature_records` | `signature_records` | Signature Record | Signature Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `contract_amendments` | `contract_amendments` | Contract Amendment | Contract Amendments | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 2 | `contract_counterparties` | `contract_counterparties` | Contract Counterparty | Contract Counterparties | master | - | - | optional | yes | operational_record | `:manage` | - |
+| 3 | `legal_contracts` | `legal_contracts` | Contract | Contracts | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 4 | `data_protection_addenda` | `data_protection_addenda` | Data Protection Addendum | Data Protection Addenda | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 5 | `signature_records` | `signature_records` | Signature Record | Signature Records | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 6 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 7 | `envelopes` | `envelopes` | Envelope | Envelopes | consumer | - | - | optional | submit_lock | operational_workflow | `:manage` | - |
+| 7 | `envelopes` | `envelopes` | Envelope | Envelopes | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -334,29 +334,21 @@ _This scope holds `org_units` as **embedded_master**; the canonical state machin
 | `clm-repository:active_data_protection_addendum` | workflow-gate (lifecycle) | Transition `data_protection_addenda` into state `active` | ✓ |
 | `clm-repository:view_all_contracts` | override (personal_content) | View all `legal_contracts` rows beyond row-scope | ✓ |
 | `clm-repository:manage_all_contracts` | override (personal_content) | Manage all `legal_contracts` rows beyond row-scope | ✓ |
-| `clm-repository:submit_contract` | override (submit_lock) | Submit and lock a `legal_contracts` row (post-submit edits gated) | ✓ |
 | `clm-repository:view_all_signature_records` | override (personal_content) | View all `signature_records` rows beyond row-scope | ✓ |
 | `clm-repository:manage_all_signature_records` | override (personal_content) | Manage all `signature_records` rows beyond row-scope | ✓ |
-| `clm-repository:submit_signature_record` | override (submit_lock) | Submit and lock a `signature_records` row (post-submit edits gated) | ✓ |
-| `clm-repository:submit_contract_amendment` | override (submit_lock) | Submit and lock a `contract_amendments` row (post-submit edits gated) | ✓ |
 | `clm-repository:view_all_contract_counterparties` | override (personal_content) | View all `contract_counterparties` rows beyond row-scope | ✓ |
 | `clm-repository:manage_all_contract_counterparties` | override (personal_content) | Manage all `contract_counterparties` rows beyond row-scope | ✓ |
 | `clm-repository:view_all_data_protection_addenda` | override (personal_content) | View all `data_protection_addenda` rows beyond row-scope | ✓ |
 | `clm-repository:manage_all_data_protection_addenda` | override (personal_content) | Manage all `data_protection_addenda` rows beyond row-scope | ✓ |
-| `clm-repository:submit_data_protection_addendum` | override (submit_lock) | Submit and lock a `data_protection_addenda` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `contract_edit_scope` | `legal_contracts` | has_personal_content | Row-scope by default; override via `clm-repository:view_all_contracts` / `clm-repository:manage_all_contracts` |
-| `submit_restricted_to_contract_owner` | `legal_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `clm-repository:manage_all_contracts` |
 | `signature_record_edit_scope` | `signature_records` | has_personal_content | Row-scope by default; override via `clm-repository:view_all_signature_records` / `clm-repository:manage_all_signature_records` |
-| `submit_restricted_to_signature_record_owner` | `signature_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `clm-repository:manage_all_signature_records` |
-| `submit_restricted_to_contract_amendment_owner` | `contract_amendments` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `clm-repository:manage_all_contract_amendments` |
 | `contract_counterparty_edit_scope` | `contract_counterparties` | has_personal_content | Row-scope by default; override via `clm-repository:view_all_contract_counterparties` / `clm-repository:manage_all_contract_counterparties` |
 | `data_protection_addendum_edit_scope` | `data_protection_addenda` | has_personal_content | Row-scope by default; override via `clm-repository:view_all_data_protection_addenda` / `clm-repository:manage_all_data_protection_addenda` |
-| `submit_restricted_to_data_protection_addendum_owner` | `data_protection_addenda` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `clm-repository:manage_all_data_protection_addenda` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -389,16 +381,12 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `clm-repository:admin` | `clm-repository:active_data_protection_addendum` |
 | `clm-repository:admin` | `clm-repository:view_all_contracts` |
 | `clm-repository:admin` | `clm-repository:manage_all_contracts` |
-| `clm-repository:admin` | `clm-repository:submit_contract` |
 | `clm-repository:admin` | `clm-repository:view_all_signature_records` |
 | `clm-repository:admin` | `clm-repository:manage_all_signature_records` |
-| `clm-repository:admin` | `clm-repository:submit_signature_record` |
-| `clm-repository:admin` | `clm-repository:submit_contract_amendment` |
 | `clm-repository:admin` | `clm-repository:view_all_contract_counterparties` |
 | `clm-repository:admin` | `clm-repository:manage_all_contract_counterparties` |
 | `clm-repository:admin` | `clm-repository:view_all_data_protection_addenda` |
 | `clm-repository:admin` | `clm-repository:manage_all_data_protection_addenda` |
-| `clm-repository:admin` | `clm-repository:submit_data_protection_addendum` |
 
 **Processes wired:**
 

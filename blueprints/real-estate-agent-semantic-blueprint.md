@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: REAL-ESTATE-AGENT
-system_description: Real Estate Agent (solo / small firm bundle)
+system_name: Real Estate Agent (solo / small firm bundle)
 tagline: A working surface for the real-estate agent.
 description: Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.
 system_slug: real-estate-agent
@@ -12,7 +11,7 @@ domain_modules:
 domain_code: REAL-ESTATE-AGENT
 related_modules: [agency-mgmt-job-traffic, clm-negotiation, clm-obligation-mgmt, clm-renewal, clm-repository, cpq-quote-builder, crm-acct-mgt, crm-activity, crm-lead-mgt, ma-campaign-authoring, ma-lead-scoring, psa-project-delivery, re-brok-agent-ops, re-brok-brokerage-ops, re-invest-portfolio-val, smp-renewal-vendor]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, LEGAL-COUNSEL, PROCUREMENT-CONTRACT-LIAISON]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Real Estate Agent (solo / small firm bundle)
@@ -72,15 +71,15 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | personal_content | operational_record | `:manage` | - |
-| 2 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 3 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 4 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 5 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
-| 6 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 7 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | personal_content | operational_workflow | `:manage` | - |
+| 1 | `crm_contacts` | `crm_contacts` | Contact | Contacts | embedded_master | `crm-acct-mgt` | Account and Contact Management | required | yes | operational_record | `:manage` | - |
+| 2 | `legal_contracts` | `legal_contracts` | Contract | Contracts | embedded_master | `clm-repository` | Contract Repository | required | yes | operational_workflow | `:manage` | - |
+| 3 | `disclosure_documents` | `disclosure_documents` | Disclosure Document | Disclosure Documents | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
+| 4 | `crm_leads` | `crm_leads` | Lead | Leads | embedded_master | `crm-lead-mgt` | Lead Capture and Qualification | required | yes | operational_workflow | `:manage` | - |
+| 5 | `real_estate_listings` | `real_estate_listings` | Real Estate Listing | Real Estate Listings | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
+| 6 | `real_estate_transactions` | `real_estate_transactions` | Real Estate Transaction | Real Estate Transactions | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
+| 7 | `tour_appointments` | `tour_appointments` | Tour Appointment | Tour Appointments | embedded_master | `re-brok-agent-ops` | Real Estate Agent Operations | required | yes | operational_workflow | `:manage` | - |
 | 8 | `users` | `users` | User | Users | consumer | _(platform built-in)_ | _(platform built-in)_ | required | - | operational_record | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -360,10 +359,8 @@ _This scope holds `tour_appointments` as **embedded_master**; the canonical stat
 | `real-estate-agent:acknowledge_disclosure` | workflow-gate (lifecycle) | Transition `disclosure_documents` into state `acknowledged` | ✓ |
 | `real-estate-agent:view_all_contracts` | override (personal_content) | View all `legal_contracts` rows beyond row-scope | ✓ |
 | `real-estate-agent:manage_all_contracts` | override (personal_content) | Manage all `legal_contracts` rows beyond row-scope | ✓ |
-| `real-estate-agent:submit_contract` | override (submit_lock) | Submit and lock a `legal_contracts` row (post-submit edits gated) | ✓ |
 | `real-estate-agent:view_all_leads` | override (personal_content) | View all `crm_leads` rows beyond row-scope | ✓ |
 | `real-estate-agent:manage_all_leads` | override (personal_content) | Manage all `crm_leads` rows beyond row-scope | ✓ |
-| `real-estate-agent:submit_lead` | override (submit_lock) | Submit and lock a `crm_leads` row (post-submit edits gated) | ✓ |
 | `real-estate-agent:view_all_contacts` | override (personal_content) | View all `crm_contacts` rows beyond row-scope | ✓ |
 | `real-estate-agent:manage_all_contacts` | override (personal_content) | Manage all `crm_contacts` rows beyond row-scope | ✓ |
 | `real-estate-agent:view_all_real_estate_listings` | override (personal_content) | View all `real_estate_listings` rows beyond row-scope | ✓ |
@@ -372,27 +369,20 @@ _This scope holds `tour_appointments` as **embedded_master**; the canonical stat
 | `real-estate-agent:manage_all_tour_appointments` | override (personal_content) | Manage all `tour_appointments` rows beyond row-scope | ✓ |
 | `real-estate-agent:view_all_real_estate_transactions` | override (personal_content) | View all `real_estate_transactions` rows beyond row-scope | ✓ |
 | `real-estate-agent:manage_all_real_estate_transactions` | override (personal_content) | Manage all `real_estate_transactions` rows beyond row-scope | ✓ |
-| `real-estate-agent:submit_real_estate_transaction` | override (submit_lock) | Submit and lock a `real_estate_transactions` row (post-submit edits gated) | ✓ |
 | `real-estate-agent:view_all_disclosure_documents` | override (personal_content) | View all `disclosure_documents` rows beyond row-scope | ✓ |
 | `real-estate-agent:manage_all_disclosure_documents` | override (personal_content) | Manage all `disclosure_documents` rows beyond row-scope | ✓ |
-| `real-estate-agent:submit_disclosure_document` | override (submit_lock) | Submit and lock a `disclosure_documents` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `contract_edit_scope` | `legal_contracts` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_contracts` / `real-estate-agent:manage_all_contracts` |
-| `submit_restricted_to_contract_owner` | `legal_contracts` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `real-estate-agent:manage_all_contracts` |
 | `lead_edit_scope` | `crm_leads` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_leads` / `real-estate-agent:manage_all_leads` |
-| `submit_restricted_to_lead_owner` | `crm_leads` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `real-estate-agent:manage_all_leads` |
 | `contact_edit_scope` | `crm_contacts` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_contacts` / `real-estate-agent:manage_all_contacts` |
 | `real_estate_listing_edit_scope` | `real_estate_listings` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_real_estate_listings` / `real-estate-agent:manage_all_real_estate_listings` |
 | `tour_appointment_edit_scope` | `tour_appointments` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_tour_appointments` / `real-estate-agent:manage_all_tour_appointments` |
 | `real_estate_transaction_edit_scope` | `real_estate_transactions` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_real_estate_transactions` / `real-estate-agent:manage_all_real_estate_transactions` |
-| `submit_restricted_to_real_estate_transaction_owner` | `real_estate_transactions` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `real-estate-agent:manage_all_real_estate_transactions` |
 | `disclosure_document_edit_scope` | `disclosure_documents` | has_personal_content | Row-scope by default; override via `real-estate-agent:view_all_disclosure_documents` / `real-estate-agent:manage_all_disclosure_documents` |
-| `submit_restricted_to_disclosure_document_owner` | `disclosure_documents` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `real-estate-agent:manage_all_disclosure_documents` |
-| `approve_disclosure_document_requires_approver` | `disclosure_documents` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`real-estate-agent:approve_disclosure_document` if surfaced as a lifecycle workflow gate). |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -437,10 +427,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `real-estate-agent:admin` | `real-estate-agent:acknowledge_disclosure` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_contracts` |
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_contracts` |
-| `real-estate-agent:admin` | `real-estate-agent:submit_contract` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_leads` |
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_leads` |
-| `real-estate-agent:admin` | `real-estate-agent:submit_lead` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_contacts` |
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_contacts` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_real_estate_listings` |
@@ -449,10 +437,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_tour_appointments` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_real_estate_transactions` |
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_real_estate_transactions` |
-| `real-estate-agent:admin` | `real-estate-agent:submit_real_estate_transaction` |
 | `real-estate-agent:admin` | `real-estate-agent:view_all_disclosure_documents` |
 | `real-estate-agent:admin` | `real-estate-agent:manage_all_disclosure_documents` |
-| `real-estate-agent:admin` | `real-estate-agent:submit_disclosure_document` |
 
 **Processes wired:**
 

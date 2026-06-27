@@ -1,7 +1,7 @@
 {
   "facts_major": 1,
-  "emitted": "2026-06-20",
-  "catalog_snapshot": "catalog-2026-06-20",
+  "emitted": "2026-06-26",
+  "catalog_snapshot": "catalog-2026-06-26",
   "domain": {
     "code": "INTRANET-GOV",
     "name": "Intranet Governance",
@@ -69,7 +69,7 @@
   "modules": [
     {
       "code": "INTGOV-GOVERNANCE",
-      "name": "Ownership, Lifecycle and Planning",
+      "name": "Intranet Content Governance and Lifecycle",
       "kind": "full",
       "realizes_capabilities": [
         "INTGOV-ATTEST",
@@ -91,7 +91,7 @@
     },
     {
       "code": "INTGOV-INVENTORY",
-      "name": "Inventory and Sources",
+      "name": "Intranet Content Inventory and Sources",
       "kind": "full",
       "realizes_capabilities": [
         "INTGOV-A11Y",
@@ -117,11 +117,7 @@
       "plural_label": "Connected Intranets",
       "description": "A source intranet platform under governance (the connector target): platform type, base URL, auth, crawl schedule, and status.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "content source",
@@ -140,11 +136,7 @@
       "plural_label": "Content Attestations",
       "description": "A recertification record: an owner attests that a piece of content is current, or flags it stale for remediation or archival.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": true
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "content recertification",
@@ -192,11 +184,7 @@
       "plural_label": "Content Health Scores",
       "description": "Derived freshness, quality, accessibility, and ownership-coverage score per inventory record.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     },
@@ -206,11 +194,7 @@
       "plural_label": "Content Inventory Records",
       "description": "A discovered or registered piece of intranet content (page, hub, space, library, form) across connected intranets, with source, type, last-modified, owner, and governance status.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "content inventory",
@@ -229,11 +213,7 @@
       "plural_label": "Content Ownership Assignments",
       "description": "Assignment of an accountable owner and backup to an inventory record, with the review cadence the owner is responsible for.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [
         {
           "name": "content stewardship",
@@ -248,11 +228,7 @@
       "plural_label": "Intranet Content Types",
       "description": "A governed content-type definition (policy, news post, hub, library, form, FAQ) carrying its default review cadence, criticality, and retention rule.",
       "is_canonical_bare_word": false,
-      "pattern_flags": {
-        "has_personal_content": false,
-        "has_submit_lock": false,
-        "has_single_approver": false
-      },
+      "has_personal_content": false,
       "aliases": [],
       "lifecycle_states": []
     }

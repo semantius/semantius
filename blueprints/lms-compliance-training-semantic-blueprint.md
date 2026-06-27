@@ -2,17 +2,17 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: LMS-COMPLIANCE-TRAINING
-system_description: Compliance Training
+system_name: Compliance Training
 tagline: Assign mandatory training, chase overdue learners automatically, and capture the evidence regulators ask for.
 description: Run regulatory and policy training as repeatable campaigns. Assign required courses to the right people, track completion against deadlines, and escalate overdue assignments without manual chasing. Capture signed training evidence, manage recertification, and produce the filings and audit records compliance reviewers expect.
 system_slug: lms-compliance-training
 domain_modules:
   - lms-compliance-training
 domain_code: LMS
+icon_name: graduation-cap
 related_modules: [ats-background-checks, ats-candidate-crm, ats-recruitment-pipeline, ben-enrollment, clm-negotiation, clm-repository, comp-planning, emp-exp-continuous-listen, fin-gl-close, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hrsd-case-mgmt, iga-access-request, iga-auto-provisioning, lms-automation, lms-course-delivery, lms-credentials, lms-ct-gdpr, lms-ilt-delivery, lms-paths, onb-journey-mgmt, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, skills-mgmt-profile, talent-performance-mgmt, training-records-starter]
 persona: [CONTRACT-OPS-MANAGER, CONTRACT-OPS-SPECIALIST, GRC-COMPLIANCE-TRAINING-MANAGER, HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-ORG-DESIGN-ANALYST, HR-PEOPLE-OPS-SPECIALIST, LD-INSTRUCTIONAL-DESIGNER, LD-INSTRUCTOR, LD-LEARNING-ADMIN, LEGAL-COMPLIANCE-SPECIALIST, LEGAL-COUNSEL, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Compliance Training
@@ -147,28 +147,28 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `compliance_audit_records` | `compliance_audit_records` | Compliance Audit Record | Compliance Audit Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 1 | `compliance_audit_records` | `compliance_audit_records` | Compliance Audit Record | Compliance Audit Records | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 2 | `compliance_regulations` | `compliance_regulations` | Compliance Regulation | Compliance Regulations | master | - | - | required | - | catalog | `:admin` | - |
-| 3 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | master | - | - | required | personal_content | operational_workflow | `:manage` | - |
-| 4 | `compliance_training_campaigns` | `compliance_training_campaigns` | Compliance Training Campaign | Compliance Training Campaigns | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 5 | `fda_part11_audit_trails` | `fda_part11_audit_trails` | FDA Part 11 Audit Trail | FDA Part 11 Audit Trails | master | - | - | optional | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 6 | `gxp_training_signoffs` | `gxp_training_signoffs` | GxP Training Signoff | GxP Training Signoffs | master | - | - | optional | personal_content | operational_workflow | `:manage` | - |
-| 7 | `harassment_training_acknowledgements` | `harassment_training_acknowledgements` | Harassment Training Acknowledgment | Harassment Training Acknowledgments | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 8 | `phishing_simulation_results` | `phishing_simulation_results` | Phishing Simulation Result | Phishing Simulation Results | master | - | - | optional | personal_content | operational_record | `:manage` | - |
+| 3 | `compliance_assignments` | `compliance_assignments` | Compliance Training Assignment | Compliance Training Assignments | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 4 | `compliance_training_campaigns` | `compliance_training_campaigns` | Compliance Training Campaign | Compliance Training Campaigns | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 5 | `fda_part11_audit_trails` | `fda_part11_audit_trails` | FDA Part 11 Audit Trail | FDA Part 11 Audit Trails | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 6 | `gxp_training_signoffs` | `gxp_training_signoffs` | GxP Training Signoff | GxP Training Signoffs | master | - | - | optional | yes | operational_workflow | `:manage` | - |
+| 7 | `harassment_training_acknowledgements` | `harassment_training_acknowledgements` | Harassment Training Acknowledgment | Harassment Training Acknowledgments | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 8 | `phishing_simulation_results` | `phishing_simulation_results` | Phishing Simulation Result | Phishing Simulation Results | master | - | - | optional | yes | operational_record | `:manage` | - |
 | 9 | `phishing_simulations` | `phishing_simulations` | Phishing Simulation | Phishing Simulations | master | - | - | optional | - | catalog | `:admin` | - |
 | 10 | `recertification_schedules` | `recertification_schedules` | Recertification Schedule | Recertification Schedules | master | - | - | required | - | catalog | `:admin` | - |
-| 11 | `regulator_filing_exports` | `regulator_filing_exports` | Regulator Filing Export | Regulator Filing Exports | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
-| 12 | `training_evidence_records` | `training_evidence_records` | Training Evidence Record | Training Evidence Records | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 13 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 11 | `regulator_filing_exports` | `regulator_filing_exports` | Regulator Filing Export | Regulator Filing Exports | master | - | - | required | - | operational_workflow | `:manage` | - |
+| 12 | `training_evidence_records` | `training_evidence_records` | Training Evidence Record | Training Evidence Records | master | - | - | required | yes | operational_workflow | `:manage` | - |
+| 13 | `learner_certifications` | `learner_certifications` | Certification | Certifications | embedded_master | `lms-credentials` | Credentials, Badges and Continuing Education | required | yes | operational_workflow | `:manage` | - |
 | 14 | `cost_centers` | `cost_centers` | Cost Center | Cost Centers | embedded_master | `fin-gl-close` | General Ledger and Close | optional | - | catalog | `:admin` | - |
 | 15 | `courses` | `courses` | Course | Courses | embedded_master | `lms-course-delivery` | Course Delivery | required | - | operational_workflow | `:manage` | - |
-| 16 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
+| 16 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
 | 17 | `org_units` | `org_units` | Org Unit | Org Units | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
-| 18 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | single_approver | operational_workflow | `:manage` | - |
-| 19 | `signature_records` | `signature_records` | Signature Record | Signature Records | embedded_master | `clm-repository` | Contract Repository | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
-| 20 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | personal_content | operational_workflow | `:manage` | - |
+| 18 | `hcm_positions` | `hcm_positions` | Position | Positions | embedded_master | `hcm-org-positions` | Organization and Position Management | optional | - | operational_workflow | `:manage` | - |
+| 19 | `signature_records` | `signature_records` | Signature Record | Signature Records | embedded_master | `clm-repository` | Contract Repository | required | yes | operational_workflow | `:manage` | - |
+| 20 | `onboarding_tasks` | `onboarding_tasks` | Onboarding Task | Onboarding Tasks | consumer | `onb-journey-mgmt` | Onboarding Journey Management | optional | yes | operational_workflow | `:manage` | - |
 | 21 | `policy_attestations` | `policy_attestations` | Policy Attestation | Policy Attestations | consumer | - | - | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
@@ -658,24 +658,16 @@ _This scope holds `signature_records` as **embedded_master**; the canonical stat
 | `lms-compliance-training:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
 | `lms-compliance-training:view_all_certifications` | override (personal_content) | View all `learner_certifications` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_certifications` | override (personal_content) | Manage all `learner_certifications` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_certification` | override (submit_lock) | Submit and lock a `learner_certifications` row (post-submit edits gated) | ✓ |
-| `lms-compliance-training:submit_compliance_training_campaign` | override (submit_lock) | Submit and lock a `compliance_training_campaigns` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_compliance_audit_records` | override (personal_content) | View all `compliance_audit_records` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_compliance_audit_records` | override (personal_content) | Manage all `compliance_audit_records` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_compliance_audit_record` | override (submit_lock) | Submit and lock a `compliance_audit_records` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_training_evidence_records` | override (personal_content) | View all `training_evidence_records` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_training_evidence_records` | override (personal_content) | Manage all `training_evidence_records` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_training_evidence_record` | override (submit_lock) | Submit and lock a `training_evidence_records` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_harassment_training_acknowledgments` | override (personal_content) | View all `harassment_training_acknowledgements` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_harassment_training_acknowledgments` | override (personal_content) | Manage all `harassment_training_acknowledgements` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_harassment_training_acknowledgment` | override (submit_lock) | Submit and lock a `harassment_training_acknowledgements` row (post-submit edits gated) | ✓ |
-| `lms-compliance-training:submit_regulator_filing_export` | override (submit_lock) | Submit and lock a `regulator_filing_exports` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_signature_records` | override (personal_content) | View all `signature_records` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_signature_records` | override (personal_content) | Manage all `signature_records` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_signature_record` | override (submit_lock) | Submit and lock a `signature_records` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_fda_part_11_audit_trails` | override (personal_content) | View all `fda_part11_audit_trails` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_fda_part_11_audit_trails` | override (personal_content) | Manage all `fda_part11_audit_trails` rows beyond row-scope | ✓ |
-| `lms-compliance-training:submit_fda_part_11_audit_trail` | override (submit_lock) | Submit and lock a `fda_part11_audit_trails` row (post-submit edits gated) | ✓ |
 | `lms-compliance-training:view_all_gxp_training_signoffs` | override (personal_content) | View all `gxp_training_signoffs` rows beyond row-scope | ✓ |
 | `lms-compliance-training:manage_all_gxp_training_signoffs` | override (personal_content) | Manage all `gxp_training_signoffs` rows beyond row-scope | ✓ |
 | `lms-compliance-training:view_all_phishing_simulation_results` | override (personal_content) | View all `phishing_simulation_results` rows beyond row-scope | ✓ |
@@ -688,20 +680,11 @@ _This scope holds `signature_records` as **embedded_master**; the canonical stat
 | `compliance_training_assignment_edit_scope` | `compliance_assignments` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_compliance_training_assignments` / `lms-compliance-training:manage_all_compliance_training_assignments` |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_employees` / `lms-compliance-training:manage_all_employees` |
 | `certification_edit_scope` | `learner_certifications` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_certifications` / `lms-compliance-training:manage_all_certifications` |
-| `submit_restricted_to_certification_owner` | `learner_certifications` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_certifications` |
-| `approve_position_requires_approver` | `hcm_positions` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`lms-compliance-training:approved_position`). |
-| `submit_restricted_to_compliance_training_campaign_owner` | `compliance_training_campaigns` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_compliance_training_campaigns` |
 | `compliance_audit_record_edit_scope` | `compliance_audit_records` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_compliance_audit_records` / `lms-compliance-training:manage_all_compliance_audit_records` |
-| `submit_restricted_to_compliance_audit_record_owner` | `compliance_audit_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_compliance_audit_records` |
 | `training_evidence_record_edit_scope` | `training_evidence_records` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_training_evidence_records` / `lms-compliance-training:manage_all_training_evidence_records` |
-| `submit_restricted_to_training_evidence_record_owner` | `training_evidence_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_training_evidence_records` |
 | `harassment_training_acknowledgment_edit_scope` | `harassment_training_acknowledgements` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_harassment_training_acknowledgments` / `lms-compliance-training:manage_all_harassment_training_acknowledgments` |
-| `submit_restricted_to_harassment_training_acknowledgment_owner` | `harassment_training_acknowledgements` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_harassment_training_acknowledgments` |
-| `submit_restricted_to_regulator_filing_export_owner` | `regulator_filing_exports` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_regulator_filing_exports` |
 | `signature_record_edit_scope` | `signature_records` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_signature_records` / `lms-compliance-training:manage_all_signature_records` |
-| `submit_restricted_to_signature_record_owner` | `signature_records` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_signature_records` |
 | `fda_part_11_audit_trail_edit_scope` | `fda_part11_audit_trails` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_fda_part_11_audit_trails` / `lms-compliance-training:manage_all_fda_part_11_audit_trails` |
-| `submit_restricted_to_fda_part_11_audit_trail_owner` | `fda_part11_audit_trails` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `lms-compliance-training:manage_all_fda_part_11_audit_trails` |
 | `gxp_training_signoff_edit_scope` | `gxp_training_signoffs` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_gxp_training_signoffs` / `lms-compliance-training:manage_all_gxp_training_signoffs` |
 | `phishing_simulation_result_edit_scope` | `phishing_simulation_results` | has_personal_content | Row-scope by default; override via `lms-compliance-training:view_all_phishing_simulation_results` / `lms-compliance-training:manage_all_phishing_simulation_results` |
 
@@ -764,24 +747,16 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_employees` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_certifications` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_certifications` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_certification` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_compliance_training_campaign` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_compliance_audit_records` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_compliance_audit_records` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_compliance_audit_record` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_training_evidence_records` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_training_evidence_records` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_training_evidence_record` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_harassment_training_acknowledgments` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_harassment_training_acknowledgments` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_harassment_training_acknowledgment` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_regulator_filing_export` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_signature_records` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_signature_records` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_signature_record` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_fda_part_11_audit_trails` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_fda_part_11_audit_trails` |
-| `lms-compliance-training:admin` | `lms-compliance-training:submit_fda_part_11_audit_trail` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_gxp_training_signoffs` |
 | `lms-compliance-training:admin` | `lms-compliance-training:manage_all_gxp_training_signoffs` |
 | `lms-compliance-training:admin` | `lms-compliance-training:view_all_phishing_simulation_results` |

@@ -2,20 +2,20 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: ATS-INTERVIEWS
-system_description: Interviews
+system_name: Candidate Interviews
 tagline: Run consistent, structured interviews and collect comparable feedback.
 description: Schedule interviews against panel availability, equip interviewers with kits and question banks, and gather scorecards and assessments in a single structured record. Consistent inputs make hiring decisions easier to defend and faster to reach.
 system_slug: ats-interviews
 domain_modules:
   - ats-interviews
 domain_code: ATS
+icon_name: user-plus
 related_modules: [ats-background-checks, ats-candidate-crm, ats-offers, ats-pre-employee-record, ats-recruitment-pipeline, ats-referrals, ats-talent-pools, ben-enrollment, cwm-worker-sourcing, hcm-core-worker, hcm-lifecycle-workflows, hcm-org-positions, hiring-starter, onb-journey-mgmt, pa-workforce-metrics, talent-performance-mgmt, talent-succession-career]
 persona: [HIRING-MANAGER, LEGAL-COMPLIANCE-SPECIALIST, RECRUITING-COORDINATOR, RECRUITING-MANAGER, RECRUITING-RECRUITER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
-# Interviews
+# Candidate Interviews
 
 ## 1. Overview
 
@@ -85,18 +85,18 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | master | - | - | required | submit_lock | operational_workflow | `:manage` | - |
+| 1 | `candidate_assessments` | `candidate_assessments` | Assessment | Assessments | master | - | - | required | - | operational_workflow | `:manage` | - |
 | 2 | `candidate_assessment_templates` | `candidate_assessment_templates` | Candidate Assessment Template | Candidate Assessment Templates | master | - | - | required | - | catalog | `:admin` | - |
 | 3 | `interview_kits` | `interview_kits` | Interview Kit | Interview Kits | master | - | - | required | - | catalog | `:admin` | - |
 | 4 | `interview_panels` | `interview_panels` | Interview Panel | Interview Panels | master | - | - | required | - | junction | `:manage` | - |
 | 5 | `interview_questions` | `interview_questions` | Interview Question | Interview Questions | master | - | - | required | - | catalog | `:admin` | - |
-| 6 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | master | - | - | required | personal_content, submit_lock | operational_workflow | `:manage` | - |
+| 6 | `interview_scorecards` | `interview_scorecards` | Interview Scorecard | Interview Scorecards | master | - | - | required | yes | operational_workflow | `:manage` | - |
 | 7 | `interviewer_availability_slots` | `interviewer_availability_slots` | Interviewer Availability Slot | Interviewer Availability Slots | master | - | - | optional | - | operational_workflow | `:manage` | - |
 | 8 | `interviews` | `interviews` | Interview | Interviews | master | - | - | required | - | operational_workflow | `:manage` | - |
-| 9 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | personal_content | operational_workflow | `:manage` | - |
-| 10 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | personal_content | operational_workflow | `:manage` | - |
+| 9 | `job_applications` | `job_applications` | Application | Applications | embedded_master | `ats-recruitment-pipeline` | Recruitment Pipeline | required | yes | operational_workflow | `:manage` | - |
+| 10 | `candidates` | `candidates` | Candidate | Candidates | embedded_master | `ats-candidate-crm` | Candidate CRM | required | yes | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -326,22 +326,18 @@ _This scope holds `job_applications` as **embedded_master**; the canonical state
 | `ats-interviews:submit_scorecard` | workflow-gate (lifecycle) | Transition `interview_scorecards` into state `submitted` | ✓ |
 | `ats-interviews:view_all_interview_scorecards` | override (personal_content) | View all `interview_scorecards` rows beyond row-scope | ✓ |
 | `ats-interviews:manage_all_interview_scorecards` | override (personal_content) | Manage all `interview_scorecards` rows beyond row-scope | ✓ |
-| `ats-interviews:submit_interview_scorecard` | override (submit_lock) | Submit and lock a `interview_scorecards` row (post-submit edits gated) | ✓ |
 | `ats-interviews:view_all_candidates` | override (personal_content) | View all `candidates` rows beyond row-scope | ✓ |
 | `ats-interviews:manage_all_candidates` | override (personal_content) | Manage all `candidates` rows beyond row-scope | ✓ |
 | `ats-interviews:view_all_applications` | override (personal_content) | View all `job_applications` rows beyond row-scope | ✓ |
 | `ats-interviews:manage_all_applications` | override (personal_content) | Manage all `job_applications` rows beyond row-scope | ✓ |
-| `ats-interviews:submit_assessment` | override (submit_lock) | Submit and lock a `candidate_assessments` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `interview_scorecard_edit_scope` | `interview_scorecards` | has_personal_content | Row-scope by default; override via `ats-interviews:view_all_interview_scorecards` / `ats-interviews:manage_all_interview_scorecards` |
-| `submit_restricted_to_interview_scorecard_owner` | `interview_scorecards` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-interviews:manage_all_interview_scorecards` |
 | `candidate_edit_scope` | `candidates` | has_personal_content | Row-scope by default; override via `ats-interviews:view_all_candidates` / `ats-interviews:manage_all_candidates` |
 | `application_edit_scope` | `job_applications` | has_personal_content | Row-scope by default; override via `ats-interviews:view_all_applications` / `ats-interviews:manage_all_applications` |
-| `submit_restricted_to_assessment_owner` | `candidate_assessments` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `ats-interviews:manage_all_assessments` |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -368,12 +364,10 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `ats-interviews:admin` | `ats-interviews:submit_scorecard` |
 | `ats-interviews:admin` | `ats-interviews:view_all_interview_scorecards` |
 | `ats-interviews:admin` | `ats-interviews:manage_all_interview_scorecards` |
-| `ats-interviews:admin` | `ats-interviews:submit_interview_scorecard` |
 | `ats-interviews:admin` | `ats-interviews:view_all_candidates` |
 | `ats-interviews:admin` | `ats-interviews:manage_all_candidates` |
 | `ats-interviews:admin` | `ats-interviews:view_all_applications` |
 | `ats-interviews:admin` | `ats-interviews:manage_all_applications` |
-| `ats-interviews:admin` | `ats-interviews:submit_assessment` |
 
 **Processes wired:**
 

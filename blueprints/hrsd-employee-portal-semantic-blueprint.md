@@ -2,8 +2,7 @@
 artifact: semantic-blueprint
 blueprint_version: "3.0"
 license: MIT
-system_name: HRSD-EMPLOYEE-PORTAL
-system_description: Employee Self-Service Portal
+system_name: Employee Self-Service Portal
 tagline: A single front door where employees ask, request, and self-serve HR needs.
 description: |
   Give employees one place to start anything HR-related. They search for answers first, raise a case when they need a person, and check the status of everything they have open without sending a follow-up email.
@@ -15,7 +14,7 @@ domain_modules:
 domain_code: HRSD
 related_modules: [ats-candidate-crm, ben-enrollment, comp-planning, emp-exp-continuous-listen, hcm-core-worker, hcm-lifecycle-workflows, hrsd-case-mgmt, hrsd-knowledge, iga-access-request, itsm-knowledge, itsm-service-request, lms-course-delivery, pa-predictive-models, payroll-run, psa-project-delivery, psa-resource-mgmt, talent-performance-mgmt]
 persona: [HR-BUSINESS-PARTNER, HR-HRIS-ADMIN, HR-PEOPLE-OPS-SPECIALIST, HRSD-CASE-AGENT, HRSD-KNOWLEDGE-MANAGER, HRSD-SERVICE-MANAGER, PEOPLE-MANAGER]
-created_at: 2026-06-19
+created_at: 2026-06-27
 ---
 
 # Employee Self-Service Portal
@@ -71,12 +70,12 @@ flowchart TD
 
 ## 3. Entities catalog
 
-| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | pattern flags | entity_type | write tier | notes |
+| # | data_object | canonical code | singular | plural | role | mastered in | mastered label | necessity | personal_content | entity_type | write tier | notes |
 | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | personal_content | operational_workflow | `:manage` | - |
-| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | embedded_master | `hrsd-case-mgmt` | HR Case Management | required | personal_content, submit_lock, single_approver | operational_workflow | `:manage` | - |
-| 3 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | Knowledge Management | required | submit_lock | operational_workflow | `:manage` | - |
-| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | single_approver | operational_workflow | `:manage` | - |
+| 1 | `employees` | `employees` | Employee | Employees | embedded_master | `hcm-core-worker` | Core Worker Record | required | yes | operational_workflow | `:manage` | - |
+| 2 | `hr_cases` | `hr_cases` | HR Case | HR Cases | embedded_master | `hrsd-case-mgmt` | HR Case Management | required | yes | operational_workflow | `:manage` | - |
+| 3 | `knowledge_articles` | `knowledge_articles` | Knowledge Article | Knowledge Articles | embedded_master | `itsm-knowledge` | IT Knowledge Management | required | - | operational_workflow | `:manage` | - |
+| 4 | `service_requests` | `service_requests` | Service Request | Service Requests | embedded_master | `itsm-service-request` | Service Request Fulfillment | optional | - | operational_workflow | `:manage` | - |
 
 ## 4. Aliases and industry synonyms
 
@@ -341,21 +340,15 @@ _This scope holds `service_requests` as **embedded_master**; the canonical state
 | `hrsd-employee-portal:reopen_hr_case` | workflow-gate (lifecycle) | Transition `hr_cases` into state `reopened` | ✓ |
 | `hrsd-employee-portal:view_all_employees` | override (personal_content) | View all `employees` rows beyond row-scope | ✓ |
 | `hrsd-employee-portal:manage_all_employees` | override (personal_content) | Manage all `employees` rows beyond row-scope | ✓ |
-| `hrsd-employee-portal:submit_knowledge_article` | override (submit_lock) | Submit and lock a `knowledge_articles` row (post-submit edits gated) | ✓ |
 | `hrsd-employee-portal:view_all_hr_cases` | override (personal_content) | View all `hr_cases` rows beyond row-scope | ✓ |
 | `hrsd-employee-portal:manage_all_hr_cases` | override (personal_content) | Manage all `hr_cases` rows beyond row-scope | ✓ |
-| `hrsd-employee-portal:submit_hr_case` | override (submit_lock) | Submit and lock a `hr_cases` row (post-submit edits gated) | ✓ |
 
 ### 8.2 Business rules
 
 | rule_name | data_object | source flag | intent |
 | --- | --- | --- | --- |
 | `employee_edit_scope` | `employees` | has_personal_content | Row-scope by default; override via `hrsd-employee-portal:view_all_employees` / `hrsd-employee-portal:manage_all_employees` |
-| `submit_restricted_to_knowledge_article_owner` | `knowledge_articles` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hrsd-employee-portal:manage_all_knowledge_articles` |
 | `hr_case_edit_scope` | `hr_cases` | has_personal_content | Row-scope by default; override via `hrsd-employee-portal:view_all_hr_cases` / `hrsd-employee-portal:manage_all_hr_cases` |
-| `submit_restricted_to_hr_case_owner` | `hr_cases` | has_submit_lock | Only the row's authoring user can submit; post-submit the row is read-only except via `hrsd-employee-portal:manage_all_hr_cases` |
-| `approve_hr_case_requires_approver` | `hr_cases` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hrsd-employee-portal:approve_hr_case` if surfaced as a lifecycle workflow gate). |
-| `approve_service_request_requires_approver` | `service_requests` | has_single_approver | Exactly one explicit approver required; uses the module's approval gate (`hrsd-employee-portal:approved_service_request`). |
 
 ## 9. Roles, RACI, and responsibilities (derived)
 
@@ -389,10 +382,8 @@ _Baseline roles, the permission hierarchy, and RACI realization are DERIVED from
 | `hrsd-employee-portal:admin` | `hrsd-employee-portal:reopen_hr_case` |
 | `hrsd-employee-portal:admin` | `hrsd-employee-portal:view_all_employees` |
 | `hrsd-employee-portal:admin` | `hrsd-employee-portal:manage_all_employees` |
-| `hrsd-employee-portal:admin` | `hrsd-employee-portal:submit_knowledge_article` |
 | `hrsd-employee-portal:admin` | `hrsd-employee-portal:view_all_hr_cases` |
 | `hrsd-employee-portal:admin` | `hrsd-employee-portal:manage_all_hr_cases` |
-| `hrsd-employee-portal:admin` | `hrsd-employee-portal:submit_hr_case` |
 
 **Processes wired:**
 
