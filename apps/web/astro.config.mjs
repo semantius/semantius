@@ -383,7 +383,14 @@ export default defineConfig({
       ],
     }),
     mermaidEnhanced(),
-    (await import("astro-compress")).default({ Image: false, JavaScript: true, HTML: false })
+    // CSS compression is left to Astro/Vite's native (lightningcss) minifier.
+    // astro-compress must NOT touch CSS: its bundled csso minifier does not
+    // understand the modern media-query range syntax Tailwind v4 emits
+    // (`@media (width>=48rem)`) and silently DROPS those rules. Post Astro 7
+    // the range syntax reaches astro-compress unconverted, so enabling its CSS
+    // pass strips every responsive (sm:/md:/lg:/...) utility and collapses the
+    // whole site to its mobile layout (desktop nav and multi-column grids gone).
+    (await import("astro-compress")).default({ Image: false, JavaScript: true, HTML: false, CSS: false })
   ],
   vite: {
     plugins: [tailwindcss()],
