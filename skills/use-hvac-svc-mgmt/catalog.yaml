@@ -31,7 +31,6 @@ depends_on_skills:
 related_skills:
   - use-cpq
   - use-crm
-  - use-fin
   - use-fsm
   - use-ham
   - use-sub-mgmt

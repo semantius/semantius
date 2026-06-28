@@ -940,16 +940,6 @@
             }
           ],
           "related_modules": ["CLM-NEGOTIATION", "CLM-OBLIGATION-MGMT", "CLM-RENEWAL", "HCM-ORG-POSITIONS", "LMS-COMPLIANCE-TRAINING", "REAL-ESTATE-AGENT", "SMP-RENEWAL-VENDOR", "SVCS-PROC-ENGAGEMENT", "TRAINING-RECORDS-STARTER"]
-        },
-        {
-          "code": "REAL-ESTATE-AGENT",
-          "name": "Real Estate Agent (solo / small firm bundle)",
-          "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
-          "catalog_tagline": "A working surface for the real-estate agent.",
-          "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
-          "personas": [],
-          "processes": [],
-          "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
         }
       ],
       "personas": [
@@ -1145,7 +1135,7 @@
           "via": "handoff"
         }
       ],
-      "related_domains": ["HCM", "LMS", "RE-BROKERAGE", "REAL-ESTATE-AGENT", "SMP", "SVCS-PROC"]
+      "related_domains": ["HCM", "LMS", "REAL-ESTATE-AGENT", "SMP", "SVCS-PROC"]
     },
     {
       "code": "HCM",
@@ -2500,16 +2490,6 @@
       ],
       "modules": [
         {
-          "code": "IT-OPS-STARTER",
-          "name": "IT Operations Starter",
-          "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
-          "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
-          "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
-          "personas": [],
-          "processes": [],
-          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
-        },
-        {
           "code": "ITSM-AGENT-WORKSPACE",
           "name": "Service Agent Workspace and Reporting",
           "description": "Unified agent experience: workspace, walk-up support, virtual agent / conversational ITSM, and continuous-improvement reporting.",
@@ -3671,16 +3651,6 @@
           "personas": [],
           "processes": [],
           "related_modules": ["RE-BROK-AGENT-OPS"]
-        },
-        {
-          "code": "REAL-ESTATE-AGENT",
-          "name": "Real Estate Agent (solo / small firm bundle)",
-          "description": "Solo-agent and small-firm persona bundle. Single-install deployable for individual real estate agents covering lead capture and contact relationships (CRM-LEAD-MGT, CRM-ACCT-MGT), listing creation and MLS syndication, tour scheduling, transaction execution, disclosure handling (RE-BROK-AGENT-OPS), and contract reference (CLM-REPOSITORY). One module to install; larger brokerages deploy the underlying full modules and skip the starter.",
-          "catalog_tagline": "A working surface for the real-estate agent.",
-          "catalog_description": "Bring contacts, listings, and the documents behind each deal into one agent-facing workspace. Move leads forward, keep listing and transaction paperwork organized, and stay on top of every active deal from a single view that travels with the agent across the systems they already use.",
-          "personas": [],
-          "processes": [],
-          "related_modules": ["CLM-REPOSITORY", "RE-BROK-AGENT-OPS"]
         }
       ],
       "personas": [],
@@ -3729,7 +3699,7 @@
           "via": "handoff"
         }
       ],
-      "related_domains": ["CLM", "REAL-ESTATE-AGENT"]
+      "related_domains": ["REAL-ESTATE-AGENT"]
     },
     {
       "code": "REAL-ESTATE-AGENT",
@@ -3781,16 +3751,6 @@
         }
       ],
       "modules": [
-        {
-          "code": "IT-OPS-STARTER",
-          "name": "IT Operations Starter",
-          "description": "Cross-domain starter kit for small and mid-sized IT teams. Embeds lightweight shells of the records a small IT shop manages: the helpdesk (optional), the hardware register, the SaaS application and renewal tracker, and the contract register. The renewal/contract spine (asset_contracts + saas_subscriptions) is required; hardware, SaaS apps, helpdesk, and on-prem licenses are optional. domain_id NULL; hosts ITSM, HAM, SMP, ITAM, SAM. Replaces the helpdesk-plus-spreadsheets reality; budget stays in the general ledger.",
-          "catalog_tagline": "Run your whole IT shop from one place: tickets, devices, SaaS renewals, and contracts, without the spreadsheets.",
-          "catalog_description": "One place to manage IT for a small team. Track the hardware you own and who has it, every SaaS app and when its subscription renews, and the contracts behind them, so nothing slips through a spreadsheet and no renewal catches you off guard. Add a lightweight helpdesk for tickets and requests if you do not already run one, or keep the one you have. Start with the renewal and contract essentials and turn on the device, SaaS, and helpdesk pieces as you need them. Built for IT teams that have outgrown spreadsheets but do not need a full enterprise IT suite.",
-          "personas": [],
-          "processes": [],
-          "related_modules": ["ITSM-INCIDENT-MGMT", "ITSM-SERVICE-REQUEST", "SMP-DISCOVERY", "SMP-RENEWAL-VENDOR"]
-        },
         {
           "code": "SMP-AUTOMATION",
           "name": "SMP Automation and Self-Service Requests",
