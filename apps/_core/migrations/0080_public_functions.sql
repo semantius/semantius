@@ -17,20 +17,7 @@ CREATE OR REPLACE FUNCTION public.get_user_modules()
 RETURNS JSONB AS $$
 BEGIN
     RETURN COALESCE(
-        (SELECT jsonb_agg(
-            jsonb_build_object(
-                'id', m.id,
-                'module_name', m.module_name,
-                'description', m.description,
-                'view_permission', m.view_permission,
-                'logo_url', m.logo_url,
-                'logo_color', m.logo_color,
-                'home_page', m.home_page,
-                'module_slug', m.module_slug,
-                'created_at', m.created_at,
-                'updated_at', m.updated_at
-            ) ORDER BY m.module_name
-        )
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
         FROM modules m
         WHERE rbac.has_any_permission('admin', m.view_permission)),
         '[]'::jsonb
@@ -62,7 +49,6 @@ DECLARE
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
-    v_modules JSONB;
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
@@ -120,9 +106,6 @@ BEGIN
     ), true);
     PERFORM set_config('app.context_initialized', 'true', true);
 
-    -- Build modules array (filtered by permissions via helper function)
-    v_modules := public.get_user_modules();
-    
     -- Build the final JSON result
     SELECT jsonb_build_object(
         'user_id', u.id,
@@ -133,8 +116,7 @@ BEGIN
         'updated_at', u.updated_at,
         'last_seen', u.last_seen,
         'roles', v_roles,
-        'permissions', v_permissions,
-        'modules', v_modules
+        'permissions', v_permissions
     )
     INTO v_result
     FROM users u
@@ -266,7 +248,7 @@ BEGIN
             f.input_type,
             f.width,
             f.field_order,
-            f.enum_values,
+            CASE WHEN jsonb_typeof(f.enum_values) = 'array' THEN f.enum_values ELSE NULL END AS enum_values,
             f.reference_table,
             f.reference_delete_mode,
             f.ctype,
@@ -342,7 +324,7 @@ BEGIN
                 ELSE '{}'::jsonb
             END ||
             -- Add enum field if enum_values is present
-            CASE 
+            CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
                 THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
                 ELSE '{}'::jsonb
@@ -465,7 +447,7 @@ BEGIN
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable = FALSE
+          AND is_nullable(format) = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL
@@ -568,7 +550,7 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
 -- Raises an error if any table is not found or the user lacks view permission
--- (same error behaviour as get_schema() — use the same error code to avoid
+-- (same error behavior as get_schema() — use the same error code to avoid
 --  leaking information about table existence)
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
@@ -613,7 +595,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behaviour of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;

@@ -13,23 +13,30 @@ CREATE TABLE modules (
     description TEXT DEFAULT '',
     module_type TEXT NOT NULL DEFAULT 'domain',
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
-    logo_url TEXT DEFAULT '',
     logo_color TEXT DEFAULT '',
+    icon_name TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     module_slug TEXT DEFAULT '' NOT NULL UNIQUE,
     -- Catalog/blueprint lineage (v0.1.2): the catalog code this module was provisioned/cloned from.
     -- Non-unique (a clone deploys one code into several modules); module_slug stays the identity.
     catalog_module_code TEXT NOT NULL DEFAULT '',
+    -- Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).
+    domain_code TEXT NOT NULL DEFAULT '',
+    -- Access tier: 'basic' for simple read/edit; 'full' for role tiers, approvals & gating.
+    access_scope TEXT NOT NULL DEFAULT 'basic',
     settings JSONB,
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
-    CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master'))
+    CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
+    CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
 
 COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
 COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
+COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
 
 -- =====================================================
 -- AUTO-SET MODULE SLUG TRIGGER

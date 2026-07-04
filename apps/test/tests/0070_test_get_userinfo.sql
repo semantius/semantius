@@ -255,8 +255,8 @@ SELECT is(
      FROM jsonb_array_elements(public.get_userinfo()->'modules') AS module
      WHERE module->>'module_name' = '_core' 
      LIMIT 1),
-    '#e42528',
-    '_core module should have logo_color set to #e42528'
+    '#029948',
+    '_core module should have logo_color set to #029948'
 );
 
 SELECT * FROM finish();

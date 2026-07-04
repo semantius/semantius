@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-06-14T17:55:52.329Z
+ * Generated: 2026-06-16T17:49:29.350Z
  * Apps: 2  |  Migrations: 31
  */
 
@@ -11827,8 +11827,8 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- function generates a helper function and replaces the default
 -- <table>_select_policy with one that evaluates the rule per row.
 -- The generated function converts the row to JSONB, injects reserved
--- variables ($user_id), evaluates the JsonLogic rule, and returns
--- true only when the result is truthy.
+-- variables ($today, $now, $user_id — there is no $old/$mode for a read),
+-- evaluates the JsonLogic rule, and returns true only when the result is truthy.
 
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -11891,6 +11891,8 @@ BEGIN
     PERFORM rbac.ensure_context_initialized();
     v_uid_text := current_setting('app.current_user_id', true);
     v_data := to_jsonb(p_row) || jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
                        ELSE to_jsonb(v_uid_text::int)

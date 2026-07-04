@@ -51,7 +51,7 @@ SELECT is(
     1,
     'SELECT policy references the per-row rule function (not permission-only)');
 
--- ── Behavioural enforcement of the rule ─────────────────────────────────────
+-- ── behavioral enforcement of the rule ─────────────────────────────────────
 DO $$
 DECLARE v_u1 INT; v_u2 INT;
 BEGIN

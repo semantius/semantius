@@ -1,7 +1,7 @@
 -- Test the dashboards entity. dashboards lived in the separate `cloud` app and
 -- had no test coverage; folding cloud into `_core` brings it under the suite.
 -- Asserts the entity is registered + managed, its field metadata, the DD-built
--- foreign keys (and their ON DELETE behaviour), the get_schema contract, and a
+-- foreign keys (and their ON DELETE behavior), the get_schema contract, and a
 -- positive FK insert.
 BEGIN;
 

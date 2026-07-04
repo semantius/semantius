@@ -1,5 +1,5 @@
 -- Test (CATALOG GUARD): I-roles hygiene, enforced against the live catalog (a sibling to
--- 0240_test_no_unsafe_functions). Unlike a behavioural test this asserts a structural property
+-- 0240_test_no_unsafe_functions). Unlike a behavioral test this asserts a structural property
 -- of every policy/view that exists after all migrations + DD bootstrap have run, so it also
 -- catches policies/views created DYNAMICALLY by the DD functions (build_select_rule_policy,
 -- create_dd_table, ...), not just the ones authored literally in the migrations.

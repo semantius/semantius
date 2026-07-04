@@ -6,7 +6,7 @@
 --         Enforced by: existing check constraint reference_requires_table (23514)
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(12);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -109,6 +109,36 @@ SELECT throws_ok(
     'P0001',
     NULL,
     'Should reject UPDATE when format is changed from "reference" to "text" (type change INTEGER→TEXT)'
+);
+
+-- =====================================================
+-- TEST: enum_values default and normalization
+-- =====================================================
+
+-- Test 9: Insert field without enum_values => column default is NULL
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype)
+      VALUES ('customers_test', 'test_no_enum_val', 'No Enum Val', 'text', 97, 'default', 'default', '')$$,
+    'Insert text field without enum_values should succeed'
+);
+
+SELECT is(
+    (SELECT enum_values FROM fields WHERE table_name = 'customers_test' AND field_name = 'test_no_enum_val'),
+    NULL::jsonb,
+    'enum_values should default to NULL when not provided'
+);
+
+-- Test 10: Insert field with enum_values='{}' (JSON object) => coerced to NULL by lock_field_ctype trigger
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, ctype, enum_values)
+      VALUES ('customers_test', 'test_obj_enum_val', 'Obj Enum Val', 'text', 96, 'default', 'default', '', '{}'::jsonb)$$,
+    'Insert field with enum_values=''{}''.jsonb should succeed (coerced to NULL)'
+);
+
+SELECT is(
+    (SELECT enum_values FROM fields WHERE table_name = 'customers_test' AND field_name = 'test_obj_enum_val'),
+    NULL::jsonb,
+    'enum_values=''{}''.jsonb should be coerced to NULL by the BEFORE INSERT trigger'
 );
 
 SELECT * FROM finish();

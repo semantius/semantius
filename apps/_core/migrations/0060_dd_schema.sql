@@ -36,9 +36,8 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Catalog/blueprint provenance (v0.1.2) — see docs/provenance-core-0.1.2-changes.md.
     -- All default empty (additive-safe): existing rows read as "absent".
     catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
-    canonical_owner_module TEXT NOT NULL DEFAULT '',     -- soft slug pointer to the canonical owner module (not an FK)
+    catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- closed data-class axis (write tier derives from it)
-    pattern_flags JSONB NOT NULL DEFAULT '{}'::jsonb,    -- sparse {flag:true} of authored behaviour flags
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -66,7 +65,6 @@ CREATE TABLE IF NOT EXISTS entities (
     -- seed runs before the add_dd_field trigger exists, so no DD-built CHECK is generated.
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
-    CONSTRAINT pattern_flags_is_object CHECK (jsonb_typeof(pattern_flags) = 'object'),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array')
 );
 
@@ -537,9 +535,8 @@ VALUES
     ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        ''),
     ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'readonly', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'canonical_owner_module', 'Canonical Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'pattern_flags',          'Pattern Flags',          'Authored behaviour flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behaviour.', '', 'json', FALSE, 128, 'default', 'w', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
+    ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
+    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '');
 
@@ -569,11 +566,13 @@ VALUES
     ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', ''),
     ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, 30, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, 35, 'default', 'w', 'core', FALSE, '', ''),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module', 'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', ''),
     ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'access_scope', 'Access Scope', 'Basic for simple read/edit; full for role tiers, approvals & gating', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'manage_permission_id', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
     ('modules', 'admin_permission_id', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
     ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
@@ -586,6 +585,9 @@ VALUES
 
 -- Set enum_values for module_type field
 UPDATE fields SET enum_values = '["domain", "master"]'::jsonb WHERE table_name = 'modules' AND field_name = 'module_type';
+
+-- Set enum_values for access_scope field (DB column default is 'basic')
+UPDATE fields SET enum_values = '["basic", "full"]'::jsonb WHERE table_name = 'modules' AND field_name = 'access_scope';
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)

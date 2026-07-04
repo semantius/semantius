@@ -104,7 +104,7 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
--- Centralised handling of enum default behaviour:
+-- Centralised handling of enum default behavior:
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
@@ -113,7 +113,7 @@ COMMENT ON FUNCTION is_nullable IS
 CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
 RETURNS JSONB AS $$
 BEGIN
-    IF p_enum_values IS NULL OR jsonb_array_length(p_enum_values) = 0 THEN
+    IF p_enum_values IS NULL OR jsonb_typeof(p_enum_values) != 'array' OR jsonb_array_length(p_enum_values) = 0 THEN
         RETURN p_enum_values;
     END IF;
     -- For non-required enums, ensure '' is in the allowed list so the implicit
@@ -138,6 +138,7 @@ BEGIN
     -- Required enum without explicit default: pick the first allowed value
     IF p_input_type = 'required'
        AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
        AND jsonb_array_length(p_enum_values) > 0 THEN
         RETURN p_enum_values->>0;
     END IF;
@@ -149,11 +150,9 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION effective_enum_default IS
 'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
 
--- Add is_nullable as a computed read-only column on the fields table.
--- It is derived from the format column via the is_nullable() function above.
--- GENERATED ALWAYS means the value cannot be manually written.
-ALTER TABLE fields ADD COLUMN is_nullable BOOLEAN GENERATED ALWAYS AS (is_nullable(format)) STORED;
-COMMENT ON COLUMN fields.is_nullable IS 'Whether this field allows NULL values (computed from format: reference, date, date-time are nullable)';
+-- Nullability is derived on demand from a field's format via the is_nullable()
+-- function above; callers invoke is_nullable(format) directly rather than reading
+-- a stored column (no is_nullable column is materialized on the fields table).
 
 -- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
@@ -317,8 +316,8 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
@@ -389,6 +388,12 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_privileged BOOLEAN;
 BEGIN
+    -- Normalize enum_values: coerce non-array JSONB (e.g. '{}') to NULL so
+    -- jsonb_array_length() calls in get_schema / triggers never receive a non-array.
+    IF NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) != 'array' THEN
+        NEW.enum_values := NULL;
+    END IF;
+
     SELECT rolbypassrls INTO v_privileged FROM pg_roles WHERE rolname = current_user;
     IF COALESCE(v_privileged, FALSE) THEN
         RETURN NEW;  -- DD / migration code: trusted to set ctype
@@ -466,7 +471,7 @@ BEGIN
     v_data_type := format_to_data_type(NEW.format, NEW."precision");
     
     -- Build nullable clause based on format
-    IF NEW.is_nullable THEN
+    IF is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -484,11 +489,14 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT NEW.is_nullable THEN
+        ELSIF NOT is_nullable(NEW.format) THEN
             -- Provide sensible defaults for NOT NULL columns without explicit default
-            -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF NEW.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
@@ -608,7 +616,7 @@ BEGIN
     END IF;
     
     -- If this is an enum field, add CHECK constraint for allowed values
-    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
@@ -781,8 +789,8 @@ BEGIN
     
     -- Handle nullable change when format changes (e.g., text→reference would change nullability)
     IF OLD.format <> NEW.format THEN
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            IF NEW.is_nullable THEN
+        IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+            IF is_nullable(NEW.format) THEN
                 v_alter_sql := format(
                     'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                     NEW.table_name,
@@ -797,7 +805,7 @@ BEGIN
             END IF;
             EXECUTE v_alter_sql;
             RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, NEW.is_nullable, NEW.table_name;
+                NEW.field_name, is_nullable(NEW.format), NEW.table_name;
         END IF;
     END IF;
     
@@ -921,7 +929,7 @@ BEGIN
                 END IF;
                 
                 -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
 
                     -- Build SQL array from JSONB array for IN clause
@@ -1590,8 +1598,8 @@ REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
 GRANT EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
--- Grant is_nullable to semantius_user: GENERATED ALWAYS columns evaluate their formula in the
--- inserting user's context, so semantius_user needs EXECUTE to insert rows into the fields table.
+-- Grant is_nullable to semantius_user: it is called directly (e.g. in get_schema's required-fields
+-- query and the field DDL triggers) in the inserting user's context, so semantius_user needs EXECUTE.
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;

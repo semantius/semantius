@@ -20,12 +20,12 @@
 -- =====================================================
 -- An agent is a service principal: a user that authenticates, holds
 -- roles, and is audited. Flagging via is_agent (default FALSE) means
--- no behaviour change for existing rows.
+-- no behavior change for existing rows.
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FALSE;
 
 COMMENT ON COLUMN users.is_agent IS
-'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behaviour change for existing rows.';
+'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (

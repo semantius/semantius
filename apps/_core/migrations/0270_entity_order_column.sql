@@ -8,7 +8,7 @@
 --                                    fixed row order on this entity's physical
 --                                    table. '' (the default) = no row ordering.
 --
--- Behaviour (all driven by AFTER INSERT/UPDATE triggers on entities, mirroring
+-- behavior (all driven by AFTER INSERT/UPDATE triggers on entities, mirroring
 -- the other table-altering DD triggers):
 --   • When order_column is set (first time): ALTER TABLE ... ADD COLUMN
 --     <order_column> INTEGER NOT NULL DEFAULT 0, and install a BEFORE INSERT

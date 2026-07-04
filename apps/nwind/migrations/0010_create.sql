@@ -7,8 +7,8 @@
 -- =====================================================
 
 -- Module
-INSERT INTO modules (module_name, module_slug, description, view_permission, home_page)
-VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
+INSERT INTO modules (module_name, module_slug, description, view_permission, home_page, icon_name)
+VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind', 'compass');
 
 -- Permissions
 INSERT INTO permissions (permission_name, description, module_id) VALUES

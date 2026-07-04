@@ -39,7 +39,7 @@ BEGIN
     v_data_type := format_to_data_type(p_field.format, p_field."precision");
 
     -- Build nullable clause
-    IF p_field.is_nullable THEN
+    IF is_nullable(p_field.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -57,9 +57,13 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT p_field.is_nullable THEN
+        ELSIF NOT is_nullable(p_field.format) THEN
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF p_field.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
@@ -131,6 +135,7 @@ BEGIN
     -- Enum CHECK constraint
     IF p_field.format = 'enum'
        AND p_field.enum_values IS NOT NULL
+       AND jsonb_typeof(p_field.enum_values) = 'array'
        AND jsonb_array_length(p_field.enum_values) > 0
     THEN
         DECLARE
@@ -265,11 +270,11 @@ BEGIN
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -453,8 +458,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name, NEW.field_name
@@ -467,7 +472,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value
@@ -572,6 +577,7 @@ BEGIN
 
                 IF NEW.format = 'enum'
                    AND NEW.enum_values IS NOT NULL
+                   AND jsonb_typeof(NEW.enum_values) = 'array'
                    AND jsonb_array_length(NEW.enum_values) > 0
                 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
@@ -651,7 +657,7 @@ REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
 --
 -- The fold uses concat_ws(sep, …) (skips NULL arms, so no dangling separator) over scalar
 -- subqueries (NULL when the FK is null / deleted / hidden) and NULLIF(local,'') (empty local
--- contributes nothing) — this is the required degrade-to-local behaviour.
+-- contributes nothing) — this is the required degrade-to-local behavior.
 --
 -- Termination is a VALIDATION guarantee, not a runtime guard: self-referential spines are rejected
 -- and the label_parent graph is kept acyclic (validate_label_parent), so the generated functions
