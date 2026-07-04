@@ -4,7 +4,7 @@
 -- Covers (migration 0270):
 --   • Assigning order_column to a brand-new entity provisions the physical
 --     INTEGER column + auto-assign BEFORE INSERT trigger.
---   • Records inserted WITHOUT a value get MAX(order below 9000000)+10 (or 10
+--   • Records inserted WITHOUT a value get MAX(order below 900000)+10 (or 10
 --     for the first row); records inserted WITH a value keep it.
 --   • Clearing order_column drops the column and its trigger.
 --   • order_column is surfaced in get_schema()'s `table` object and `properties`.
@@ -91,7 +91,7 @@ INSERT INTO order_test (label) VALUES ('D');
 SELECT is(
     (SELECT sort_order FROM order_test WHERE label = 'D'),
     30,
-    'auto-assigned row uses current max below 9000000 (+10)'
+    'auto-assigned row uses current max below 900000 (+10)'
 );
 
 -- =====================================================
@@ -137,14 +137,16 @@ SELECT is(
 );
 
 -- A new field added to an EXISTING table still auto-assigns field_order to
--- max(field_order below 9000000)+10.
+-- max(field_order below 900000)+10. The pinned created_at/updated_at audit
+-- columns (999998/999999) are at/above the 900000 ceiling and must not inflate
+-- the running max.
 INSERT INTO fields (table_name, field_name, title, format)
 VALUES ('customers_test', 'sort_probe_1', 'Sort Probe 1', 'int32');
 
 SELECT is(
     (SELECT field_order FROM fields WHERE table_name = 'customers_test' AND field_name = 'sort_probe_1'),
-    (SELECT MAX(field_order) + 10 FROM fields WHERE field_order < 9000000 AND field_name NOT LIKE 'sort_probe%'),
-    'new field on an existing table auto-assigns field_order to max(below 9000000)+10'
+    (SELECT MAX(field_order) + 10 FROM fields WHERE table_name = 'customers_test' AND field_order < 900000 AND field_name NOT LIKE 'sort_probe%'),
+    'new field on an existing table auto-assigns field_order to max(below 900000)+10'
 );
 
 -- A second new field continues the sequence (+10 from the previous max).

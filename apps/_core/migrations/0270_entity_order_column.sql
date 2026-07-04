@@ -20,8 +20,9 @@
 --
 -- Auto-assign rule (matching the requirement): on INSERT, when the order column
 -- has no value (0 / NULL), set it to MAX(order_column) + 10 over the rows whose
--- order is below 9000000 (so values pinned at/above the 9,000,000 ceiling never
--- inflate the running max), or 10 for the first record.
+-- order is below 900000 (so values pinned at/above the 900,000 ceiling — e.g. the
+-- created_at/updated_at audit columns at 999998/999999 — never inflate the
+-- running max), or 10 for the first record.
 --
 -- This generalises (and replaces) the old fields-only auto_set_field_order()
 -- trigger: the `fields` entity simply declares order_column = 'field_order'.
@@ -51,6 +52,11 @@ VALUES
 -- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
 -- function serves every entity that declares an order_column.
 --
+-- The `fields` table is special: it holds the field metadata for many entities in
+-- one physical table, so its order runs independently per table_name (a new field
+-- continues its own entity's 10/20/30… sequence). Every other entity is a single
+-- list, so the whole physical table is one sequence.
+--
 -- SECURITY DEFINER so the MAX() probe sees every row (true max), not just the rows
 -- the inserting user can read under RLS — otherwise concurrent inserts by limited
 -- users could collide on order values.
@@ -69,11 +75,20 @@ BEGIN
     v_val := NULLIF(v_current ->> v_col, '')::BIGINT;
 
     IF v_val IS NULL OR v_val = 0 THEN
-        EXECUTE format(
-            'SELECT COALESCE(MAX(%I), 0) + 10 FROM %I.%I WHERE %I < 9000000',
-            v_col, TG_TABLE_SCHEMA, TG_TABLE_NAME, v_col
-        )
-        INTO v_next;
+        IF TG_TABLE_NAME = 'fields' THEN
+            -- Per table_name: a new field lands after that entity's existing fields.
+            SELECT COALESCE(MAX(field_order), 0) + 10
+            INTO v_next
+            FROM fields
+            WHERE field_order < 900000
+              AND table_name = (v_current ->> 'table_name');
+        ELSE
+            EXECUTE format(
+                'SELECT COALESCE(MAX(%I), 0) + 10 FROM %I.%I WHERE %I < 900000',
+                v_col, TG_TABLE_SCHEMA, TG_TABLE_NAME, v_col
+            )
+            INTO v_next;
+        END IF;
 
         NEW := jsonb_populate_record(NEW, jsonb_build_object(v_col, v_next));
     END IF;
@@ -83,7 +98,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION auto_set_order_value IS
-'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 9000000 (or 10 for the first record). Installed per entity by handle_entity_order_column().';
+'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
 
 REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
 
@@ -177,5 +192,8 @@ DROP FUNCTION IF EXISTS auto_set_field_order();
 -- This UPDATE fires zz_entity_order_column_update_trigger, which (re)installs the
 -- generic auto-assign trigger on the physical `fields` table. field_order already
 -- exists, so the ADD COLUMN IF NOT EXISTS is a no-op.
-
+--
+-- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
+-- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
+-- created_at/updated_at audit columns at 999998/999999 never inflate the max.
 UPDATE entities SET order_column = 'field_order' WHERE table_name = 'fields';
