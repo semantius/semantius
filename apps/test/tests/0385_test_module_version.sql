@@ -3,7 +3,7 @@
 -- when modules or related tables are modified.
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(16);
 
 -- =====================================================
 -- SETUP: Use superuser context for DDL operations
@@ -214,46 +214,6 @@ DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
 END $$;
 
 SELECT pass('Delete from processes increments module version');
-
--- =====================================================
--- TEST: Insert into dashboards bumps module version
--- =====================================================
-
-DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
-    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
-    INSERT INTO dashboards (label, module_id)
-    VALUES ('mv_test_dashboard', (SELECT id FROM modules WHERE module_name = 'MV Test Module'));
-    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
-    ASSERT v_after = v_before + 1, format('dashboards INSERT: expected version = %s, got %s', v_before + 1, v_after);
-END $$;
-
-SELECT pass('Insert into dashboards increments module version');
-
--- =====================================================
--- TEST: Update dashboards bumps module version
--- =====================================================
-
-DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
-    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
-    UPDATE dashboards SET label = 'mv_test_dashboard_updated' WHERE label = 'mv_test_dashboard';
-    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
-    ASSERT v_after = v_before + 1, format('dashboards UPDATE: expected version = %s, got %s', v_before + 1, v_after);
-END $$;
-
-SELECT pass('Update to dashboards increments module version');
-
--- =====================================================
--- TEST: Delete from dashboards bumps module version
--- =====================================================
-
-DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
-    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
-    DELETE FROM dashboards WHERE label = 'mv_test_dashboard_updated';
-    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
-    ASSERT v_after = v_before + 1, format('dashboards DELETE: expected version = %s, got %s', v_before + 1, v_after);
-END $$;
-
-SELECT pass('Delete from dashboards increments module version');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -4,7 +4,7 @@
 -- Adds version and version_date columns to modules table.
 -- Automatically increments version and sets version_date when
 -- modules or any related table (entities, roles, permissions,
--- processes, dashboards) is modified.
+-- processes) is modified.
 -- =====================================================
 
 -- =====================================================
@@ -148,11 +148,6 @@ CREATE TRIGGER bump_module_version_on_permissions
 
 CREATE TRIGGER bump_module_version_on_processes
     AFTER INSERT OR UPDATE OR DELETE ON processes
-    FOR EACH ROW
-    EXECUTE FUNCTION bump_module_version_from_related();
-
-CREATE TRIGGER bump_module_version_on_dashboards
-    AFTER INSERT OR UPDATE OR DELETE ON dashboards
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
