@@ -2890,7 +2890,7 @@ CREATE TABLE IF NOT EXISTS entities (
     catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
     canonical_owner_module TEXT NOT NULL DEFAULT '',     -- soft slug pointer to the canonical owner module (not an FK)
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- closed data-class axis (write tier derives from it)
-    pattern_flags JSONB NOT NULL DEFAULT '{}'::jsonb,    -- sparse {flag:true} of authored behaviour flags
+    pattern_flags JSONB NOT NULL DEFAULT '{}'::jsonb,    -- sparse {flag:true} of authored behavior flags
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -3390,8 +3390,8 @@ VALUES
     ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'readonly', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'canonical_owner_module', 'Canonical Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'pattern_flags',          'Pattern Flags',          'Authored behaviour flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behaviour.', '', 'json', FALSE, 128, 'default', 'w', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
+    ('entities', 'pattern_flags',          'Pattern Flags',          'Authored behavior flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behavior.', '', 'json', FALSE, 128, 'default', 'w', 'core', FALSE, '', '', ''),
+    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '');
 
@@ -3635,7 +3635,7 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
--- Centralised handling of enum default behaviour:
+-- Centralised handling of enum default behavior:
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
@@ -3848,8 +3848,8 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
@@ -5750,7 +5750,7 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
 -- Raises an error if any table is not found or the user lacks view permission
--- (same error behaviour as get_schema() — use the same error code to avoid
+-- (same error behavior as get_schema() — use the same error code to avoid
 --  leaking information about table existence)
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
@@ -5795,7 +5795,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behaviour of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
@@ -7638,11 +7638,11 @@ BEGIN
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -8024,7 +8024,7 @@ REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
 --
 -- The fold uses concat_ws(sep, …) (skips NULL arms, so no dangling separator) over scalar
 -- subqueries (NULL when the FK is null / deleted / hidden) and NULLIF(local,'') (empty local
--- contributes nothing) — this is the required degrade-to-local behaviour.
+-- contributes nothing) — this is the required degrade-to-local behavior.
 --
 -- Termination is a VALIDATION guarantee, not a runtime guard: self-referential spines are rejected
 -- and the label_parent graph is kept acyclic (validate_label_parent), so the generated functions
@@ -12370,12 +12370,12 @@ WHERE table_name = 'modules';
 -- =====================================================
 -- An agent is a service principal: a user that authenticates, holds
 -- roles, and is audited. Flagging via is_agent (default FALSE) means
--- no behaviour change for existing rows.
+-- no behavior change for existing rows.
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FALSE;
 
 COMMENT ON COLUMN users.is_agent IS
-'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behaviour change for existing rows.';
+'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (
