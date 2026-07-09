@@ -6,8 +6,8 @@
 --   * malformed-claims variants (missing sub, wrong role claim)
 --   * the authenticated -> semantius_user inheritance chain production
 --     clients rely on (pgdocker/init/10-roles.sql, 0011_session_authenticator)
---   * the has_public_read() caller contract (the permission flag follows the
---     User role's public:read grant)
+--   * the public.has_permission() caller contract (the public:read answer
+--     follows the User role's grant, not stale cached state)
 --   * the GRANT layer beneath RLS: a role outside semantius_user has neither
 --     table SELECT nor EXECUTE on the public RPCs (0060 checks the REVOKEs
 --     statically; this checks the resulting ACLs behaviorally)
@@ -16,7 +16,7 @@
 -- products_test is seeded with rows, so RLS policies actually evaluate.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(14);
 
 -- =====================================================
 -- GROUP 1: no JWT claims at all
@@ -68,13 +68,6 @@ SELECT throws_ok(
     'unauth: public.has_permission() raises'
 );
 
--- Test 7
-SELECT throws_ok(
-    $$ SELECT public.has_public_read() $$,
-    '42501', NULL,
-    'unauth: has_public_read() raises'
-);
-
 -- =====================================================
 -- GROUP 2: malformed claims
 -- =====================================================
@@ -83,7 +76,7 @@ SELECT throws_ok(
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', '', true);
 
--- Test 8
+-- Test 7
 SELECT throws_like(
     $$ SELECT rbac.uid() $$,
     '%sub claim is missing%',
@@ -94,7 +87,7 @@ SELECT throws_like(
 SELECT set_config('request.jwt.claim.role', 'service_role', true);
 SELECT set_config('request.jwt.claim.sub', 'user1', true);
 
--- Test 9
+-- Test 8
 SELECT throws_like(
     $$ SELECT rbac.uid() $$,
     '%role claim must be authenticated%',
@@ -109,14 +102,14 @@ SELECT throws_like(
 -- locked out while the suite (which uses semantius_user directly) would
 -- still pass — so pin it.
 
--- Test 10
+-- Test 9
 SELECT ok(
     pg_has_role('authenticated', 'semantius_user', 'member'),
     'authenticated role inherits semantius_user'
 );
 
 -- =====================================================
--- GROUP 4: has_public_read() caller contract
+-- GROUP 4: public.has_permission() caller contract
 -- =====================================================
 -- The malformed claims from group 2 are still set and would make
 -- authenticate_as()'s own users lookup fail under RLS — reset to the
@@ -124,20 +117,13 @@ SELECT ok(
 RESET ROLE;
 SELECT authenticate_as('user1');
 
--- Test 11
+-- Test 10
 SELECT ok(
-    (SELECT has_public_read() ?& ARRAY['current_role', 'is_member_of_semantius_user', 'has_public_read_permission']),
-    'has_public_read() returns the three documented keys'
+    public.has_permission('public:read'),
+    'user1 (User role) holds public:read'
 );
 
--- Test 12
-SELECT is(
-    (SELECT (has_public_read()->>'has_public_read_permission')::boolean),
-    TRUE,
-    'user1 (User role) reports has_public_read_permission = true'
-);
-
--- Strip public:read from the User role; the flag must flip to false.
+-- Strip public:read from the User role; the answer must flip to false.
 SELECT authenticate_as('user3');
 DELETE FROM role_permissions
  WHERE role_id       = (SELECT id FROM roles       WHERE role_name       = 'User')
@@ -146,11 +132,10 @@ DELETE FROM role_permissions
 -- Re-authenticate to rebuild the cached permission list
 SELECT authenticate_as('user1');
 
--- Test 13
-SELECT is(
-    (SELECT (has_public_read()->>'has_public_read_permission')::boolean),
-    FALSE,
-    'after revoking public:read from the User role the flag is false'
+-- Test 11
+SELECT ok(
+    NOT public.has_permission('public:read'),
+    'after revoking public:read from the User role the answer is false'
 );
 
 -- =====================================================
@@ -159,19 +144,19 @@ SELECT is(
 RESET ROLE;
 CREATE ROLE tap_probe_no_priv NOLOGIN;
 
--- Test 14
+-- Test 12
 SELECT ok(
     NOT has_table_privilege('tap_probe_no_priv', 'public.products_test', 'SELECT'),
     'a role outside semantius_user has no SELECT on data tables'
 );
 
--- Test 15
+-- Test 13
 SELECT ok(
-    NOT has_function_privilege('tap_probe_no_priv', 'public.has_public_read()', 'EXECUTE'),
-    'a role outside semantius_user cannot execute has_public_read()'
+    NOT has_function_privilege('tap_probe_no_priv', 'public.has_permission(text)', 'EXECUTE'),
+    'a role outside semantius_user cannot execute public.has_permission()'
 );
 
--- Test 16
+-- Test 14
 SELECT ok(
     has_table_privilege('semantius_user', 'public.products_test', 'SELECT'),
     'control: semantius_user does hold SELECT on the same table'
