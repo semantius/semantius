@@ -34,6 +34,7 @@ const route = new Hono<{ Bindings: Bindings }>();
  *   - jwt_audience: string  (required)
  *   - region_id: string     (required)
  *   - modules: string[]     (optional, defaults to ["_core"])
+ *   - is_free_plan: boolean (optional, when true uses NEON_API_KEY_FREE)
  *
  * Returns JSON with project_id and connection on success.
  */
@@ -45,6 +46,7 @@ route.post("/", async (c) => {
     region_id?: string;
     modules?: string[];
     name?: string;
+    is_free_plan?: boolean;
   };
 
   try {
@@ -65,13 +67,15 @@ route.post("/", async (c) => {
     );
   }
 
-  const apiKey = c.env?.NEON_API_KEY;
+  const isFreePlan = body.is_free_plan === true;
+  const apiKeyVar = isFreePlan ? "NEON_API_KEY_FREE" : "NEON_API_KEY";
+  const apiKey = isFreePlan ? c.env?.NEON_API_KEY_FREE : c.env?.NEON_API_KEY;
 
   if (!apiKey) {
     return c.json(
       {
         success: false,
-        error: "NEON_API_KEY environment variable must be set",
+        error: `${apiKeyVar} environment variable must be set`,
       },
       500,
     );

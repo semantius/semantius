@@ -2,8 +2,8 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-06-16T17:49:29.350Z
- * Apps: 2  |  Migrations: 31
+ * Generated: 2026-07-09T15:08:41.072Z
+ * Apps: 2  |  Migrations: 35
  */
 
 export interface MigrationFile {
@@ -1051,23 +1051,30 @@ CREATE TABLE modules (
     description TEXT DEFAULT '',
     module_type TEXT NOT NULL DEFAULT 'domain',
     view_permission TEXT DEFAULT 'user:read' NOT NULL,
-    logo_url TEXT DEFAULT '',
     logo_color TEXT DEFAULT '',
+    icon_name TEXT DEFAULT '',
     home_page TEXT DEFAULT '/' NOT NULL,
     module_slug TEXT DEFAULT '' NOT NULL UNIQUE,
     -- Catalog/blueprint lineage (v0.1.2): the catalog code this module was provisioned/cloned from.
     -- Non-unique (a clone deploys one code into several modules); module_slug stays the identity.
     catalog_module_code TEXT NOT NULL DEFAULT '',
+    -- Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).
+    domain_code TEXT NOT NULL DEFAULT '',
+    -- Access tier: 'basic' for simple read/edit; 'full' for role tiers, approvals & gating.
+    access_scope TEXT NOT NULL DEFAULT 'basic',
     settings JSONB,
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
-    CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master'))
+    CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
+    CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
 
 COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
 COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
+COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
 
 -- =====================================================
 -- AUTO-SET MODULE SLUG TRIGGER
@@ -1111,13 +1118,13 @@ CREATE TABLE permissions (
     id SERIAL PRIMARY KEY,
     permission_name TEXT UNIQUE NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
-    module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
-COMMENT ON COLUMN permissions.module_id IS 'Optional reference to a module for logical grouping';
+COMMENT ON COLUMN permissions.module_id IS 'Required reference to the module this permission belongs to';
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (
@@ -2338,8 +2345,8 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
 -- SEED MODULES
 -- =====================================================
 
-INSERT INTO modules (id, module_name, module_slug, description, view_permission, logo_url, logo_color, home_page) VALUES
-    (1, '_core', 'admin', 'Administration', 'admin', 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1zZXR0aW5ncy1pY29uIGx1Y2lkZS1zZXR0aW5ncyI+PHBhdGggZD0iTTkuNjcxIDQuMTM2YTIuMzQgMi4zNCAwIDAgMSA0LjY1OSAwIDIuMzQgMi4zNCAwIDAgMCAzLjMxOSAxLjkxNSAyLjM0IDIuMzQgMCAwIDEgMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAgMCAzLjgzMSAyLjM0IDIuMzQgMCAwIDEtMi4zMyA0LjAzMyAyLjM0IDIuMzQgMCAwIDAtMy4zMTkgMS45MTUgMi4zNCAyLjM0IDAgMCAxLTQuNjU5IDAgMi4zNCAyLjM0IDAgMCAwLTMuMzItMS45MTUgMi4zNCAyLjM0IDAgMCAxLTIuMzMtNC4wMzMgMi4zNCAyLjM0IDAgMCAwIDAtMy44MzFBMi4zNCAyLjM0IDAgMCAxIDYuMzUgNi4wNTFhMi4zNCAyLjM0IDAgMCAwIDMuMzE5LTEuOTE1Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIvPjwvc3ZnPg==', '#e42528', '/admin/users');
+INSERT INTO modules (id, module_name, module_slug, description, view_permission, icon_name, logo_color, home_page) VALUES
+    (1, '_core', 'admin', 'Administration', 'admin', 'settings', '#029948', '/admin/users');
 
 -- =====================================================
 -- SEED PERMISSIONS
@@ -2845,7 +2852,7 @@ CREATE TABLE IF NOT EXISTS entities (
     plural_label TEXT NOT NULL DEFAULT '',
     icon_url TEXT DEFAULT '',
     description TEXT DEFAULT '',
-    module_id INTEGER REFERENCES modules(id) ON DELETE SET NULL,
+    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     view_permission TEXT NOT NULL DEFAULT 'public:read',
     edit_permission TEXT NOT NULL DEFAULT 'admin',
     id_column TEXT NOT NULL DEFAULT 'id',
@@ -2863,9 +2870,8 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Catalog/blueprint provenance (v0.1.2) — see docs/provenance-core-0.1.2-changes.md.
     -- All default empty (additive-safe): existing rows read as "absent".
     catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
-    canonical_owner_module TEXT NOT NULL DEFAULT '',     -- soft slug pointer to the canonical owner module (not an FK)
+    catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- closed data-class axis (write tier derives from it)
-    pattern_flags JSONB NOT NULL DEFAULT '{}'::jsonb,    -- sparse {flag:true} of authored behaviour flags
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2893,7 +2899,6 @@ CREATE TABLE IF NOT EXISTS entities (
     -- seed runs before the add_dd_field trigger exists, so no DD-built CHECK is generated.
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
-    CONSTRAINT pattern_flags_is_object CHECK (jsonb_typeof(pattern_flags) = 'object'),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array')
 );
 
@@ -3021,7 +3026,7 @@ COMMENT ON COLUMN fields.enum_values IS 'JSON array of allowed enum values for t
 COMMENT ON COLUMN fields."precision" IS 'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats. Default 2 (currency-style).';
 COMMENT ON COLUMN fields.input_type_rule IS 'JsonLogic condition for field visibility in the UI. Evaluated client-side to show/hide the field.';
 COMMENT ON COLUMN fields.reference_table IS 'Table name this field references (for foreign key relationships). Must reference entities.table_name when format is "reference". Empty string means no reference.';
-COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT) or "clear" (SET NULL). Default: restrict.';
+COMMENT ON COLUMN fields.reference_delete_mode IS 'Controls ON DELETE behavior for foreign key: "restrict" (RESTRICT), "clear" (SET NULL), or "cascade" (CASCADE). Default: restrict.';
 COMMENT ON COLUMN fields.relationship_label IS 'Verb describing what the referenced entity does to/with this entity (e.g. "employs", "heads"). Used for ER diagram and navigation labels.';
 COMMENT ON COLUMN fields.singular_label_parent IS 'Custom singular label for the parent entity when format is ''parent''. Overrides the default singular_label from the parent entity when set.';
 COMMENT ON COLUMN fields.plural_label_parent IS 'Custom plural label for the parent entity when format is ''parent''. Overrides the default plural_label from the parent entity when set.';
@@ -3350,7 +3355,7 @@ VALUES
     ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports',            '',             'text',      FALSE, 40,  'default',  'default', 'core', TRUE,  '', '',        ''),
     ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        ''),
     ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        ''),
-    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'clear', 'contains'),
+    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains'),
     ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'text',      FALSE, 80,  'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'text',      FALSE, 90,  'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        ''),
@@ -3364,9 +3369,8 @@ VALUES
     ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        ''),
     ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'readonly', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'canonical_owner_module', 'Canonical Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'pattern_flags',          'Pattern Flags',          'Authored behaviour flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behaviour.', '', 'json', FALSE, 128, 'default', 'w', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
+    ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
+    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        ''),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '');
 
@@ -3396,11 +3400,13 @@ VALUES
     ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', ''),
     ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', ''),
     ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, 30, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'logo_url', 'Logo URL', 'URL or base64 data URI for module logo', 'url', FALSE, 35, 'default', 'w', 'core', FALSE, '', ''),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module', 'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', ''),
     ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'access_scope', 'Access Scope', 'Basic for simple read/edit; full for role tiers, approvals & gating', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'manage_permission_id', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
     ('modules', 'admin_permission_id', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
     ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
@@ -3413,6 +3419,9 @@ VALUES
 
 -- Set enum_values for module_type field
 UPDATE fields SET enum_values = '["domain", "master"]'::jsonb WHERE table_name = 'modules' AND field_name = 'module_type';
+
+-- Set enum_values for access_scope field (DB column default is 'basic')
+UPDATE fields SET enum_values = '["basic", "full"]'::jsonb WHERE table_name = 'modules' AND field_name = 'access_scope';
 
 -- Insert fields metadata for roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -3439,7 +3448,7 @@ VALUES
     ('permissions', 'id',              'Id',              '',                                    'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      ''),
     ('permissions', 'permission_name', 'Permission Name', 'Unique permission name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      ''),
     ('permissions', 'description',     'Description',     '',                                    'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      ''),
-    ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains'),
+    ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'required', 'default', 'core',  FALSE, 'modules', 'cascade', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '');
 
@@ -3606,7 +3615,7 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
--- Centralised handling of enum default behaviour:
+-- Centralised handling of enum default behavior:
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
@@ -3615,7 +3624,7 @@ COMMENT ON FUNCTION is_nullable IS
 CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
 RETURNS JSONB AS $$
 BEGIN
-    IF p_enum_values IS NULL OR jsonb_array_length(p_enum_values) = 0 THEN
+    IF p_enum_values IS NULL OR jsonb_typeof(p_enum_values) != 'array' OR jsonb_array_length(p_enum_values) = 0 THEN
         RETURN p_enum_values;
     END IF;
     -- For non-required enums, ensure '' is in the allowed list so the implicit
@@ -3640,6 +3649,7 @@ BEGIN
     -- Required enum without explicit default: pick the first allowed value
     IF p_input_type = 'required'
        AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
        AND jsonb_array_length(p_enum_values) > 0 THEN
         RETURN p_enum_values->>0;
     END IF;
@@ -3651,11 +3661,9 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION effective_enum_default IS
 'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
 
--- Add is_nullable as a computed read-only column on the fields table.
--- It is derived from the format column via the is_nullable() function above.
--- GENERATED ALWAYS means the value cannot be manually written.
-ALTER TABLE fields ADD COLUMN is_nullable BOOLEAN GENERATED ALWAYS AS (is_nullable(format)) STORED;
-COMMENT ON COLUMN fields.is_nullable IS 'Whether this field allows NULL values (computed from format: reference, date, date-time are nullable)';
+-- Nullability is derived on demand from a field's format via the is_nullable()
+-- function above; callers invoke is_nullable(format) directly rather than reading
+-- a stored column (no is_nullable column is materialized on the fields table).
 
 -- =====================================================
 -- HELPER FUNCTION: QUOTE DEFAULT VALUE
@@ -3819,8 +3827,8 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
@@ -3891,6 +3899,12 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_privileged BOOLEAN;
 BEGIN
+    -- Normalize enum_values: coerce non-array JSONB (e.g. '{}') to NULL so
+    -- jsonb_array_length() calls in get_schema / triggers never receive a non-array.
+    IF NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) != 'array' THEN
+        NEW.enum_values := NULL;
+    END IF;
+
     SELECT rolbypassrls INTO v_privileged FROM pg_roles WHERE rolname = current_user;
     IF COALESCE(v_privileged, FALSE) THEN
         RETURN NEW;  -- DD / migration code: trusted to set ctype
@@ -3968,7 +3982,7 @@ BEGIN
     v_data_type := format_to_data_type(NEW.format, NEW."precision");
     
     -- Build nullable clause based on format
-    IF NEW.is_nullable THEN
+    IF is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -3986,11 +4000,14 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT NEW.is_nullable THEN
+        ELSIF NOT is_nullable(NEW.format) THEN
             -- Provide sensible defaults for NOT NULL columns without explicit default
-            -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF NEW.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
@@ -4110,7 +4127,7 @@ BEGIN
     END IF;
     
     -- If this is an enum field, add CHECK constraint for allowed values
-    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
@@ -4283,8 +4300,8 @@ BEGIN
     
     -- Handle nullable change when format changes (e.g., text→reference would change nullability)
     IF OLD.format <> NEW.format THEN
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            IF NEW.is_nullable THEN
+        IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+            IF is_nullable(NEW.format) THEN
                 v_alter_sql := format(
                     'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                     NEW.table_name,
@@ -4299,7 +4316,7 @@ BEGIN
             END IF;
             EXECUTE v_alter_sql;
             RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, NEW.is_nullable, NEW.table_name;
+                NEW.field_name, is_nullable(NEW.format), NEW.table_name;
         END IF;
     END IF;
     
@@ -4423,7 +4440,7 @@ BEGIN
                 END IF;
                 
                 -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
 
                     -- Build SQL array from JSONB array for IN clause
@@ -5092,8 +5109,8 @@ REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
 GRANT EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
--- Grant is_nullable to semantius_user: GENERATED ALWAYS columns evaluate their formula in the
--- inserting user's context, so semantius_user needs EXECUTE to insert rows into the fields table.
+-- Grant is_nullable to semantius_user: it is called directly (e.g. in get_schema's required-fields
+-- query and the field DDL triggers) in the inserting user's context, so semantius_user needs EXECUTE.
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
@@ -5164,20 +5181,7 @@ CREATE OR REPLACE FUNCTION public.get_user_modules()
 RETURNS JSONB AS $$
 BEGIN
     RETURN COALESCE(
-        (SELECT jsonb_agg(
-            jsonb_build_object(
-                'id', m.id,
-                'module_name', m.module_name,
-                'description', m.description,
-                'view_permission', m.view_permission,
-                'logo_url', m.logo_url,
-                'logo_color', m.logo_color,
-                'home_page', m.home_page,
-                'module_slug', m.module_slug,
-                'created_at', m.created_at,
-                'updated_at', m.updated_at
-            ) ORDER BY m.module_name
-        )
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
         FROM modules m
         WHERE rbac.has_any_permission('admin', m.view_permission)),
         '[]'::jsonb
@@ -5209,7 +5213,6 @@ DECLARE
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
-    v_modules JSONB;
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
@@ -5267,9 +5270,6 @@ BEGIN
     ), true);
     PERFORM set_config('app.context_initialized', 'true', true);
 
-    -- Build modules array (filtered by permissions via helper function)
-    v_modules := public.get_user_modules();
-    
     -- Build the final JSON result
     SELECT jsonb_build_object(
         'user_id', u.id,
@@ -5280,8 +5280,7 @@ BEGIN
         'updated_at', u.updated_at,
         'last_seen', u.last_seen,
         'roles', v_roles,
-        'permissions', v_permissions,
-        'modules', v_modules
+        'permissions', v_permissions
     )
     INTO v_result
     FROM users u
@@ -5413,7 +5412,7 @@ BEGIN
             f.input_type,
             f.width,
             f.field_order,
-            f.enum_values,
+            CASE WHEN jsonb_typeof(f.enum_values) = 'array' THEN f.enum_values ELSE NULL END AS enum_values,
             f.reference_table,
             f.reference_delete_mode,
             f.ctype,
@@ -5489,7 +5488,7 @@ BEGIN
                 ELSE '{}'::jsonb
             END ||
             -- Add enum field if enum_values is present
-            CASE 
+            CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
                 THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
                 ELSE '{}'::jsonb
@@ -5612,7 +5611,7 @@ BEGIN
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable = FALSE
+          AND is_nullable(format) = FALSE
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL
@@ -5715,7 +5714,7 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
 -- Raises an error if any table is not found or the user lacks view permission
--- (same error behaviour as get_schema() — use the same error code to avoid
+-- (same error behavior as get_schema() — use the same error code to avoid
 --  leaking information about table existence)
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
@@ -5760,7 +5759,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behaviour of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
@@ -5794,57 +5793,6 @@ REVOKE EXECUTE ON FUNCTION public.ping() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
 
 
-
--- =====================================================
--- HAS PUBLIC READ
--- =====================================================
-
--- Function that returns comprehensive user access information
--- Returns JSON with current user's role, role membership, and permission status
-CREATE OR REPLACE FUNCTION public.has_public_read()
-RETURNS JSONB AS $$
-DECLARE
-    v_current_role TEXT;
-    v_is_semantius_user BOOLEAN := FALSE;
-    v_has_public_read BOOLEAN := FALSE;
-BEGIN
-    PERFORM rbac.uid();
-
-    -- Get the current PostgreSQL role
-    v_current_role := current_user;
-    
-    -- Check if current user is a member of semantius_user role
-    -- Using pg_has_role to check role membership
-    BEGIN
-        v_is_semantius_user := pg_has_role(current_user, 'semantius_user', 'member');
-    EXCEPTION WHEN OTHERS THEN
-        -- If role doesn't exist or any other error, default to false
-        v_is_semantius_user := FALSE;
-    END;
-    
-    -- Check if user has public:read permission via RBAC system
-    BEGIN
-        v_has_public_read := rbac.has_permission('public:read'::text);
-    EXCEPTION WHEN OTHERS THEN
-        -- If RBAC system fails, default to false
-        v_has_public_read := FALSE;
-    END;
-    
-    -- Return all information as JSON
-    RETURN jsonb_build_object(
-        'current_role', v_current_role,
-        'is_member_of_semantius_user', v_is_semantius_user,
-        'has_public_read_permission', v_has_public_read
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.has_public_read IS 
-'Returns current user access information: PostgreSQL role, semantius_user membership, and public:read permission status.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.has_public_read() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.has_public_read() TO semantius_user;
 
 -- =====================================================
 -- HAS PERMISSION (public RPC wrapper)
@@ -7117,8 +7065,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name,
@@ -7133,7 +7081,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value
@@ -7361,7 +7309,7 @@ BEGIN
     v_data_type := format_to_data_type(p_field.format, p_field."precision");
 
     -- Build nullable clause
-    IF p_field.is_nullable THEN
+    IF is_nullable(p_field.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -7379,9 +7327,13 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT p_field.is_nullable THEN
+        ELSIF NOT is_nullable(p_field.format) THEN
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF p_field.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
@@ -7453,6 +7405,7 @@ BEGIN
     -- Enum CHECK constraint
     IF p_field.format = 'enum'
        AND p_field.enum_values IS NOT NULL
+       AND jsonb_typeof(p_field.enum_values) = 'array'
        AND jsonb_array_length(p_field.enum_values) > 0
     THEN
         DECLARE
@@ -7587,11 +7540,11 @@ BEGIN
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -7775,8 +7728,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name, NEW.field_name
@@ -7789,7 +7742,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value
@@ -7894,6 +7847,7 @@ BEGIN
 
                 IF NEW.format = 'enum'
                    AND NEW.enum_values IS NOT NULL
+                   AND jsonb_typeof(NEW.enum_values) = 'array'
                    AND jsonb_array_length(NEW.enum_values) > 0
                 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
@@ -7973,7 +7927,7 @@ REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
 --
 -- The fold uses concat_ws(sep, …) (skips NULL arms, so no dangling separator) over scalar
 -- subqueries (NULL when the FK is null / deleted / hidden) and NULLIF(local,'') (empty local
--- contributes nothing) — this is the required degrade-to-local behaviour.
+-- contributes nothing) — this is the required degrade-to-local behavior.
 --
 -- Termination is a VALIDATION guarantee, not a runtime guard: self-referential spines are rejected
 -- and the label_parent graph is kept acyclic (validate_label_parent), so the generated functions
@@ -12299,12 +12253,12 @@ WHERE table_name = 'modules';
 -- =====================================================
 -- An agent is a service principal: a user that authenticates, holds
 -- roles, and is audited. Flagging via is_agent (default FALSE) means
--- no behaviour change for existing rows.
+-- no behavior change for existing rows.
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FALSE;
 
 COMMENT ON COLUMN users.is_agent IS
-'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behaviour change for existing rows.';
+'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (
@@ -13773,6 +13727,636 @@ VALUES
     ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
     ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
 `,
+    "0270_entity_order_column": `-- =====================================================
+-- MIGRATION: entities.order_column — fixed per-entity row ordering
+-- =====================================================
+-- Adds a generic "row order" mechanism driven by a single metadata column on
+-- entities:
+--
+--   entities.order_column  TEXT  -- name of the INTEGER column that stores a
+--                                    fixed row order on this entity's physical
+--                                    table. '' (the default) = no row ordering.
+--
+-- behavior (all driven by AFTER INSERT/UPDATE triggers on entities, mirroring
+-- the other table-altering DD triggers):
+--   • When order_column is set (first time): ALTER TABLE ... ADD COLUMN
+--     <order_column> INTEGER NOT NULL DEFAULT 0, and install a BEFORE INSERT
+--     trigger that auto-assigns the order on inserts that don't provide a value.
+--   • When order_column is changed to a different name: the previous column is
+--     dropped and the new one created.
+--   • When order_column is cleared ('' or NULL): the column and its auto-assign
+--     trigger are dropped.
+--
+-- Auto-assign rule (matching the requirement): on INSERT, when the order column
+-- has no value (0 / NULL), set it to MAX(order_column) + 10 over the rows whose
+-- order is below 900000 (so values pinned at/above the 900,000 ceiling — e.g. the
+-- created_at/updated_at audit columns at 999998/999999 — never inflate the
+-- running max), or 10 for the first record.
+--
+-- This generalises (and replaces) the old fields-only auto_set_field_order()
+-- trigger: the \`fields\` entity simply declares order_column = 'field_order'.
+
+-- =====================================================
+-- 1. Add the order_column metadata column to entities
+-- =====================================================
+
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS order_column TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE entities ADD CONSTRAINT valid_order_column
+    CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$');
+
+COMMENT ON COLUMN entities.order_column IS 'Store a fixed row order in this column';
+
+-- Dictionary metadata so the field shows up in get_schema() properties and the UI.
+-- The column was added above (with its CHECK constraint), so add_dd_field()'s
+-- ADD COLUMN IF NOT EXISTS is a harmless no-op here.
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+VALUES
+    ('entities', 'order_column', 'Order Column', 'Store a fixed row order in this column', '', 'text', FALSE, 112, 'default', 'default', 'core', FALSE, '', '', '');
+
+-- =====================================================
+-- 2. Generic BEFORE INSERT auto-assign trigger function
+-- =====================================================
+-- Installed (per entity) on the physical table by handle_entity_order_column().
+-- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
+-- function serves every entity that declares an order_column.
+--
+-- The \`fields\` table is special: it holds the field metadata for many entities in
+-- one physical table, so its order runs independently per table_name (a new field
+-- continues its own entity's 10/20/30… sequence). Every other entity is a single
+-- list, so the whole physical table is one sequence.
+--
+-- SECURITY DEFINER so the MAX() probe sees every row (true max), not just the rows
+-- the inserting user can read under RLS — otherwise concurrent inserts by limited
+-- users could collide on order values.
+
+CREATE OR REPLACE FUNCTION auto_set_order_value()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_col     TEXT := TG_ARGV[0];
+    v_current JSONB;
+    v_val     BIGINT;
+    v_next    BIGINT;
+BEGIN
+    v_current := to_jsonb(NEW);
+
+    -- Current value of the order column on the incoming row ('' / NULL / 0 => unset).
+    v_val := NULLIF(v_current ->> v_col, '')::BIGINT;
+
+    IF v_val IS NULL OR v_val = 0 THEN
+        IF TG_TABLE_NAME = 'fields' THEN
+            -- Per table_name: a new field lands after that entity's existing fields.
+            SELECT COALESCE(MAX(field_order), 0) + 10
+            INTO v_next
+            FROM fields
+            WHERE field_order < 900000
+              AND table_name = (v_current ->> 'table_name');
+        ELSE
+            EXECUTE format(
+                'SELECT COALESCE(MAX(%I), 0) + 10 FROM %I.%I WHERE %I < 900000',
+                v_col, TG_TABLE_SCHEMA, TG_TABLE_NAME, v_col
+            )
+            INTO v_next;
+        END IF;
+
+        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_col, v_next));
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_order_value IS
+'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
+
+REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
+
+-- =====================================================
+-- 3. Entity-level trigger: maintain the physical order column + its trigger
+-- =====================================================
+-- Fires AFTER the structural create/enable triggers (zz_ prefix) so the physical
+-- table already exists. Idempotent and additive-safe.
+
+CREATE OR REPLACE FUNCTION handle_entity_order_column()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old          TEXT := '';
+    v_new          TEXT := COALESCE(NEW.order_column, '');
+    v_trigger_name TEXT := 'zz_auto_order_' || NEW.table_name;
+BEGIN
+    SET LOCAL client_min_messages = WARNING;
+
+    IF TG_OP = 'UPDATE' THEN
+        v_old := COALESCE(OLD.order_column, '');
+    END IF;
+
+    -- Only touch a physically existing table (unmanaged entities have none yet;
+    -- the column is provisioned when the table is later created/enabled).
+    IF to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Remove the previous order column + its trigger when the name changed or cleared.
+    IF v_old <> '' AND v_old <> v_new THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+        EXECUTE format('ALTER TABLE public.%I DROP COLUMN IF EXISTS %I', NEW.table_name, v_old);
+        RAISE NOTICE 'Dropped order column "%" on table "%"', v_old, NEW.table_name;
+    END IF;
+
+    IF v_new <> '' THEN
+        -- Provision the order column (first time) and (re)install the auto-assign trigger.
+        EXECUTE format(
+            'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS %I INTEGER NOT NULL DEFAULT 0',
+            NEW.table_name, v_new
+        );
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+        EXECUTE format(
+            'CREATE TRIGGER %I BEFORE INSERT ON public.%I '
+            'FOR EACH ROW EXECUTE FUNCTION auto_set_order_value(%L)',
+            v_trigger_name, NEW.table_name, v_new
+        );
+        RAISE NOTICE 'Provisioned order column "%" on table "%"', v_new, NEW.table_name;
+    ELSE
+        -- Cleared: ensure no stale auto-assign trigger remains.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION handle_entity_order_column IS
+'AFTER INSERT/UPDATE trigger on entities: provisions or drops the physical order column named by entities.order_column and installs/removes the auto_set_order_value BEFORE INSERT trigger on the entity''s table.';
+
+REVOKE EXECUTE ON FUNCTION handle_entity_order_column() FROM PUBLIC;
+
+-- INSERT: only act when an order_column was supplied at creation time.
+CREATE TRIGGER zz_entity_order_column_insert_trigger
+    AFTER INSERT ON entities
+    FOR EACH ROW
+    WHEN (COALESCE(NEW.order_column, '') <> '')
+    EXECUTE FUNCTION handle_entity_order_column();
+
+-- UPDATE: act when order_column changes, or when the table is enabled (managed F->T)
+-- and an order_column is already declared (so the column is provisioned on enable).
+CREATE TRIGGER zz_entity_order_column_update_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.order_column IS DISTINCT FROM NEW.order_column
+       OR (OLD.managed = FALSE AND NEW.managed = TRUE AND COALESCE(NEW.order_column, '') <> ''))
+    EXECUTE FUNCTION handle_entity_order_column();
+
+-- =====================================================
+-- 4. Remove the legacy fields-only auto_set_field_order() mechanism
+-- =====================================================
+-- Superseded by the generic order_column mechanism (the \`fields\` entity declares
+-- order_column = 'field_order' below).
+
+DROP TRIGGER IF EXISTS auto_set_field_order_trigger ON fields;
+DROP FUNCTION IF EXISTS auto_set_field_order();
+
+-- =====================================================
+-- 5. Declare field_order as the order column for the fields entity
+-- =====================================================
+-- This UPDATE fires zz_entity_order_column_update_trigger, which (re)installs the
+-- generic auto-assign trigger on the physical \`fields\` table. field_order already
+-- exists, so the ADD COLUMN IF NOT EXISTS is a no-op.
+--
+-- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
+-- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
+-- created_at/updated_at audit columns at 999998/999999 never inflate the max.
+UPDATE entities SET order_column = 'field_order' WHERE table_name = 'fields';
+`,
+    "0280_user_bookmarks": `-- =====================================================
+-- USER BOOKMARKS
+-- =====================================================
+-- Personal bookmarks saved by users.
+-- Each bookmark belongs to a specific user and can optionally
+-- reference a specific entity and record.
+-- Users can only see and edit their own bookmarks.
+--
+-- RLS design:
+--   • A BEFORE INSERT OR UPDATE trigger (aaa_assign_user_id_user_bookmarks)
+--     initialises the RBAC context and forces user_id = rbac.user_id() on
+--     every write, preventing users from assigning bookmarks to other users.
+--     The trigger is named with the 'aaa_' prefix so PostgreSQL's alphabetical
+--     trigger-firing order guarantees it runs before any other BEFORE triggers
+--     (e.g. compute_validate_trigger, zz_auto_order_*).
+--   • select_rule {"==": [{"var":"user_id"},{"var":"$user_id"}]} generates a
+--     per-row SELECT policy (own rows only) and scopes UPDATE/DELETE USING to
+--     own rows (migration 0180).
+--   • The INSERT policy is further hardened to WITH CHECK (user_id = rbac.user_id())
+--     as a second layer of defence (the trigger fires first and sets the value,
+--     so this check always passes for legitimate callers).
+--   • order_column = 'row_order' enables drag-and-drop reordering (migration 0270).
+
+-- =====================================================
+-- STEP 1: Create user_bookmarks entity
+-- =====================================================
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column,
+    select_rule
+)
+VALUES (
+    'user_bookmarks',
+    'user_bookmark',
+    'User Bookmark',
+    'Favorites',
+    'Manage and order your facorites for quick access to frequently used apps and records.',
+    (SELECT id FROM modules WHERE module_name = '_core'),
+    'user:read',
+    'user:read',
+    'id',
+    'title',
+    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb
+);
+
+-- =====================================================
+-- STEP 2: Add fields to user_bookmarks
+-- =====================================================
+-- Note: 'id' (id_column), 'title' (label_column), 'created_at', 'updated_at'
+-- are automatically created by the create_dd_table trigger.
+
+INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type, width, searchable, reference_table, reference_delete_mode)
+VALUES
+    ('user_bookmarks', 'user_id',     'User',      'Owner of this bookmark (auto-assigned to current user)',        'reference', 10, 'hidden',  'default', FALSE, 'users', 'cascade'),
+    ('user_bookmarks', 'url',         'URL',        'Bookmark URL',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
+    ('user_bookmarks', 'entity_name', 'Entity',     'Name of the related entity table',                             'text',      40, 'default', 'default', FALSE, '',      ''),
+    ('user_bookmarks', 'entity_id',   'Entity ID',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
+
+-- =====================================================
+-- STEP 3: Auto-assign user_id on INSERT and UPDATE
+-- =====================================================
+-- A BEFORE INSERT OR UPDATE trigger forces user_id to the current session user.
+-- It also calls rbac.ensure_context_initialized() first so that the RBAC context
+-- (app.current_user_id etc.) is available to any subsequent BEFORE triggers that
+-- read $user_id (e.g. compute_validate_trigger from computed_fields).
+--
+-- Named 'aaa_assign_user_id_user_bookmarks' so it fires first among all BEFORE
+-- triggers on this table (PostgreSQL fires BEFORE triggers in alphabetical order).
+
+CREATE OR REPLACE FUNCTION assign_user_id_user_bookmarks()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM rbac.ensure_context_initialized();
+    NEW.user_id := rbac.user_id();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+
+COMMENT ON FUNCTION assign_user_id_user_bookmarks IS
+'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initialises the RBAC context '
+'and forces user_id to the current session user so bookmarks cannot be created or '
+'reassigned on behalf of other users.';
+
+REVOKE EXECUTE ON FUNCTION assign_user_id_user_bookmarks() FROM PUBLIC;
+
+CREATE TRIGGER aaa_assign_user_id_user_bookmarks
+    BEFORE INSERT OR UPDATE ON user_bookmarks
+    FOR EACH ROW
+    EXECUTE FUNCTION assign_user_id_user_bookmarks();
+
+COMMENT ON TRIGGER aaa_assign_user_id_user_bookmarks ON user_bookmarks IS
+'Forces user_id to the current session user on every INSERT and UPDATE. '
+'Prefixed aaa_ to run first (alphabetical order) before other BEFORE triggers.';
+
+-- =====================================================
+-- STEP 4: Harden INSERT policy
+-- =====================================================
+-- The default INSERT policy only checks rbac.has_permission('user:read').
+-- We also require the record's user_id to match the session user, as a second
+-- layer of defence.  The aaa_ trigger above fires first and sets user_id, so
+-- this check always passes for legitimate callers.
+
+DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;
+CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
+    FOR INSERT
+    TO semantius_user
+    WITH CHECK (rbac.has_permission('user:read') AND user_id = rbac.user_id());
+
+-- =====================================================
+-- STEP 5: Enable drag-and-drop row ordering
+-- =====================================================
+-- Triggers handle_entity_order_column() to:
+--   • ALTER TABLE user_bookmarks ADD COLUMN row_order INTEGER NOT NULL DEFAULT 0
+--   • install the zz_auto_order_user_bookmarks BEFORE INSERT trigger that
+--     auto-assigns MAX(row_order)+10 (or 10 for the first row) when row_order=0
+
+UPDATE entities SET order_column = 'row_order' WHERE table_name = 'user_bookmarks';
+`,
+    "0281_fix_select_rule_revoke": `-- =====================================================
+-- FIX: REVOKE EXECUTE on generated select_rule functions
+-- =====================================================
+-- build_select_rule_policy() (migration 0180) generates a per-table
+-- per-row function (select_rule_<table>) but forgot to REVOKE EXECUTE
+-- on that function from PUBLIC, leaving it callable by any database role.
+--
+-- The gap was masked previously because all select_rule entities in the
+-- tests set/unset select_rule inside a ROLLBACK transaction, so no
+-- generated function survived. The user_bookmarks entity (migration 0280)
+-- is the first permanent entity with a select_rule, which exposed it.
+--
+-- Fix: update build_select_rule_policy() to add the REVOKE, then rebuild
+-- all existing select_rule functions to apply the revoke retroactively.
+
+-- =====================================================
+-- STEP 1: Patch build_select_rule_policy to add REVOKE
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_policy_name TEXT;
+    v_body TEXT;
+    v_logic_lit TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- Entity is being deleted — drop the function if it exists
+        v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'select_rule_' || p_table_name;
+    v_policy_name := p_table_name || '_select_policy';
+
+    -- Always drop old function (CASCADE removes anything depending on it)
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+
+    -- Drop the existing select policy so we can recreate it
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+
+    -- If select_rule is empty, restore the default permission-only policies (read = view
+    -- permission, writes = edit permission, no per-row rule).
+    IF v_entity.select_rule = '{}'::jsonb THEN
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
+            v_policy_name, p_table_name, v_entity.view_permission);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
+            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
+            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
+        RETURN;
+    END IF;
+
+    v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- Build the per-row evaluation function
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+    v_uid_text text;
+BEGIN
+    PERFORM rbac.ensure_context_initialized();
+    v_uid_text := current_setting('app.current_user_id', true);
+    v_data := to_jsonb(p_row) || jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        '$user_id', CASE
+                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
+                       ELSE to_jsonb(v_uid_text::int)
+                   END
+    );
+
+    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RETURN FALSE;
+    END;
+
+    RETURN jl_truthy(v_result);
+END;
+$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit);
+
+    EXECUTE v_body;
+
+    -- Revoke PUBLIC execute on the generated function (security best practice).
+    -- Without this revoke the function is callable by any database role, which
+    -- violates the project's no-public-execute invariant (0060_test_security.sql).
+    -- Grant EXECUTE to semantius_user so the RLS policy can call the function.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
+
+    -- Create the new select policy using the generated function
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
+        v_policy_name, p_table_name, v_fn_name, p_table_name);
+
+    -- The canonical predicate ALSO gates writes: edit_permission AND the row rule.
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*)) WITH CHECK (rbac.has_permission(%L))',
+        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*))',
+        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_select_rule_policy IS
+'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row. The generated function has EXECUTE revoked from PUBLIC.';
+
+REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 2: Rebuild select_rule functions for existing entities
+-- =====================================================
+-- Re-runs build_select_rule_policy for every managed entity with a non-empty
+-- select_rule so the generated functions get REVOKE applied retroactively.
+
+DO $$
+DECLARE
+    v_table_name TEXT;
+BEGIN
+    FOR v_table_name IN
+        SELECT e.table_name
+        FROM entities e
+        WHERE e.managed = TRUE
+          AND e.select_rule IS NOT NULL
+          AND e.select_rule != '{}'::jsonb
+    LOOP
+        PERFORM build_select_rule_policy(v_table_name);
+        RAISE NOTICE 'Rebuilt select_rule policy for "%"', v_table_name;
+    END LOOP;
+END;
+$$;
+`,
+    "0282_module_version": `-- =====================================================
+-- MODULE VERSION TRACKING
+-- =====================================================
+-- Adds version and version_date columns to modules table.
+-- Automatically increments version and sets version_date when
+-- modules or any related table (entities, roles, permissions,
+-- processes) is modified.
+-- =====================================================
+
+-- =====================================================
+-- ADD COLUMNS TO MODULES TABLE
+-- =====================================================
+
+ALTER TABLE modules ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE modules ADD COLUMN version_date TIMESTAMPTZ;
+
+-- =====================================================
+-- ADD FIELD METADATA
+-- =====================================================
+
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+VALUES
+    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', ''),
+    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '');
+
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version
+-- =====================================================
+-- Increments version and sets version_date on the modules row directly.
+-- Called by AFTER triggers on modules itself.
+
+CREATE OR REPLACE FUNCTION bump_module_version()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- On INSERT or UPDATE, bump the version for the affected module
+    IF TG_OP = 'DELETE' THEN
+        -- No version bump needed when module itself is deleted
+        RETURN OLD;
+    END IF;
+
+    -- Use a direct UPDATE bypassing triggers by using a session variable guard
+    IF current_setting('app.bumping_module_version', TRUE) = 'true' THEN
+        RETURN NEW;
+    END IF;
+
+    PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+    UPDATE modules
+    SET version = version + 1,
+        version_date = CURRENT_TIMESTAMP
+    WHERE id = NEW.id;
+
+    PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version_from_related
+-- =====================================================
+-- Increments version on the parent module when a related table changes.
+-- Expects the related table to have a module_id column.
+
+CREATE OR REPLACE FUNCTION bump_module_version_from_related()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_module_id INTEGER;
+BEGIN
+    -- Determine the module_id from the affected row
+    IF TG_OP = 'DELETE' THEN
+        v_module_id := OLD.module_id;
+    ELSE
+        v_module_id := NEW.module_id;
+    END IF;
+
+    -- If module_id is NULL, nothing to bump
+    IF v_module_id IS NULL THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- Guard against recursive calls
+    IF current_setting('app.bumping_module_version', TRUE) = 'true' THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+    UPDATE modules
+    SET version = version + 1,
+        version_date = CURRENT_TIMESTAMP
+    WHERE id = v_module_id;
+
+    PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+
+    -- On UPDATE, if module_id changed, also bump the old module
+    IF TG_OP = 'UPDATE' AND OLD.module_id IS DISTINCT FROM NEW.module_id AND OLD.module_id IS NOT NULL THEN
+        PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+        UPDATE modules
+        SET version = version + 1,
+            version_date = CURRENT_TIMESTAMP
+        WHERE id = OLD.module_id;
+
+        PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- =====================================================
+-- TRIGGERS ON MODULES TABLE
+-- =====================================================
+
+CREATE TRIGGER bump_module_version_trigger
+    AFTER INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version();
+
+-- =====================================================
+-- TRIGGERS ON RELATED TABLES
+-- =====================================================
+
+CREATE TRIGGER bump_module_version_on_entities
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE TRIGGER bump_module_version_on_roles
+    AFTER INSERT OR UPDATE OR DELETE ON roles
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE TRIGGER bump_module_version_on_permissions
+    AFTER INSERT OR UPDATE OR DELETE ON permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE TRIGGER bump_module_version_on_processes
+    AFTER INSERT OR UPDATE OR DELETE ON processes
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+-- Revoke default PUBLIC execute on trigger functions
+REVOKE EXECUTE ON FUNCTION bump_module_version() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION bump_module_version_from_related() FROM PUBLIC;
+`,
   },
   "nwind": {
     "0010_create": `-- =====================================================
@@ -13784,8 +14368,8 @@ VALUES
 -- =====================================================
 
 -- Module
-INSERT INTO modules (module_name, module_slug, description, view_permission, home_page)
-VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind');
+INSERT INTO modules (module_name, module_slug, description, view_permission, home_page, icon_name)
+VALUES ('Northwind', 'nwind', 'Northwind Sample Database', 'nwind:view', '/nwind', 'compass');
 
 -- Permissions
 INSERT INTO permissions (permission_name, description, module_id) VALUES
@@ -13983,7 +14567,7 @@ VALUES (
 -- (category_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('categories', 'description', 'Description', 'text', 20, 'default', 'w', 'Description of the product category', '', TRUE, '');
+    ('categories', 'description', 'Description', 'text', 30, 'default', 'w', 'Description of the product category', '', TRUE, '');
 
 -- -----------------------------------------------------
 -- customers fields
@@ -13991,8 +14575,8 @@ VALUES
 -- (company_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('customers', 'customer_id',    'Customer ID',    'text', 10, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
-    ('customers', 'contact_name',   'Contact Name',   'text', 30, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
+    ('customers', 'customer_id',    'Customer ID',    'text', 30, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
+    ('customers', 'contact_name',   'Contact Name',   'text', 35, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
     ('customers', 'contact_title',  'Contact Title',  'text', 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
     ('customers', 'address',        'Street Address', 'text', 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
     ('customers', 'city',           'City',           'text', 60, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
@@ -14036,6 +14620,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE, 'manages');
 
+-- Rename the employees.last_name field title
+UPDATE fields SET title = 'Last Name' WHERE table_name = 'employees' AND field_name = 'last_name';
+
 -- -----------------------------------------------------
 -- suppliers fields
 -- -----------------------------------------------------
@@ -14059,16 +14646,16 @@ VALUES
 -- (product_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    40, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
-    ('products', 'unit_price',        'Unit Price',         'number',  50, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
-    ('products', 'units_in_stock',    'Units In Stock',     'int32',   60, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   70, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
-    ('products', 'reorder_level',     'Reorder Level',      'int32',   80, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
-    ('products', 'discontinued',      'Discontinued',       'boolean', 90, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
+    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    50, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
+    ('products', 'unit_price',        'Unit Price',         'number',  60, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
+    ('products', 'units_in_stock',    'Units In Stock',     'int32',   70, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'reorder_level',     'Reorder Level',      'int32',   90, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
+    ('products', 'discontinued',      'Discontinued',       'boolean', 100, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('products', 'supplier_id', 'Supplier', 'reference', 20, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE, 'supplies'),
+    ('products', 'supplier_id', 'Supplier', 'reference', 40, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE, 'supplies'),
     ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE, 'contains');
 
 -- -----------------------------------------------------
@@ -14082,7 +14669,7 @@ VALUES
 -- (company_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('shippers', 'phone', 'Phone', 'text', 20, 'default', 'default', '', '', FALSE, '');
+    ('shippers', 'phone', 'Phone', 'text', 30, 'default', 'default', '', '', FALSE, '');
 
 -- -----------------------------------------------------
 -- orders fields
@@ -14111,9 +14698,9 @@ VALUES
 -- FK references on orders (not parent — orders is not a junction/child table)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('orders', 'customer_id',  'Customer',    'reference', 10, 'default', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
-    ('orders', 'employee_id',  'Employee',    'reference', 20, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
-    ('orders', 'ship_via',     'Shipped Via', 'reference', 30, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
+    ('orders', 'customer_id',  'Customer',    'reference', 30, 'default', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
+    ('orders', 'employee_id',  'Employee',    'reference', 34, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
+    ('orders', 'ship_via',     'Shipped Via', 'reference', 38, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
 
 -- -----------------------------------------------------
 -- territories fields

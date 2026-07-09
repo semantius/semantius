@@ -17,8 +17,9 @@
       "zone_name": "semantius.cloud"
     }
   ],
-  // Set NEON_API_KEY and NEON_PROVISIONER_API_KEY via wrangler secret or environment variables
+  // Set secrets via wrangler secret or environment variables
   // wrangler secret put NEON_API_KEY
+  // wrangler secret put NEON_API_KEY_FREE       // used when a request sets is_free_plan: true
   // wrangler secret put NEON_PROVISIONER_API_KEY
   "observability": {
     "logs": {
