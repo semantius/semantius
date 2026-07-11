@@ -1,0 +1,151 @@
+name: semantius-rest
+
+# PostgREST stack: PostgreSQL 18 + the pg_semantic_platform extension, fronted by
+# PostgREST (HTTP + OpenAPI) with a Scalar docs site. NO PostgreSQL-native OAuth —
+# PostgREST verifies the OIDC bearer token against the issuer JWKS and connects to
+# the DB over SCRAM as `semantius_authenticator`, SET ROLE-ing into `authenticated`
+# (valid token) or `anon` (no token) per request.
+#
+# Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
+# ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
+# colliding. Bring it up with pg-rest-create.sh / .cmd.
+
+services:
+  # --- PostgreSQL 18 + extension --------------------------------------------
+  postgres:
+    build:
+      # Repo root so the build can COPY ./extension; the repo-root .dockerignore
+      # (`*` then `!extension`) keeps the context tiny (only ./extension is sent).
+      context: ..
+      dockerfile: pgrest/Dockerfile
+    image: postgres18-rest:local
+    container_name: postgres18-rest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      # Read by init/11-session-role.sh (.sh init scripts get env interpolation)
+      # AND by PostgREST below (PGRST_DB_URI) — keep the two in sync.
+      SEMANTIUS_AUTHENTICATOR_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      # Mount each init file INDIVIDUALLY (never a dir + nested overlay — Docker
+      # Desktop errors "read-only file system" creating the nested mountpoint).
+      # Alphabetical run order: 11 → 12 → 20. The extension (20) creates
+      # semantius_user/authenticated/semantius_authenticator; 11/12 pre-create
+      # semantius_authenticator (LOGIN+password) and anon, which the extension's
+      # idempotent migrations then reconcile without stripping LOGIN.
+      - ./init/11-session-role.sh:/docker-entrypoint-initdb.d/11-session-role.sh:ro
+      - ./init/12-anon-role.sh:/docker-entrypoint-initdb.d/12-anon-role.sh:ro
+      - ./init-ext/20-extension.sql:/docker-entrypoint-initdb.d/20-extension.sql:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-appdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- One-shot: fetch the issuer JWKS to a file PostgREST can read ----------
+  # PostgREST CANNOT fetch a JWKS from a URL; jwt-secret only takes inline JSON or
+  # @/path/to/file. So fetch it once at startup into the shared `jwks` volume.
+  # Runs as root (user 0:0) so it can write to the fresh named volume (owned by
+  # root); curl writes jwks.json world-readable, so PostgREST (a different user)
+  # can read it.
+  #
+  # LIMITATION: fetched ONCE per start. If the issuer ROTATES signing keys, tokens
+  # signed by a new key fail until this is re-run and PostgREST reloads
+  # (`docker kill -s SIGUSR1 postgres18-rest-api`) or the stack is restarted. Fine
+  # for the throwaway test issuer; front the DB with a JWKS-refreshing gateway for
+  # anything real. Fail-closed: if the issuer is unreachable, this exits non-zero
+  # and PostgREST won't start (its depends_on service_completed_successfully).
+  jwks-fetch:
+    image: curlimages/curl:latest
+    container_name: postgres18-rest-jwks
+    user: "0:0"
+    restart: "no"
+    environment:
+      JWKS_URL: ${JWKS_URL:-https://oidc-test.semanti.us/jwks}
+    volumes:
+      - jwks:/jwks
+    entrypoint:
+      - "sh"
+      - "-c"
+      - |
+        set -e
+        echo "Fetching JWKS from $${JWKS_URL} ..."
+        curl -fsS --retry 5 --retry-connrefused "$${JWKS_URL}" -o /jwks/jwks.json
+        echo "JWKS written to /jwks/jwks.json:"
+        cat /jwks/jwks.json
+
+  # --- PostgREST -------------------------------------------------------------
+  postgrest:
+    image: postgrest/postgrest:latest
+    container_name: postgres18-rest-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jwks-fetch:
+        condition: service_completed_successfully
+    environment:
+      # Connect as the authenticator; PostgREST SET ROLEs into authenticated/anon.
+      # Password must match SEMANTIUS_AUTHENTICATOR_PASSWORD above.
+      PGRST_DB_URI: "postgres://semantius_authenticator:${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-appdb}"
+      PGRST_DB_SCHEMAS: "public"
+      PGRST_DB_ANON_ROLE: "anon"
+      # JWKS from a FILE (PostgREST can't take a URL). @-prefix = read from file.
+      PGRST_JWT_SECRET: "@/jwks/jwks.json"
+      # The JWT `role` claim selects the DB role (default claim key = .role). The
+      # test issuer already mints "role":"authenticated", so it maps automatically.
+      PGRST_JWT_ROLE_CLAIM_KEY: ".role"
+      # Emit the FULL OpenAPI spec regardless of the requesting role's privileges,
+      # so the token-less docs site sees every endpoint while `anon` still has no
+      # data access (locked down in init/12-anon-role.sh).
+      PGRST_OPENAPI_MODE: "ignore-privileges"
+      # Include securityDefinitions (JWT bearer, Authorization header) in the spec
+      # so the Scalar docs render an "Authentication" box for pasting a token.
+      # Mint one with ./pg-rest-token.sh <user>.
+      PGRST_OPENAPI_SECURITY_ACTIVE: "true"
+      # Honour the CLI's `NOTIFY pgrst, 'reload schema'` after each migration.
+      PGRST_DB_CHANNEL_ENABLED: "true"
+      PGRST_DB_CHANNEL: "pgrst"
+      PGRST_SERVER_PORT: "3000"
+      # The host the spec advertises to clients. Without this PostgREST emits its
+      # bind address (0.0.0.0:3000), so the docs' "Test Request" calls
+      # http://0.0.0.0:3000/... which the browser rejects (ERR_ADDRESS_INVALID).
+      # Point it at the browser-reachable published URL. If you access the docs from
+      # another host, change localhost accordingly (or front the stack with a proxy).
+      PGRST_OPENAPI_SERVER_PROXY_URI: "http://localhost:${POSTGREST_PORT:-3000}"
+      # PGRST_JWT_AUD left unset: rbac.uid() enforces aud in-DB (same as bearer
+      # mode). Set it to one of the token's aud values to also check at this layer.
+    ports:
+      - "${POSTGREST_PORT:-3000}:3000"
+    volumes:
+      - jwks:/jwks:ro
+
+  # --- Scalar API reference (OpenAPI docs) -----------------------------------
+  # Renders PostgREST's Swagger 2.0 spec. The `url` is fetched by the BROWSER, so
+  # it must be the host-published PostgREST port (localhost), NOT the in-network
+  # `postgrest` hostname. PostgREST's default permissive CORS allows the fetch.
+  scalar:
+    image: scalarapi/api-reference:latest
+    container_name: postgres18-rest-docs
+    restart: unless-stopped
+    depends_on:
+      postgrest:
+        condition: service_started
+    environment:
+      API_REFERENCE_CONFIG: '{"sources":[{"url":"http://localhost:${POSTGREST_PORT:-3000}/","title":"Semantius API"}]}'
+    ports:
+      - "${DOCS_PORT:-8080}:8080"
+
+volumes:
+  pgdata:
+  jwks:
