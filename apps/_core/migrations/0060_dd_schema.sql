@@ -70,8 +70,10 @@ CREATE TABLE IF NOT EXISTS entities (
 
 CREATE INDEX idx_entities_module ON entities(module_id);
 
-COMMENT ON TABLE entities IS 
-'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE entities IS
+E'Entities\n\nCatalog of tables in Semantius';
 
 COMMENT ON COLUMN entities.table_name IS 'Physical table name in database (lowercase, underscores only)';
 COMMENT ON COLUMN entities.singular IS 'Singular form of table name (e.g., customer for customers table)';
@@ -175,8 +177,10 @@ CREATE INDEX idx_fields_name ON fields(field_name);
 CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
 
-COMMENT ON TABLE fields IS 
-'Metadata for fields in dynamically created tables. Each row triggers ALTER TABLE to add column.';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE fields IS
+E'Fields\n\nCatalog of the fields that make up a table';
 
 COMMENT ON COLUMN fields.field_name IS 'Physical column name in database (lowercase, underscores only)';
 COMMENT ON COLUMN fields.title IS 'Human-readable display name for the field';
@@ -213,6 +217,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION validate_reference_table IS
+'Trigger function that rejects a field whose reference_table is set but does not match any entities.table_name. Enforced via trigger (not a CHECK) so it can run a subquery.';
 
 CREATE TRIGGER validate_reference_table_trigger
     BEFORE INSERT OR UPDATE ON fields
@@ -362,12 +369,12 @@ CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
 -- Insert entities metadata for core tables
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES 
-    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
      '[{"code":"catalog_entity_code_write_once","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"catalog_field_code_write_once","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
      '[{"code":"catalog_module_code_write_once","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
      '[{"code":"origin_immutable_roles","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),

@@ -705,6 +705,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
+COMMENT ON FUNCTION jl_truthy(jsonb) IS
+'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
+COMMENT ON FUNCTION jl_to_number(jsonb) IS
+'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators).';
+COMMENT ON FUNCTION jl_to_text(jsonb) IS
+'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
+COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
+'JsonLogic loose equality (==): compares two JSONB values with JavaScript-style type coercion.';
+COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
+'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
+
 -- Revoke public execute on all jsonlogic functions
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;

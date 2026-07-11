@@ -194,8 +194,62 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
-COMMENT ON FUNCTION quote_default_value IS 
+COMMENT ON FUNCTION quote_default_value IS
 'Properly quotes default values based on data type for use in DDL statements.';
+
+-- =====================================================
+-- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
+-- =====================================================
+-- Centralised construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
+-- applied by the DDL triggers, so the create and update paths stay identical.
+--   • dd_table_comment  -- "<plural_label>" then a blank line + description (when set)
+--   • dd_field_comment  -- "<title> (<format>)" then description, plus enum value list
+
+CREATE OR REPLACE FUNCTION dd_table_comment(p_plural_label TEXT, p_description TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_body TEXT;
+BEGIN
+    -- Summary line: the plural label
+    v_body := COALESCE(trim(p_plural_label), '');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := CASE WHEN v_body = '' THEN '' ELSE v_body || E'\n\n' END || p_description;
+    END IF;
+    RETURN NULLIF(v_body, '');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_table_comment IS
+'Builds the COMMENT ON TABLE body for an entity: the plural label as a summary line, followed by a blank line and the description when one is set. Returns NULL when both are empty. Used by the entity create and update DDL triggers so both paths stay in sync.';
+
+CREATE OR REPLACE FUNCTION dd_field_comment(p_title TEXT, p_format TEXT, p_description TEXT, p_enum_values JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_body   TEXT;
+    v_values TEXT;
+BEGIN
+    -- Summary line: "<title> (<format>)"
+    v_body := trim(trim(COALESCE(p_title, '')) || ' (' || COALESCE(p_format, '') || ')');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := v_body || E'\n\n' || p_description;
+    END IF;
+    -- Enum value list: comma-separated allowed values on their own line
+    IF p_format = 'enum'
+       AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
+       AND jsonb_array_length(p_enum_values) > 0 THEN
+        SELECT string_agg(value, ', ') INTO v_values
+        FROM jsonb_array_elements_text(p_enum_values) AS value;
+        v_body := v_body || E'\n\n' || v_values;
+    END IF;
+    RETURN NULLIF(v_body, '');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_field_comment IS
+'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -206,6 +260,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
+    v_comment    TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
@@ -238,15 +293,12 @@ BEGIN
     -- Create the table
     EXECUTE v_create_sql;
     
-    -- Add table comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON TABLE %I IS %L',
-            NEW.table_name,
-            NEW.description
-        );
+    -- Set table comment: plural label summary + optional description
+    v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
     END IF;
-    
+
     -- Add updated_at trigger using common schema function
     EXECUTE format(
         'CREATE TRIGGER update_%I_updated_at
@@ -344,6 +396,48 @@ CREATE TRIGGER create_table_trigger
     EXECUTE FUNCTION create_dd_table();
 
 -- =====================================================
+-- TRIGGER FUNCTION: SYNC TABLE COMMENT ON UPDATE
+-- =====================================================
+-- Keeps COMMENT ON TABLE in sync when an entity's plural_label or description
+-- changes (or the table is renamed). Fires AFTER UPDATE so the physical rename
+-- performed by the BEFORE UPDATE rename trigger has already applied and
+-- NEW.table_name refers to the current table.
+
+CREATE OR REPLACE FUNCTION update_dd_table_comment()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_comment TEXT;
+BEGIN
+    -- Only managed tables that physically exist have a table to comment on
+    IF NOT NEW.managed OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Nothing to do unless a comment input or the table identity changed
+    IF OLD.plural_label IS DISTINCT FROM NEW.plural_label
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+        ELSE
+            EXECUTE format('COMMENT ON TABLE %I IS NULL', NEW.table_name);
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION update_dd_table_comment IS
+'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata.';
+
+CREATE TRIGGER update_table_comment_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION update_dd_table_comment();
+
+-- =====================================================
 -- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
 -- =====================================================
 -- When a new field is inserted with field_order = 0 (the default),
@@ -437,6 +531,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Suppress IF NOT EXISTS/IF EXISTS notices
     SET LOCAL client_min_messages = WARNING;
@@ -455,14 +550,10 @@ BEGIN
         UNION
         SELECT label_column FROM entities WHERE table_name = NEW.table_name
     ) THEN
-        -- Still add column comment if description provided
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+        -- Still set the column comment (title/format summary + description [+ enum values])
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         END IF;
         RETURN NEW;
     END IF;
@@ -525,17 +616,13 @@ BEGIN
     
     -- Add the column
     EXECUTE v_alter_sql;
-    
-    -- Add column comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON COLUMN %I.%I IS %L',
-            NEW.table_name,
-            NEW.field_name,
-            NEW.description
-        );
+
+    -- Set column comment: title/format summary + description [+ enum values]
+    v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
     END IF;
-    
+
     -- If this is a primary key field, set it as primary key
     IF NEW.is_pk THEN
         -- Check if table already has a primary key
@@ -700,6 +787,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -733,46 +821,36 @@ BEGIN
     
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name,
-                    NEW.field_name,
-                    NEW.description
-                );
+        -- Still keep the column comment in sync even if not managed
+        IF OLD.title IS DISTINCT FROM NEW.title
+           OR OLD.format IS DISTINCT FROM NEW.format
+           OR OLD.description IS DISTINCT FROM NEW.description
+           OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
-        
+
         RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;
     
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
-    
+
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
         v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
@@ -1603,7 +1681,10 @@ REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_dd_table_comment() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION add_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;

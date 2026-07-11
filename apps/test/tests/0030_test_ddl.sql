@@ -1,7 +1,7 @@
 -- Test that should fail
 BEGIN;
 
-SELECT plan(10);
+SELECT plan(16);
 
 select authenticate_as('user1');
 
@@ -79,10 +79,42 @@ INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, in
 VALUES ('table1', 'field1', 'Email Address', 'email', FALSE, 10, 'default', 'default', 'Customer primary email address');
 
 SELECT pgtap.has_column(
-    'public',    
-    'table1',    
-    'field1',     
+    'public',
+    'table1',
+    'field1',
     'column test1 should exist in public.table1'
+);
+
+-- CREATE sets the table comment to "<plural_label>" + blank line + description
+SELECT is(
+    obj_description('public.table1'::regclass),
+    E'Table1\n\nNew test table',
+    'CREATE sets COMMENT ON TABLE to plural label + blank line + description'
+);
+
+-- CREATE sets the column comment to "<title> (<format>)" + blank line + description
+SELECT is(
+    col_description(
+        'public.table1'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.table1'::regclass AND attname = 'field1')
+    ),
+    E'Email Address (email)\n\nCustomer primary email address',
+    'CREATE sets COMMENT ON COLUMN to "title (format)" + blank line + description'
+);
+
+-- UPDATE re-syncs the column comment when title/description change
+UPDATE fields SET title = 'Primary Email', description = 'Updated field description'
+WHERE table_name = 'table1' AND field_name = 'field1';
+
+SELECT is(
+    col_description(
+        'public.table1'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.table1'::regclass AND attname = 'field1')
+    ),
+    E'Primary Email (email)\n\nUpdated field description',
+    'UPDATE re-syncs COMMENT ON COLUMN when title/description change'
 );
 
 -- Test that permissions.module_id cannot be NULL
@@ -111,6 +143,27 @@ SELECT throws_ok(
 
 
 
+
+-- The entities/fields catalog tables' own COMMENT must match what the DDL trigger
+-- would regenerate from their entity row (plural_label + blank line + description),
+-- so the hand-authored bootstrap comment never diverges from the row data.
+SELECT is(
+    obj_description('public.entities'::regclass),
+    (SELECT plural_label || E'\n\n' || description FROM entities WHERE table_name = 'entities'),
+    'entities table comment = plural label + description of its own catalog row (no divergence)'
+);
+
+SELECT is(
+    obj_description('public.fields'::regclass),
+    (SELECT plural_label || E'\n\n' || description FROM entities WHERE table_name = 'fields'),
+    'fields table comment = plural label + description of its own catalog row (no divergence)'
+);
+
+SELECT is(
+    obj_description('public.modules'::regclass),
+    (SELECT plural_label || E'\n\n' || description FROM entities WHERE table_name = 'modules'),
+    'modules table comment = plural label + description of its own catalog row (no divergence)'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

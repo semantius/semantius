@@ -118,6 +118,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+COMMENT ON FUNCTION bump_module_version() IS
+'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
+COMMENT ON FUNCTION bump_module_version_from_related() IS
+'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, using app.bumping_module_version to avoid recursive double-bumps.';
+
 -- =====================================================
 -- TRIGGERS ON MODULES TABLE
 -- =====================================================

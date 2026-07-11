@@ -66,6 +66,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_after_insert() IS
+'Trigger function that provisions the underlying pgmq queue (pgmq.create) when a row is inserted into the queues table.';
+
 CREATE TRIGGER queue_after_insert_trigger
     AFTER INSERT ON queues
     FOR EACH ROW
@@ -84,6 +87,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_before_update() IS
+'Trigger function that rejects any attempt to change queues.queue_name after creation (the name is immutable once the pgmq queue exists).';
+
 CREATE TRIGGER queue_before_update_trigger
     BEFORE UPDATE ON queues
     FOR EACH ROW
@@ -99,6 +105,9 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+COMMENT ON FUNCTION queue_before_delete() IS
+'Trigger function that drops the underlying pgmq queue (pgmq.drop_queue) when a row is deleted from the queues table.';
 
 CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
@@ -167,6 +176,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_event_before_update() IS
+'Trigger function that rejects changing queue_table_events.table_name on UPDATE (the mapping''s target table is immutable).';
+
 CREATE TRIGGER queue_event_before_update_trigger
     BEFORE UPDATE ON queue_table_events
     FOR EACH ROW
@@ -229,6 +241,9 @@ $$;
 
 -- Manage event trigger creation / removal
 
+COMMENT ON FUNCTION queue_build_record_json() IS
+'Per-row AFTER trigger function (installed on target tables by queue_table_events) that serializes the affected record to JSON and enqueues it as a pgmq message on the mapped queue.';
+
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
@@ -273,6 +288,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_event_after_insert() IS
+'Trigger function that installs the per-table queue_build_record_json trigger on the mapped table when a queue_table_events mapping is inserted.';
+
 CREATE TRIGGER queue_event_after_insert_trigger
     AFTER INSERT ON queue_table_events
     FOR EACH ROW
@@ -308,6 +326,9 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+COMMENT ON FUNCTION queue_event_after_delete() IS
+'Trigger function that drops the per-table queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
 
 CREATE TRIGGER queue_event_after_delete_trigger
     AFTER DELETE ON queue_table_events

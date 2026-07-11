@@ -2,7 +2,7 @@
 -- Verify that fields with format='enum' properly enforce enum_values constraints
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(14);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -108,6 +108,37 @@ SELECT throws_ok(
     '23514',
     NULL,
     'Should reject invalid enum value "unknown_status" for status'
+);
+
+-- =====================================================
+-- TEST 13/14: enum column COMMENT carries the allowed value list
+-- =====================================================
+
+-- On create (from seed metadata), the comment is
+--   "<title> (enum)" + description + comma-separated allowed values
+SELECT is(
+    col_description(
+        'public.customers_test'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.customers_test'::regclass AND attname = 'status')
+    ),
+    E'Status (enum)\n\nCustomer account status (active, inactive, etc.)\n\nactive, inactive, pending, suspended',
+    'Enum column comment = "title (enum)" + description + comma-separated allowed values'
+);
+
+-- Updating enum_values re-syncs the value list in the column comment
+UPDATE fields
+SET enum_values = '["active", "inactive", "pending", "suspended", "archived"]'::jsonb
+WHERE table_name = 'customers_test' AND field_name = 'status';
+
+SELECT is(
+    col_description(
+        'public.customers_test'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.customers_test'::regclass AND attname = 'status')
+    ),
+    E'Status (enum)\n\nCustomer account status (active, inactive, etc.)\n\nactive, inactive, pending, suspended, archived',
+    'Enum column comment value list re-syncs when enum_values changes'
 );
 
 SELECT * FROM finish();

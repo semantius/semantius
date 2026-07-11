@@ -90,11 +90,15 @@ BEGIN
     );
     EXECUTE v_alter_sql;
 
-    -- Add / refresh column comment
-    IF p_field.description IS NOT NULL AND trim(p_field.description) != '' THEN
-        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
-            p_field.table_name, p_field.field_name, p_field.description);
-    END IF;
+    -- Add / refresh column comment: title/format summary + description [+ enum values]
+    DECLARE
+        v_comment TEXT := dd_field_comment(p_field.title, p_field.format, p_field.description, p_field.enum_values);
+    BEGIN
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
+                p_field.table_name, p_field.field_name, v_comment);
+        END IF;
+    END;
 
     -- Foreign key (reference / parent format)
     IF p_field.format IN ('reference', 'parent')
@@ -220,10 +224,14 @@ BEGIN
         );
         EXECUTE v_create_sql;
 
-        -- Table comment
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, NEW.description);
-        END IF;
+        -- Table comment: plural label summary + optional description
+        DECLARE
+            v_comment TEXT := dd_table_comment(NEW.plural_label, NEW.description);
+        BEGIN
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+            END IF;
+        END;
 
         -- updated_at maintenance trigger
         EXECUTE format(
@@ -359,6 +367,7 @@ DECLARE
     v_fk_name        TEXT;
     v_idx_name       TEXT;
     v_on_delete      TEXT;
+    v_comment        TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -394,18 +403,24 @@ BEGIN
 
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name, NEW.field_name, NEW.description
-                );
+        -- Keep the column comment in sync even if not managed, but only when the
+        -- physical column actually exists (an unmanaged entity may be metadata-only
+        -- with no physical table/column to comment on).
+        IF (OLD.title IS DISTINCT FROM NEW.title
+            OR OLD.format IS DISTINCT FROM NEW.format
+            OR OLD.description IS DISTINCT FROM NEW.description
+            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name   = NEW.table_name
+                 AND column_name  = NEW.field_name
+           ) THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name, NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
 
@@ -426,18 +441,16 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name, NEW.field_name, NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name, NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
 
@@ -671,6 +684,9 @@ LANGUAGE sql IMMUTABLE
 SET search_path = public
 AS $$ SELECT p_format IN ('reference', 'parent') $$;
 
+COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
+'TRUE when a field format denotes a foreign-key relationship (''reference'' or ''parent'').';
+
 -- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
 -- fallback heuristic recognises a pure pairing table — ≥2 parent legs and every non-leg field is an
 -- id/label/audit column (recognised audit names + ctype='audit'). A status/rating/note payload
@@ -700,6 +716,9 @@ AS $$
   END
 $$;
 
+COMMENT ON FUNCTION dd_is_junction(TEXT) IS
+'TRUE when an entity is a pure M:N junction/pairing table: entity_type=''junction'' is authoritative, otherwise a heuristic requiring ≥2 parent legs and no payload fields (only id/label/audit columns besides the legs).';
+
 -- The committed identity-spine parent of an entity (reference_table of its label_parent field),
 -- or '' when it has no spine. Used by validate_label_parent() to walk the chain for cycles.
 CREATE OR REPLACE FUNCTION dd_spine_parent(p_table_name TEXT)
@@ -714,6 +733,9 @@ AS $$
     WHERE e.table_name = p_table_name
   ), '')
 $$;
+
+COMMENT ON FUNCTION dd_spine_parent(TEXT) IS
+'Returns the identity-spine parent of an entity (the reference_table of its label_parent field), or '''' when it has no spine. Used by validate_label_parent to walk the chain for cycles.';
 
 -- (Re)generate _label and every <fk>_label for one entity from current metadata + physical columns.
 -- Defensive: only references columns/tables that physically exist, so it produces valid SQL for any
@@ -844,6 +866,10 @@ BEGIN
     -- by the request role so they work as PostgREST computed columns and in nested _label calls.
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public._label(%s) TO semantius_user', v_rowtype);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public._label(%s) IS %L',
+        v_rowtype,
+        format('Composed record label for entity "%s" (PostgREST computed column). Generated by rebuild_entity_label_functions from entity/field metadata.', p_table_name));
 
     -- <fk>_label companion for every reference/parent field (referenced record's composed label).
     FOR r IN
@@ -870,6 +896,10 @@ BEGIN
             r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
         EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
         EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
+        EXECUTE format(
+            'COMMENT ON FUNCTION public.%I(%s) IS %L',
+            r.field_name || '_label', v_rowtype,
+            format('Composed label of the "%s" record referenced by %s.%s (PostgREST computed column). Generated by rebuild_entity_label_functions.', r.reference_table, p_table_name, r.field_name));
     END LOOP;
 
     PERFORM set_config('check_function_bodies', v_saved, true);
@@ -908,6 +938,9 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+COMMENT ON FUNCTION reserve_field_namespace() IS
+'Trigger function that rejects user-created field names beginning with "_" (reserved for generated/system columns such as _label). Privileged BYPASSRLS roles are exempt.';
 
 CREATE TRIGGER fields_reserve_namespace_trigger
     BEFORE INSERT OR UPDATE OF field_name ON fields
@@ -975,6 +1008,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION validate_label_parent() IS
+'Trigger function validating an entity''s label_parent: it must name a reference/parent field of the entity, must not self-reference, and must not introduce a cycle in the identity spine.';
+
 CREATE TRIGGER validate_label_parent_trigger
     BEFORE INSERT OR UPDATE OF label_parent ON entities
     FOR EACH ROW
@@ -1014,6 +1050,11 @@ BEGIN
     RETURN NULL;
 END;
 $$;
+
+COMMENT ON FUNCTION dd_label_fn_sync_entity() IS
+'Trigger function that regenerates the entity''s _label / <fk>_label computed-column functions after an entities row changes, by calling rebuild_entity_label_functions.';
+COMMENT ON FUNCTION dd_label_fn_sync_field() IS
+'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions.';
 
 CREATE TRIGGER zzz_label_fn_entity_insert_trigger
     AFTER INSERT ON entities

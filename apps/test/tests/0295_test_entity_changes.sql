@@ -14,7 +14,7 @@
 --   entity: eptest1 → eptest2 → eptest3 → eptest4
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(35);
 
 SELECT authenticate_as('user3');
 
@@ -454,6 +454,39 @@ SELECT ok(
           AND pronamespace = 'public'::regnamespace
     ),
     'compute_validate function should be created after simultaneous select_rule removal + validation_rules add'
+);
+
+-- =====================================================
+-- TEST 16: COMMENT ON TABLE tracks plural_label + description
+-- (set on create, preserved across renames, re-synced on update)
+-- =====================================================
+
+-- Comment was set on create as "<plural_label>" + blank line + description and
+-- has followed the eptest1 → eptest2 → eptest3 → eptest4 renames.
+SELECT is(
+    obj_description('public.eptest4'::regclass),
+    E'EP Test Items\n\nEntity permission test',
+    'Table comment is plural label + description, preserved across renames'
+);
+
+-- Updating plural_label and description re-syncs the table comment.
+UPDATE entities
+SET plural_label = 'EP Renamed Items', description = 'Updated description'
+WHERE table_name = 'eptest4';
+
+SELECT is(
+    obj_description('public.eptest4'::regclass),
+    E'EP Renamed Items\n\nUpdated description',
+    'Table comment re-syncs when plural_label and description change'
+);
+
+-- Clearing the description leaves only the plural-label summary line.
+UPDATE entities SET description = '' WHERE table_name = 'eptest4';
+
+SELECT is(
+    obj_description('public.eptest4'::regclass),
+    'EP Renamed Items',
+    'Table comment is just the plural label when description is empty'
 );
 
 SELECT * FROM finish();

@@ -33,7 +33,9 @@ CREATE TABLE modules (
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
 
-COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE modules IS E'Modules\n\nGroups of related tables and permissions';
 COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
 COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
 COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';

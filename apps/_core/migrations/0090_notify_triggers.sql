@@ -149,6 +149,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
+COMMENT ON FUNCTION pgrst_ddl_watch() IS
+'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
+COMMENT ON FUNCTION pgrst_drop_watch() IS
+'Event-trigger function (sql_drop) that refreshes the PostgREST schema cache when a relevant object is dropped.';
+
 CREATE EVENT TRIGGER pgrst_ddl_watch
     ON ddl_command_end
     EXECUTE PROCEDURE pgrst_ddl_watch();

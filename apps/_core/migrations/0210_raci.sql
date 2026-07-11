@@ -1181,6 +1181,9 @@ COMMENT ON FUNCTION raci_install_or_drop_emit_trigger IS
 
 REVOKE EXECUTE ON FUNCTION raci_install_or_drop_emit_trigger(TEXT) FROM PUBLIC;
 
+COMMENT ON FUNCTION raci_gates_manage_emit_trigger() IS
+'Trigger function on process_gates that (re)runs raci_install_or_drop_emit_trigger for the affected entity/entities so the raci_emit_on_<entity> trigger is installed or dropped as emits_events gates change.';
+
 -- Wire the installer to process_gates
 CREATE TRIGGER raci_gates_manage_emit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON process_gates
