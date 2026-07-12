@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Build the Semantius DB image (PostgreSQL 18 + pg_semantic_platform) locally,
+# from the extension files currently in ./extension.
+#
+#   ./build.sh              # version inferred from ./extension
+#   ./build.sh 0.2.0        # explicit version tag
+#
+# Builds + tags:
+#     ghcr.io/adenin-platform/semantius-db:<version>
+#     ghcr.io/adenin-platform/semantius-db:latest
+#
+# This does NOT regenerate the extension — it packages whatever is in ./extension.
+# If you changed migrations, regenerate first with an EXPLICIT version (bare
+# `deno task extension` falls back to the CLI's own 0.1.0 and downgrades the build):
+#     deno task extension 0.2.0
+#
+# The :latest tag means a local `docker compose up` (e.g. in ../pgrest) uses THIS
+# freshly-built image without pulling. Push it with ./publish.sh.
+set -euo pipefail
+cd "$(dirname "$0")/.."          # repo root (build context; COPYs ./extension)
+
+IMAGE="${IMAGE:-ghcr.io/adenin-platform/semantius-db}"
+
+# The build COPYs ./extension — fail early if it hasn't been generated.
+if ! ls extension/pg_semantic_platform--*.sql >/dev/null 2>&1; then
+  echo "No extension build in ./extension. Generate it first:  deno task extension <version>" >&2
+  exit 1
+fi
+
+# Version: arg wins, else infer from the built extension SQL filename.
+version="${1:-$(ls extension/pg_semantic_platform--*.sql 2>/dev/null \
+  | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)}"
+[ -n "$version" ] || { echo "could not resolve version — pass it explicitly: build.sh <version>" >&2; exit 1; }
+
+echo "Building ${IMAGE}:${version} (+ :latest) ..."
+docker build \
+  -f docker-semantius/Dockerfile \
+  -t "${IMAGE}:${version}" \
+  -t "${IMAGE}:latest" \
+  .
+
+echo
+echo "Built:"
+echo "  ${IMAGE}:${version}"
+echo "  ${IMAGE}:latest"
+echo "Publish with:  IMAGE=${IMAGE} docker-semantius/publish.sh ${version}"

@@ -22,11 +22,16 @@ browser ──▶ Scalar docs (:8080) ──fetch spec──▶ PostgREST (:3000
 
 **Prerequisites:** Docker Desktop running, plus Deno (for the extension build and the token-minting test).
 
-**1. Generate the extension** — from the repo root; it gets baked into the Postgres image:
+**1. Generate the extension** — *only if you changed migrations.* From the repo root, with an
+**explicit** version (a bare `deno task extension` falls back to the CLI's own `0.1.0` and
+downgrades the build):
 
 ```bash
-deno task extension
+deno task extension 0.2.0
 ```
+
+Otherwise the committed build is used as-is. `pg-rest-create` (step 3) builds the DB image
+`ghcr.io/adenin-platform/semantius-db` from it via [`../docker-semantius/build.sh`](../docker-semantius/README.md).
 
 **2. Configure.** Create your `.env` from the template:
 
@@ -107,11 +112,11 @@ Each has a `.sh` (bash) and a `.cmd` (Windows) form:
 
 | Script | Does |
 |---|---|
-| `pg-rest-create` | build the image + start all services (copies `.env` on first run) |
+| `pg-rest-create` | build the DB image (via `../docker-semantius`) + start all services (copies `.env` on first run) |
 | `pg-rest-start`  | start/resume existing containers (reuses the image) |
 | `pg-rest-stop`   | stop + remove containers; **keeps** the data + jwks volumes |
 | `pg-rest-status` | show container status (running / healthy / exited) |
-| `pg-rest-delete` | remove containers, network, **both volumes**, and the built image (confirm prompt) |
+| `pg-rest-delete` | remove containers, network, and **both volumes** (keeps the DB image; confirm prompt) |
 | `pg-rest-token`  | mint a JWT for a test user — paste into the docs, or use with curl |
 | `pg-rest-test`   | mint a JWT from the issuer → read real data → confirm anon is blocked |
 
@@ -122,7 +127,7 @@ Under the hood these are thin wrappers over `docker compose` in this folder (pro
 
 | Service      | Image                      | Host port | Role |
 |--------------|----------------------------|-----------|------|
-| `postgres`   | `postgres18-rest:local` (built from `Dockerfile`) | `5434` | PG18 + `pg_semantic_platform` baked in |
+| `postgres`   | `ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION}` (from [`../docker-semantius`](../docker-semantius/README.md)) | `5434` | PG18 + `pg_semantic_platform` baked in |
 | `jwks-fetch` | `curlimages/curl`          | —         | one-shot: fetches `JWKS_URL` → shared volume file |
 | `postgrest`  | `postgrest/postgrest`      | `3000`    | HTTP API; verifies JWT vs JWKS; serves OpenAPI at `/` |
 | `scalar`     | `scalarapi/api-reference`  | `8080`    | renders PostgREST's Swagger 2.0 spec |

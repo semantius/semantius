@@ -13,12 +13,11 @@ name: semantius-rest
 services:
   # --- PostgreSQL 18 + extension --------------------------------------------
   postgres:
-    build:
-      # Repo root so the build can COPY ./extension; the repo-root .dockerignore
-      # (`*` then `!extension`) keeps the context tiny (only ./extension is sent).
-      context: ..
-      dockerfile: pgrest/Dockerfile
-    image: postgres18-rest:local
+    # The DB image (PostgreSQL 18 + pg_semantic_platform) is built + published
+    # separately from ../docker-semantius. Locally, docker-semantius/build.sh tags
+    # :latest so `up` uses your freshly-built image; on a server it is pulled from
+    # GHCR. Pin the version in .env via SEMANTIUS_DB_VERSION.
+    image: ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION:-latest}
     container_name: postgres18-rest
     restart: unless-stopped
     environment:
@@ -120,9 +119,14 @@ services:
       # The host the spec advertises to clients. Without this PostgREST emits its
       # bind address (0.0.0.0:3000), so the docs' "Test Request" calls
       # http://0.0.0.0:3000/... which the browser rejects (ERR_ADDRESS_INVALID).
-      # Point it at the browser-reachable published URL. If you access the docs from
-      # another host, change localhost accordingly (or front the stack with a proxy).
-      PGRST_OPENAPI_SERVER_PROXY_URI: "http://localhost:${POSTGREST_PORT:-3000}"
+      # The browser resolves this URL, so it must be browser-reachable — NOT the
+      # in-network `postgrest` hostname. Local dev: localhost. Behind a reverse
+      # proxy: set PUBLIC_API_URL to the public URL INCLUDING the path prefix, e.g.
+      # https://yourdomain.com/api. PostgREST serves at root, so the proxy MUST strip
+      # that prefix (nginx trailing-slash proxy_pass, Traefik StripPrefix, Caddy
+      # handle_path) — the spec advertises basePath=/api, the browser calls /api/...,
+      # the proxy strips /api, PostgREST sees /... . See README / .env.example.
+      PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${POSTGREST_PORT:-3000}}"
       # PGRST_JWT_AUD left unset: rbac.uid() enforces aud in-DB (same as bearer
       # mode). Set it to one of the token's aud values to also check at this layer.
     ports:
@@ -132,8 +136,11 @@ services:
 
   # --- Scalar API reference (OpenAPI docs) -----------------------------------
   # Renders PostgREST's Swagger 2.0 spec. The `url` is fetched by the BROWSER, so
-  # it must be the host-published PostgREST port (localhost), NOT the in-network
-  # `postgrest` hostname. PostgREST's default permissive CORS allows the fetch.
+  # it must be browser-reachable — the host-published PostgREST port (localhost)
+  # in local dev, or the public /api URL behind a proxy — NOT the in-network
+  # `postgrest` hostname. Keep it in sync with PGRST_OPENAPI_SERVER_PROXY_URI above
+  # via the same PUBLIC_API_URL. Behind a proxy this is same-origin as the docs, so
+  # it no longer depends on PostgREST's permissive CORS.
   scalar:
     image: scalarapi/api-reference:latest
     container_name: postgres18-rest-docs
@@ -142,7 +149,7 @@ services:
       postgrest:
         condition: service_started
     environment:
-      API_REFERENCE_CONFIG: '{"sources":[{"url":"http://localhost:${POSTGREST_PORT:-3000}/","title":"Semantius API"}]}'
+      API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${POSTGREST_PORT:-3000}}/","title":"Semantius API"}]}'
     ports:
       - "${DOCS_PORT:-8080}:8080"
 

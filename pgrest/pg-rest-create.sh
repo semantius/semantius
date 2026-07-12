@@ -11,14 +11,12 @@ if [ ! -f .env ]; then
   echo "Created .env from .env.example — edit passwords/ports if you want."
 fi
 
-# The extension must be generated first (repo root -> ../extension).
-if ! ls ../extension/pg_semantic_platform--*.sql >/dev/null 2>&1; then
-  echo "No extension build found in ../extension." >&2
-  echo "Generate it first, from the repo root:  deno task extension" >&2
-  exit 1
-fi
+# Build the Semantius DB image locally (regenerates the extension + tags :latest),
+# so the compose `image:` resolves to your current source without pulling. On a
+# server you would instead pull a published version (set SEMANTIUS_DB_VERSION).
+../docker-semantius/build.sh
 
-docker compose up -d --build
+docker compose up -d
 docker compose ps
 
 set -a; . ./.env; set +a

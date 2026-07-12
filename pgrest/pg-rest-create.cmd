@@ -10,11 +10,18 @@ if not exist ".env" (
 
 if not exist "..\extension\pg_semantic_platform.control" (
   echo No extension build found in ..\extension.
-  echo Generate it first from the repo root:  deno task extension
+  echo Generate it first from the repo root:  deno task extension 0.2.0
   goto :err
 )
 
-docker compose up -d --build || goto :err
+REM Build the DB image locally (from ..\extension), tagged :latest so compose
+REM (SEMANTIUS_DB_VERSION defaults to latest) uses it without pulling. The
+REM versioned tag + publish live in ..\docker-semantius (build.sh / CI).
+pushd ..
+docker build -f docker-semantius\Dockerfile -t ghcr.io/adenin-platform/semantius-db:latest . || (popd & goto :err)
+popd
+
+docker compose up -d || goto :err
 docker compose ps
 echo.
 echo Ready (PostgREST stack). Default ports (see .env):
