@@ -11,12 +11,16 @@ and connects to Postgres over SCRAM. Same issuer, same JWKS URL, same `authentic
 no native-OAuth build, no validator.
 
 ```
+browser ──▶ Admin SPA   (:7070)
 browser ──▶ Scalar docs (:8080) ──fetch spec──▶ PostgREST (:3000, OpenAPI at /)
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
                                        Postgres 18 + pg_semantic_platform  (:5434)
 ```
+
+The stack also runs a static **admin SPA** (`ghcr.io/intranetfactory/semantius-web`, served on
+container port 80) published on the host at **:7070**.
 
 ## Quick start
 
@@ -57,21 +61,22 @@ against the test issuer.)
 ./pg-rest-create.sh           # Windows: pg-rest-create.cmd
 ```
 
-**4. Verify, then open the docs.** The test mints a JWT, reads real data, and checks anon is blocked:
+**4. Verify, then open the docs.** The API test mints a JWT, reads real data, and checks anon is blocked:
 
 ```bash
-./pg-rest-test.sh
+./pg-rest-api-test.sh
 ```
 
+- **Admin:** http://localhost:7070 — admin single-page app
 - **Docs:** http://localhost:8080 — Scalar API reference
 - **API:** http://localhost:3000 — OpenAPI spec served at `/`
 
 **5. Stop / resume / wipe:**
 
 ```bash
-./pg-rest-stop.sh             # stop, keep the database
-./pg-rest-start.sh            # resume
-./pg-rest-delete.sh           # remove containers + volumes + image
+./pg-rest-stop.sh             # stop containers, keep them (and the data)
+./pg-rest-start.sh            # start the stopped containers again
+./pg-rest-destroy.sh          # remove containers + volumes (keeps the image)
 ```
 
 ## Where do I provide the JWKS?
@@ -103,6 +108,7 @@ zero OIDC setup.
 | `POSTGRES_PORT` | `5434` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
 | `POSTGREST_PORT` | `3000` | Host port for the HTTP API (OpenAPI spec at `/`). |
 | `DOCS_PORT` | `8080` | Host port for the Scalar docs site. |
+| `WEB_PORT` | `7070` | Host port for the admin SPA (`ghcr.io/intranetfactory/semantius-web`, serves on 80). |
 
 `.env` is gitignored; `.env.example` is the committed template.
 
@@ -110,15 +116,19 @@ zero OIDC setup.
 
 Each has a `.sh` (bash) and a `.cmd` (Windows) form:
 
-| Script | Does |
-|---|---|
-| `pg-rest-create` | build the DB image (via `../docker-semantius`) + start all services (copies `.env` on first run) |
-| `pg-rest-start`  | start/resume existing containers (reuses the image) |
-| `pg-rest-stop`   | stop + remove containers; **keeps** the data + jwks volumes |
-| `pg-rest-status` | show container status (running / healthy / exited) |
-| `pg-rest-delete` | remove containers, network, and **both volumes** (keeps the DB image; confirm prompt) |
+Clean lifecycle separation — **create** creates, **start**/**stop** only toggle running state, **destroy** is the only one that removes:
+
+| Script | Does | `docker compose` |
+|---|---|---|
+| `pg-rest-create` | build the DB image (via `../docker-semantius`) + **(re)create** all containers fresh and start them (copies `.env` on first run). Re-pulls the `:latest` registry images (postgrest, scalar, admin SPA, curl — via `pull_policy: always`); the locally-built DB image is used as-is. Always ends in a clean stack — never resumes a stale container. Keeps volumes/data. | `up -d --force-recreate --remove-orphans` |
+| `pg-rest-start`  | **start** the existing (stopped) containers — never creates them. Errors if the stack was not created yet. | `start` |
+| `pg-rest-stop`   | **stop** the containers without removing them; keeps containers, network, and volumes. | `stop` |
+| `pg-rest-status` | show container status (created / running / healthy / exited) | `ps -a` |
+| `pg-rest-destroy` | **remove** containers, network, and **both volumes** (keeps the DB image; confirm prompt) | `down -v` |
 | `pg-rest-token`  | mint a JWT for a test user — paste into the docs, or use with curl |
-| `pg-rest-test`   | mint a JWT from the issuer → read real data → confirm anon is blocked |
+| `pg-rest-api-test` | mint a JWT from the issuer → read real data → confirm anon is blocked (HTTP/auth smoke test) |
+| `pg-rest-test`   | **full pgTAP suite** against a freshly rebuilt stack + real `CREATE EXTENSION` install (`down -v`, destructive) — the first-time test of a clean install |
+| `pg-rest-retest` | fast pgTAP suite in a throwaway DB on the already-running stack (non-destructive) |
 
 Under the hood these are thin wrappers over `docker compose` in this folder (project
 `semantius-rest`), so `docker compose logs -f postgrest`, `docker compose ps`, etc. work too.

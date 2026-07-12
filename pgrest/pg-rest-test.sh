@@ -1,47 +1,116 @@
 #!/usr/bin/env bash
-# Smoke-test the running PostgREST stack (needs curl; steps 2-4 need Deno).
-# The core flow: mint a JWT from the test issuer, then read real data with it.
-#   1. GET the OpenAPI spec at / WITHOUT a token  -> proves anon spec visibility.
-#   2. Mint a token for a test user from the issuer (reuses ../pgdocker/get_user_token.ts).
-#   3. POST an RPC WITH the token   -> JWKS verify + SET ROLE authenticated + rbac.uid(); shows identity.
-#   4. GET a table WITH the token   -> real rows via RLS.
-#   5. GET a table WITHOUT a token  -> anon cannot read data (expect 401).
+# pg-rest-test.sh  -  Test the EXACT pgrest deployment behavior end to end: a FRESH
+# container, a FRESH data volume, and `_core` installed the real way via
+# `CREATE EXTENSION pg_semantic_platform` (the whole _core install in ONE
+# transaction) — then deploy test,nwind and run the full pgTAP suite.
+#
+# This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds the
+# stack from current source, so it also exercises the image build, the init scripts
+# (11-session-role, 12-anon-role) and role bootstrap FROM SCRATCH — i.e. the real
+# production install path. It is the pgrest twin of pgdocker/pg-ext-retest.sh.
+#
+# vs pg-rest-retest.sh: that one is fast + NON-destructive (a throwaway database on
+# the already-running container) and re-tests the extension baked into the CURRENT
+# image without rebuilding. Use it for a quick check; use THIS for full fidelity.
+#
+# Why recreate instead of reset-in-place? Local Docker makes a fresh container
+# cheap, so we get true fidelity. The CLI `retest` (packages/cli/commands/retest.ts)
+# resets in place because it targets hosted Postgres (e.g. Neon) where you cannot
+# drop/recreate the database behind a fixed connection string — and it installs
+# `_core` via the migrate path (per-file BEGIN/COMMIT), which cannot see the
+# single-transaction CREATE EXTENSION defects this script is built to catch.
+#
+# DESTRUCTIVE: wipes the pgrest data volume and rebuilds the stack. PROMPTS for
+# confirmation first (like pg-rest-destroy.sh); bypass with -y/--yes or ASSUME_YES=1
+# / CI=true. Afterwards the stack holds the test,nwind fixtures; run
+# ./pg-rest-create.sh for a clean appdb again.
+#
+# Steps:
+#   0. deno task extension <ver>   regenerate the extension SQL from the CURRENT
+#                     migrations so the rebuilt image bakes what you just changed
+#                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1).
+#   1. down -v        wipe the pgrest stack + its data volume.
+#   2. pg-rest-create rebuild the semantius-db image + bring the stack up fresh;
+#                     init runs CREATE EXTENSION (installs _core in ONE txn, seeds
+#                     the _versions guard rows).
+#   3. readiness gate poll pg_extension until the extension is present (the
+#                     pg_isready healthcheck can go green before init finishes).
+#   4. migrate --apps test,nwind   migrate auto-prepends _core, SKIPPED because the
+#                     extension seeded _versions; only test,nwind deploy.
+#   5. test           run the full pgTAP suite against the extension DB.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-set -a; . ./.env; set +a
-API="http://localhost:${POSTGREST_PORT:-3000}"
-USER_NAME="${1:-user1}"
+SCRIPT_DIR="$(pwd)"
+REPO_ROOT="$(cd .. && pwd)"
+CONTAINER="postgres18-rest"
 
-# Split a `curl -w $'\n%{http_code}'` response into $body / $code.
-_code() { printf '%s' "$1" | tail -n1; }
-_body() { printf '%s' "$1" | sed '$d'; }
+# The DBA connection is derived from the live .env (NOT hard-coded: a checked-out
+# .env may differ from .env.example).
+if [ ! -f .env ]; then
+  cp .env.example .env
+  echo "Created .env from .env.example."
+fi
+read_env() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
+PW="$(read_env POSTGRES_PASSWORD)"; PW="${PW:-postgres}"
+PORT="$(read_env POSTGRES_PORT)";  PORT="${PORT:-5434}"
+DB="$(read_env POSTGRES_DB)";      DB="${DB:-appdb}"
+REST_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
-echo "== 1. OpenAPI spec (no token) @ ${API}/ =="
-code="$(curl -s -o /dev/null -w '%{http_code}' "${API}/")"
-echo "   spec HTTP ${code}  $([ "$code" = 200 ] && echo '(anon OpenAPI visibility OK)' || echo '(expected 200)')"
+# Safety: this DESTROYS the running pgrest stack + its data volume (down -v) and
+# rebuilds it. Confirm before any changes — same guard as pg-rest-destroy.sh.
+# Bypass for automation: pass -y/--yes, or set ASSUME_YES=1 or CI=true.
+FORCE=0
+case "${1:-}" in -y|--yes) FORCE=1 ;; esac
+if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" ]; then
+  read -r -p "This DESTROYS the running pgrest stack and WIPES its data volume ('${DB}', all data), then rebuilds. Continue? [y/N] " ans
+  case "$ans" in
+    y|Y) ;;
+    *) echo "Cancelled."; exit 0 ;;
+  esac
+fi
 
-echo "== 2. Mint token for '${USER_NAME}' from ${ISSUER:-the issuer} =="
-TOKEN="$(deno run --allow-net --allow-read ../pgdocker/get_user_token.ts "${USER_NAME}" 2>/dev/null)"
-[ -n "$TOKEN" ] || { echo "   failed to mint token" >&2; exit 1; }
-echo "   got token (${#TOKEN} chars)"
+# [0/5] Regenerate the extension from CURRENT migrations, so the rebuilt image
+# tests what is on disk now. Version inferred from the newest built extension SQL,
+# exactly like docker-semantius/build.sh.
+if [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
+  VERSION="$(ls "$REPO_ROOT"/extension/pg_semantic_platform--*.sql 2>/dev/null \
+    | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)"
+  if [ -z "$VERSION" ]; then
+    echo "Cannot infer extension version. Run 'deno task extension <ver>' once, or set SKIP_EXT_REGEN=1." >&2
+    exit 1
+  fi
+  echo "== [0/5] Regenerating the extension SQL from current migrations (v$VERSION) =="
+  ( cd "$REPO_ROOT" && deno task extension "$VERSION" )
+fi
 
-echo "== 3. POST /rpc/get_userinfo WITH token (JWT -> your identity + RBAC) =="
-resp="$(curl -s -w $'\n%{http_code}' -X POST \
-  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -d '{}' \
-  "${API}/rpc/get_userinfo")"
-code="$(_code "$resp")"
-echo "   HTTP ${code}  $([ "$code" != 401 ] && echo '(JWT path OK)' || echo '(unexpected 401)')"
-echo "   data: $(_body "$resp" | cut -c1-150)..."
+echo "== [1/5] Resetting the pgrest stack (down -v) =="
+docker compose down -v
 
-echo "== 4. GET /users WITH token (real rows via RLS) =="
-resp="$(curl -s -w $'\n%{http_code}' -H "Authorization: Bearer ${TOKEN}" \
-  "${API}/users?select=id,email,display_name&limit=3")"
-echo "   HTTP $(_code "$resp")  rows: $(_body "$resp")"
+echo "== [2/5] Rebuilding the image + bringing the stack up fresh =="
+"$SCRIPT_DIR/pg-rest-create.sh"
 
-echo "== 5. GET /users WITHOUT token (expect 401 — anon cannot read data) =="
-code="$(curl -s -o /dev/null -w '%{http_code}' "${API}/users?limit=1")"
-echo "   /users (anon) HTTP ${code}  $([ "$code" = 401 ] && echo '(locked down OK)' || echo '(expected 401)')"
+echo "== [3/5] Waiting for the pg_semantic_platform extension to install =="
+# Tolerate early connection refused / empty results while init runs.
+deadline=$(( SECONDS + 180 ))
+until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
+      "SELECT 1 FROM pg_extension WHERE extname='pg_semantic_platform'" 2>/dev/null)" = "1" ]; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "Timed out waiting for the pg_semantic_platform extension to install." >&2
+    docker compose logs --tail 60 postgres || true
+    exit 1
+  fi
+  sleep 2
+done
+echo "Extension present."
+
+echo "== [4/5] Deploying test,nwind (migrate skips the seeded _core) =="
+( cd "$REPO_ROOT" && deno task migrate --apps test,nwind --database-url "$REST_URL" )
+
+echo "== [5/5] Running the pgTAP suite against the extension DB =="
+( cd "$REPO_ROOT" && deno task test --database-url "$REST_URL" )
 
 echo
-echo "Done. Expected: spec 200; get_userinfo(auth) 200 + data; /users(auth) 200 + rows; /users(anon) 401."
+echo "pg-rest-test complete. If all tests are green, the CREATE EXTENSION"
+echo "install of _core is equivalent to the migrate install. Run ./pg-rest-create.sh"
+echo "for a clean appdb (this left the test,nwind fixtures in place)."

@@ -66,6 +66,7 @@ services:
   # and PostgREST won't start (its depends_on service_completed_successfully).
   jwks-fetch:
     image: curlimages/curl:latest
+    pull_policy: always
     container_name: postgres18-rest-jwks
     user: "0:0"
     restart: "no"
@@ -86,6 +87,7 @@ services:
   # --- PostgREST -------------------------------------------------------------
   postgrest:
     image: postgrest/postgrest:latest
+    pull_policy: always
     container_name: postgres18-rest-api
     restart: unless-stopped
     depends_on:
@@ -143,6 +145,7 @@ services:
   # it no longer depends on PostgREST's permissive CORS.
   scalar:
     image: scalarapi/api-reference:latest
+    pull_policy: always
     container_name: postgres18-rest-docs
     restart: unless-stopped
     depends_on:
@@ -152,6 +155,32 @@ services:
       API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${POSTGREST_PORT:-3000}}/","title":"Semantius API"}]}'
     ports:
       - "${DOCS_PORT:-8080}:8080"
+
+  # --- Admin SPA -------------------------------------------------------------
+  # Static single-page admin app served on container port 80, published on the
+  # host at WEB_PORT (default 7070). Pulled from GHCR.
+  web:
+    image: ghcr.io/intranetfactory/semantius-web:latest
+    # Re-pull :latest on every `up` (pg-rest-create). Without this, compose only
+    # pulls when the image is missing locally, so create would keep running a stale
+    # cached SPA. NOT set on `postgres`, which is built locally by build.sh.
+    pull_policy: always
+    container_name: postgres18-rest-web
+    restart: unless-stopped
+    environment:
+      # Same-origin API base: the browser calls http://<host>:${WEB_PORT}/api/...,
+      # and the web image's Caddy proxies /api/* → postgrest:3000 (prefix stripped),
+      # so no CORS and no need to publish PostgREST's port. Doesn't change going live.
+      VITE_API_BASE_URL: /api
+      # OIDC discovery URL + client id — the SPA resolves the OAuth endpoints from
+      # this at boot. CHANGE BOTH when going live (real issuer + real client id).
+      VITE_OAUTH_CONFIG: https://oidc-test.semanti.us/.well-known/openid-configuration
+      VITE_OAUTH_CLIENT_ID: public-client
+      # Ignore the image's baked demo placeholders so a missing var fails loudly
+      # instead of silently using .env.example defaults (e.g. your-postgrest-api.com).
+      ENV_FILE: /dev/null
+    ports:
+      - "${WEB_PORT:-7070}:80"
 
 volumes:
   pgdata:

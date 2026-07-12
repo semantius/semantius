@@ -16,7 +16,12 @@ fi
 # server you would instead pull a published version (set SEMANTIUS_DB_VERSION).
 ../docker-semantius/build.sh
 
-docker compose up -d
+# --force-recreate: always replace existing containers with fresh ones built from
+# the current compose config, so create can never resume a stale/half-built
+# container (e.g. one left port-unpublished by an earlier failed `up`). The result
+# is always a clean stack. --remove-orphans drops containers for services no longer
+# in the compose file. Data lives in named volumes, so this does NOT lose data.
+docker compose up -d --force-recreate --remove-orphans
 docker compose ps
 
 set -a; . ./.env; set +a

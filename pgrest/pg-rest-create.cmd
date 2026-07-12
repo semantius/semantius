@@ -21,7 +21,12 @@ pushd ..
 docker build -f docker-semantius\Dockerfile -t ghcr.io/adenin-platform/semantius-db:latest . || (popd & goto :err)
 popd
 
-docker compose up -d || goto :err
+REM --force-recreate: always replace existing containers with fresh ones from the
+REM current compose config, so create can never resume a stale/half-built container
+REM (e.g. one left port-unpublished by an earlier failed "up"). Result is always a
+REM clean stack. --remove-orphans drops services no longer in compose. Named volumes
+REM are kept, so this does NOT lose data.
+docker compose up -d --force-recreate --remove-orphans || goto :err
 docker compose ps
 echo.
 echo Ready (PostgREST stack). Default ports (see .env):
