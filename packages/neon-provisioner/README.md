@@ -86,6 +86,7 @@ curl -X POST https://<worker-host>/neon-provisioner \
 {
   "success": true,
   "project_id": "...",
+  "org_id": "org-...",
   "branch_id": "...",
   "database_name": "...",
   "database_url": "postgresql://...",
@@ -112,6 +113,7 @@ Resets the Neon Data API cache for a database, then updates
 | Field           | Type     | Required | Description                    |
 | --------------- | -------- | -------- | ------------------------------ |
 | `project_id`    | `string` | ✅       | Neon project ID.               |
+| `org_id`        | `string` | ✅       | Neon org owning the project.   |
 | `branch_id`     | `string` | ✅       | Neon branch ID.                |
 | `database_name` | `string` | ✅       | Target database name.          |
 | `database_url`  | `string` | ✅       | Connection string to update.   |

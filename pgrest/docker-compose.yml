@@ -13,40 +13,32 @@ name: semantius-rest
 services:
   # --- PostgreSQL 18 + extension --------------------------------------------
   postgres:
-    # The DB image (PostgreSQL 18 + pg_semantic_platform) is built + published
-    # separately from ../docker-semantius. Locally, docker-semantius/build.sh tags
-    # :latest so `up` uses your freshly-built image; on a server it is pulled from
-    # GHCR. Pin the version in .env via SEMANTIUS_DB_VERSION.
+    # Self-contained image (../docker-semantius): PostgreSQL 18 with the extension
+    # INSTALLED, plus pg_hba, the roles, the authenticator LOGIN, and an optional
+    # Northwind demo module all baked in. NOTHING is mounted from the host — this
+    # stack is just this compose file + .env (a copy-paste Dokploy template).
+    # Locally, docker-semantius/build.sh tags :latest so `up` uses your fresh
+    # build; on a server it is pulled from GHCR. Pin the version via SEMANTIUS_DB_VERSION.
     image: ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION:-latest}
     container_name: postgres18-rest
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-appdb}
-      # Read by init/11-session-role.sh (.sh init scripts get env interpolation)
-      # AND by PostgREST below (PGRST_DB_URI) — keep the two in sync.
+      POSTGRES_DB: ${POSTGRES_DB:-semantius}
+      # Read by the image's baked 20-authenticator-login.sh AND by PostgREST below
+      # (PGRST_DB_URI) — keep the two in sync.
       SEMANTIUS_AUTHENTICATOR_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
+      # Set to any value (e.g. TRUE) to load the optional Northwind demo module on
+      # first init (the image's baked 40-nwind.sh). Leave unset for an empty DB.
+      # Only takes effect on a FRESH data volume — init scripts run once.
+      NWIND: ${NWIND:-}
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
-      - ./conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
-      # Mount each init file INDIVIDUALLY (never a dir + nested overlay — Docker
-      # Desktop errors "read-only file system" creating the nested mountpoint).
-      # Alphabetical run order: 11 → 12 → 20. The extension (20) creates
-      # semantius_user/authenticated/semantius_authenticator; 11/12 pre-create
-      # semantius_authenticator (LOGIN+password) and anon, which the extension's
-      # idempotent migrations then reconcile without stripping LOGIN.
-      - ./init/11-session-role.sh:/docker-entrypoint-initdb.d/11-session-role.sh:ro
-      - ./init/12-anon-role.sh:/docker-entrypoint-initdb.d/12-anon-role.sh:ro
-      - ./init-ext/20-extension.sql:/docker-entrypoint-initdb.d/20-extension.sql:ro
-    command:
-      - "postgres"
-      - "-c"
-      - "hba_file=/etc/postgresql/pg_hba.conf"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-appdb}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-semantius}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -58,12 +50,18 @@ services:
   # root); curl writes jwks.json world-readable, so PostgREST (a different user)
   # can read it.
   #
-  # LIMITATION: fetched ONCE per start. If the issuer ROTATES signing keys, tokens
-  # signed by a new key fail until this is re-run and PostgREST reloads
-  # (`docker kill -s SIGUSR1 postgres18-rest-api`) or the stack is restarted. Fine
-  # for the throwaway test issuer; front the DB with a JWKS-refreshing gateway for
-  # anything real. Fail-closed: if the issuer is unreachable, this exits non-zero
-  # and PostgREST won't start (its depends_on service_completed_successfully).
+  # KEYS URL: if JWKS_URL is set, it is used directly. If it is EMPTY, the URL is
+  # DERIVED from VITE_OAUTH_CONFIG's OIDC discovery document (its `jwks_uri`), so
+  # pointing the stack at an issuer only needs VITE_OAUTH_CONFIG. Set one or both.
+  #
+  # LIMITATION: fetched ONCE per start. When the issuer ROTATES signing keys, tokens
+  # signed by a new key fail until this is re-run AND PostgREST is restarted to
+  # re-read the file — do both with ./pg-rest-jwks-refresh.sh (.cmd). A restart, not
+  # a reload signal, is required: the key comes from the PGRST_JWT_SECRET env var,
+  # which PostgREST does not re-read on a config reload. Most IdPs rotate slowly, so
+  # on demand is enough; schedule the refresh (daily cron) for a fast-rotating IdP.
+  # Fail-closed: if the issuer/discovery is unreachable, this exits non-zero and
+  # PostgREST won't start (its depends_on service_completed_successfully).
   jwks-fetch:
     image: curlimages/curl:latest
     pull_policy: always
@@ -71,7 +69,9 @@ services:
     user: "0:0"
     restart: "no"
     environment:
-      JWKS_URL: ${JWKS_URL:-https://oidc-test.semanti.us/jwks}
+      # JWKS_URL is OPTIONAL — leave empty to derive it from VITE_OAUTH_CONFIG below.
+      JWKS_URL: ${JWKS_URL:-}
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-https://oidc-test.semanti.us/.well-known/openid-configuration}
     volumes:
       - jwks:/jwks
     entrypoint:
@@ -79,8 +79,22 @@ services:
       - "-c"
       - |
         set -e
-        echo "Fetching JWKS from $${JWKS_URL} ..."
-        curl -fsS --retry 5 --retry-connrefused "$${JWKS_URL}" -o /jwks/jwks.json
+        url="$${JWKS_URL}"
+        if [ -z "$${url}" ]; then
+          if [ -z "$${VITE_OAUTH_CONFIG}" ]; then
+            echo "ERROR: set JWKS_URL, or VITE_OAUTH_CONFIG (the OIDC discovery URL)." >&2
+            exit 1
+          fi
+          echo "JWKS_URL empty — discovering jwks_uri from $${VITE_OAUTH_CONFIG} ..."
+          url="$$(curl -fsS --retry 5 --retry-connrefused "$${VITE_OAUTH_CONFIG}" \
+                  | tr -d '[:space:]' | sed 's/.*"jwks_uri":"//; s/".*//')"
+          case "$${url}" in
+            http://*|https://*) echo "Discovered jwks_uri: $${url}" ;;
+            *) echo "ERROR: no jwks_uri in the discovery document at $${VITE_OAUTH_CONFIG}." >&2; exit 1 ;;
+          esac
+        fi
+        echo "Fetching JWKS from $${url} ..."
+        curl -fsS --retry 5 --retry-connrefused "$${url}" -o /jwks/jwks.json
         echo "JWKS written to /jwks/jwks.json:"
         cat /jwks/jwks.json
 
@@ -98,7 +112,7 @@ services:
     environment:
       # Connect as the authenticator; PostgREST SET ROLEs into authenticated/anon.
       # Password must match SEMANTIUS_AUTHENTICATOR_PASSWORD above.
-      PGRST_DB_URI: "postgres://semantius_authenticator:${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-appdb}"
+      PGRST_DB_URI: "postgres://semantius_authenticator:${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-semantius}"
       PGRST_DB_SCHEMAS: "public"
       PGRST_DB_ANON_ROLE: "anon"
       # JWKS from a FILE (PostgREST can't take a URL). @-prefix = read from file.
@@ -173,9 +187,10 @@ services:
       # so no CORS and no need to publish PostgREST's port. Doesn't change going live.
       VITE_API_BASE_URL: /api
       # OIDC discovery URL + client id — the SPA resolves the OAuth endpoints from
-      # this at boot. CHANGE BOTH when going live (real issuer + real client id).
-      VITE_OAUTH_CONFIG: https://oidc-test.semanti.us/.well-known/openid-configuration
-      VITE_OAUTH_CLIENT_ID: public-client
+      # this at boot. These are the ONLY vars you MUST change going live; both are
+      # .env-driven with test-issuer defaults so it still works out of the box.
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-https://oidc-test.semanti.us/.well-known/openid-configuration}
+      VITE_OAUTH_CLIENT_ID: ${VITE_OAUTH_CLIENT_ID:-public-client}
       # Ignore the image's baked demo placeholders so a missing var fails loudly
       # instead of silently using .env.example defaults (e.g. your-postgrest-api.com).
       ENV_FILE: /dev/null

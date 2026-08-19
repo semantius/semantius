@@ -36,7 +36,8 @@ const route = new Hono<{ Bindings: Bindings }>();
  *   - modules: string[]     (optional, defaults to ["_core"])
  *   - is_free_plan: boolean (optional, when true uses NEON_API_KEY_FREE)
  *
- * Returns JSON with project_id and connection on success.
+ * Returns JSON with project_id, org_id (Neon org owning the project) and
+ * connection on success.
  */
 route.post("/", async (c) => {
   let body: {
@@ -86,12 +87,14 @@ route.post("/", async (c) => {
   try {
     // Step 1: Check if project already exists, create if not
     let projectId: string;
+    let orgId: string | null;
     let connection: Record<string, unknown>;
 
     const existingProject = await findProjectByName(project_name, apiOptions);
 
     if (existingProject) {
       projectId = existingProject.id as string;
+      orgId = (existingProject.org_id as string | undefined) ?? null;
 
       // Discover the database name, then get connection URI
       const existingBranches = await listBranches(projectId, apiOptions);
@@ -130,6 +133,7 @@ route.post("/", async (c) => {
 
       const project = createResult.project as Record<string, unknown>;
       projectId = project.id as string;
+      orgId = (project.org_id as string | undefined) ?? null;
 
       const connectionUris = createResult.connection_uris as Array<Record<string, unknown>>;
 
@@ -255,6 +259,7 @@ route.post("/", async (c) => {
     return c.json({
       success: true,
       project_id: projectId,
+      org_id: orgId,
       branch_id: branchId,
       database_name: databaseName,
       database_url: databaseUrl,

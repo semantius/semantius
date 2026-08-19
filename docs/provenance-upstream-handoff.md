@@ -71,7 +71,7 @@ Core now tests the **data substrate** that makes your §4.1 ladder deterministic
   field's `reference_table` auto-updates on rename).
 
 **Boundary — your side:** core proves the columns make resolution a deterministic *read*. The full
-ladder behaviour — first-hit-wins ordering, the absence/omission branch, and the human-review prompt on
+ladder behavior — first-hit-wins ordering, the absence/omission branch, and the human-review prompt on
 genuine ambiguity — is skill logic and must be tested in the skills suite, not core.
 
 ## 6. Decisions / inputs I need from you

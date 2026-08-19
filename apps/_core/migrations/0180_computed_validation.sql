@@ -41,6 +41,8 @@ DECLARE
     v_logic_lit TEXT;
     v_code TEXT;
     v_message TEXT;
+    v_has_computed BOOLEAN;
+    v_writeback TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -66,6 +68,8 @@ BEGIN
        AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
         RETURN;
     END IF;
+
+    v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -127,8 +131,30 @@ $BLOCK$,
             replace(v_code, '%', '%%'));
     END LOOP;
 
-    -- Assemble full function. Strip reserved vars before populating NEW so they
-    -- never leak as columns even if the entity adds a column with the same name.
+    -- Write-back tail. Validation rules never modify the row, so a validation-only
+    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
+    -- fields must fold the derived values (written into v_data by the block above)
+    -- back onto NEW.
+    --
+    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
+    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
+    -- A static call caches the target row type's tuple descriptor in the plpgsql
+    -- expression's fn_extra and does NOT refresh it when the table gains a column
+    -- LATER in the SAME transaction — so a column added and set after this trigger
+    -- first fired (e.g. entities.order_column added in 0270 then set here) would be
+    -- silently dropped, reverting that write. This only surfaces in a single-txn
+    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
+    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
+    -- every call, so mid-transaction columns survive.
+    IF v_has_computed THEN
+        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
+$WB$;
+    ELSE
+        v_writeback := '';
+    END IF;
+
+    -- Assemble full function.
     v_body := format($FUNC$
 CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
 DECLARE
@@ -153,12 +179,10 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
     END IF;
-    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
-    NEW := jsonb_populate_record(NULL::public.%I, v_data);
-    RETURN NEW;
+%s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_block, p_table_name);
+$FUNC$, v_fn_name, v_rules_block, v_writeback);
 
     EXECUTE v_body;
 

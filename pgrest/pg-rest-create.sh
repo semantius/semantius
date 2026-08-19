@@ -29,4 +29,4 @@ echo
 echo "Ready (PostgREST stack)."
 echo "  API   : http://localhost:${POSTGREST_PORT:-3000}/   (OpenAPI spec at /)"
 echo "  Docs  : http://localhost:${DOCS_PORT:-8080}/         (Scalar API reference)"
-echo "  DBA   : postgresql://postgres:<POSTGRES_PASSWORD>@localhost:${POSTGRES_PORT:-5434}/appdb"
+echo "  DBA   : postgresql://postgres:<POSTGRES_PASSWORD>@localhost:${POSTGRES_PORT:-5434}/semantius"

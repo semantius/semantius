@@ -20,7 +20,7 @@ migration" mechanic is replaced by "edit the base migrations").
 
 - 8 new columns added by editing base `CREATE TABLE`s + DD seed blocks: 5 on `entities`, 1 on
   `fields`, 1 on `modules`, 1 on `roles`. Plus an optional `lifecycle_states` registry table (D3).
-- They default to **empty** (`''` / `'{}'` / `'[]'` / `'unclassified'`) — omit them and behaviour is
+- They default to **empty** (`''` / `'{}'` / `'[]'` / `'unclassified'`) — omit them and behavior is
   unchanged (additive-safe).
 - **`is_core: true` does not exist as a column.** It is now expressed as **`ctype = 'core'`** on the
   field-metadata row. (§2)
@@ -82,7 +82,7 @@ CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_al
 | `catalog_entity_code` | **Canonical** uber-model code (D6), e.g. `vendors`. The rename/dialect/silo **join key**. | Non-unique (shared masters & silos recur; disambiguate by `module_id`). `table_name` holds the deployed name and may drift; this does **not**. Empty = created outside the pipeline (genuine custom). |
 | `canonical_owner_module` | For an `embedded_master` placeholder: slug of the owning module. | Soft string pointer, **not** an FK — target may not be deployed yet. Empty when this module *is* the owner or the entity is local. |
 | `entity_type` | Data-class axis (D9), closed 6-value set. | `write tier` derives **from** it, not the reverse. `unclassified` = absent/derive-locally. No `platform`/`log`/`reference`. |
-| `pattern_flags` | Authored behaviour flags, sparse `{flag: true}`. | Bare authored names (no `has_` prefix). Confirmed keys: `personal_content`, `submit_lock`, `single_approver`. Missing key = false. Core does **not** constrain the key set. |
+| `pattern_flags` | Authored behavior flags, sparse `{flag: true}`. | Bare authored names (no `has_` prefix). Confirmed keys: `personal_content`, `submit_lock`, `single_approver`. Missing key = false. Core does **not** constrain the key set. |
 | `catalog_entity_aliases` | Reuse/merge record: array of `{alias_code, source_domain, source_module, decided}`. | **Append-only** (a later cross-domain merge adds an element). Empty array = never a merge target. Resolving unit is the `(alias_code, source_domain)` pair. |
 
 ### 3.2 `fields` (1 column)
@@ -147,7 +147,7 @@ The full transition graph is deliberately out of scope (discovery confirmed it i
  'text', 126, 'default','default','core',''),
 ('entities','entity_type','Entity Type','Data-class axis (D9)…','enum', 122,'readonly','default','core',
  'unclassified','["operational_workflow","operational_record","catalog","junction","computed","unclassified"]'::jsonb),
-('entities','pattern_flags','Pattern Flags','Authored behaviour flags…','json',128,'default','w','core',''),
+('entities','pattern_flags','Pattern Flags','Authored behavior flags…','json',128,'default','w','core',''),
 ('entities','catalog_entity_aliases','Catalog Entity Aliases','Reuse/merge aliases…','json',129,'default','w','core','')
 ```
 The metadata seed runs in `0060`, *before* the `add_dd_field` trigger exists (`0070`), so these INSERTs
@@ -159,7 +159,7 @@ must be declared inline (matching how every existing core column is both declare
 ## 5. The write contract for the modeler
 
 1. **Omit = safe.** Every column defaults empty; an un-upgraded modeler keeps working, existing rows
-   read empty, discovery falls back to today's behaviour.
+   read empty, discovery falls back to today's behavior.
 2. **`catalog_entity_code` stamps the CANONICAL code (D6)** — `vendors`, not the deployed `erp_vendors`
    / `accounts`. The deployed name lives in `table_name`. This is what makes rename detection a clean
    equality join.

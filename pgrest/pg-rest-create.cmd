@@ -32,7 +32,7 @@ echo.
 echo Ready (PostgREST stack). Default ports (see .env):
 echo   API : http://localhost:3000/   (OpenAPI spec at /)
 echo   Docs: http://localhost:8080/   (Scalar API reference)
-echo   DBA : postgresql://postgres:^<POSTGRES_PASSWORD^>@localhost:5434/appdb
+echo   DBA : postgresql://postgres:^<POSTGRES_PASSWORD^>@localhost:5434/semantius
 exit /b 0
 
 :err

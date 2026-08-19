@@ -21,7 +21,7 @@ echo "== 1. OpenAPI spec (no token) @ ${API}/ =="
 code="$(curl -s -o /dev/null -w '%{http_code}' "${API}/")"
 echo "   spec HTTP ${code}  $([ "$code" = 200 ] && echo '(anon OpenAPI visibility OK)' || echo '(expected 200)')"
 
-echo "== 2. Mint token for '${USER_NAME}' from ${ISSUER:-the issuer} =="
+echo "== 2. Mint token for '${USER_NAME}' from the OIDC test issuer =="
 TOKEN="$(deno run --allow-net --allow-read ../pgdocker/get_user_token.ts "${USER_NAME}" 2>/dev/null)"
 [ -n "$TOKEN" ] || { echo "   failed to mint token" >&2; exit 1; }
 echo "   got token (${#TOKEN} chars)"

@@ -52,7 +52,7 @@ Two orthogonal axes:
 | Identity / labeling | "Which parent do I inherit my composed label from?" | **`label_parent`** (new) |
 
 The spine is often a `reference`, not a `parent`, so identity is a marker independent of delete
-behaviour. Intrinsic identity → own field names it → `label_parent` empty. Relational identity →
+behavior. Intrinsic identity → own field names it → `label_parent` empty. Relational identity →
 only meaningful under a parent → `label_parent` names the spine FK.
 
 ## 4. What is added
@@ -107,7 +107,7 @@ generated set) and is collision-aware (a companion shadowed by a real column is 
 The existing auto `label` field (the local label, `ctype: label`) is unchanged and distinct from
 `_label`.
 
-## 6. Composition (behaviour, as generated)
+## 6. Composition (behavior, as generated)
 
 Let `loc = NULLIF(local_label, '')`. Each generated body:
 

@@ -1,6 +1,22 @@
-# Used only by the repo-root Docker build context (pgdocker/docker-compose.ext.yml,
-# which builds Dockerfile.ext from the repo root to COPY the generated extension).
-# Ignore everything, then re-include just the files that build needs.
+# Repo-root Docker build context. Used by:
+#   * docker-semantius/Dockerfile        -> ghcr.io/adenin-platform/semantius-db
+#   * pgdocker/docker-compose.ext.yml    -> Dockerfile.ext (COPYs the extension)
 # (The base pgdocker build uses context ./pgdocker and is unaffected by this file.)
+#
+# Ignore everything, then re-include ONLY the paths a build COPYs, so the context
+# stays tiny. Nested paths need the parent dirs un-ignored first (the `apps/*`
+# then `!apps/nwind` chain), then re-excluded, so only the one subtree comes in.
 *
+
+# Generated extension (.control + versioned SQL).
 !extension
+
+# semantius-db build inputs: pg_hba, first-init scripts, Dockerfile, build scripts.
+!docker-semantius
+
+# Northwind demo module — the two migrations merged into the image at build time.
+!apps
+apps/*
+!apps/nwind
+apps/nwind/*
+!apps/nwind/migrations

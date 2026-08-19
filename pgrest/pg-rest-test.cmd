@@ -10,13 +10,10 @@ REM This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds 
 REM current source, exercising the image build + init scripts + role bootstrap from
 REM scratch -- the real production install path. Twin of pgdocker/pg-ext-retest.cmd.
 REM
-REM vs pg-rest-retest.cmd: that one is fast + NON-destructive (a throwaway database
-REM on the running container). Use it for a quick check; use THIS for full fidelity.
-REM
 REM DESTRUCTIVE: wipes the pgrest data volume and rebuilds from current source.
 REM PROMPTS for confirmation first (like pg-rest-destroy.cmd); bypass with -y/--yes
 REM or ASSUME_YES=1 / CI=true. Afterwards the stack holds test,nwind; run
-REM pg-rest-create.cmd for a clean appdb.
+REM pg-rest-create.cmd for a clean semantius.
 REM
 REM Steps: 0 regen extension SQL, 1 down -v, 2 pg-rest-create, 3 wait for extension,
 REM        4 migrate test,nwind, 5 test.
@@ -33,7 +30,7 @@ if not exist ".env" (
 REM Derive DBA connection from .env (defaults match .env.example).
 set "POSTGRES_PASSWORD=postgres"
 set "POSTGRES_PORT=5434"
-set "POSTGRES_DB=appdb"
+set "POSTGRES_DB=semantius"
 for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
   if /i "%%A"=="POSTGRES_PASSWORD" set "POSTGRES_PASSWORD=%%B"
   if /i "%%A"=="POSTGRES_PORT" set "POSTGRES_PORT=%%B"
@@ -109,7 +106,7 @@ popd
 echo.
 echo pg-rest-test complete. If all tests are green, the CREATE EXTENSION
 echo install of _core is equivalent to the migrate install. Run pg-rest-create.cmd
-echo for a clean appdb (this left the test,nwind fixtures in place).
+echo for a clean semantius (this left the test,nwind fixtures in place).
 exit /b 0
 
 :err

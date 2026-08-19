@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build the Semantius DB image (PostgreSQL 18 + pg_semantic_platform) locally,
-# from the extension files currently in ./extension.
+# Build the self-contained Semantius DB image (PostgreSQL 18 + pg_semantic_platform
+# installed, pg_hba + roles + authenticator LOGIN + optional nwind module baked in)
+# locally, from the extension files currently in ./extension.
 #
 #   ./build.sh              # version inferred from ./extension
 #   ./build.sh 0.2.0        # explicit version tag
@@ -26,6 +27,11 @@ if ! ls extension/pg_semantic_platform--*.sql >/dev/null 2>&1; then
   echo "No extension build in ./extension. Generate it first:  deno task extension <version>" >&2
   exit 1
 fi
+
+# The build also COPYs + merges the Northwind demo migrations into the image.
+for f in apps/nwind/migrations/0010_create.sql apps/nwind/migrations/0020_load_data.sql; do
+  [ -f "$f" ] || { echo "Missing $f (needed to bake the optional nwind module)." >&2; exit 1; }
+done
 
 # Version: arg wins, else infer from the built extension SQL filename.
 version="${1:-$(ls extension/pg_semantic_platform--*.sql 2>/dev/null \

@@ -7,7 +7,8 @@
 #   TOKEN=$(./pg-rest-token.sh user3)  # capture just the token
 #
 # Test-issuer users: user1 (John Smith), user2 (María García), user3 (Wei Chen).
-# Reuses ../pgdocker/get_user_token.ts (mints from ISSUER). The token is printed on
+# Reuses ../pgdocker/get_user_token.ts (mints from the OIDC test issuer, which is
+# hardcoded in pgdocker/verify_oauth.ts). The token is printed on
 # stdout; the usage hint goes to stderr, so `$(...)` capture stays clean.
 set -euo pipefail
 cd "$(dirname "$0")"

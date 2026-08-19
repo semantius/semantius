@@ -35,7 +35,11 @@
       "Bash(bash -n pg-ext-deploy-module.sh)",
       "Bash(bash -n pg-cli-retest.sh)",
       "Bash(grep -rnE '\\\\-\\\\-env pgdocker\\([^-]|$\\)' --include='*.sh' --include='*.cmd' --include='*.md' .)",
-      "Bash(grep -rnE '\\\\.env\\\\.pgdocker\\([^-]|$\\)' --include='*.sh' --include='*.cmd' --include='*.md' .)"
+      "Bash(grep -rnE '\\\\.env\\\\.pgdocker\\([^-]|$\\)' --include='*.sh' --include='*.cmd' --include='*.md' .)",
+      "Bash(cat > *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\MARTIN~1\\AppData\\Local\\Temp\\claude\\c--dev-semantius-core\\cf33e749-83fa-4a42-8295-2f2e9573692c\\scratchpad"
     ]
   }
 }

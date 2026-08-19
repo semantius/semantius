@@ -5,13 +5,10 @@
 # transaction) — then deploy test,nwind and run the full pgTAP suite.
 #
 # This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds the
-# stack from current source, so it also exercises the image build, the init scripts
-# (11-session-role, 12-anon-role) and role bootstrap FROM SCRATCH — i.e. the real
-# production install path. It is the pgrest twin of pgdocker/pg-ext-retest.sh.
-#
-# vs pg-rest-retest.sh: that one is fast + NON-destructive (a throwaway database on
-# the already-running container) and re-tests the extension baked into the CURRENT
-# image without rebuilding. Use it for a quick check; use THIS for full fidelity.
+# stack from current source, so it also exercises the image build, the baked init
+# scripts (install-extension, authenticator-login, anon) and role bootstrap FROM
+# SCRATCH — i.e. the real production install path. It is the pgrest twin of
+# pgdocker/pg-ext-retest.sh.
 #
 # Why recreate instead of reset-in-place? Local Docker makes a fresh container
 # cheap, so we get true fidelity. The CLI `retest` (packages/cli/commands/retest.ts)
@@ -23,7 +20,7 @@
 # DESTRUCTIVE: wipes the pgrest data volume and rebuilds the stack. PROMPTS for
 # confirmation first (like pg-rest-destroy.sh); bypass with -y/--yes or ASSUME_YES=1
 # / CI=true. Afterwards the stack holds the test,nwind fixtures; run
-# ./pg-rest-create.sh for a clean appdb again.
+# ./pg-rest-create.sh for a clean semantius again.
 #
 # Steps:
 #   0. deno task extension <ver>   regenerate the extension SQL from the CURRENT
@@ -54,7 +51,7 @@ fi
 read_env() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
 PW="$(read_env POSTGRES_PASSWORD)"; PW="${PW:-postgres}"
 PORT="$(read_env POSTGRES_PORT)";  PORT="${PORT:-5434}"
-DB="$(read_env POSTGRES_DB)";      DB="${DB:-appdb}"
+DB="$(read_env POSTGRES_DB)";      DB="${DB:-semantius}"
 REST_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
 # Safety: this DESTROYS the running pgrest stack + its data volume (down -v) and
@@ -113,4 +110,4 @@ echo "== [5/5] Running the pgTAP suite against the extension DB =="
 echo
 echo "pg-rest-test complete. If all tests are green, the CREATE EXTENSION"
 echo "install of _core is equivalent to the migrate install. Run ./pg-rest-create.sh"
-echo "for a clean appdb (this left the test,nwind fixtures in place)."
+echo "for a clean semantius (this left the test,nwind fixtures in place)."

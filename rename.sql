@@ -6,7 +6,7 @@
 --   0145_managed_enable.sql
 -- =====================================================
 
--- --- from 0070_dd_functions.sql (21 functions) ---
+-- --- from 0070_dd_functions.sql (22 functions) ---
 
 -- format_to_data_type
 CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
@@ -82,7 +82,7 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
 RETURNS JSONB AS $$
 BEGIN
-    IF p_enum_values IS NULL OR jsonb_array_length(p_enum_values) = 0 THEN
+    IF p_enum_values IS NULL OR jsonb_typeof(p_enum_values) != 'array' OR jsonb_array_length(p_enum_values) = 0 THEN
         RETURN p_enum_values;
     END IF;
     -- For non-required enums, ensure '' is in the allowed list so the implicit
@@ -105,6 +105,7 @@ BEGIN
     -- Required enum without explicit default: pick the first allowed value
     IF p_input_type = 'required'
        AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
        AND jsonb_array_length(p_enum_values) > 0 THEN
         RETURN p_enum_values->>0;
     END IF;
@@ -258,15 +259,16 @@ BEGIN
     );
     EXECUTE v_policy_sql;
     
-    -- Insert field records for id, label, created_at, and updated_at columns
-    -- All these are core fields that cannot be deleted or renamed (is_core = TRUE)
-    -- The label column is marked as searchable=TRUE for full-text search
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    VALUES 
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', '');
+    -- Insert field records for id, label, created_at, and updated_at columns.
+    -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
+    -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
+    -- The label column is marked as searchable=TRUE for full-text search.
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    VALUES
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
     -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
@@ -294,6 +296,33 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
+
+-- lock_field_ctype
+CREATE OR REPLACE FUNCTION lock_field_ctype()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_privileged BOOLEAN;
+BEGIN
+    -- Normalize enum_values: coerce non-array JSONB (e.g. '{}') to NULL so
+    -- jsonb_array_length() calls in get_schema / triggers never receive a non-array.
+    IF NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) != 'array' THEN
+        NEW.enum_values := NULL;
+    END IF;
+
+    SELECT rolbypassrls INTO v_privileged FROM pg_roles WHERE rolname = current_user;
+    IF COALESCE(v_privileged, FALSE) THEN
+        RETURN NEW;  -- DD / migration code: trusted to set ctype
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        NEW.ctype := '';  -- users cannot mint a core marker on a new field
+    ELSIF NEW.ctype IS DISTINCT FROM OLD.ctype THEN
+        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field "%"', NEW.field_name
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 
 -- add_dd_field
 CREATE OR REPLACE FUNCTION add_dd_field()
@@ -342,7 +371,7 @@ BEGIN
     v_data_type := format_to_data_type(NEW.format, NEW."precision");
     
     -- Build nullable clause based on format
-    IF NEW.is_nullable THEN
+    IF is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -360,11 +389,14 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT NEW.is_nullable THEN
+        ELSIF NOT is_nullable(NEW.format) THEN
             -- Provide sensible defaults for NOT NULL columns without explicit default
-            -- For JSONB/JSON: if default_value is empty string, convert to empty JSON object
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF NEW.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
@@ -484,7 +516,7 @@ BEGIN
     END IF;
     
     -- If this is an enum field, add CHECK constraint for allowed values
-    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
         DECLARE
             v_check_name TEXT;
             v_enum_values_sql TEXT;
@@ -573,19 +605,17 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
     
-    -- Prevent changing structural attributes of core fields
-    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
-    IF OLD.is_core THEN
+    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- DD-managed core column). Core fields can only have metadata updates (title, description,
+    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
+    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
-        
+
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-        
-        IF OLD.is_core <> NEW.is_core THEN
-            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
     END IF;
     
@@ -647,8 +677,8 @@ BEGIN
     
     -- Handle nullable change when format changes (e.g., text→reference would change nullability)
     IF OLD.format <> NEW.format THEN
-        IF OLD.is_nullable <> NEW.is_nullable THEN
-            IF NEW.is_nullable THEN
+        IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+            IF is_nullable(NEW.format) THEN
                 v_alter_sql := format(
                     'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                     NEW.table_name,
@@ -663,7 +693,7 @@ BEGIN
             END IF;
             EXECUTE v_alter_sql;
             RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, NEW.is_nullable, NEW.table_name;
+                NEW.field_name, is_nullable(NEW.format), NEW.table_name;
         END IF;
     END IF;
     
@@ -787,7 +817,7 @@ BEGIN
                 END IF;
                 
                 -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
+                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
 
                     -- Build SQL array from JSONB array for IN clause
@@ -865,9 +895,10 @@ BEGIN
         RETURN OLD;
     END IF;
     
-    -- Prevent deletion of core fields (id, label, created_at, updated_at) for standalone field deletions
-    IF OLD.is_core THEN
-        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (id, label, created_at, updated_at) cannot be deleted.', OLD.field_name;
+    -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
+    -- for standalone field deletions.
+    IF coalesce(OLD.ctype, '') <> '' THEN
+        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (ctype id/label/audit/core) cannot be deleted.', OLD.field_name;
     END IF;
     
     -- Check if the parent table is managed
@@ -945,26 +976,18 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Rebuild INSERT, UPDATE, DELETE policies with new edit_permission
-    -- (trigger WHEN clause guarantees edit_permission has changed)
+    -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         NEW.table_name || '_insert_policy', NEW.table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-        NEW.table_name || '_update_policy', NEW.table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-        NEW.table_name || '_delete_policy', NEW.table_name);
-
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
         NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
-        NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission);
-
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
-        NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission);
+    -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
+    -- canonical predicate (select_rule when set, else view/edit permission). Delegating here
+    -- keeps the read policy, the read helpers, and the write USING clauses on ONE predicate,
+    -- so an edit_permission change does not silently strip the row rule from writes.
+    PERFORM build_select_rule_policy(NEW.table_name);
 
     RETURN NEW;
 END;
@@ -1244,11 +1267,20 @@ $$ LANGUAGE plpgsql SET search_path = public;
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id INTEGER)
 RETURNS JSONB AS $$
 DECLARE
-    v_id_column TEXT;
-    v_result JSONB;
+    v_id_column       TEXT;
+    v_view_permission TEXT;
+    v_select_rule     JSONB;
+    v_result          JSONB;
+    v_allowed         BOOLEAN;
 BEGIN
-    -- Look up the entity to find its id_column
-    SELECT id_column INTO v_id_column
+    -- Authenticate the caller. This function is SECURITY DEFINER and therefore
+    -- bypasses RLS, so it MUST enforce the same access control that RLS would.
+    -- rbac.uid() validates the JWT and primes the permission cache used below.
+    PERFORM rbac.uid();
+
+    -- Look up the entity to find its id_column and the access predicate.
+    SELECT id_column, view_permission, select_rule
+      INTO v_id_column, v_view_permission, v_select_rule
     FROM entities
     WHERE table_name = p_entity_name;
 
@@ -1257,11 +1289,30 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- Query the physical table for the record
-    EXECUTE format(
-        'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
-        p_entity_name, v_id_column
-    ) INTO v_result USING p_id;
+    -- Enforce the entity's CANONICAL PREDICATE (spec authz-spec.md / D8), the SAME boundary
+    -- the RLS SELECT policy uses — NOT view_permission alone. Return NULL rather than raising
+    -- when the row is inaccessible, so callers (incl. the set_record operator) cannot
+    -- distinguish "not allowed" from "does not exist", preventing record-existence leakage.
+    IF v_select_rule IS NULL OR v_select_rule = '{}'::jsonb THEN
+        -- No row rule: view_permission is the access predicate (the default rule).
+        IF NOT rbac.has_permission(v_view_permission) THEN
+            RETURN NULL;
+        END IF;
+        EXECUTE format(
+            'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
+            p_entity_name, v_id_column
+        ) INTO v_result USING p_id;
+    ELSE
+        -- select_rule REPLACES view_permission: evaluate the per-row rule for THIS row.
+        -- (The select_rule_<table>() helper is created by build_select_rule_policy.)
+        EXECUTE format(
+            'SELECT row_to_json(t)::jsonb, public.%I(t) FROM %I t WHERE %I = $1 LIMIT 1',
+            'select_rule_' || p_entity_name, p_entity_name, v_id_column
+        ) INTO v_result, v_allowed USING p_id;
+        IF NOT COALESCE(v_allowed, FALSE) THEN
+            RETURN NULL;
+        END IF;
+    END IF;
 
     RETURN v_result;
 END;
@@ -1408,6 +1459,26 @@ BEGIN
                     NEW.table_name, v_old_name, v_new_name);
             END LOOP;
 
+            -- Rename all NOT NULL constraints named <old_table>_<field>_not_null.
+            -- PostgreSQL 18+ stores NOT NULL as named pg_constraint rows; on
+            -- PG<=17 no such rows exist, so this SELECT returns nothing and the
+            -- loop is a no-op. The same migration is therefore correct on both
+            -- PG<=17 (Neon/Supabase) and PG>=18 (e.g. pgdocker) — no version
+            -- branch needed. (Matched by name rather than contype so it does not
+            -- depend on the PG18-specific contype value 'n'.)
+            FOR v_old_name IN
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = NEW.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (OLD.table_name || '\_%\_not\_null') ESCAPE '\'
+            LOOP
+                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    NEW.table_name, v_old_name, v_new_name);
+            END LOOP;
+
             -- Rename all unique indexes named <old_table>_<field>_unique
             FOR v_old_name IN
                 SELECT indexname
@@ -1516,6 +1587,8 @@ DECLARE
     v_new_check   TEXT;
     v_old_unique  TEXT;
     v_new_unique  TEXT;
+    v_old_notnull TEXT;
+    v_new_notnull TEXT;
 BEGIN
     -- Resolve parent entity's managed flag
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
@@ -1524,8 +1597,8 @@ BEGIN
     -- A) Handle field_name rename
     -- --------------------------------------------------
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
-        -- Core fields cannot be renamed, except the label column
-        IF OLD.is_core THEN
+        -- Core fields (ctype <> '') cannot be renamed, except the label column
+        IF coalesce(OLD.ctype, '') <> '' THEN
             IF OLD.ctype = 'label' THEN
                 -- Label column rename is allowed; update entities.label_column to match
                 UPDATE entities
@@ -1557,6 +1630,8 @@ BEGIN
             v_new_check  := format('%s_%s_check',  OLD.table_name, NEW.field_name);
             v_old_unique := format('%s_%s_unique', OLD.table_name, OLD.field_name);
             v_new_unique := format('%s_%s_unique', OLD.table_name, NEW.field_name);
+            v_old_notnull := format('%s_%s_not_null', OLD.table_name, OLD.field_name);
+            v_new_notnull := format('%s_%s_not_null', OLD.table_name, NEW.field_name);
 
             -- Rename FK constraint if it exists
             IF EXISTS (
@@ -1601,6 +1676,22 @@ BEGIN
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_unique, v_new_unique);
                 RAISE NOTICE 'Renamed unique index "%" to "%"', v_old_unique, v_new_unique;
             END IF;
+
+            -- Rename NOT NULL constraint if it exists. PG18+ stores NOT NULL as a
+            -- named pg_constraint row (<table>_<col>_not_null); on PG<=17 no such
+            -- row exists, so this EXISTS check is false and the rename is skipped.
+            -- Same migration is therefore correct on PG<=17 and PG>=18.
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE c.conname = v_old_notnull
+                  AND t.relname = OLD.table_name
+                  AND t.relnamespace = 'public'::regnamespace
+            ) THEN
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    OLD.table_name, v_old_notnull, v_new_notnull);
+                RAISE NOTICE 'Renamed NOT NULL constraint "%" to "%"', v_old_notnull, v_new_notnull;
+            END IF;
         END IF;
     END IF;
 
@@ -1613,8 +1704,8 @@ BEGIN
     -- both are TEXT, but email → json is not because TEXT ≠ JSONB).
     -- Unmanaged tables have no physical columns, so any format change is allowed.
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
-        -- Core field formats cannot be changed (existing rule, enforced here too)
-        IF OLD.is_core THEN
+        -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
+        IF coalesce(OLD.ctype, '') <> '' THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
@@ -1666,19 +1757,17 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
 
-    -- Prevent changing structural attributes of core fields
-    -- Core fields can only have metadata updates (title, description, field_order, input_type, width)
-    IF OLD.is_core THEN
+    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- DD-managed core column). Core fields can only have metadata updates (title, description,
+    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
+    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-
-        IF OLD.is_core <> NEW.is_core THEN
-            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
     END IF;
 
@@ -1747,8 +1836,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name,
@@ -1763,7 +1852,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value
@@ -1939,7 +2028,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- --- from 0145_managed_enable.sql (3 functions) ---
+-- --- from 0145_managed_enable.sql (10 functions) ---
 
 -- apply_field_ddl
 CREATE OR REPLACE FUNCTION apply_field_ddl(p_field fields)
@@ -1960,7 +2049,7 @@ BEGIN
     v_data_type := format_to_data_type(p_field.format, p_field."precision");
 
     -- Build nullable clause
-    IF p_field.is_nullable THEN
+    IF is_nullable(p_field.format) THEN
         v_nullable_clause := 'NULL';
     ELSE
         v_nullable_clause := 'NOT NULL';
@@ -1978,9 +2067,13 @@ BEGIN
 
         IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
             v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT p_field.is_nullable THEN
+        ELSIF NOT is_nullable(p_field.format) THEN
             IF v_data_type IN ('JSONB', 'JSON') THEN
-                v_default_clause := 'DEFAULT ''{}''::jsonb';
+                IF p_field.format = 'array' THEN
+                    v_default_clause := 'DEFAULT ''[]''::jsonb';
+                ELSE
+                    v_default_clause := 'DEFAULT ''{}''::jsonb';
+                END IF;
             ELSE
                 CASE
                     WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
@@ -2052,6 +2145,7 @@ BEGIN
     -- Enum CHECK constraint
     IF p_field.format = 'enum'
        AND p_field.enum_values IS NOT NULL
+       AND jsonb_typeof(p_field.enum_values) = 'array'
        AND jsonb_array_length(p_field.enum_values) > 0
     THEN
         DECLARE
@@ -2177,20 +2271,20 @@ BEGIN
     -- ── Insert core field records if they were never created ─────────────
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', TRUE, FALSE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, TRUE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'created_at');
 
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, is_core, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', '', TRUE, FALSE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = 'updated_at');
 
     -- ── Add any missing columns for existing field records ───────────────
@@ -2216,6 +2310,16 @@ BEGIN
         WHERE table_name = NEW.table_name AND searchable = TRUE
     )
     WHERE table_name = NEW.table_name;
+
+    -- Build the canonical-predicate RLS policies (select_rule, or the permission-only default
+    -- when no rule is set) DETERMINISTICALLY here, rather than relying on the separate
+    -- manage_select_rule_policy AFTER-trigger firing in the right alphabetical order (F3). The
+    -- table-creation block above installs permission-only policies; this replaces the SELECT /
+    -- UPDATE / DELETE policies with the per-row rule when entities.select_rule is non-empty, so
+    -- the F→T toggle can never leave a select_rule-bearing entity gated by view_permission alone.
+    -- Idempotent: build_select_rule_policy drops + recreates, so the redundant manage_*-trigger
+    -- call is harmless.
+    PERFORM build_select_rule_policy(NEW.table_name);
 
     RETURN NEW;
 END;
@@ -2254,18 +2358,15 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field';
     END IF;
 
-    -- Prevent changing structural attributes of core fields
-    IF OLD.is_core THEN
+    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
+    IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
             RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-
-        IF OLD.is_core <> NEW.is_core THEN
-            RAISE EXCEPTION 'Cannot change is_core status of field "%"', OLD.field_name;
         END IF;
     END IF;
 
@@ -2335,8 +2436,8 @@ BEGIN
     END IF;
 
     -- Allow updating nullable constraint (derived from format)
-    IF OLD.is_nullable <> NEW.is_nullable THEN
-        IF NEW.is_nullable THEN
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
                 NEW.table_name, NEW.field_name
@@ -2349,7 +2450,7 @@ BEGIN
         END IF;
         EXECUTE v_alter_sql;
         RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, NEW.is_nullable, NEW.table_name;
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
     -- Allow updating default value
@@ -2454,6 +2555,7 @@ BEGIN
 
                 IF NEW.format = 'enum'
                    AND NEW.enum_values IS NOT NULL
+                   AND jsonb_typeof(NEW.enum_values) = 'array'
                    AND jsonb_array_length(NEW.enum_values) > 0
                 THEN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
@@ -2504,3 +2606,331 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- dd_is_fk_format
+CREATE OR REPLACE FUNCTION dd_is_fk_format(p_format TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT p_format IN ('reference', 'parent') $$;
+
+-- dd_is_junction
+CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN FALSE
+    WHEN (SELECT entity_type FROM entities WHERE table_name = p_table_name) = 'junction' THEN TRUE
+    ELSE COALESCE((
+      SELECT count(*) FILTER (WHERE f.format = 'parent') >= 2
+         AND count(*) FILTER (WHERE NOT (
+                  f.format = 'parent'
+               OR f.field_name = e.id_column
+               OR f.field_name = e.label_column
+               OR COALESCE(f.ctype, '') = 'audit'
+               OR f.field_name IN ('created_at','updated_at','created_by','updated_by',
+                                   'assigned_at','assigned_by','granted_at','granted_by')
+             )) = 0
+      FROM fields f
+      CROSS JOIN entities e
+      WHERE f.table_name = p_table_name AND e.table_name = p_table_name
+    ), FALSE)
+  END
+$$;
+
+-- dd_spine_parent
+CREATE OR REPLACE FUNCTION dd_spine_parent(p_table_name TEXT)
+RETURNS TEXT
+LANGUAGE sql STABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE((
+    SELECT f.reference_table
+    FROM entities e
+    JOIN fields f ON f.table_name = e.table_name AND f.field_name = NULLIF(e.label_parent, '')
+    WHERE e.table_name = p_table_name
+  ), '')
+$$;
+
+-- rebuild_entity_label_functions
+CREATE OR REPLACE FUNCTION rebuild_entity_label_functions(p_table_name TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+    v_id_col      TEXT;
+    v_label_col   TEXT;
+    v_spine       TEXT;
+    v_rowtype     TEXT;
+    v_local       TEXT;
+    v_body        TEXT;
+    v_is_junction BOOLEAN;
+    v_saved       TEXT;
+    v_legs        TEXT[];
+    v_parent_id   TEXT;
+    v_spine_ref   TEXT;
+    v_spine_fmt   TEXT;
+    r             RECORD;
+BEGIN
+    -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
+    IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN
+        RETURN;
+    END IF;
+    v_rowtype := format('public.%I', p_table_name);
+    IF to_regclass(v_rowtype) IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT id_column, label_column, NULLIF(label_parent, '')
+      INTO v_id_col, v_label_col, v_spine
+      FROM entities WHERE table_name = p_table_name;
+
+    v_saved := current_setting('check_function_bodies');
+    PERFORM set_config('check_function_bodies', 'off', true);
+
+    -- Drop every label function currently bound to this row type (clears stale companions after a
+    -- field rename / drop / format change before recreating the live set).
+    FOR r IN
+        SELECT p.oid::regprocedure AS sig
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND (p.proname = '_label' OR p.proname LIKE '%\_label')
+          AND p.pronargs = 1
+          AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+    END LOOP;
+
+    -- Local term: own label value with '' folded to NULL (so it contributes nothing).
+    IF v_label_col IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = p_table_name AND column_name = v_label_col
+    ) THEN
+        v_local := format('NULLIF((rec.%I)::text, %L)', v_label_col, '');
+    ELSE
+        v_local := 'NULL::text';
+    END IF;
+
+    v_is_junction := dd_is_junction(p_table_name);
+
+    IF v_is_junction THEN
+        -- Junction: combine the parent legs (field order); no local term.
+        v_legs := ARRAY[]::TEXT[];
+        FOR r IN
+            SELECT f.field_name, f.reference_table
+            FROM fields f
+            WHERE f.table_name = p_table_name
+              AND f.format = 'parent'
+              AND f.reference_table <> ''
+              AND f.reference_table <> p_table_name
+            ORDER BY f.field_order
+        LOOP
+            SELECT id_column INTO v_parent_id FROM entities WHERE table_name = r.reference_table;
+            CONTINUE WHEN v_parent_id IS NULL;
+            CONTINUE WHEN to_regclass(format('public.%I', r.reference_table)) IS NULL;
+            CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
+            v_legs := array_append(v_legs, format(
+                '(SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I)',
+                r.reference_table, v_parent_id, r.field_name));
+        END LOOP;
+
+        IF array_length(v_legs, 1) >= 1 THEN
+            v_body := format('SELECT NULLIF(concat_ws(%L, %s), %L)',
+                             ' › ', array_to_string(v_legs, ', '), '');
+        ELSE
+            v_body := format('SELECT %s', v_local);
+        END IF;
+
+    ELSIF v_spine IS NOT NULL THEN
+        -- Relational: parent._label › local, degrading to local when the spine does not resolve.
+        SELECT format, reference_table INTO v_spine_fmt, v_spine_ref
+          FROM fields WHERE table_name = p_table_name AND field_name = v_spine;
+        IF dd_is_fk_format(v_spine_fmt)
+           AND COALESCE(v_spine_ref, '') <> ''
+           AND v_spine_ref <> p_table_name
+           AND to_regclass(format('public.%I', v_spine_ref)) IS NOT NULL
+           AND EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema='public' AND table_name=p_table_name AND column_name=v_spine)
+        THEN
+            SELECT id_column INTO v_parent_id FROM entities WHERE table_name = v_spine_ref;
+            v_body := format(
+                'SELECT NULLIF(concat_ws(%L, (SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I), %s), %L)',
+                ' › ', v_spine_ref, v_parent_id, v_spine, v_local, '');
+        ELSE
+            v_body := format('SELECT %s', v_local);
+        END IF;
+
+    ELSE
+        -- Root / self-identifying: composed label is the local label.
+        v_body := format('SELECT %s', v_local);
+    END IF;
+
+    EXECUTE format(
+        'CREATE OR REPLACE FUNCTION public._label(rec %s) RETURNS text '
+        'LANGUAGE sql STABLE SET search_path = public AS $body$ %s $body$',
+        v_rowtype, v_body);
+    -- Computed-label functions are SECURITY INVOKER (default): keep them off PUBLIC but executable
+    -- by the request role so they work as PostgREST computed columns and in nested _label calls.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public._label(%s) TO semantius_user', v_rowtype);
+
+    -- <fk>_label companion for every reference/parent field (referenced record's composed label).
+    FOR r IN
+        SELECT f.field_name, f.reference_table
+        FROM fields f
+        WHERE f.table_name = p_table_name AND dd_is_fk_format(f.format) AND f.reference_table <> ''
+        ORDER BY f.field_order
+    LOOP
+        SELECT id_column INTO v_parent_id FROM entities WHERE table_name = r.reference_table;
+        CONTINUE WHEN v_parent_id IS NULL;
+        CONTINUE WHEN to_regclass(format('public.%I', r.reference_table)) IS NULL;
+        CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
+        CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- display column), it wins — skip the companion so the column is never shadowed by a function.
+        CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
+        EXECUTE format(
+            'CREATE OR REPLACE FUNCTION public.%I(rec %s) RETURNS text '
+            'LANGUAGE sql STABLE SET search_path = public AS $body$ '
+            'SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I $body$',
+            r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
+    END LOOP;
+
+    PERFORM set_config('check_function_bodies', v_saved, true);
+END;
+$fn$;
+
+COMMENT ON FUNCTION rebuild_entity_label_functions(TEXT) IS
+'Regenerates the _label and <fk>_label PostgREST computed-column functions for one entity from
+current metadata + physical columns. SECURITY DEFINER (creates functions) but the generated
+functions are SECURITY INVOKER so composed labels respect each caller''s row-level read permissions.';
+
+-- =====================================================
+-- §9 RESERVED FIELD-NAME NAMESPACE
+-- =====================================================
+-- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
+-- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
+-- denormalised customer_label, or even a deliberate <fk>_label) are common and allowed. A real
+-- column always wins over a generated <fk>_label companion — the generator and get_schema are
+-- collision-aware and skip a companion whose name is already a real column (so nothing is shadowed
+-- silently). Privileged DD/migration code (BYPASSRLS) is exempt.
+CREATE OR REPLACE FUNCTION reserve_field_namespace()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE v_priv BOOLEAN;
+BEGIN
+    SELECT rolbypassrls INTO v_priv FROM pg_roles WHERE rolname = current_user;
+    IF COALESCE(v_priv, FALSE) THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.field_name ~ '^_' THEN
+        RAISE EXCEPTION 'Field name "%" is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)', NEW.field_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+-- validate_label_parent
+CREATE OR REPLACE FUNCTION validate_label_parent()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_fmt  TEXT;
+    v_ref  TEXT;
+    v_cur  TEXT;
+    v_hops INT := 0;
+BEGIN
+    IF COALESCE(NEW.label_parent, '') = '' THEN
+        RETURN NEW;
+    END IF;
+
+    IF dd_is_junction(NEW.table_name) THEN
+        RAISE EXCEPTION 'label_parent cannot be set on junction entity "%"', NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT format, reference_table INTO v_fmt, v_ref
+      FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_parent;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'label_parent "%" is not a field of entity "%"', NEW.label_parent, NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF NOT dd_is_fk_format(v_fmt) OR COALESCE(v_ref, '') = '' THEN
+        RAISE EXCEPTION 'label_parent "%" on "%" must name a reference/parent field', NEW.label_parent, NEW.table_name
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF v_ref = NEW.table_name THEN
+        RAISE EXCEPTION 'label_parent "%" must not be self-referential (the identity spine must be acyclic)', NEW.label_parent
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF dd_is_junction(v_ref) THEN
+        RAISE EXCEPTION 'label_parent "%" must not target junction entity "%"', NEW.label_parent, v_ref
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Walk the committed spine chain from the target; returning to this entity is a cycle.
+    v_cur := v_ref;
+    WHILE COALESCE(v_cur, '') <> '' AND v_hops < 64 LOOP
+        IF v_cur = NEW.table_name THEN
+            RAISE EXCEPTION 'label_parent on "%" via "%" would create a cycle in the identity spine', NEW.table_name, NEW.label_parent
+                USING ERRCODE = 'check_violation';
+        END IF;
+        v_cur := dd_spine_parent(v_cur);
+        v_hops := v_hops + 1;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$;
+
+-- dd_label_fn_sync_entity
+CREATE OR REPLACE FUNCTION dd_label_fn_sync_entity()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        -- Table rename: rebuild self under the new name, and every entity whose generated bodies
+        -- hard-code the old name (reference_table already cascaded to the new name by then).
+        PERFORM rebuild_entity_label_functions(NEW.table_name);
+        PERFORM rebuild_entity_label_functions(s.t)
+          FROM (SELECT DISTINCT table_name AS t FROM fields WHERE reference_table = NEW.table_name) s;
+    ELSE
+        PERFORM rebuild_entity_label_functions(NEW.table_name);
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+-- dd_label_fn_sync_field
+CREATE OR REPLACE FUNCTION dd_label_fn_sync_field()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM rebuild_entity_label_functions(COALESCE(NEW.table_name, OLD.table_name));
+    RETURN NULL;
+END;
+$$;
