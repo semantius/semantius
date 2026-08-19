@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types.js";
 import { patchDataApi } from "../neon-api.js";
+import { resolveNeonApiKey } from "../neon-org.js";
 import { Pool } from "@neondatabase/serverless";
 
 const route = new Hono<{ Bindings: Bindings }>();
@@ -17,6 +18,7 @@ const route = new Hono<{ Bindings: Bindings }>();
  *   - branch_id:     string  (required)
  *   - database_name: string  (required)
  *   - database_url:  string  (required)
+ *   - neon_org_id:   string  (required, "free" | "paid" — selects NEON_API_KEY_<ALIAS>)
  *
  * Returns JSON with success status and cache_reset_ts on success.
  */
@@ -26,6 +28,7 @@ route.post("/", async (c) => {
     branch_id?: string;
     database_name?: string;
     database_url?: string;
+    neon_org_id?: string;
   };
 
   try {
@@ -46,17 +49,13 @@ route.post("/", async (c) => {
     );
   }
 
-  const apiKey = c.env?.NEON_API_KEY;
+  const keyResult = resolveNeonApiKey(c.env, body.neon_org_id);
 
-  if (!apiKey) {
-    return c.json(
-      {
-        success: false,
-        error: "NEON_API_KEY environment variable must be set",
-      },
-      500,
-    );
+  if (!keyResult.ok) {
+    return c.json({ success: false, error: keyResult.error }, keyResult.status);
   }
+
+  const apiKey = keyResult.apiKey;
 
   const cache_reset_ts = new Date().toISOString().replace(/(\.\d{3})Z$/, "$1000+00:00");
 

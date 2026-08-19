@@ -34,14 +34,18 @@ Configured as Worker secrets / `.dev.vars` for local development.
 
 | Variable                   | Required        | Purpose                                                                                   |
 | -------------------------- | --------------- | ----------------------------------------------------------------------------------------- |
-| `NEON_API_KEY`             | ✅              | Neon platform API key used to create projects, JWKS, roles, and the Data API (paid plan). |
-| `NEON_API_KEY_FREE`        | conditional     | Neon API key used instead of `NEON_API_KEY` when a request sets `is_free_plan: true`.     |
+| `NEON_API_KEY_PAID`        | ✅              | Neon platform API key for the **paid** Neon org (projects, JWKS, roles, Data API).        |
+| `NEON_API_KEY_FREE`        | ✅              | Neon platform API key for the **free** Neon org.                                          |
 | `NEON_PROVISIONER_API_KEY` | ✅              | Shared secret callers pass as `Authorization: Bearer <key>` on every API route.           |
+
+Requests select the key via `neon_org_id` (`"free"` \| `"paid"`): the worker reads
+`NEON_API_KEY_<NEON_ORG_ID uppercased>`. Adding a Neon org = add a value to
+`NEON_ORG_IDS` in `src/neon-org.ts` + a matching secret.
 
 `.dev.vars` example:
 
 ```
-NEON_API_KEY=napi_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NEON_API_KEY_PAID=napi_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 NEON_API_KEY_FREE=napi_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
 NEON_PROVISIONER_API_KEY=your-shared-secret
 ```
@@ -69,7 +73,7 @@ Runs the full provisioning workflow:
 | `region_id`    | `string`   | ✅       | Neon region used when creating a new project (e.g. `aws-us-east-1`).                  |
 | `modules`      | `string[]` | ❌       | Migration modules to run. Defaults to `["_core"]`.                                    |
 | `name`         | `string`   | ❌       | Tenant slug; saved to `_settings.slug` when provided.                                 |
-| `is_free_plan` | `boolean`  | ❌       | When `true`, uses `NEON_API_KEY_FREE` instead of `NEON_API_KEY`. Defaults to `false`. |
+| `neon_org_id`  | `string`   | ✅       | `"free"` or `"paid"` — selects `NEON_API_KEY_<ALIAS>` (the Neon org to provision in). |
 
 ### Example
 
@@ -86,7 +90,6 @@ curl -X POST https://<worker-host>/neon-provisioner \
 {
   "success": true,
   "project_id": "...",
-  "org_id": "org-...",
   "branch_id": "...",
   "database_name": "...",
   "database_url": "postgresql://...",
@@ -113,12 +116,12 @@ Resets the Neon Data API cache for a database, then updates
 | Field           | Type     | Required | Description                    |
 | --------------- | -------- | -------- | ------------------------------ |
 | `project_id`    | `string` | ✅       | Neon project ID.               |
-| `org_id`        | `string` | ✅       | Neon org owning the project.   |
 | `branch_id`     | `string` | ✅       | Neon branch ID.                |
 | `database_name` | `string` | ✅       | Target database name.          |
 | `database_url`  | `string` | ✅       | Connection string to update.   |
+| `neon_org_id`   | `string` | ✅       | `"free"` or `"paid"`.          |
 
-Uses `NEON_API_KEY` for the Data API PATCH call.
+Uses `NEON_API_KEY_<NEON_ORG_ID>` for the Data API PATCH call.
 
 ## Development
 

@@ -4,7 +4,7 @@
  * Helper functions for interacting with the Neon API v2:
  *   https://neon.com/api_spec/release/v2.json
  *
- * All functions require a valid NEON_API_KEY for authentication.
+ * All functions take the Neon API key (NEON_API_KEY_<NEON_ORG_ID>) via options.
  */
 
 const NEON_API_BASE = "https://console.neon.tech/api/v2";

@@ -18,8 +18,8 @@
     }
   ],
   // Set secrets via wrangler secret or environment variables
-  // wrangler secret put NEON_API_KEY
-  // wrangler secret put NEON_API_KEY_FREE       // used when a request sets is_free_plan: true
+  // wrangler secret put NEON_API_KEY_PAID       // neon_org_id: "paid"
+  // wrangler secret put NEON_API_KEY_FREE       // neon_org_id: "free"
   // wrangler secret put NEON_PROVISIONER_API_KEY
   "observability": {
     "logs": {
