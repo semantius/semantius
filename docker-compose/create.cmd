@@ -1,5 +1,5 @@
 @echo off
-REM Build + run the PostgREST stack (PG18 + pg_semantic_platform extension +
+REM Build + run the PostgREST stack (PG18 + pg_semantius extension +
 REM PostgREST + Scalar docs). Own compose project (semantius-rest) on port 5434.
 cd /d "%~dp0"
 
@@ -8,9 +8,9 @@ if not exist ".env" (
   echo Created .env from .env.example - edit passwords/ports if you want.
 )
 
-if not exist "..\extension\pg_semantic_platform.control" (
+if not exist "..\extension\pg_semantius.control" (
   echo No extension build found in ..\extension.
-  echo Generate it first from the repo root:  deno task extension 0.2.0
+  echo Generate it first from the repo root:  deno task extension 0.3.0
   goto :err
 )
 

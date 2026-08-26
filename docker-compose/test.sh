@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test.sh  -  Test the EXACT PostgREST deployment behavior end to end: a FRESH
 # container, a FRESH data volume, and `_core` installed the real way via
-# `CREATE EXTENSION pg_semantic_platform` (the whole _core install in ONE
+# `CREATE EXTENSION pg_semantius` (the whole _core install in ONE
 # transaction) — then deploy nwind,test and run the full pgTAP suite.
 #
 # This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds the
@@ -71,7 +71,7 @@ fi
 # tests what is on disk now. Version inferred from the newest built extension SQL,
 # exactly like docker-semantius/build.sh.
 if [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
-  VERSION="$(ls "$REPO_ROOT"/extension/pg_semantic_platform--*.sql 2>/dev/null \
+  VERSION="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql 2>/dev/null \
     | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)"
   if [ -z "$VERSION" ]; then
     echo "Cannot infer extension version. Run 'deno task extension <ver>' once, or set SKIP_EXT_REGEN=1." >&2
@@ -87,13 +87,13 @@ docker compose down -v
 echo "== [2/5] Rebuilding the image + bringing the stack up fresh =="
 "$SCRIPT_DIR/create.sh"
 
-echo "== [3/5] Waiting for the pg_semantic_platform extension to install =="
+echo "== [3/5] Waiting for the pg_semantius extension to install =="
 # Tolerate early connection refused / empty results while init runs.
 deadline=$(( SECONDS + 180 ))
 until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
-      "SELECT 1 FROM pg_extension WHERE extname='pg_semantic_platform'" 2>/dev/null)" = "1" ]; do
+      "SELECT 1 FROM pg_extension WHERE extname='pg_semantius'" 2>/dev/null)" = "1" ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "Timed out waiting for the pg_semantic_platform extension to install." >&2
+    echo "Timed out waiting for the pg_semantius extension to install." >&2
     docker compose logs --tail 60 postgres || true
     exit 1
   fi

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "List users from a Semantic Platform database with Drizzle (pg-proxy) over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18), using a schema generated from the catalog. Plus Drizzle Studio.",
+  "description": "List users from a Semantius database with Drizzle (pg-proxy) over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18), using a schema generated from the catalog. Plus Drizzle Studio.",
   "engines": {
     "node": ">=20"
   },

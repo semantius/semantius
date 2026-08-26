@@ -533,7 +533,7 @@ function buildMakefile(name: string): string {
 
 /**
  * Builds the PGXN distribution manifest (META.json, Meta Spec 1.0.0) so the
- * extension can be published to and installed from PGXN (`pgxn install pg_semantic_platform`).
+ * extension can be published to and installed from PGXN (`pgxn install pg_semantius`).
  * Version is kept in sync with the generated SQL on every run.
  */
 function buildMetaJson(

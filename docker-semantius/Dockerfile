@@ -7,7 +7,7 @@
 # "Self-contained" is the point: a consumer stack (e.g. ../docker-compose) needs
 # to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just
 # references this image, sets a few env vars, and gets a database with:
-#   * the pg_semantic_platform extension installed (roles + schemas + dictionary)
+#   * the pg_semantius extension installed (roles + schemas + dictionary)
 #   * semantius_authenticator flipped to LOGIN with a password from env
 #   * the PostgREST `anon` role
 #   * a custom pg_hba
@@ -18,14 +18,14 @@
 # Build context is the REPO ROOT (see build.sh / the CI workflow) so this can COPY
 # the generated ./extension files AND the ./apps/nwind migrations. The repo-root
 # .dockerignore whitelists exactly those paths to keep the context tiny.
-# Generate the extension first, from the repo root:   deno task extension 0.2.0
+# Generate the extension first, from the repo root:   deno task extension 0.3.0
 # ---------------------------------------------------------------------------
 FROM postgres:18
 
 # --- Extension files: staged into the cluster's extension dir so the init step
 #     below can CREATE EXTENSION. The glob picks up whatever version is present,
 #     so a version bump needs no edit here. ---------------------------------
-COPY extension/pg_semantic_platform.control extension/pg_semantic_platform--*.sql \
+COPY extension/pg_semantius.control extension/pg_semantius--*.sql \
      /usr/share/postgresql/18/extension/
 
 # --- Client auth config (activated by the CMD at the bottom) ----------------

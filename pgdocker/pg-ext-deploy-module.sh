@@ -6,7 +6,7 @@
 #   ./pg-ext-deploy-module.sh nwind,test
 #
 # The module list is passed straight to `migrate --apps`. `_core` is already
-# installed by the extension (CREATE EXTENSION pg_semantic_platform), so migrate
+# installed by the extension (CREATE EXTENSION pg_semantius), so migrate
 # auto-prepends `_core` but every `_core.*` migration is SKIPPED (the extension
 # seeded `_versions`); only the given modules are deployed onto the extension's
 # `_core`. The connection comes from the `.env.pgdocker-ext` profile (--env

@@ -9,7 +9,7 @@ REM   1. down -v        reset the ext stack (wipe the data volume). NOT
 REM                     pg-ext-delete, which prompts and would hang.
 REM   2. pg-ext-create  fresh ext container; CREATE EXTENSION installs _core and
 REM                     creates + seeds the _versions guard rows.
-REM   3. readiness gate poll until the pg_semantic_platform extension is present.
+REM   3. readiness gate poll until the pg_semantius extension is present.
 REM   4. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED
 REM                     because the extension seeded _versions; deploys only
 REM                     nwind,test. (The extension's _core already includes the
@@ -43,16 +43,16 @@ if not defined POSTGRES_PASSWORD (
 )
 set "EXT_URL=postgresql://postgres:%POSTGRES_PASSWORD%@localhost:%POSTGRES_EXT_PORT%/%POSTGRES_DB%"
 
-echo == [3/5] Waiting for the pg_semantic_platform extension to install ==
+echo == [3/5] Waiting for the pg_semantius extension to install ==
 REM Tolerate early connection refused / empty results.
 set /a tries=0
 :wait
 set "EXTOK="
-for /f "usebackq delims=" %%R in (`docker exec %CONTAINER% psql -U postgres -d %POSTGRES_DB% -tAc "SELECT 1 FROM pg_extension WHERE extname='pg_semantic_platform'" 2^>nul`) do set "EXTOK=%%R"
+for /f "usebackq delims=" %%R in (`docker exec %CONTAINER% psql -U postgres -d %POSTGRES_DB% -tAc "SELECT 1 FROM pg_extension WHERE extname='pg_semantius'" 2^>nul`) do set "EXTOK=%%R"
 if "%EXTOK%"=="1" goto :ready
 set /a tries+=1
 if %tries% geq 90 (
-  echo Timed out waiting for the pg_semantic_platform extension to install.
+  echo Timed out waiting for the pg_semantius extension to install.
   docker compose -f "%COMPOSE_FILE%" -p "%PROJECT%" logs --tail 60
   goto :err
 )

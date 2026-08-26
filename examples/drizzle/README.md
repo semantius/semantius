@@ -1,6 +1,6 @@
 # drizzle — list users with Drizzle over OAuth (Node)
 
-Connect to a **Semantic Platform** database (**PostgreSQL 18**) from Node with
+Connect to a **Semantius** database (**PostgreSQL 18**) from Node with
 [Drizzle ORM](https://orm.drizzle.team), authenticating as the `authenticated`
 role with an **OAuth access token** over SASL `OAUTHBEARER` — then list users with
 a typed Drizzle query.
@@ -46,7 +46,7 @@ transport ([`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts)) and the token helpe
 
 ## Prerequisites
 
-A running pgdocker stack with the Semantic Platform `_core` present. From `pgdocker/`:
+A running pgdocker stack with the Semantius `_core` present. From `pgdocker/`:
 
 - **CLI stack** (port **5432**): `./pg-cli-create.sh`, then deploy core —
   `export DATABASE_URL=… && deno task migrate --apps _core`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build + run the PostgREST stack: PostgreSQL 18 + the pg_semantic_platform
+# Build + run the PostgREST stack: PostgreSQL 18 + the pg_semantius
 # extension, fronted by PostgREST (HTTP + OpenAPI) and a Scalar docs site. Runs as
 # its own compose project (semantius-rest, set by `name:` in docker-compose.yml) on
 # port 5434, alongside the pgdocker CLI (5432) and ext (5433) stacks.

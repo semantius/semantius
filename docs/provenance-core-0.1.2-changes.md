@@ -330,6 +330,6 @@ All six closed; folded into this build.
 ## 9. Build / packaging note
 
 These edits land in the **base migrations** (`0020`, `0060`), not an add-on. The repo also ships a
-bundled extension (`extension/pg_semantic_platform--0.1.1.sql`); **re-bundle to
+bundled extension (`extension/pg_semantius--0.1.1.sql`); **re-bundle to
 `--0.1.2.sql`** (via `deno task bundle-sql` / the packaging step) so the extension install path carries
 the columns too. Regenerate `schema.md` (`deno task docgen`).

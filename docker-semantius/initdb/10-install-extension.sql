@@ -17,4 +17,4 @@
 -- optionally loads the Northwind demo module.
 -- -----------------------------------------------------------------------------
 
-CREATE EXTENSION IF NOT EXISTS pg_semantic_platform CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_semantius CASCADE;

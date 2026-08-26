@@ -1,6 +1,6 @@
 @echo off
 REM Build + run the EXTENSION variant: PostgreSQL with Semantius core installed
-REM as an extension (CREATE EXTENSION pg_semantic_platform), instead of the CLI migrate
+REM as an extension (CREATE EXTENSION pg_semantius), instead of the CLI migrate
 REM path. For the plain CLI-testing container, use pg-cli-create.cmd.
 REM Runs as its own compose project (semantius-ext) on port 5433.
 cd /d "%~dp0"
@@ -10,7 +10,7 @@ if not exist ".env" (
   echo Created .env from .env.example - edit POSTGRES_PASSWORD if you want.
 )
 
-if not exist "..\extension\pg_semantic_platform.control" (
+if not exist "..\extension\pg_semantius.control" (
   echo No extension build found in ..\extension.
   echo Generate it first from the repo root:  deno task extension
   goto :err

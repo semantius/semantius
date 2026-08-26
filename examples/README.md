@@ -1,6 +1,6 @@
 # Examples
 
-Runnable examples for integrating with a Semantic Platform database.
+Runnable examples for integrating with a Semantius database.
 
 ## Building blocks & query-layer examples
 

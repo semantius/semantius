@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build + run the EXTENSION variant: PostgreSQL with Semantius core installed as
-# an extension (CREATE EXTENSION pg_semantic_platform), instead of the CLI migrate path.
+# an extension (CREATE EXTENSION pg_semantius), instead of the CLI migrate path.
 # For the plain CLI-testing container, use pg-cli-create.sh.
 #
 # Runs as its own compose project (semantius-ext) on port 5433, so it sits next
@@ -14,7 +14,7 @@ if [ ! -f .env ]; then
 fi
 
 # The extension must be generated first (repo root -> ../extension).
-if ! ls ../extension/pg_semantic_platform--*.sql >/dev/null 2>&1; then
+if ! ls ../extension/pg_semantius--*.sql >/dev/null 2>&1; then
   echo "No extension build found in ../extension." >&2
   echo "Generate it first, from the repo root:  deno task extension" >&2
   exit 1

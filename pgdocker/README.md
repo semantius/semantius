@@ -293,20 +293,20 @@ database. Pick one per database — they are alternatives, not layers:
 | Build command | What the image contains | How core is loaded | Port |
 | ------------- | ----------------------- | ------------------ | ---- |
 | `pg-cli-create` (`.sh`/`.cmd`) | Plain PG18 + OAuth | You deploy with the CLI: `deno task migrate` / `reset` | 5432 |
-| `pg-ext-create` (`.sh`/`.cmd`) | Same image **+ the Semantius core extension baked in** | `CREATE EXTENSION pg_semantic_platform` runs automatically at first init | 5433 |
+| `pg-ext-create` (`.sh`/`.cmd`) | Same image **+ the Semantius core extension baked in** | `CREATE EXTENSION pg_semantius` runs automatically at first init | 5433 |
 
 They are independent Docker Compose projects (separate container, data volume,
 and port), so both can run at once. The extension variant must have the extension
 generated first, from the repo root:
 
 ```bash
-deno task extension          # writes ../extension/{pg_semantic_platform.control, pg_semantic_platform--<ver>.sql}
+deno task extension          # writes ../extension/{pg_semantius.control, pg_semantius--<ver>.sql}
 ./pg-ext-create.sh           # builds the base image, then the extension image, and starts it
 ```
 
 The extension variant uses a separate compose file
 ([docker-compose.ext.yml](docker-compose.ext.yml)) and Dockerfile
-([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION pg_semantic_platform CASCADE`
+([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION pg_semantius CASCADE`
 via [init-ext/20-extension.sql](init-ext/20-extension.sql). It has the **same full
 set of lifecycle scripts** as the CLI stack, under the `pg-ext-*` prefix
 (`pg-ext-start`, `pg-ext-stop`, `pg-ext-status`, `pg-ext-test`, `pg-ext-delete`) —
@@ -624,7 +624,7 @@ so no host-specific changes are needed.
 - [conf/pg_ident.conf](conf/pg_ident.conf) — token identity → `authenticated` role map
 - [init/10-roles.sql](init/10-roles.sql) — creates the `authenticated` LOGIN role (both stacks)
 - [init/11-session-role.sh](init/11-session-role.sh) — gives `semantius_authenticator` LOGIN + password for session mode (both stacks; reads `SEMANTIUS_AUTHENTICATOR_PASSWORD`)
-- [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantic_platform CASCADE`
+- [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantius CASCADE`
 - [pg-cli-retest.sh](pg-cli-retest.sh) / [pg-cli-retest.cmd](pg-cli-retest.cmd) — Path A equivalence harness (migrate-installed `_core` → pgTAP)
 - [pg-ext-retest.sh](pg-ext-retest.sh) / [pg-ext-retest.cmd](pg-ext-retest.cmd) — Path B equivalence harness (extension-installed `_core` → pgTAP)
 - [pg-cli-deploy-module.sh](pg-cli-deploy-module.sh) / [pg-cli-deploy-module.cmd](pg-cli-deploy-module.cmd) — deploy given module(s) onto the running CLI container (`<module[,module...]>`)

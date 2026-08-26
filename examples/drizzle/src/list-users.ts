@@ -1,5 +1,5 @@
 // =============================================================================
-// list-users.ts — list users from a Semantic Platform database with Drizzle,
+// list-users.ts — list users from a Semantius database with Drizzle,
 // authenticating via an OAuth token from the test OIDC server (PostgreSQL 18
 // SASL OAUTHBEARER). The first Drizzle sample; sibling files add more (count,
 // joins, …).

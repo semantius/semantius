@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "List users from a Semantic Platform database with Kysely, typed via a DB interface generated from the catalog (deno task kyselygen), over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18).",
+  "description": "List users from a Semantius database with Kysely, typed via a DB interface generated from the catalog (deno task kyselygen), over an OAuth token (SASL OAUTHBEARER, PostgreSQL 18).",
   "engines": {
     "node": ">=20"
   },

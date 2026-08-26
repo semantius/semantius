@@ -1,6 +1,6 @@
 name: semantius-rest
 
-# PostgREST stack: PostgreSQL 18 + the pg_semantic_platform extension, fronted by
+# PostgREST stack: PostgreSQL 18 + the pg_semantius extension, fronted by
 # PostgREST (HTTP + OpenAPI) with a Scalar docs site. NO PostgreSQL-native OAuth —
 # PostgREST verifies the OIDC bearer token against the issuer JWKS and connects to
 # the DB over SCRAM as `semantius_authenticator`, SET ROLE-ing into `authenticated`

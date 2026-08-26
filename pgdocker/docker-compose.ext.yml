@@ -2,7 +2,7 @@ name: semantius-ext
 
 # Extension variant of the pgdocker stack: the SAME PostgreSQL 18 + OAuth image,
 # but with Semantius core installed as a PostgreSQL EXTENSION
-# (CREATE EXTENSION pg_semantic_platform) instead of deployed via the CLI migrate path.
+# (CREATE EXTENSION pg_semantius) instead of deployed via the CLI migrate path.
 #
 # This is a SEPARATE compose project (run it with `-p semantius-ext`) so it never
 # touches the CLI-testing stack's container, data volume, or image. It publishes

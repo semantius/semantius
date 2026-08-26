@@ -2,7 +2,7 @@
 
 A **self-contained Docker Compose stack** that puts an HTTP API with browsable
 OpenAPI docs and an admin SPA in front of a PostgreSQL 18 database carrying the
-`pg_semantic_platform` extension.
+`pg_semantius` extension.
 
 Everything the database needs (extension install, roles, `pg_hba`, the
 authenticator LOGIN, optional demo data) is **baked into the `semantius-db`
@@ -16,7 +16,7 @@ browser ──▶ Scalar docs (:8080) ──fetch spec──▶ PostgREST (:3000
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
-                                       Postgres 18 + pg_semantic_platform  (:5434)
+                                       Postgres 18 + pg_semantius  (:5434)
                                                      ▲
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET LOCAL ROLE authenticated  (per transaction)
@@ -67,7 +67,7 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `POSTGRES_PASSWORD` | **(required)** | `postgres` | `postgres` DBA login password. The stack refuses to start if unset. |
 | `POSTGRES_DB` | `semantius` | `postgres`, `postgrest` | Database created on first init and served by the API. |
 | `SEMANTIUS_AUTHENTICATOR_PASSWORD` | `devpassword` | `postgres`, `postgrest` | Password for `semantius_authenticator`, the role PostgREST logs in as. Consumed by the image's baked `20-authenticator-login.sh` **and** by `PGRST_DB_URI` — kept in sync automatically. Per-environment secret. |
-| `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius-db` image to run. Pin (e.g. `0.2.0`) for reproducible/server deploys; `latest` tracks your local `docker-semantius/build.sh`. |
+| `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius-db` image to run. Pin (e.g. `0.3.0`) for reproducible/server deploys; `latest` tracks your local `docker-semantius/build.sh`. |
 | `NWIND` | *(unset)* | `postgres` | Set to **any** non-empty value (e.g. `TRUE`) to load the optional Northwind demo module on first init. Takes effect only on a **fresh** data volume (init runs once). |
 | `POSTGRES_PORT` | `5434` | `postgres` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
 | `PGBOUNCER_PORT` | `6432` | `pgbouncer` | Host port for the transaction-pooled PgBouncer endpoint. |

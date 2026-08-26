@@ -2,9 +2,9 @@ name: Release extension
 
 # Publishes the Semantius core PostgreSQL extension as a GitHub Release.
 # The tag is the repo-wide version (one version for every artifact in this repo), so
-# it is an unprefixed `v<version>` — trigger by pushing a tag like `v0.2.0`, or run
+# it is an unprefixed `v<version>` — trigger by pushing a tag like `v0.3.0`, or run
 # manually with a version.
-# The same `pg_semantic_platform-<version>.zip` it attaches is also a valid PGXN distribution
+# The same `pg_semantius-<version>.zip` it attaches is also a valid PGXN distribution
 # archive (it contains META.json) — publish it to PGXN with `pgxn release` (see the
 # top-level README) or upload at manager.pgxn.org.
 
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Extension version, e.g. 0.2.0"
+        description: "Extension version, e.g. 0.3.0"
         required: true
 
 permissions:
@@ -49,16 +49,16 @@ jobs:
       - name: Package PGXN-style archive
         run: |
           V="${{ steps.ver.outputs.version }}"
-          DIST="pg_semantic_platform-$V"
+          DIST="pg_semantius-$V"
           mkdir -p "$DIST"
           cp extension/META.json \
-             extension/pg_semantic_platform.control \
+             extension/pg_semantius.control \
              extension/Makefile \
              extension/README.md \
              "$DIST/"
           # All install scripts: the current full install + the whole upgrade
           # chain, so `make install` + `ALTER EXTENSION ... UPDATE` both work.
-          cp extension/pg_semantic_platform--*.sql "$DIST/"
+          cp extension/pg_semantius--*.sql "$DIST/"
           zip -r "$DIST.zip" "$DIST"
           echo "Built $DIST.zip:"
           unzip -l "$DIST.zip"
@@ -73,19 +73,19 @@ jobs:
           PostgreSQL extension build of **Semantius core v$V**.
 
           **Install**
-          - PGXN: \`pgxn install pg_semantic_platform\`
-          - From this release: download \`pg_semantic_platform-$V.zip\`, unzip, run \`make install\`, then \`CREATE EXTENSION pg_semantic_platform CASCADE;\` (PostgreSQL 18, superuser).
+          - PGXN: \`pgxn install pg_semantius\`
+          - From this release: download \`pg_semantius-$V.zip\`, unzip, run \`make install\`, then \`CREATE EXTENSION pg_semantius CASCADE;\` (PostgreSQL 18, superuser).
 
-          \`pg_semantic_platform-$V.zip\` is also the PGXN distribution archive (contains META.json).
+          \`pg_semantius-$V.zip\` is also the PGXN distribution archive (contains META.json).
           EOF
           # Re-release support: drop any existing release for this tag so the
           # assets are replaced cleanly (gh release create fails if it exists).
           # Only the release + its assets are removed; the git tag is kept.
           gh release delete "$TAG" --yes || true
           gh release create "$TAG" \
-            "pg_semantic_platform-$V.zip" \
-            "extension/pg_semantic_platform--$V.sql" \
-            extension/pg_semantic_platform.control \
+            "pg_semantius-$V.zip" \
+            "extension/pg_semantius--$V.sql" \
+            extension/pg_semantius.control \
             --title "Semantius extension v$V" \
             --notes-file notes.md
 

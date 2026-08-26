@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 REM test.cmd  -  Test the EXACT PostgREST deployment behavior end to end -- a
 REM FRESH container, a FRESH data volume, and `_core` installed via CREATE EXTENSION
-REM pg_semantic_platform (the whole _core install in ONE transaction), then deploy
+REM pg_semantius (the whole _core install in ONE transaction), then deploy
 REM nwind,test and run the full pgTAP suite. See test.sh for the full
 REM rationale.
 REM
@@ -55,10 +55,10 @@ REM [0/5] Regenerate the extension from CURRENT migrations (skip with SKIP_EXT_R
 REM Version inferred from the newest built extension SQL (dir /o-n = name-descending).
 if not "%SKIP_EXT_REGEN%"=="1" (
   set "VERSION="
-  for /f "delims=" %%F in ('dir /b /o-n "%REPO_ROOT%\extension\pg_semantic_platform--*.sql" 2^>nul') do (
+  for /f "delims=" %%F in ('dir /b /o-n "%REPO_ROOT%\extension\pg_semantius--*.sql" 2^>nul') do (
     if not defined VERSION (
       set "FN=%%F"
-      set "FN=!FN:pg_semantic_platform--=!"
+      set "FN=!FN:pg_semantius--=!"
       set "VERSION=!FN:.sql=!"
     )
   )
@@ -78,15 +78,15 @@ docker compose down -v || goto :err
 echo == [2/5] Rebuilding the image + bringing the stack up fresh ==
 call "%SCRIPT_DIR%create.cmd" || goto :err
 
-echo == [3/5] Waiting for the pg_semantic_platform extension to install ==
+echo == [3/5] Waiting for the pg_semantius extension to install ==
 set /a tries=0
 :wait
 set "EXTOK="
-for /f "usebackq delims=" %%R in (`docker exec %CONTAINER% psql -U postgres -d %POSTGRES_DB% -tAc "SELECT 1 FROM pg_extension WHERE extname='pg_semantic_platform'" 2^>nul`) do set "EXTOK=%%R"
+for /f "usebackq delims=" %%R in (`docker exec %CONTAINER% psql -U postgres -d %POSTGRES_DB% -tAc "SELECT 1 FROM pg_extension WHERE extname='pg_semantius'" 2^>nul`) do set "EXTOK=%%R"
 if "%EXTOK%"=="1" goto :ready
 set /a tries+=1
 if %tries% geq 90 (
-  echo Timed out waiting for the pg_semantic_platform extension to install.
+  echo Timed out waiting for the pg_semantius extension to install.
   docker compose logs --tail 60 postgres
   goto :err
 )

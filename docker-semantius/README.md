@@ -6,7 +6,7 @@ Builds and publishes the self-contained database image:
 ghcr.io/semantius/semantius-db:<version>   # + :latest
 ```
 
-It is **PostgreSQL 18 with the `pg_semantic_platform` extension installed and the
+It is **PostgreSQL 18 with the `pg_semantius` extension installed and the
 whole runtime baked in**, so a consumer stack (see
 [`../docker-compose`](../docker-compose/README.md)) is *just a docker-compose
 file* — it mounts nothing from the host. On a fresh data
@@ -14,19 +14,19 @@ volume the image, driven by a few env vars, sets up:
 
 | Baked-in step (`initdb/`) | Does |
 |---|---|
-| `10-install-extension.sql` | `CREATE EXTENSION pg_semantic_platform CASCADE` → roles (NOLOGIN), schemas, data dictionary |
+| `10-install-extension.sql` | `CREATE EXTENSION pg_semantius CASCADE` → roles (NOLOGIN), schemas, data dictionary |
 | `20-authenticator-login.sh` | flips `semantius_authenticator` to **LOGIN** + sets its password from `$SEMANTIUS_AUTHENTICATOR_PASSWORD` (the one secret-injecting shell step) |
 | `30-postgrest-anon.sql` | adds the PostgREST `anon` role (schema USAGE only) |
 | `40-nwind.sh` | **optional** — loads the Northwind demo module when `$NWIND` is set |
 | `conf/pg_hba.conf` | client auth (activated by the image `CMD`'s `hba_file=`) |
 
 The **extension itself stays self-contained** — `CREATE EXTENSION
-pg_semantic_platform` on any bare Postgres gives you the full model with no shell
+pg_semantius` on any bare Postgres gives you the full model with no shell
 scripts. This image just adds the deployment layer (LOGIN/password, `anon`,
 pg_hba, demo data) that an extension architecturally can't own.
 
 The image version tracks the repo-wide extension version (`extension/META.json`),
-so `semantius-db:0.2.0` contains extension `0.2.0`.
+so `semantius-db:0.3.0` contains extension `0.3.0`.
 
 ## Environment variables
 
@@ -65,7 +65,7 @@ honour an `IMAGE=` override (default `ghcr.io/semantius/semantius-db`).
 > version — a bare `deno task extension` falls back to the CLI's own `0.1.0` and
 > downgrades the build:
 > ```bash
-> deno task extension 0.2.0
+> deno task extension 0.3.0
 > ```
 
 ## Build context
@@ -88,7 +88,7 @@ cd docker-compose && docker compose up -d  # uses the local image
 
 ## Publishing
 
-Automatic: push a `v<version>` tag (e.g. `v0.2.0`). The
+Automatic: push a `v<version>` tag (e.g. `v0.3.0`). The
 [`extension-release.yml`](../.github/workflows/extension-release.yml) workflow
 generates the extension, cuts the GitHub Release, and pushes the image to GHCR —
 one tag, both artifacts, versions in lockstep.
@@ -97,8 +97,8 @@ Manual:
 
 ```bash
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
-./docker-semantius/build.sh 0.2.0
-./docker-semantius/publish.sh 0.2.0
+./docker-semantius/build.sh 0.3.0
+./docker-semantius/publish.sh 0.3.0
 ```
 
 ## Consuming it

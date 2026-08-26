@@ -1,6 +1,6 @@
 # kysely-raw — list users with Kysely (raw SQL) over OAuth (Node)
 
-Connect to a **Semantic Platform** database (**PostgreSQL 18**) from Node with
+Connect to a **Semantius** database (**PostgreSQL 18**) from Node with
 [Kysely](https://kysely.dev), authenticating as the `authenticated` role with an
 **OAuth access token** over SASL `OAUTHBEARER` — then list users with **raw SQL**
 (no generated types).
@@ -34,7 +34,7 @@ This example is **self-contained**: it vendors the dependency-free transport
 
 ## Prerequisites
 
-A running pgdocker stack with the Semantic Platform `_core` present. From `pgdocker/`:
+A running pgdocker stack with the Semantius `_core` present. From `pgdocker/`:
 
 - **CLI stack** (port **5432**): `./pg-cli-create.sh`, then deploy core —
   `export DATABASE_URL=… && deno task migrate --apps _core`.
