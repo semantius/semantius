@@ -569,13 +569,13 @@ function buildMetaJson(
       },
     },
     resources: {
-      homepage: "https://github.com/adenin-platform/semantius-core",
+      homepage: "https://github.com/semantius/semantius",
       bugtracker: {
-        web: "https://github.com/adenin-platform/semantius-core/issues",
+        web: "https://github.com/semantius/semantius/issues",
       },
       repository: {
-        url: "git://github.com/adenin-platform/semantius-core.git",
-        web: "https://github.com/adenin-platform/semantius-core",
+        url: "git://github.com/semantius/semantius.git",
+        web: "https://github.com/semantius/semantius",
         type: "git",
       },
     },

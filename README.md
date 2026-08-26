@@ -38,8 +38,8 @@ allow list:
 
 ```bash
 # Clone and enter the repo
-git clone <repository-url>
-cd semantius-core
+git clone https://github.com/semantius/semantius.git
+cd semantius
 
 # Copy env template and add your database URL
 cp .env.example .env.local

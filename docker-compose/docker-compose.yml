@@ -19,7 +19,7 @@ services:
     # stack is just this compose file + .env (a copy-paste Dokploy template).
     # Locally, docker-semantius/build.sh tags :latest so `up` uses your fresh
     # build; on a server it is pulled from GHCR. Pin the version via SEMANTIUS_DB_VERSION.
-    image: ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION:-latest}
+    image: ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION:-latest}
     container_name: postgres18-rest
     restart: unless-stopped
     environment:

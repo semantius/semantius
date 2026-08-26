@@ -3,7 +3,7 @@
 **Audience:** the authors of the architect / analyst / modeler / `use-*` discovery skills, and the
 author of `semantius-agent/provenance-in-platform-plan.md`.
 
-**Status:** **Specification for the v0.1.2 build — not yet merged into the migrations.** `semantius-core`
+**Status:** **Specification for the v0.1.2 build — not yet merged into the migrations.** `semantius`
 is pre-release, so there is no upgrade path to preserve and these changes are **folded into the base
 migrations** (no `0250`/`0260` add-on). Once built, a fresh `dropall → migrate` produces the columns.
 Both review passes (security/testing + completeness) are incorporated.

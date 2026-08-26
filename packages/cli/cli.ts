@@ -200,7 +200,7 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
         "--allow-write",
         "--allow-env",
         "--output",
-        `${outputDir}/semantius-core`,
+        `${outputDir}/semantius`,
         "src/main.ts",
       ],
     });
@@ -209,7 +209,7 @@ async function buildProject(outputDir: string = "./dist"): Promise<void> {
 
     if (code === 0) {
       console.log("✅ Build completed successfully!");
-      console.log(`📦 Executable created at: ${outputDir}/semantius-core`);
+      console.log(`📦 Executable created at: ${outputDir}/semantius`);
     } else {
       console.error("❌ Build failed!");
       Deno.exit(1);

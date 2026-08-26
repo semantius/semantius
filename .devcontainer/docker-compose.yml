@@ -14,7 +14,7 @@ services:
     image: mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm
     command: sleep infinity
     volumes:
-      - ..:/workspaces/semantius-core:cached
+      - ..:/workspaces/semantius:cached
     environment:
       # Managed DB wins when DATABASE_URL is set; otherwise fall back to the
       # local `db` service (which only runs when the localdb profile is active).

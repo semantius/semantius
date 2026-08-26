@@ -18,7 +18,7 @@ REM Build the DB image locally (from ..\extension), tagged :latest so compose
 REM (SEMANTIUS_DB_VERSION defaults to latest) uses it without pulling. The
 REM versioned tag + publish live in ..\docker-semantius (build.sh / CI).
 pushd ..
-docker build -f docker-semantius\Dockerfile -t ghcr.io/adenin-platform/semantius-db:latest . || (popd & goto :err)
+docker build -f docker-semantius\Dockerfile -t ghcr.io/semantius/semantius-db:latest . || (popd & goto :err)
 popd
 
 REM --force-recreate: always replace existing containers with fresh ones from the

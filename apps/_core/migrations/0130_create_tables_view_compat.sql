@@ -3,7 +3,7 @@
 -- =====================================================
 -- Create an updatable view named "tables" that maps to "entities" table
 -- This ensures external applications using the old "tables" name continue to work
--- Goal: semantius-core uses "entities", but old apps can still use "tables" view
+-- Goal: semantius uses "entities", but old apps can still use "tables" view
 -- =====================================================
 
 -- Create a simple view that maps to entities table
@@ -16,7 +16,7 @@ CREATE OR REPLACE VIEW tables AS
 SELECT * FROM entities;
 
 COMMENT ON VIEW tables IS 
-'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius-core uses "entities".';
+'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius uses "entities".';
 -- =====================================================
 -- SECURITY: Enable RLS and Grant Permissions
 -- =====================================================

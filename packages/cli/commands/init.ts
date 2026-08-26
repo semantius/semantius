@@ -31,7 +31,7 @@ Deno.test("main function exists", () => {
 `;
 
     const denoJsonContent = `{
-  "name": "semantius-core",
+  "name": "semantius",
   "version": "1.0.0",
   "description": "Semantius Core Application",
   "exports": "./src/main.ts",

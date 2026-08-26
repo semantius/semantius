@@ -7,8 +7,8 @@
 #   ./build.sh 0.2.0        # explicit version tag
 #
 # Builds + tags:
-#     ghcr.io/adenin-platform/semantius-db:<version>
-#     ghcr.io/adenin-platform/semantius-db:latest
+#     ghcr.io/semantius/semantius-db:<version>
+#     ghcr.io/semantius/semantius-db:latest
 #
 # This does NOT regenerate the extension — it packages whatever is in ./extension.
 # If you changed migrations, regenerate first with an EXPLICIT version (bare
@@ -20,7 +20,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root (build context; COPYs ./extension)
 
-IMAGE="${IMAGE:-ghcr.io/adenin-platform/semantius-db}"
+IMAGE="${IMAGE:-ghcr.io/semantius/semantius-db}"
 
 # The build COPYs ./extension — fail early if it hasn't been generated.
 if ! ls extension/pg_semantic_platform--*.sql >/dev/null 2>&1; then

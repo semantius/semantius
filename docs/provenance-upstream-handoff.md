@@ -1,7 +1,7 @@
 # Provenance — core → platform-plan handoff (copy/paste to upstream)
 
 **To:** author of `provenance-in-platform-plan.md` (architect / analyst / modeler / `use-*` skills)
-**From:** semantius-core
+**From:** semantius
 **Re:** the plan is implemented in core — corrections, the as-built contract, rename-discovery test
 coverage, and the decisions I need from you.
 **Status:** core is **pre-release**, so this ships folded into the base schema as part of **v0.1.2**

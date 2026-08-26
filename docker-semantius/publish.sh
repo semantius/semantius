@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root (to read extension/META.json)
 
-IMAGE="${IMAGE:-ghcr.io/adenin-platform/semantius-db}"
+IMAGE="${IMAGE:-ghcr.io/semantius/semantius-db}"
 
 # Version: arg wins, else the version of the currently-built extension.
 version="${1:-$(ls extension/pg_semantic_platform--*.sql 2>/dev/null \

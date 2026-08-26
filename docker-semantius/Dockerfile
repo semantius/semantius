@@ -2,7 +2,7 @@
 # docker-semantius/Dockerfile — PostgreSQL 18 with the Semantius core extension
 # INSTALLED and the full runtime baked in. This is the self-contained,
 # publishable DB image:
-#   ghcr.io/adenin-platform/semantius-db:<version>
+#   ghcr.io/semantius/semantius-db:<version>
 #
 # "Self-contained" is the point: a consumer stack (e.g. ../docker-compose) needs
 # to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just

@@ -3,7 +3,7 @@
 Builds and publishes the self-contained database image:
 
 ```
-ghcr.io/adenin-platform/semantius-db:<version>   # + :latest
+ghcr.io/semantius/semantius-db:<version>   # + :latest
 ```
 
 It is **PostgreSQL 18 with the `pg_semantic_platform` extension installed and the
@@ -59,7 +59,7 @@ already deployed.
 | `./publish.sh [version]` | Pushes those tags to GHCR (login required; CI does this on tag). |
 
 Both infer the version from the `./extension` build when no argument is given, and
-honour an `IMAGE=` override (default `ghcr.io/adenin-platform/semantius-db`).
+honour an `IMAGE=` override (default `ghcr.io/semantius/semantius-db`).
 
 > **Changed migrations?** Regenerate the extension first, with an **explicit**
 > version — a bare `deno task extension` falls back to the CLI's own `0.1.0` and
@@ -104,6 +104,6 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 ## Consuming it
 
 `docker-compose/docker-compose.yml` references
-`ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION:-latest}`. Pin
+`ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION:-latest}`. Pin
 `SEMANTIUS_DB_VERSION` in `.env` for reproducible/server deploys; leave it at
 `latest` to track your local build.

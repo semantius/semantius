@@ -40,7 +40,7 @@ Six services (project `semantius-rest`), five long-running + one one-shot:
 
 | Service | Image | Host port | Purpose |
 |---|---|---|---|
-| `postgres` | `ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION}` (built from [`../docker-semantius`](../docker-semantius/README.md)) | **5434** | PG18 with the extension installed + roles/pg_hba/authenticator/nwind baked in |
+| `postgres` | `ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION}` (built from [`../docker-semantius`](../docker-semantius/README.md)) | **5434** | PG18 with the extension installed + roles/pg_hba/authenticator/nwind baked in |
 | `pgbouncer` | `edoburu/pgbouncer:latest` | **6432** | transaction-pooled `semantius_authenticator` endpoint for apps that talk SQL directly ([see below](#the-pgbouncer-service--a-pooled-endpoint-for-external-apps)) |
 | `jwks-fetch` | `curlimages/curl:latest` | — | **one-shot**: downloads the issuer JWKS to a file PostgREST can read (see below) |
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |

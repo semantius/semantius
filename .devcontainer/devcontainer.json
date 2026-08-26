@@ -2,7 +2,7 @@
   "name": "Semantius Core (Deno + PostgreSQL 18)",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "workspaceFolder": "/workspaces/semantius-core",
+  "workspaceFolder": "/workspaces/semantius",
 
   // Host-side, runs before the container is created (incl. Codespaces): enables
   // the local Postgres only when no DATABASE_URL is provided. `|| exit 0` keeps
