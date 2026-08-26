@@ -29,7 +29,7 @@ INSERT INTO entities (
 ) VALUES (
     'audit_test_items', 'item', 'Audit Test Item', 'Audit Test Items',
     'Test entity for audit log tests',
-    1001, 'public:read', 'sales:manage', 'id', 'item_name', TRUE
+    1, 'public:read', 'nwind:manage', 'id', 'item_name', TRUE
 );
 
 -- Add a text field
@@ -61,7 +61,7 @@ INSERT INTO entities (
 ) VALUES (
     'audit_default_test', 'item', 'Default Test', 'Default Tests',
     'Test default audit_log value',
-    1001, 'public:read', 'sales:manage', 'id', 'item_name'
+    1, 'public:read', 'nwind:manage', 'id', 'item_name'
 );
 
 SELECT is(

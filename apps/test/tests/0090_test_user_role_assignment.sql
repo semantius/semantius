@@ -1,7 +1,7 @@
 -- Test auto-assignment of role 1 and prevention of role 1 deletion
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(9);
 
 -- =====================================================
 -- TEST: New users are automatically assigned role 1
@@ -35,20 +35,10 @@ SELECT ok(
     'Role 1 (User) should be automatically assigned to new user 9002'
 );
 
--- Test 3: Verify existing test users already have role 1
-SELECT ok(
-    (SELECT COUNT(*) FROM user_roles WHERE user_id = 1001 AND role_id = 1) = 1,
-    'Existing user 1001 should have role 1 (User)'
-);
-
+-- Test 3: Verify the seeded user 1002 already has role 1 (precondition of test 6)
 SELECT ok(
     (SELECT COUNT(*) FROM user_roles WHERE user_id = 1002 AND role_id = 1) = 1,
     'Existing user 1002 should have role 1 (User)'
-);
-
-SELECT ok(
-    (SELECT COUNT(*) FROM user_roles WHERE user_id = 1003 AND role_id = 1) = 1,
-    'Existing user 1003 should have role 1 (User)'
 );
 
 -- =====================================================

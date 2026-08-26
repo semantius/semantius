@@ -37,5 +37,5 @@ exit /b 0
 
 :err
 echo.
-echo Test failed. Is the stack running (pg-rest-start.cmd)?
+echo Test failed. Is the stack running (.\start.cmd)?
 exit /b 1

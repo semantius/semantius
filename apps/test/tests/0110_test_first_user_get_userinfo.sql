@@ -1,9 +1,13 @@
 -- Test get_userinfo() for the first user (auto-admin) scenario
 -- Verifies that when the very first user calls get_userinfo(),
 -- they get Administrator role, admin permission, and ALL modules
+-- (persisted: _core + Northwind).
+-- Also pins the bootstrap negatives (formerly 0100_test_first_user_admin):
+-- once a seen user exists, a second user created WITH last_seen and a user
+-- created with last_seen NULL both get role 1 (User) but NOT role 2.
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(17);
 
 -- =====================================================
 -- SETUP: Simulate a fresh system with no active users
@@ -113,16 +117,53 @@ SELECT ok(
     'First user (admin) modules should not be empty'
 );
 
--- Test 9: Should see at least _core, CRM, and HR modules (ignoring any additional modules)
+-- Test 9: Should see at least _core and Northwind modules (ignoring any additional modules)
 SELECT ok(
-    (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb FROM first_user_info),
-    'First user (admin) should see _core, CRM, and HR modules'
+    (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "Northwind"}]'::jsonb FROM first_user_info),
+    'First user (admin) should see _core and Northwind modules'
 );
 
 -- Test 10: Should see _core module (requires admin permission)
 SELECT ok(
     (SELECT info->'modules' @> '[{"module_name": "_core"}]'::jsonb FROM first_user_info),
     'First user (admin) should see _core module'
+);
+
+-- =====================================================
+-- TEST: bootstrap negatives - only the FIRST seen user becomes admin
+-- =====================================================
+-- The first user above now has last_seen set, so nobody created afterwards
+-- may receive role 2. Insert as user3 (user:manage); last_seen of user3 is
+-- irrelevant to its permissions.
+RESET ROLE;
+SELECT authenticate_as('user3');
+
+-- Test 11/12: a second user created WITH last_seen gets role 1 but NOT role 2
+INSERT INTO users (id, external_id, email, last_seen)
+VALUES (9902, 'seconduser', 'second@test.com', CURRENT_TIMESTAMP);
+
+SELECT ok(
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9902 AND role_id = 1) = 1,
+    'Role 1 (User) should be automatically assigned to second user'
+);
+
+SELECT ok(
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9902 AND role_id = 2) = 0,
+    'Role 2 (Administrator) should NOT be assigned to second user'
+);
+
+-- Test 13/14: a user created WITHOUT last_seen gets role 1 but NOT role 2
+INSERT INTO users (id, external_id, email, last_seen)
+VALUES (9903, 'thirduser', 'third@test.com', NULL);
+
+SELECT ok(
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9903 AND role_id = 1) = 1,
+    'Role 1 (User) should be assigned to user without last_seen'
+);
+
+SELECT ok(
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9903 AND role_id = 2) = 0,
+    'Role 2 (Administrator) should NOT be assigned to user without last_seen'
 );
 
 SELECT * FROM finish();

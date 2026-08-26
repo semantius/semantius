@@ -2,9 +2,9 @@
 # Mint a JWT for a test user from the OIDC issuer and print it to stdout, so you
 # can paste it into the Scalar docs "Authentication" box or use it with curl.
 #
-#   ./pg-rest-token.sh                 # default user: user1
-#   ./pg-rest-token.sh user2           # a specific user
-#   TOKEN=$(./pg-rest-token.sh user3)  # capture just the token
+#   ./token.sh                 # default user: user1
+#   ./token.sh user2           # a specific user
+#   TOKEN=$(./token.sh user3)  # capture just the token
 #
 # Test-issuer users: user1 (John Smith), user2 (María García), user3 (Wei Chen).
 # Reuses ../pgdocker/get_user_token.ts (mints from the OIDC test issuer, which is
@@ -27,7 +27,7 @@ printf '%s\n' "$token"          # stdout = just the token
   echo "  • Scalar docs (http://localhost:${DOCS_PORT:-8080}) → Authentication → JWT →"
   echo "    paste the whole header value:  Bearer <the token above>"
   echo
-  echo "  • curl:  curl -H \"Authorization: Bearer \$(./pg-rest-token.sh ${1:-user1})\" \\"
+  echo "  • curl:  curl -H \"Authorization: Bearer \$(./token.sh ${1:-user1})\" \\"
   echo "             ${base}/users"
   echo
   echo "  • Copy-paste curl (whoami via /rpc/get_userinfo):"

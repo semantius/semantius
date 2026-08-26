@@ -13,13 +13,13 @@ REM IdP, schedule it (e.g. a daily task) - see README ("Key rotation").
 cd /d "%~dp0"
 
 if not exist ".env" (
-  echo No .env found. Run pg-rest-create.cmd first ^(it copies .env.example^).
+  echo No .env found. Run create.cmd first ^(it copies .env.example^).
   goto :err
 )
 
 for /f %%i in ('docker compose ps -aq') do set HAVE=1
 if not defined HAVE (
-  echo No containers exist. Run pg-rest-create.cmd first.
+  echo No containers exist. Run create.cmd first.
   goto :err
 )
 

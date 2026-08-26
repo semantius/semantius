@@ -10,9 +10,12 @@
 -- These four scenarios are exercised by creating a dedicated entity with
 -- four enum fields and inspecting the resulting CHECK constraints, column
 -- defaults, and the JSON Schema produced by get_schema().
+--
+-- Also verifies that the enum column COMMENT carries the allowed-value list
+-- ("<title> (enum)" + description + values) and re-syncs on enum_values UPDATE.
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(22);
 
 -- Authenticate as admin user so we can create entities/fields
 SELECT authenticate_as('user3');
@@ -28,17 +31,19 @@ VALUES (
     'enum_default_test',
     'Enum Default Test',
     'Enum Default Tests',
-    1001,
+    1,
     'public:read',
     'admin',
     'id',
     'label'
 );
 
--- Scenario 1: NOT required + explicit default
-INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+-- Scenario 1: NOT required + explicit default (carries a description so the
+-- three-part column COMMENT format is exercised below)
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value, description)
 VALUES ('enum_default_test', 'status_optional_with_default', 'Status', 'enum',
-        'default', '["active", "inactive"]'::jsonb, 'inactive');
+        'default', '["active", "inactive"]'::jsonb, 'inactive',
+        'Account status (active, inactive, etc.)');
 
 -- Scenario 2: NOT required + no explicit default
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
@@ -217,6 +222,39 @@ SELECT is(
         ->'properties'->'status_optional_no_default'->>'default',
     '',
     'get_schema() default for NOT required enum without explicit default is empty string'
+);
+
+-- =====================================================
+-- Enum column COMMENT carries the allowed value list
+-- =====================================================
+
+-- On create, the comment is "<title> (enum)" + description + comma-separated
+-- allowed values (the declared list, without the implicit '' for non-required).
+SELECT is(
+    col_description(
+        'public.enum_default_test'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.enum_default_test'::regclass
+           AND attname = 'status_optional_with_default')
+    ),
+    E'Status (enum)\n\nAccount status (active, inactive, etc.)\n\nactive, inactive',
+    'Enum column comment = "title (enum)" + description + comma-separated allowed values'
+);
+
+-- Updating enum_values re-syncs the value list in the column comment
+UPDATE fields
+SET enum_values = '["active", "inactive", "archived"]'::jsonb
+WHERE table_name = 'enum_default_test' AND field_name = 'status_optional_with_default';
+
+SELECT is(
+    col_description(
+        'public.enum_default_test'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.enum_default_test'::regclass
+           AND attname = 'status_optional_with_default')
+    ),
+    E'Status (enum)\n\nAccount status (active, inactive, etc.)\n\nactive, inactive, archived',
+    'Enum column comment value list re-syncs when enum_values changes'
 );
 
 SELECT * FROM finish();

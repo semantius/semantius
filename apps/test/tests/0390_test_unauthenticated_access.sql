@@ -12,11 +12,14 @@
 --     table SELECT nor EXECUTE on the public RPCs (0060 checks the REVOKEs
 --     statically; this checks the resulting ACLs behaviorally)
 --
--- Fixtures (0030_seed.sql): user1=1001 (User role only), user3=admin.
--- products_test is seeded with rows, so RLS policies actually evaluate.
+--   * an unknown subject (JWT sub with no users row) is rejected with 28000
+--     on both the permission helper and an RLS-guarded table (from 0080)
+--
+-- Fixtures: user1=1001 (User role only), user3=admin; public.products is the
+-- nwind sample table (77 rows), so RLS policies actually evaluate.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(16);
 
 -- =====================================================
 -- GROUP 1: no JWT claims at all
@@ -35,7 +38,7 @@ SELECT throws_ok(
 
 -- Test 2
 SELECT throws_ok(
-    $$ SELECT count(*) FROM public.products_test $$,
+    $$ SELECT count(*) FROM public.products $$,
     '42501', NULL,
     'unauth: RLS-guarded data table SELECT raises (not silently empty)'
 );
@@ -139,26 +142,55 @@ SELECT ok(
 );
 
 -- =====================================================
--- GROUP 5: GRANT layer beneath RLS (ACL introspection)
+-- GROUP 5: unknown subject — claims are well-formed but no users row exists
+-- =====================================================
+-- The role claim is still 'authenticated' from authenticate_as('user1') above;
+-- only the subject is swapped for one that does not exist in users.
+SET ROLE semantius_user;
+SELECT set_config('request.jwt.claim.sub', 'nonexistent_user_12345', true);
+SELECT set_config('request.jwt.claim.email', 'nonexistent@test.com', true);
+
+-- Clear the cached context so the next access re-initialises it for the new sub
+SELECT set_config('app.current_user_id', NULL, false);
+SELECT set_config('app.current_external_id', NULL, false);
+SELECT set_config('app.user_permissions', NULL, false);
+SELECT set_config('app.context_initialized', NULL, false);
+
+-- Test 12
+SELECT throws_ok(
+    $$ SELECT rbac.has_permission('public:read') $$,
+    '28000', NULL,
+    'RLS should fail with error when user does not exist in database'
+);
+
+-- Test 13
+SELECT throws_ok(
+    $$ SELECT COUNT(*) FROM public.products $$,
+    '28000', NULL,
+    'Querying RLS-protected table should fail when user does not exist'
+);
+
+-- =====================================================
+-- GROUP 6: GRANT layer beneath RLS (ACL introspection)
 -- =====================================================
 RESET ROLE;
 CREATE ROLE tap_probe_no_priv NOLOGIN;
 
--- Test 12
+-- Test 14
 SELECT ok(
-    NOT has_table_privilege('tap_probe_no_priv', 'public.products_test', 'SELECT'),
+    NOT has_table_privilege('tap_probe_no_priv', 'public.products', 'SELECT'),
     'a role outside semantius_user has no SELECT on data tables'
 );
 
--- Test 13
+-- Test 15
 SELECT ok(
     NOT has_function_privilege('tap_probe_no_priv', 'public.has_permission(text)', 'EXECUTE'),
     'a role outside semantius_user cannot execute public.has_permission()'
 );
 
--- Test 14
+-- Test 16
 SELECT ok(
-    has_table_privilege('semantius_user', 'public.products_test', 'SELECT'),
+    has_table_privilege('semantius_user', 'public.products', 'SELECT'),
     'control: semantius_user does hold SELECT on the same table'
 );
 

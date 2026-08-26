@@ -14,32 +14,32 @@ SELECT authenticate_as('user3');
 
 -- lt_candidates: root, intrinsic label. view='admin' so user1 cannot read it (security tests).
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('lt_candidates', 'lt_candidate', 'Candidate', 'Candidates', 'test candidates', 1001, 'admin', 'admin', 'id', 'full_name');
+VALUES ('lt_candidates', 'lt_candidate', 'Candidate', 'Candidates', 'test candidates', 1, 'admin', 'admin', 'id', 'full_name');
 
 -- lt_applications: relational, spine = candidate_id. view public so user1 can read the child.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('lt_applications', 'lt_application', 'Application', 'Applications', 'test applications', 1001, 'public:read', 'admin', 'id', 'job_title');
+VALUES ('lt_applications', 'lt_application', 'Application', 'Applications', 'test applications', 1, 'public:read', 'admin', 'id', 'job_title');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_applications', 'candidate_id', 'Candidate', 'reference', 20, 'lt_candidates', 'clear');
 UPDATE entities SET label_parent = 'candidate_id' WHERE table_name = 'lt_applications';
 
 -- lt_interviews: relational, spine = application_id.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('lt_interviews', 'lt_interview', 'Interview', 'Interviews', 'test interviews', 1001, 'public:read', 'admin', 'id', 'stage');
+VALUES ('lt_interviews', 'lt_interview', 'Interview', 'Interviews', 'test interviews', 1, 'public:read', 'admin', 'id', 'stage');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_interviews', 'application_id', 'Application', 'reference', 20, 'lt_applications', 'clear');
 UPDATE entities SET label_parent = 'application_id' WHERE table_name = 'lt_interviews';
 
 -- lt_scorecards: relational, spine = interview_id (the original "Scorecard 6" problem).
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('lt_scorecards', 'lt_scorecard', 'Scorecard', 'Scorecards', 'test scorecards', 1001, 'public:read', 'admin', 'id', 'score_date');
+VALUES ('lt_scorecards', 'lt_scorecard', 'Scorecard', 'Scorecards', 'test scorecards', 1, 'public:read', 'admin', 'id', 'score_date');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_scorecards', 'interview_id', 'Interview', 'reference', 20, 'lt_interviews', 'clear');
 UPDATE entities SET label_parent = 'interview_id' WHERE table_name = 'lt_scorecards';
 
 -- lt_link: heuristic junction (two parent legs to candidates, no payload field).
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('lt_link', 'lt_link', 'Link', 'Links', 'test junction', 1001, 'public:read', 'admin', 'id', 'label');
+VALUES ('lt_link', 'lt_link', 'Link', 'Links', 'test junction', 1, 'public:read', 'admin', 'id', 'label');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_link', 'left_id', 'Left', 'parent', 20, 'lt_candidates', 'cascade'),
        ('lt_link', 'right_id', 'Right', 'parent', 30, 'lt_candidates', 'cascade');

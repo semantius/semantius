@@ -29,7 +29,7 @@ INSERT INTO entities (
 ) VALUES (
     'eptest1', 'eptest1_item', 'EP Test Item', 'EP Test Items',
     'Entity permission test',
-    1001, 'public:read', 'sales:manage', 'id', 'item_name'
+    1, 'public:read', 'nwind:manage', 'id', 'item_name'
 );
 
 -- =====================================================
@@ -40,8 +40,8 @@ SELECT ok(
     (SELECT with_check FROM pg_policies
      WHERE tablename = 'eptest1' AND schemaname = 'public'
        AND policyname = 'eptest1_insert_policy')
-    LIKE '%sales:manage%',
-    'INSERT policy should reference sales:manage initially'
+    LIKE '%nwind:manage%',
+    'INSERT policy should reference nwind:manage initially'
 );
 
 SELECT ok(
@@ -68,15 +68,15 @@ SELECT ok(
     'INSERT policy should reference admin after edit_permission change'
 );
 
--- INSERT policy should no longer reference 'sales:manage'
+-- INSERT policy should no longer reference 'nwind:manage'
 SELECT ok(
     NOT (
         (SELECT with_check FROM pg_policies
          WHERE tablename = 'eptest1' AND schemaname = 'public'
            AND policyname = 'eptest1_insert_policy')
-        LIKE '%sales:manage%'
+        LIKE '%nwind:manage%'
     ),
-    'INSERT policy should NOT reference sales:manage after edit_permission change to admin'
+    'INSERT policy should NOT reference nwind:manage after edit_permission change to admin'
 );
 
 -- UPDATE policy should now reference 'admin'
@@ -101,15 +101,15 @@ SELECT ok(
 -- TEST 3: Change view_permission and verify SELECT policy updates
 -- =====================================================
 
-UPDATE entities SET view_permission = 'sales:read'
+UPDATE entities SET view_permission = 'nwind:view'
 WHERE table_name = 'eptest1';
 
 SELECT ok(
     (SELECT qual FROM pg_policies
      WHERE tablename = 'eptest1' AND schemaname = 'public'
        AND policyname = 'eptest1_select_policy')
-    LIKE '%sales:read%',
-    'SELECT policy should reference sales:read after view_permission change'
+    LIKE '%nwind:view%',
+    'SELECT policy should reference nwind:view after view_permission change'
 );
 
 SELECT ok(
@@ -119,22 +119,22 @@ SELECT ok(
            AND policyname = 'eptest1_select_policy')
         LIKE '%public:read%'
     ),
-    'SELECT policy should NOT reference public:read after view_permission change to sales:read'
+    'SELECT policy should NOT reference public:read after view_permission change to nwind:view'
 );
 
 -- =====================================================
 -- TEST 4: Change edit_permission back and verify
 -- =====================================================
 
-UPDATE entities SET edit_permission = 'sales:manage'
+UPDATE entities SET edit_permission = 'nwind:manage'
 WHERE table_name = 'eptest1';
 
 SELECT ok(
     (SELECT with_check FROM pg_policies
      WHERE tablename = 'eptest1' AND schemaname = 'public'
        AND policyname = 'eptest1_insert_policy')
-    LIKE '%sales:manage%',
-    'INSERT policy should reference sales:manage after reverting edit_permission'
+    LIKE '%nwind:manage%',
+    'INSERT policy should reference nwind:manage after reverting edit_permission'
 );
 
 -- =====================================================
@@ -162,13 +162,13 @@ SELECT ok(
     'eptest2_insert_policy should exist after rename'
 );
 
--- Policies should still reference the correct permission (sales:manage)
+-- Policies should still reference the correct permission (nwind:manage)
 SELECT ok(
     (SELECT with_check FROM pg_policies
      WHERE tablename = 'eptest2' AND schemaname = 'public'
        AND policyname = 'eptest2_insert_policy')
-    LIKE '%sales:manage%',
-    'INSERT policy should still reference sales:manage after rename (permission unchanged)'
+    LIKE '%nwind:manage%',
+    'INSERT policy should still reference nwind:manage after rename (permission unchanged)'
 );
 
 -- =====================================================
@@ -187,7 +187,7 @@ SELECT is_empty(
     'No policies should reference eptest2 after rename to eptest3'
 );
 
--- New policies should reference 'admin' (not 'sales:manage')
+-- New policies should reference 'admin' (not 'nwind:manage')
 SELECT ok(
     (SELECT with_check FROM pg_policies
      WHERE tablename = 'eptest3' AND schemaname = 'public'
@@ -201,9 +201,9 @@ SELECT ok(
         (SELECT with_check FROM pg_policies
          WHERE tablename = 'eptest3' AND schemaname = 'public'
            AND policyname = 'eptest3_insert_policy')
-        LIKE '%sales:manage%'
+        LIKE '%nwind:manage%'
     ),
-    'INSERT policy on eptest3 should NOT reference sales:manage after rename+permission change'
+    'INSERT policy on eptest3 should NOT reference nwind:manage after rename+permission change'
 );
 
 -- =====================================================
@@ -263,7 +263,7 @@ SELECT ok(
 -- =====================================================
 
 UPDATE entities
-SET view_permission = 'sales:read'
+SET view_permission = 'nwind:view'
 WHERE table_name = 'eptest4';
 
 -- The select_rule function should still exist
@@ -343,13 +343,13 @@ SELECT ok(
     'SELECT policy should still exist after removing select_rule (restored to default)'
 );
 
--- The restored policy should use the current view_permission (sales:read)
+-- The restored policy should use the current view_permission (nwind:view)
 SELECT ok(
     (SELECT qual FROM pg_policies
      WHERE tablename = 'eptest4' AND schemaname = 'public'
        AND policyname = 'eptest4_select_policy')
-    LIKE '%sales:read%',
-    'Restored SELECT policy should reference current view_permission (sales:read) after select_rule removal'
+    LIKE '%nwind:view%',
+    'Restored SELECT policy should reference current view_permission (nwind:view) after select_rule removal'
 );
 
 -- =====================================================

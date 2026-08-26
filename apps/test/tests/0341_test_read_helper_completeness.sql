@@ -12,7 +12,7 @@
 --      anyone logs in (all last_seen NULL) each satisfied "no other user has last_seen" and all
 --      became admin. Fix: also require the new row to be created WITH last_seen set.
 --
--- Fixtures: user1 = User role only (public:read, NOT admin); user2 = + Sales User; user3 = admin.
+-- Fixtures: user1 = User role only (public:read, NOT admin); user2 = + Northwind Sales (apps/nwind); user3 = admin.
 BEGIN;
 
 SELECT plan(8);
@@ -74,7 +74,7 @@ FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Adm
 
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'consulted', r.id, 'block'
-FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Sales User';
+FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Northwind Sales';
 
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
 SELECT id, 'b9_ent', 'approval', 'done', 'status', FALSE
@@ -83,7 +83,7 @@ FROM processes WHERE process_key = 'b9_proc';
 -- an ACTED consulted event exists for record '1'
 INSERT INTO raci_events (process_id, entity, record_id, raci, target_role_id, status)
 SELECT p.id, 'b9_ent', '1', 'consulted', r.id, 'acted'
-FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Sales User';
+FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Northwind Sales';
 
 -- A non-participant (user1: only User role, not assigned to b9_proc) must NOT learn the
 -- consultation state — fail closed even though an acted consulted event exists.
@@ -93,7 +93,7 @@ SELECT is(
     FALSE,
     'has_consultation is FALSE for a non-participant (caller-scoped, no existence oracle)');
 
--- A participant (user2 holds Sales User, the consulted role) gets the real answer.
+-- A participant (user2 holds Northwind Sales, the consulted role) gets the real answer.
 SELECT authenticate_as('user2');
 SELECT is(
     has_consultation('b9_ent', 'done', '1'),

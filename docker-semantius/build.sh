@@ -15,8 +15,8 @@
 # `deno task extension` falls back to the CLI's own 0.1.0 and downgrades the build):
 #     deno task extension 0.2.0
 #
-# The :latest tag means a local `docker compose up` (e.g. in ../pgrest) uses THIS
-# freshly-built image without pulling. Push it with ./publish.sh.
+# The :latest tag means a local `docker compose up` (e.g. in ../docker-compose)
+# uses THIS freshly-built image without pulling. Push it with ./publish.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root (build context; COPYs ./extension)
 

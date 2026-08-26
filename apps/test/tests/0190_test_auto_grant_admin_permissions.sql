@@ -78,7 +78,8 @@ SELECT ok(
 
 -- Test 6: Insert a permission with a module_id
 INSERT INTO permissions (permission_name, description, module_id) 
-VALUES ('test:module_permission', 'Test permission with module for auto-grant feature', 1001);
+VALUES ('test:module_permission', 'Test permission with module for auto-grant feature',
+        (SELECT id FROM modules WHERE module_slug = 'nwind'));
 
 -- Verify that this permission was also automatically granted to Administrator role
 SELECT ok(

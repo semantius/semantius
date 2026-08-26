@@ -5,14 +5,15 @@
 --   * a BEFORE INSERT trigger derives singular (de-pluralized table_name) and
 --     singular_label (snake_to_label of label_column) when left blank
 --   * create_dd_table() then seeds the name field title from singular_label
--- Caller-supplied values are always preserved verbatim.
+-- Caller-supplied values are always preserved verbatim, except plural, which
+-- is always forced to table_name (a wrong caller value is ignored).
 --
 -- Fixture tables use the 'tdef_' prefix so they never collide with real or
 -- seeded entities.
 
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(23);
 
 SELECT authenticate_as('user3');  -- admin: may insert into entities
 
@@ -78,6 +79,14 @@ SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'id'),         'Id',         'full insert: id field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'created_at'), 'Created At', 'full insert: created_at field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'updated_at'), 'Updated At', 'full insert: updated_at field title');
+
+-- =====================================================
+-- TEST 3: insert provides a WRONG plural -> ignored, plural forced to table_name
+-- =====================================================
+
+INSERT INTO entities (table_name, plural, module_id) VALUES ('tdef_widgets', 'wrongplural', 1);
+
+SELECT is((SELECT plural FROM entities WHERE table_name = 'tdef_widgets'), 'tdef_widgets', 'wrong plural: caller-supplied plural is ignored, plural auto-set to table_name');
 
 -- =====================================================
 -- Dictionary metadata for the entities entity's own fields

@@ -3385,3 +3385,46 @@ SELECT setval('products_id_seq', (SELECT MAX(id) FROM products), true);
 SELECT setval('regions_id_seq', (SELECT MAX(id) FROM regions), true);
 SELECT setval('shippers_id_seq', (SELECT MAX(id) FROM shippers), true);
 SELECT setval('orders_id_seq', (SELECT MAX(id) FROM orders), true);
+
+-- =====================================================
+-- ORDER STATUS
+-- =====================================================
+-- orders.status defaults to 'pending'; mark every order with a shipped_date as shipped.
+UPDATE orders SET status = 'shipped' WHERE shipped_date IS NOT NULL;
+
+-- =====================================================
+-- PLATFORM SAMPLE ROWS
+-- =====================================================
+-- Sample rows that show how platform features attach to a module.
+
+-- Webhook receiver: inbound order intake, plus one processed log entry
+INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, header_name, header_value)
+VALUES ('Order Intake', 'orders', 'Inbound order webhook', 'hmac', 'nwind-demo-secret', '', '');
+
+INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, received_timestamp, payload, result, error_message)
+SELECT w.id, w.id, 'ord-evt-0001', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"order_id": 10248}'::jsonb, '20', ''
+FROM webhook_receivers w WHERE w.label = 'Order Intake';
+
+-- Dashboard for the module landing page (visible to nwind:view holders)
+INSERT INTO dashboards (label, config, position, module_id, view_permission)
+VALUES ('Northwind Overview',
+        '{"widgets": [{"type": "count", "entity": "orders"}]}'::jsonb,
+        10,
+        (SELECT id FROM modules WHERE module_slug = 'nwind'),
+        (SELECT id FROM permissions WHERE permission_name = 'nwind:view'));
+
+-- RACI registry: the order fulfilment process with a transition gate on orders.status.
+-- Registry only (no raci_assignments / validation_rules), so writes are not gated.
+INSERT INTO processes (name, process_key, description, ordering, module_id)
+VALUES ('Fulfil Order', 'fulfil_order', 'Ship a pending order', 10,
+        (SELECT id FROM modules WHERE module_slug = 'nwind'));
+
+INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
+SELECT p.id, 'orders', 'transition', 'shipped', 'status', FALSE
+FROM processes p WHERE p.process_key = 'fulfil_order';
+
+-- Queue mapping: every new order enqueues an entity_event on the 'events' queue.
+-- Created after the data load so the import itself does not enqueue 830 messages.
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT q.id, 'Order created', 'orders', 'insert'
+FROM queues q WHERE q.queue_name = 'events';

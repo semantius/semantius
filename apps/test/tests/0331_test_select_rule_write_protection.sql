@@ -12,7 +12,7 @@
 -- policies to an UPDATE/DELETE when the statement reads columns (WHERE / RETURNING).
 -- Unqualified bulk statements are the dangerous case.
 --
--- Fixtures (0030_seed.sql): user2 (id 1002) holds the 'sales:manage' permission;
+-- Fixtures: user2 (id 1002) holds 'nwind:manage' via the Northwind Sales role (apps/nwind);
 -- user1 (id 1001) is a plain user; user3 is admin (auto-granted every permission).
 BEGIN;
 
@@ -20,7 +20,7 @@ SELECT plan(11);
 
 -- =====================================================
 -- SETUP (as admin): entity whose rows are visible only to their owner (or admin),
--- but editable by anyone holding 'sales:manage'.
+-- but editable by anyone holding 'nwind:manage'.
 -- =====================================================
 SELECT authenticate_as('user3');
 
@@ -30,7 +30,7 @@ INSERT INTO entities (
 ) VALUES (
     'test_abac_write', 'test_abac_write_item', 'ABAC Write Item', 'ABAC Write Items',
     'Verifies select_rule restricts writes/deletes, not just reads',
-    'public:read', 'sales:manage',
+    'public:read', 'nwind:manage',
     '{"or":[{"has_permission":"admin"},{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}]}'::jsonb,
     1
 );

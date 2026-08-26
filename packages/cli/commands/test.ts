@@ -326,6 +326,15 @@ class PgTest {
       };
     } catch (error) {
       const executionTimeMs = Math.round(performance.now() - startTime);
+
+      // A SQL error inside BEGIN..ROLLBACK leaves the shared session in an aborted
+      // transaction; reset it so the following files do not fail with
+      // "current transaction is aborted, commands ignored until end of transaction block".
+      try {
+        await this.client.queryArray("ROLLBACK");
+      } catch {
+        // ignore: nothing to roll back
+      }
       
       // When there's an error, we can't determine the planned count from the file
       // so we return planned: 0, executed: 0 to indicate failure
@@ -368,24 +377,46 @@ class PgTest {
     return planned > 0 && executed === planned && passed === planned;
   }
 
-  async runTests(testDir: string, filter?: string): Promise<TestResult[]> {
+  /**
+   * Run every *.sql file in each directory, directories in the given order.
+   * Files are collected and sorted explicitly: std walk yields Deno.readDir
+   * order, which is filesystem-dependent (hash order on ext4), while the suite
+   * relies on numeric prefixes (e.g. 0990_cleanup must run last in apps/test/tests).
+   * Missing directories are skipped.
+   */
+  async runTests(testDirs: string[], filter?: string): Promise<TestResult[]> {
     const results: TestResult[] = [];
 
     this.reporter.start();
 
-    for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
-      const filename = basename(entry.path);
-
-      if (filter && !matchesFilter(filename, filter)) {
-        continue;
+    outer:
+    for (const testDir of testDirs) {
+      const files: string[] = [];
+      try {
+        for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
+          files.push(entry.path);
+        }
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) continue;
+        throw error;
       }
+      files.sort();
 
-      const result = await this.runTest(entry.path);
-      results.push(result);
-      const shouldContinue = this.reporter.test(result);
-      if (!shouldContinue) {
-        console.log(`\n${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
-        break;
+      for (const filePath of files) {
+        const filename = basename(filePath);
+
+        if (filter && !matchesFilter(filename, filter)) {
+          continue;
+        }
+
+        const result = await this.runTest(filePath);
+        results.push(result);
+        const shouldContinue = this.reporter.test(result);
+        if (!shouldContinue) {
+          console.log(`
+${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
+          break outer;
+        }
       }
     }
 
@@ -395,6 +426,33 @@ class PgTest {
 }
 
 
+
+/**
+ * Test directories in execution order: the central suite (apps/test/tests)
+ * first, then every other app's tests/ directory sorted by app name
+ * (e.g. apps/nwind/tests). Apps without a tests/ directory are ignored.
+ */
+async function collectTestDirs(): Promise<string[]> {
+  const dirs = ["./apps/test/tests"];
+  const apps: string[] = [];
+  for await (const entry of Deno.readDir("./apps")) {
+    if (entry.isDirectory && entry.name !== "test") {
+      apps.push(entry.name);
+    }
+  }
+  apps.sort();
+  for (const app of apps) {
+    const dir = `./apps/${app}/tests`;
+    try {
+      if ((await Deno.stat(dir)).isDirectory) {
+        dirs.push(dir);
+      }
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
+  return dirs;
+}
 
 export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFast = false, filter?: string): Promise<void> {
   console.log("Running test command...");
@@ -407,7 +465,9 @@ export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFa
     await pgTest.connect();
     console.log(`Connected to PostgreSQL at ${databaseUrl.replace(/\/\/[^@]+@/, '//***:***@')}`);
     
-    const _results = await pgTest.runTests("./apps/test/tests", filter);
+    const testDirs = await collectTestDirs();
+    console.log(`Test directories: ${testDirs.join(", ")}`);
+    const _results = await pgTest.runTests(testDirs, filter);
     
     await pgTest.disconnect();
     console.log("Test command completed!");

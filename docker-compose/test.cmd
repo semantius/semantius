@@ -1,22 +1,22 @@
 @echo off
 setlocal enabledelayedexpansion
-REM pg-rest-test.cmd  -  Test the EXACT pgrest deployment behavior end to end -- a
+REM test.cmd  -  Test the EXACT PostgREST deployment behavior end to end -- a
 REM FRESH container, a FRESH data volume, and `_core` installed via CREATE EXTENSION
 REM pg_semantic_platform (the whole _core install in ONE transaction), then deploy
-REM test,nwind and run the full pgTAP suite. See pg-rest-test.sh for the full
+REM nwind,test and run the full pgTAP suite. See test.sh for the full
 REM rationale.
 REM
 REM This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds from
 REM current source, exercising the image build + init scripts + role bootstrap from
 REM scratch -- the real production install path. Twin of pgdocker/pg-ext-retest.cmd.
 REM
-REM DESTRUCTIVE: wipes the pgrest data volume and rebuilds from current source.
-REM PROMPTS for confirmation first (like pg-rest-destroy.cmd); bypass with -y/--yes
-REM or ASSUME_YES=1 / CI=true. Afterwards the stack holds test,nwind; run
-REM pg-rest-create.cmd for a clean semantius.
+REM DESTRUCTIVE: wipes the stack's data volume and rebuilds from current source.
+REM PROMPTS for confirmation first (like destroy.cmd); bypass with -y/--yes
+REM or ASSUME_YES=1 / CI=true. Afterwards the stack holds nwind,test; run
+REM create.cmd for a clean semantius.
 REM
-REM Steps: 0 regen extension SQL, 1 down -v, 2 pg-rest-create, 3 wait for extension,
-REM        4 migrate test,nwind, 5 test.
+REM Steps: 0 regen extension SQL, 1 down -v, 2 create, 3 wait for extension,
+REM        4 migrate nwind,test, 5 test.
 cd /d "%~dp0"
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%~dp0.."
@@ -38,8 +38,8 @@ for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
 )
 set "REST_URL=postgresql://postgres:%POSTGRES_PASSWORD%@localhost:%POSTGRES_PORT%/%POSTGRES_DB%"
 
-REM Safety: this DESTROYS the running pgrest stack + its data volume (down -v) and
-REM rebuilds it. Confirm before any changes -- same guard as pg-rest-destroy.cmd.
+REM Safety: this DESTROYS the running PostgREST stack + its data volume (down -v) and
+REM rebuilds it. Confirm before any changes -- same guard as destroy.cmd.
 REM Bypass for automation: pass -y/--yes, or set ASSUME_YES=1 or CI=true.
 set "FORCE=0"
 if /i "%~1"=="-y" set "FORCE=1"
@@ -47,7 +47,7 @@ if /i "%~1"=="--yes" set "FORCE=1"
 if "%ASSUME_YES%"=="1" set "FORCE=1"
 if "%CI%"=="true" set "FORCE=1"
 if "%FORCE%"=="0" (
-  set /p ans=This DESTROYS the running pgrest stack and WIPES its data volume ^('%POSTGRES_DB%', all data^), then rebuilds. Continue? [y/N]
+  set /p ans=This DESTROYS the running PostgREST stack and WIPES its data volume ^('%POSTGRES_DB%', all data^), then rebuilds. Continue? [y/N]
   if /i not "!ans!"=="y" ( echo Cancelled. & exit /b 0 )
 )
 
@@ -72,11 +72,11 @@ if not "%SKIP_EXT_REGEN%"=="1" (
   popd
 )
 
-echo == [1/5] Resetting the pgrest stack (down -v) ==
+echo == [1/5] Resetting the PostgREST stack (down -v) ==
 docker compose down -v || goto :err
 
 echo == [2/5] Rebuilding the image + bringing the stack up fresh ==
-call "%SCRIPT_DIR%pg-rest-create.cmd" || goto :err
+call "%SCRIPT_DIR%create.cmd" || goto :err
 
 echo == [3/5] Waiting for the pg_semantic_platform extension to install ==
 set /a tries=0
@@ -95,21 +95,21 @@ goto :wait
 :ready
 echo Extension present.
 
-echo == [4/5] Deploying test,nwind (migrate skips the seeded _core) ==
+echo == [4/5] Deploying nwind,test (migrate skips the seeded _core) ==
 pushd "%REPO_ROOT%"
-call deno task migrate --apps test,nwind --database-url "%REST_URL%" || (popd & goto :err)
+call deno task migrate --apps nwind,test --database-url "%REST_URL%" || (popd & goto :err)
 
 echo == [5/5] Running the pgTAP suite against the extension DB ==
 call deno task test --database-url "%REST_URL%" || (popd & goto :err)
 popd
 
 echo.
-echo pg-rest-test complete. If all tests are green, the CREATE EXTENSION
-echo install of _core is equivalent to the migrate install. Run pg-rest-create.cmd
-echo for a clean semantius (this left the test,nwind fixtures in place).
+echo Test complete. If all tests are green, the CREATE EXTENSION
+echo install of _core is equivalent to the migrate install. Run create.cmd
+echo for a clean semantius (this left the nwind,test fixtures in place).
 exit /b 0
 
 :err
 echo.
-echo pg-rest-test failed.
+echo Test failed.
 exit /b 1

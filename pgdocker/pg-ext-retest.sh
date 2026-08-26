@@ -11,7 +11,7 @@
 #   3. readiness gate poll until the `pg_semantic_platform` extension is present (the
 #                     pg_isready healthcheck can go green before the init scripts
 #                     finish, so we check pg_extension directly).
-#   4. migrate --apps test,nwind   migrate auto-prepends `_core`, which is
+#   4. migrate --apps nwind,test   migrate auto-prepends `_core`, which is
 #                     SKIPPED because the extension seeded `_versions`; only
 #                     `test`,`nwind` are deployed onto the extension's `_core`.
 #                     (The extension's `_core` already includes the
@@ -66,8 +66,8 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
 done
 echo "Extension present."
 
-echo "== [4/5] Deploying test,nwind (migrate skips the seeded _core) =="
-( cd "$REPO_ROOT" && deno task migrate --apps test,nwind --database-url "$EXT_URL" )
+echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
+( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$EXT_URL" )
 
 echo "== [5/5] Running the pgTAP suite against the extension DB =="
 ( cd "$REPO_ROOT" && deno task test --database-url "$EXT_URL" )

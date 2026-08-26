@@ -182,15 +182,15 @@ SELECT ok(
 -- TEST: Sample data exists
 -- =====================================================
 
--- Test 26: Sample webhook receivers exist
+-- Test 26: Sample webhook receiver exists (nwind sample: 'Order Intake' on orders)
 SELECT ok(
-    (SELECT COUNT(*) >= 3 FROM webhook_receivers),
-    'At least 3 sample webhook receivers should exist'
+    (SELECT COUNT(*) >= 1 FROM webhook_receivers WHERE label = 'Order Intake' AND table_name = 'orders'),
+    'Sample webhook receiver "Order Intake" on table orders should exist'
 );
 
 -- Test 27: Sample webhook receivers have table_name set
 SELECT ok(
-    (SELECT COUNT(*) >= 3 FROM webhook_receivers WHERE table_name IS NOT NULL AND table_name != ''),
+    (SELECT COUNT(*) >= 1 FROM webhook_receivers WHERE table_name IS NOT NULL AND table_name != ''),
     'Sample webhook receivers should have table_name set'
 );
 
@@ -227,10 +227,10 @@ SELECT ok(
     'webhook_id field should have format=parent in webhook_receiver_logs'
 );
 
--- Test 32: Sample webhook receiver logs exist
+-- Test 32: Sample webhook receiver logs exist (nwind ships one log for 'Order Intake')
 SELECT ok(
-    (SELECT COUNT(*) >= 4 FROM webhook_receiver_logs),
-    'At least 4 sample webhook receiver logs should exist'
+    (SELECT COUNT(*) >= 1 FROM webhook_receiver_logs),
+    'At least 1 sample webhook receiver log should exist'
 );
 
 -- Test 33: Verify auth_type description mentions custom header

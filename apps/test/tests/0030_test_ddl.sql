@@ -1,4 +1,6 @@
--- Test that should fail
+-- DDL via the entities / fields catalog: RLS on the catalog, table + column
+-- creation, COMMENT sync, NOT NULL module_id. Fixture entity "table1" is
+-- created in-tx in the _core module (module_id = 1) and rolled back.
 BEGIN;
 
 SELECT plan(16);
@@ -31,7 +33,7 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$
     INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
-     VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'id', 'label' );
+     VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1, 'public:read', 'nwind:manage', 'id', 'label' );
     $$,
     '42501',  -- insufficient_privilege (RLS violation)
     NULL,
@@ -42,9 +44,9 @@ SELECT throws_ok(
 -- admin should be able to create the table and add columns
 select authenticate_as('user3');
 
--- Create "customers_test" table in CRM module
+-- Create a throwaway "table1" entity in the _core module (module_id = 1); user2 could write it via nwind:manage
 INSERT INTO entities(table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column) 
-     VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1001, 'public:read', 'sales:manage', 'id', 'label' );
+     VALUES ( 'table1', 'table1', 'table1', 'Table1', 'Table1', 'New test table', 1, 'public:read', 'nwind:manage', 'id', 'label' );
 
 SELECT has_table(
     'public',  

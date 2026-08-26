@@ -2,9 +2,10 @@
 --
 -- Uses deliberately unique / unmistakable names:
 --   table  : qwertz1  (renamed to qwertz2)
---   field  : rtzup2   (renamed to rtzup3)
+--   field  : rtzup2   (renamed to rtzup3) — a reference to quakq2
 --   second table (cross-reference scenario): quakq2
 --     field fkref1 in quakq2 references qwertz1
+--   (both tables are created in this transaction; no persisted fixtures)
 --
 -- After each rename the postgres catalog is scanned end-to-end so that any
 -- forgotten artifact (sequence, PK constraint, FK constraint, FK index, check
@@ -17,23 +18,34 @@
 --   • the physical FK on quakq2 now references the qwertz2 table by OID
 BEGIN;
 
-SELECT plan(25);
+SELECT plan(27);
 
 SELECT authenticate_as('user3');
 
 -- =====================================================
 -- SETUP
--- Create entity "qwertz1" with several fields so that
--- the rename exercise covers all catalog object types:
+-- Create entity "quakq2" first (it is the reference target of qwertz1.rtzup2),
+-- then entity "qwertz1" with several fields so that the rename exercise
+-- covers all catalog object types:
 --   • label column  (searchable)  → GIN search_vector index
---   • reference field "rtzup2"    → FK constraint + FK index
+--   • reference field "rtzup2"    → FK constraint + FK index (→ quakq2)
 --   • plain text field "other_col"
 --   • email field "contact_field" (for format-change tests)
 --   • text field "type_chg_field" (for incompatible format-change test)
 --
--- Create entity "quakq2" with a field fkref1 that references qwertz1
--- so we can verify cross-table reference_table update on rename.
+-- Finally add field fkref1 to "quakq2" referencing qwertz1 so we can verify
+-- the cross-table reference_table update on rename.
 -- =====================================================
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'quakq2', 'entry', 'Entry', 'Entries',
+    'Cross-reference rename test entity',
+    1, 'public:read', 'nwind:manage', 'id', 'entry_name'
+);
 
 INSERT INTO entities (
     table_name, singular, singular_label, plural_label,
@@ -42,7 +54,7 @@ INSERT INTO entities (
 ) VALUES (
     'qwertz1', 'item', 'Item', 'Items',
     'Catalog-scan rename test entity',
-    1001, 'public:read', 'sales:manage', 'id', 'item_name'
+    1, 'public:read', 'nwind:manage', 'id', 'item_name'
 );
 
 -- reference field → creates qwertz1_rtzup2_fkey + idx_qwertz1_rtzup2
@@ -50,7 +62,7 @@ INSERT INTO fields (
     table_name, field_name, title, format, reference_table, reference_delete_mode,
     field_order, input_type, width, default_value
 ) VALUES (
-    'qwertz1', 'rtzup2', 'Region', 'reference', 'regions_test', 'restrict',
+    'qwertz1', 'rtzup2', 'Entry', 'reference', 'quakq2', 'restrict',
     10, 'default', 'default', ''
 );
 
@@ -78,18 +90,7 @@ INSERT INTO fields (
     40, 'default', 'default', ''
 );
 
--- quakq2: a second entity with a field fkref1 that references qwertz1
-INSERT INTO entities (
-    table_name, singular, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column
-) VALUES (
-    'quakq2', 'entry', 'Entry', 'Entries',
-    'Cross-reference rename test entity',
-    1001, 'public:read', 'sales:manage', 'id', 'entry_name'
-);
-
--- fkref1 references qwertz1 → creates quakq2_fkref1_fkey + idx_quakq2_fkref1
+-- quakq2.fkref1 references qwertz1 → creates quakq2_fkref1_fkey + idx_quakq2_fkref1
 INSERT INTO fields (
     table_name, field_name, title, format, reference_table, reference_delete_mode,
     field_order, input_type, width, default_value
@@ -255,11 +256,11 @@ SELECT ok(
 -- =====================================================
 
 SELECT throws_ok(
-    $$UPDATE entities SET table_name = 'customers_test'
+    $$UPDATE entities SET table_name = 'customers'
       WHERE table_name = 'qwertz2'$$,
     NULL,
     NULL,
-    'Renaming to an already-existing table name should fail'
+    'Renaming to an already-existing table name (nwind customers) should fail'
 );
 
 SELECT has_table(
@@ -348,6 +349,28 @@ SELECT is(
      WHERE table_name = 'qwertz2' AND field_name = 'type_chg_field'),
     'text',
     'format should remain text after rejected incompatible format change'
+);
+
+-- =====================================================
+-- TEST 10: format change — FAILURE (reference → text on a managed entity)
+-- The BEFORE UPDATE trigger rejects the INTEGER → TEXT type change (P0001)
+-- before the reference_table_requires_reference_format check (23514) can fire.
+-- (Only managed entities run this guard — unmanaged ones skip it.)
+-- =====================================================
+
+SELECT throws_ok(
+    $$UPDATE fields SET format = 'text'
+      WHERE table_name = 'qwertz2' AND field_name = 'rtzup3'$$,
+    'P0001',
+    NULL,
+    'Should reject UPDATE when format is changed from "reference" to "text" (type change INTEGER→TEXT)'
+);
+
+SELECT is(
+    (SELECT format FROM fields
+     WHERE table_name = 'qwertz2' AND field_name = 'rtzup3'),
+    'reference',
+    'format should remain reference after rejected reference→text format change'
 );
 
 SELECT * FROM finish();

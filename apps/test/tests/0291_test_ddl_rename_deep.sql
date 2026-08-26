@@ -32,7 +32,7 @@ INSERT INTO entities (
     id_column, label_column
 ) VALUES (
     'rn_families', 'family', 'Family', 'Families',
-    'Rename test: families', 1001, 'public:read', 'sales:manage',
+    'Rename test: families', 1, 'public:read', 'nwind:manage',
     'id', 'family_name'
 );
 
@@ -45,14 +45,14 @@ INSERT INTO entities (
     select_rule
 ) VALUES (
     'rn_parents', 'parent', 'Parent', 'Parents',
-    'Rename test: parents', 1001, 'public:read', 'sales:manage',
+    'Rename test: parents', 1, 'public:read', 'nwind:manage',
     'id', 'parent_name',
     -- computed_fields: derive full_title from parent_name
     '[{"name":"full_title","jsonlogic":{"cat":[{"var":"parent_name"}," (parent)"]}}]'::jsonb,
     -- validation_rules: parent_name must not be empty
     '[{"code":"name_required","message":"parent_name is required","jsonlogic":{"!!":[{"var":"parent_name"}]}}]'::jsonb,
     -- select_rule: allow all (admin has permission)
-    '{"has_permission":"sales:manage"}'::jsonb
+    '{"has_permission":"nwind:manage"}'::jsonb
 );
 
 -- 1c. children — parent reference to parents
@@ -62,7 +62,7 @@ INSERT INTO entities (
     id_column, label_column
 ) VALUES (
     'rn_children', 'child', 'Child', 'Children',
-    'Rename test: children', 1001, 'public:read', 'sales:manage',
+    'Rename test: children', 1, 'public:read', 'nwind:manage',
     'id', 'child_name'
 );
 
@@ -74,7 +74,7 @@ INSERT INTO entities (
     computed_fields
 ) VALUES (
     'rn_nephews', 'nephew', 'Nephew', 'Nephews',
-    'Rename test: nephews', 1001, 'public:read', 'sales:manage',
+    'Rename test: nephews', 1, 'public:read', 'nwind:manage',
     'id', 'nephew_name',
     -- computed_fields: use set_record to load a parent and derive parent_title
     '[{"name":"parent_title","jsonlogic":{"set_record":["p","rn_parents",{"var":"parent_ref"},{"var":"p.full_title"}]}}]'::jsonb

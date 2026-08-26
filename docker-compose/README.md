@@ -1,4 +1,4 @@
-# pgrest — PostgREST API stack for the Semantius extension DB
+# docker-compose — PostgREST API stack for the Semantius extension DB
 
 A **self-contained Docker Compose stack** that puts an HTTP API with browsable
 OpenAPI docs and an admin SPA in front of a PostgreSQL 18 database carrying the
@@ -17,33 +17,38 @@ browser ──▶ Scalar docs (:8080) ──fetch spec──▶ PostgREST (:3000
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
                                        Postgres 18 + pg_semantic_platform  (:5434)
+                                                     ▲
+                                                     │  SCRAM as semantius_authenticator
+                                                     │  SET LOCAL ROLE authenticated  (per transaction)
+your app ─▶ PgBouncer   (:6432) ──transaction pooling┘
 ```
 
 ## Quick start
 
 ```bash
-cd pgrest
-cp .env.example .env          # Windows: copy .env.example .env  (pg-rest-create does this for you)
-./pg-rest-create.sh           # build the DB image + bring the stack up (Windows: pg-rest-create.cmd)
-./pg-rest-api-test.sh         # smoke test: mint a JWT, read data, confirm anon is blocked
+cd docker-compose
+cp .env.example .env   # Windows: copy .env.example .env  (create does this for you)
+./create.sh            # build the DB image + bring the stack up (Windows: create.cmd)
+./api-test.sh          # smoke test: mint a JWT, read data, confirm anon is blocked
 ```
 
 - **Admin:** http://localhost:7070 · **Docs:** http://localhost:8080 · **API:** http://localhost:3000
 
 ## Services & images
 
-Five services (project `semantius-rest`), four long-running + one one-shot:
+Six services (project `semantius-rest`), five long-running + one one-shot:
 
 | Service | Image | Host port | Purpose |
 |---|---|---|---|
 | `postgres` | `ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION}` (built from [`../docker-semantius`](../docker-semantius/README.md)) | **5434** | PG18 with the extension installed + roles/pg_hba/authenticator/nwind baked in |
+| `pgbouncer` | `edoburu/pgbouncer:latest` | **6432** | transaction-pooled `semantius_authenticator` endpoint for apps that talk SQL directly ([see below](#the-pgbouncer-service--a-pooled-endpoint-for-external-apps)) |
 | `jwks-fetch` | `curlimages/curl:latest` | — | **one-shot**: downloads the issuer JWKS to a file PostgREST can read (see below) |
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |
 | `scalar` | `scalarapi/api-reference:latest` | **8080** | renders PostgREST's Swagger 2.0 spec as browsable docs |
 | `web` | `ghcr.io/intranetfactory/semantius-web:latest` | **7070** | static admin SPA (Caddy also proxies `/api/*` → `postgrest:3000`) |
 
 The registry images use `:latest` and `pull_policy: always` (re-pulled on every
-`pg-rest-create`); `postgres` is the locally-built image, used as-is. Pin
+`create`); `postgres` is the locally-built image, used as-is. Pin
 `postgrest`/`scalar` to fixed tags once you're happy.
 
 ## Environment variables (`.env`)
@@ -65,6 +70,7 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius-db` image to run. Pin (e.g. `0.2.0`) for reproducible/server deploys; `latest` tracks your local `docker-semantius/build.sh`. |
 | `NWIND` | *(unset)* | `postgres` | Set to **any** non-empty value (e.g. `TRUE`) to load the optional Northwind demo module on first init. Takes effect only on a **fresh** data volume (init runs once). |
 | `POSTGRES_PORT` | `5434` | `postgres` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
+| `PGBOUNCER_PORT` | `6432` | `pgbouncer` | Host port for the transaction-pooled PgBouncer endpoint. |
 | `POSTGREST_PORT` | `3000` | `postgrest`, `scalar` | Host port for the PostgREST HTTP API (OpenAPI spec at `/`). |
 | `DOCS_PORT` | `8080` | `scalar` | Host port for the Scalar docs site. |
 | `WEB_PORT` | `7070` | `web` | Host port for the admin SPA (serves on container port 80). |
@@ -79,7 +85,7 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 **Not `.env`-driven — hardcoded in the compose:**
 
 - `POSTGRES_USER` — always `postgres`.
-- The **test-token** helpers (`pg-rest-token` / `pg-rest-api-test`) mint from a
+- The **test-token** helpers (`token` / `api-test`) mint from a
   **hardcoded** issuer in `pgdocker/verify_oauth.ts`, not an env var — they're
   test-only, so there's no issuer knob here. The real issuer settings are the
   `VITE_OAUTH_*` pair and `JWKS_URL` above.
@@ -112,8 +118,8 @@ runs as a different user), and PostgREST `depends_on` it with
   discovery document has no `jwks_uri`), `jwks-fetch` exits non-zero and PostgREST
   won't start.
 - **Key rotation:** the JWKS is fetched **once per start**. When the issuer
-  rotates signing keys, refresh them on demand with **`./pg-rest-jwks-refresh.sh`**
-  (Windows: `pg-rest-jwks-refresh.cmd`) — it re-fetches `JWKS_URL` and restarts
+  rotates signing keys, refresh them on demand with **`./jwks-refresh.sh`**
+  (Windows: `jwks-refresh.cmd`) — it re-fetches `JWKS_URL` and restarts
   PostgREST so it re-reads the file (a ~1s API blip; the DB stays up). A restart is
   required rather than a reload signal because the key comes from the
   `PGRST_JWT_SECRET` env var, and PostgREST does **not** re-read env-var config on a
@@ -123,14 +129,14 @@ runs as a different user), and PostgREST `depends_on` it with
   demand is usually enough. **Depending on how often your IdP rotates keys, you may
   want to run it on a schedule** — e.g. a daily cron:
   ```cron
-  0 3 * * *  cd /path/to/pgrest && ./pg-rest-jwks-refresh.sh >> /var/log/jwks-refresh.log 2>&1
+  0 3 * * *  cd /path/to/docker-compose && ./jwks-refresh.sh >> /var/log/jwks-refresh.log 2>&1
   ```
 
 ## Volumes
 
 | Volume | Mounted by | Holds |
 |---|---|---|
-| `pgdata` | `postgres` | the database cluster (survives stop/start; removed by `pg-rest-destroy`) |
+| `pgdata` | `postgres` | the database cluster (survives stop/start; removed by `destroy`) |
 | `jwks` | `jwks-fetch` (rw), `postgrest` (ro) | the fetched `jwks.json` |
 
 ## Auth model (how a request flows)
@@ -157,7 +163,42 @@ stack mounts nothing.
 the token-less docs request (so Scalar renders every endpoint) while `anon` still
 can't read a single row. `PGRST_OPENAPI_SECURITY_ACTIVE=true` adds a JWT bearer
 scheme so the docs show an **Authentication** panel — mint a token with
-`./pg-rest-token.sh <user>` and paste `Bearer <token>`.
+`./token.sh <user>` and paste `Bearer <token>`.
+
+## The `pgbouncer` service — a pooled endpoint for external apps
+
+PgBouncer publishes a **transaction-pooled** endpoint on **`localhost:6432`** for
+apps that speak SQL to the database directly instead of going through PostgREST.
+It pools the `semantius_authenticator` login — the same role PostgREST uses — so
+the identical RBAC/RLS rules apply:
+
+```
+postgresql://semantius_authenticator:${SEMANTIUS_AUTHENTICATOR_PASSWORD}@localhost:${PGBOUNCER_PORT}/${POSTGRES_DB}
+```
+
+Transaction pooling returns the server connection to the pool at every `COMMIT`, so
+the client **must** scope its identity to the transaction — the `SET LOCAL ROLE`
+pattern documented in [`../pgdocker/README.md`](../pgdocker/README.md):
+
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;                             -- transaction-scoped
+SELECT set_config('request.jwt.claims', $1::text, true);  -- LOCAL; inject BEFORE any rbac call
+-- … queries …
+COMMIT;
+```
+
+Session-level `SET ROLE` / `set_config(…, false)`, `LISTEN`/`NOTIFY`, session
+prepared statements and advisory locks do **not** survive transaction pooling —
+never use them on this endpoint.
+
+**What deliberately does *not* go through it:**
+
+- **PostgREST** keeps its direct `postgres:5432` connection: it depends on
+  `LISTEN`/`NOTIFY` (`PGRST_DB_CHANNEL_ENABLED=true`) to pick up the CLI's schema
+  reloads, which transaction pooling breaks.
+- **The `postgres` DBA login** (the CLI, `deno task migrate`) connects directly on
+  **5434** — migrations run DDL and session-level state.
 
 ## Management scripts
 
@@ -166,15 +207,18 @@ each has a `.sh` (bash) and `.cmd` (Windows) form.
 
 | Script | Does | `docker compose` |
 |---|---|---|
-| `pg-rest-create` | build the DB image (via `../docker-semantius`) + (re)create all containers fresh and start them (copies `.env` on first run) | `up -d --force-recreate --remove-orphans` |
-| `pg-rest-start` | start the existing (stopped) containers | `start` |
-| `pg-rest-stop` | stop containers, keep them + volumes | `stop` |
-| `pg-rest-status` | container status | `ps -a` |
-| `pg-rest-destroy` | remove containers, network, and **both volumes** (keeps the image; confirm prompt) | `down -v` |
-| `pg-rest-token` | mint a JWT for a test user (paste into the docs / use with curl) | — |
-| `pg-rest-jwks-refresh` | re-fetch the issuer JWKS + restart PostgREST to pick up rotated keys (see [Key rotation](#the-jwks-fetch-service--why-it-exists)) | `run --rm jwks-fetch` + `restart postgrest` |
-| `pg-rest-api-test` | mint a JWT → read data → confirm anon is blocked (HTTP/auth smoke test) | — |
-| `pg-rest-test` | full pgTAP suite against a freshly rebuilt stack (`down -v`, destructive) | — |
+| `create` | build the DB image (via `../docker-semantius`) + (re)create all containers fresh and start them (copies `.env` on first run) | `up -d --force-recreate --remove-orphans` |
+| `start` | start the existing (stopped) containers | `start` |
+| `stop` | stop containers, keep them + volumes | `stop` |
+| `status` | container status | `ps -a` |
+| `destroy` | remove containers, network, and **both volumes** (keeps the image; confirm prompt) | `down -v` |
+| `token` | mint a JWT for a test user (paste into the docs / use with curl) | — |
+| `jwks-refresh` | re-fetch the issuer JWKS + restart PostgREST to pick up rotated keys (see [Key rotation](#the-jwks-fetch-service--why-it-exists)) | `run --rm jwks-fetch` + `restart postgrest` |
+| `api-test` | mint a JWT → read data → confirm anon is blocked (HTTP/auth smoke test) | — |
+| `test` | full pgTAP suite against a freshly rebuilt stack (`down -v`, destructive) | — |
+
+> **Windows:** `start` and `test` are `cmd.exe` builtins, so invoke the scripts
+> explicitly — `.\start.cmd`, `.	est.cmd` (bash: `./start.sh`, `./test.sh`).
 
 ## Using the CLI against this stack
 

@@ -8,7 +8,7 @@ name: semantius-rest
 #
 # Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
 # ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
-# colliding. Bring it up with pg-rest-create.sh / .cmd.
+# colliding. Bring it up with create.sh / .cmd.
 
 services:
   # --- PostgreSQL 18 + extension --------------------------------------------
@@ -43,6 +43,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- PgBouncer (pooled endpoint for external apps) -------------------------
+  # Transaction-pooled endpoint for external apps using the SET LOCAL ROLE
+  # pattern (transaction-pooling-safe, see pgdocker/README.md). Pools the
+  # `semantius_authenticator` login only; the `postgres` DBA login and PostgREST
+  # keep connecting to postgres directly — PostgREST needs LISTEN/NOTIFY
+  # (PGRST_DB_CHANNEL), which transaction pooling does not support.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    pull_policy: always
+    container_name: postgres18-rest-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-semantius}
+      DB_USER: semantius_authenticator
+      DB_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "20"
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:5432"
+
   # --- One-shot: fetch the issuer JWKS to a file PostgREST can read ----------
   # PostgREST CANNOT fetch a JWKS from a URL; jwt-secret only takes inline JSON or
   # @/path/to/file. So fetch it once at startup into the shared `jwks` volume.
@@ -56,7 +83,7 @@ services:
   #
   # LIMITATION: fetched ONCE per start. When the issuer ROTATES signing keys, tokens
   # signed by a new key fail until this is re-run AND PostgREST is restarted to
-  # re-read the file — do both with ./pg-rest-jwks-refresh.sh (.cmd). A restart, not
+  # re-read the file — do both with ./jwks-refresh.sh (.cmd). A restart, not
   # a reload signal, is required: the key comes from the PGRST_JWT_SECRET env var,
   # which PostgREST does not re-read on a config reload. Most IdPs rotate slowly, so
   # on demand is enough; schedule the refresh (daily cron) for a fast-rotating IdP.
@@ -126,7 +153,7 @@ services:
       PGRST_OPENAPI_MODE: "ignore-privileges"
       # Include securityDefinitions (JWT bearer, Authorization header) in the spec
       # so the Scalar docs render an "Authentication" box for pasting a token.
-      # Mint one with ./pg-rest-token.sh <user>.
+      # Mint one with ./token.sh <user>.
       PGRST_OPENAPI_SECURITY_ACTIVE: "true"
       # Honour the CLI's `NOTIFY pgrst, 'reload schema'` after each migration.
       PGRST_DB_CHANNEL_ENABLED: "true"
@@ -175,7 +202,7 @@ services:
   # host at WEB_PORT (default 7070). Pulled from GHCR.
   web:
     image: ghcr.io/intranetfactory/semantius-web:latest
-    # Re-pull :latest on every `up` (pg-rest-create). Without this, compose only
+    # Re-pull :latest on every `up` (create). Without this, compose only
     # pulls when the image is missing locally, so create would keep running a stale
     # cached SPA. NOT set on `postgres`, which is built locally by build.sh.
     pull_policy: always

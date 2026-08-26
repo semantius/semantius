@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-07-09T15:08:41.072Z
+ * Generated: 2026-08-22T16:29:59.295Z
  * Apps: 2  |  Migrations: 35
  */
 
@@ -1021,6 +1021,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
+COMMENT ON FUNCTION jl_truthy(jsonb) IS
+'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
+COMMENT ON FUNCTION jl_to_number(jsonb) IS
+'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators).';
+COMMENT ON FUNCTION jl_to_text(jsonb) IS
+'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
+COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
+'JsonLogic loose equality (==): compares two JSONB values with JavaScript-style type coercion.';
+COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
+'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
+
 -- Revoke public execute on all jsonlogic functions
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
@@ -1071,7 +1082,9 @@ CREATE TABLE modules (
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
 
-COMMENT ON TABLE modules IS 'Logical modules that group related roles and permissions';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE modules IS E'Modules\\n\\nGroups of related tables and permissions';
 COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
 COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
 COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
@@ -2904,8 +2917,10 @@ CREATE TABLE IF NOT EXISTS entities (
 
 CREATE INDEX idx_entities_module ON entities(module_id);
 
-COMMENT ON TABLE entities IS 
-'Metadata for dynamically created tables. Each row triggers table creation and RLS policy setup.';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE entities IS
+E'Entities\\n\\nCatalog of tables in Semantius';
 
 COMMENT ON COLUMN entities.table_name IS 'Physical table name in database (lowercase, underscores only)';
 COMMENT ON COLUMN entities.singular IS 'Singular form of table name (e.g., customer for customers table)';
@@ -3009,8 +3024,10 @@ CREATE INDEX idx_fields_name ON fields(field_name);
 CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
 
-COMMENT ON TABLE fields IS 
-'Metadata for fields in dynamically created tables. Each row triggers ALTER TABLE to add column.';
+-- Matches the format the DDL triggers apply (plural label + blank line + description),
+-- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
+COMMENT ON TABLE fields IS
+E'Fields\\n\\nCatalog of the fields that make up a table';
 
 COMMENT ON COLUMN fields.field_name IS 'Physical column name in database (lowercase, underscores only)';
 COMMENT ON COLUMN fields.title IS 'Human-readable display name for the field';
@@ -3047,6 +3064,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION validate_reference_table IS
+'Trigger function that rejects a field whose reference_table is set but does not match any entities.table_name. Enforced via trigger (not a CHECK) so it can run a subquery.';
 
 CREATE TRIGGER validate_reference_table_trigger
     BEFORE INSERT OR UPDATE ON fields
@@ -3196,12 +3216,12 @@ CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
 -- Insert entities metadata for core tables
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES 
-    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Metadata for dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
      '[{"code":"catalog_entity_code_write_once","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Metadata for fields in dynamically created tables', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"catalog_field_code_write_once","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Logical modules that group related roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
      '[{"code":"catalog_module_code_write_once","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
      '[{"code":"origin_immutable_roles","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
@@ -3705,8 +3725,62 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
-COMMENT ON FUNCTION quote_default_value IS 
+COMMENT ON FUNCTION quote_default_value IS
 'Properly quotes default values based on data type for use in DDL statements.';
+
+-- =====================================================
+-- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
+-- =====================================================
+-- Centralised construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
+-- applied by the DDL triggers, so the create and update paths stay identical.
+--   • dd_table_comment  -- "<plural_label>" then a blank line + description (when set)
+--   • dd_field_comment  -- "<title> (<format>)" then description, plus enum value list
+
+CREATE OR REPLACE FUNCTION dd_table_comment(p_plural_label TEXT, p_description TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_body TEXT;
+BEGIN
+    -- Summary line: the plural label
+    v_body := COALESCE(trim(p_plural_label), '');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := CASE WHEN v_body = '' THEN '' ELSE v_body || E'\\n\\n' END || p_description;
+    END IF;
+    RETURN NULLIF(v_body, '');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_table_comment IS
+'Builds the COMMENT ON TABLE body for an entity: the plural label as a summary line, followed by a blank line and the description when one is set. Returns NULL when both are empty. Used by the entity create and update DDL triggers so both paths stay in sync.';
+
+CREATE OR REPLACE FUNCTION dd_field_comment(p_title TEXT, p_format TEXT, p_description TEXT, p_enum_values JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_body   TEXT;
+    v_values TEXT;
+BEGIN
+    -- Summary line: "<title> (<format>)"
+    v_body := trim(trim(COALESCE(p_title, '')) || ' (' || COALESCE(p_format, '') || ')');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := v_body || E'\\n\\n' || p_description;
+    END IF;
+    -- Enum value list: comma-separated allowed values on their own line
+    IF p_format = 'enum'
+       AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
+       AND jsonb_array_length(p_enum_values) > 0 THEN
+        SELECT string_agg(value, ', ') INTO v_values
+        FROM jsonb_array_elements_text(p_enum_values) AS value;
+        v_body := v_body || E'\\n\\n' || v_values;
+    END IF;
+    RETURN NULLIF(v_body, '');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_field_comment IS
+'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -3717,6 +3791,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
+    v_comment    TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
@@ -3749,15 +3824,12 @@ BEGIN
     -- Create the table
     EXECUTE v_create_sql;
     
-    -- Add table comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON TABLE %I IS %L',
-            NEW.table_name,
-            NEW.description
-        );
+    -- Set table comment: plural label summary + optional description
+    v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
     END IF;
-    
+
     -- Add updated_at trigger using common schema function
     EXECUTE format(
         'CREATE TRIGGER update_%I_updated_at
@@ -3855,6 +3927,48 @@ CREATE TRIGGER create_table_trigger
     EXECUTE FUNCTION create_dd_table();
 
 -- =====================================================
+-- TRIGGER FUNCTION: SYNC TABLE COMMENT ON UPDATE
+-- =====================================================
+-- Keeps COMMENT ON TABLE in sync when an entity's plural_label or description
+-- changes (or the table is renamed). Fires AFTER UPDATE so the physical rename
+-- performed by the BEFORE UPDATE rename trigger has already applied and
+-- NEW.table_name refers to the current table.
+
+CREATE OR REPLACE FUNCTION update_dd_table_comment()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_comment TEXT;
+BEGIN
+    -- Only managed tables that physically exist have a table to comment on
+    IF NOT NEW.managed OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Nothing to do unless a comment input or the table identity changed
+    IF OLD.plural_label IS DISTINCT FROM NEW.plural_label
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+        ELSE
+            EXECUTE format('COMMENT ON TABLE %I IS NULL', NEW.table_name);
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION update_dd_table_comment IS
+'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata.';
+
+CREATE TRIGGER update_table_comment_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION update_dd_table_comment();
+
+-- =====================================================
 -- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
 -- =====================================================
 -- When a new field is inserted with field_order = 0 (the default),
@@ -3948,6 +4062,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Suppress IF NOT EXISTS/IF EXISTS notices
     SET LOCAL client_min_messages = WARNING;
@@ -3966,14 +4081,10 @@ BEGIN
         UNION
         SELECT label_column FROM entities WHERE table_name = NEW.table_name
     ) THEN
-        -- Still add column comment if description provided
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+        -- Still set the column comment (title/format summary + description [+ enum values])
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         END IF;
         RETURN NEW;
     END IF;
@@ -4036,17 +4147,13 @@ BEGIN
     
     -- Add the column
     EXECUTE v_alter_sql;
-    
-    -- Add column comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON COLUMN %I.%I IS %L',
-            NEW.table_name,
-            NEW.field_name,
-            NEW.description
-        );
+
+    -- Set column comment: title/format summary + description [+ enum values]
+    v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
     END IF;
-    
+
     -- If this is a primary key field, set it as primary key
     IF NEW.is_pk THEN
         -- Check if table already has a primary key
@@ -4211,6 +4318,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -4244,46 +4352,36 @@ BEGIN
     
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name,
-                    NEW.field_name,
-                    NEW.description
-                );
+        -- Still keep the column comment in sync even if not managed
+        IF OLD.title IS DISTINCT FROM NEW.title
+           OR OLD.format IS DISTINCT FROM NEW.format
+           OR OLD.description IS DISTINCT FROM NEW.description
+           OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
-        
+
         RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;
     
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
-    
+
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
         v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
@@ -5114,7 +5212,10 @@ REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_dd_table_comment() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION add_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;
@@ -6082,6 +6183,11 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION pgrst_ddl_watch() IS
+'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
+COMMENT ON FUNCTION pgrst_drop_watch() IS
+'Event-trigger function (sql_drop) that refreshes the PostgREST schema cache when a relevant object is dropped.';
 
 CREATE EVENT TRIGGER pgrst_ddl_watch
     ON ddl_command_end
@@ -7360,11 +7466,15 @@ BEGIN
     );
     EXECUTE v_alter_sql;
 
-    -- Add / refresh column comment
-    IF p_field.description IS NOT NULL AND trim(p_field.description) != '' THEN
-        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
-            p_field.table_name, p_field.field_name, p_field.description);
-    END IF;
+    -- Add / refresh column comment: title/format summary + description [+ enum values]
+    DECLARE
+        v_comment TEXT := dd_field_comment(p_field.title, p_field.format, p_field.description, p_field.enum_values);
+    BEGIN
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
+                p_field.table_name, p_field.field_name, v_comment);
+        END IF;
+    END;
 
     -- Foreign key (reference / parent format)
     IF p_field.format IN ('reference', 'parent')
@@ -7490,10 +7600,14 @@ BEGIN
         );
         EXECUTE v_create_sql;
 
-        -- Table comment
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, NEW.description);
-        END IF;
+        -- Table comment: plural label summary + optional description
+        DECLARE
+            v_comment TEXT := dd_table_comment(NEW.plural_label, NEW.description);
+        BEGIN
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+            END IF;
+        END;
 
         -- updated_at maintenance trigger
         EXECUTE format(
@@ -7629,6 +7743,7 @@ DECLARE
     v_fk_name        TEXT;
     v_idx_name       TEXT;
     v_on_delete      TEXT;
+    v_comment        TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -7664,18 +7779,24 @@ BEGIN
 
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name, NEW.field_name, NEW.description
-                );
+        -- Keep the column comment in sync even if not managed, but only when the
+        -- physical column actually exists (an unmanaged entity may be metadata-only
+        -- with no physical table/column to comment on).
+        IF (OLD.title IS DISTINCT FROM NEW.title
+            OR OLD.format IS DISTINCT FROM NEW.format
+            OR OLD.description IS DISTINCT FROM NEW.description
+            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name   = NEW.table_name
+                 AND column_name  = NEW.field_name
+           ) THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name, NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
 
@@ -7696,18 +7817,16 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name, NEW.field_name, NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name, NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
 
@@ -7941,6 +8060,9 @@ LANGUAGE sql IMMUTABLE
 SET search_path = public
 AS $$ SELECT p_format IN ('reference', 'parent') $$;
 
+COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
+'TRUE when a field format denotes a foreign-key relationship (''reference'' or ''parent'').';
+
 -- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
 -- fallback heuristic recognises a pure pairing table — ≥2 parent legs and every non-leg field is an
 -- id/label/audit column (recognised audit names + ctype='audit'). A status/rating/note payload
@@ -7970,6 +8092,9 @@ AS $$
   END
 $$;
 
+COMMENT ON FUNCTION dd_is_junction(TEXT) IS
+'TRUE when an entity is a pure M:N junction/pairing table: entity_type=''junction'' is authoritative, otherwise a heuristic requiring ≥2 parent legs and no payload fields (only id/label/audit columns besides the legs).';
+
 -- The committed identity-spine parent of an entity (reference_table of its label_parent field),
 -- or '' when it has no spine. Used by validate_label_parent() to walk the chain for cycles.
 CREATE OR REPLACE FUNCTION dd_spine_parent(p_table_name TEXT)
@@ -7984,6 +8109,9 @@ AS $$
     WHERE e.table_name = p_table_name
   ), '')
 $$;
+
+COMMENT ON FUNCTION dd_spine_parent(TEXT) IS
+'Returns the identity-spine parent of an entity (the reference_table of its label_parent field), or '''' when it has no spine. Used by validate_label_parent to walk the chain for cycles.';
 
 -- (Re)generate _label and every <fk>_label for one entity from current metadata + physical columns.
 -- Defensive: only references columns/tables that physically exist, so it produces valid SQL for any
@@ -8114,6 +8242,10 @@ BEGIN
     -- by the request role so they work as PostgREST computed columns and in nested _label calls.
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public._label(%s) TO semantius_user', v_rowtype);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public._label(%s) IS %L',
+        v_rowtype,
+        format('Composed record label for entity "%s" (PostgREST computed column). Generated by rebuild_entity_label_functions from entity/field metadata.', p_table_name));
 
     -- <fk>_label companion for every reference/parent field (referenced record's composed label).
     FOR r IN
@@ -8140,6 +8272,10 @@ BEGIN
             r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
         EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
         EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
+        EXECUTE format(
+            'COMMENT ON FUNCTION public.%I(%s) IS %L',
+            r.field_name || '_label', v_rowtype,
+            format('Composed label of the "%s" record referenced by %s.%s (PostgREST computed column). Generated by rebuild_entity_label_functions.', r.reference_table, p_table_name, r.field_name));
     END LOOP;
 
     PERFORM set_config('check_function_bodies', v_saved, true);
@@ -8178,6 +8314,9 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+COMMENT ON FUNCTION reserve_field_namespace() IS
+'Trigger function that rejects user-created field names beginning with "_" (reserved for generated/system columns such as _label). Privileged BYPASSRLS roles are exempt.';
 
 CREATE TRIGGER fields_reserve_namespace_trigger
     BEFORE INSERT OR UPDATE OF field_name ON fields
@@ -8245,6 +8384,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION validate_label_parent() IS
+'Trigger function validating an entity''s label_parent: it must name a reference/parent field of the entity, must not self-reference, and must not introduce a cycle in the identity spine.';
+
 CREATE TRIGGER validate_label_parent_trigger
     BEFORE INSERT OR UPDATE OF label_parent ON entities
     FOR EACH ROW
@@ -8284,6 +8426,11 @@ BEGIN
     RETURN NULL;
 END;
 $$;
+
+COMMENT ON FUNCTION dd_label_fn_sync_entity() IS
+'Trigger function that regenerates the entity''s _label / <fk>_label computed-column functions after an entities row changes, by calling rebuild_entity_label_functions.';
+COMMENT ON FUNCTION dd_label_fn_sync_field() IS
+'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions.';
 
 CREATE TRIGGER zzz_label_fn_entity_insert_trigger
     AFTER INSERT ON entities
@@ -11170,6 +11317,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_after_insert() IS
+'Trigger function that provisions the underlying pgmq queue (pgmq.create) when a row is inserted into the queues table.';
+
 CREATE TRIGGER queue_after_insert_trigger
     AFTER INSERT ON queues
     FOR EACH ROW
@@ -11188,6 +11338,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_before_update() IS
+'Trigger function that rejects any attempt to change queues.queue_name after creation (the name is immutable once the pgmq queue exists).';
+
 CREATE TRIGGER queue_before_update_trigger
     BEFORE UPDATE ON queues
     FOR EACH ROW
@@ -11203,6 +11356,9 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+COMMENT ON FUNCTION queue_before_delete() IS
+'Trigger function that drops the underlying pgmq queue (pgmq.drop_queue) when a row is deleted from the queues table.';
 
 CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
@@ -11271,6 +11427,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_event_before_update() IS
+'Trigger function that rejects changing queue_table_events.table_name on UPDATE (the mapping''s target table is immutable).';
+
 CREATE TRIGGER queue_event_before_update_trigger
     BEFORE UPDATE ON queue_table_events
     FOR EACH ROW
@@ -11333,6 +11492,9 @@ $$;
 
 -- Manage event trigger creation / removal
 
+COMMENT ON FUNCTION queue_build_record_json() IS
+'Per-row AFTER trigger function (installed on target tables by queue_table_events) that serializes the affected record to JSON and enqueues it as a pgmq message on the mapped queue.';
+
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
@@ -11377,6 +11539,9 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION queue_event_after_insert() IS
+'Trigger function that installs the per-table queue_build_record_json trigger on the mapped table when a queue_table_events mapping is inserted.';
+
 CREATE TRIGGER queue_event_after_insert_trigger
     AFTER INSERT ON queue_table_events
     FOR EACH ROW
@@ -11412,6 +11577,9 @@ BEGIN
     RETURN OLD;
 END;
 $$;
+
+COMMENT ON FUNCTION queue_event_after_delete() IS
+'Trigger function that drops the per-table queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
 
 CREATE TRIGGER queue_event_after_delete_trigger
     AFTER DELETE ON queue_table_events
@@ -11586,6 +11754,8 @@ DECLARE
     v_logic_lit TEXT;
     v_code TEXT;
     v_message TEXT;
+    v_has_computed BOOLEAN;
+    v_writeback TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -11611,6 +11781,8 @@ BEGIN
        AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
         RETURN;
     END IF;
+
+    v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -11672,8 +11844,30 @@ $BLOCK$,
             replace(v_code, '%', '%%'));
     END LOOP;
 
-    -- Assemble full function. Strip reserved vars before populating NEW so they
-    -- never leak as columns even if the entity adds a column with the same name.
+    -- Write-back tail. Validation rules never modify the row, so a validation-only
+    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
+    -- fields must fold the derived values (written into v_data by the block above)
+    -- back onto NEW.
+    --
+    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
+    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
+    -- A static call caches the target row type's tuple descriptor in the plpgsql
+    -- expression's fn_extra and does NOT refresh it when the table gains a column
+    -- LATER in the SAME transaction — so a column added and set after this trigger
+    -- first fired (e.g. entities.order_column added in 0270 then set here) would be
+    -- silently dropped, reverting that write. This only surfaces in a single-txn
+    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
+    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
+    -- every call, so mid-transaction columns survive.
+    IF v_has_computed THEN
+        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
+$WB$;
+    ELSE
+        v_writeback := '';
+    END IF;
+
+    -- Assemble full function.
     v_body := format($FUNC$
 CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
 DECLARE
@@ -11698,17 +11892,20 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
     END IF;
-    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
-    NEW := jsonb_populate_record(NULL::public.%I, v_data);
-    RETURN NEW;
+%s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_block, p_table_name);
+$FUNC$, v_fn_name, v_rules_block, v_writeback);
 
     EXECUTE v_body;
 
     -- Revoke PUBLIC execute on trigger function (security best practice)
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
+
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I() IS %L',
+        v_fn_name,
+        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s". Generated by build_record_logic_trigger.', p_table_name));
 
     EXECUTE format(
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
@@ -11866,6 +12063,17 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit);
 
     EXECUTE v_body;
 
+    -- Revoke PUBLIC execute on the generated function (security best practice).
+    -- Without this revoke the function is callable by any database role, which
+    -- violates the project's no-public-execute invariant (0060_test_security.sql).
+    -- Grant EXECUTE to semantius_user so the RLS policy can call the function.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
+        v_fn_name, p_table_name,
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s". Generated by build_select_rule_policy.', p_table_name));
+
     -- Create the new select policy using the generated function
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
@@ -11888,7 +12096,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row.';
+'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row. The generated function has EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -13414,6 +13622,9 @@ COMMENT ON FUNCTION raci_install_or_drop_emit_trigger IS
 
 REVOKE EXECUTE ON FUNCTION raci_install_or_drop_emit_trigger(TEXT) FROM PUBLIC;
 
+COMMENT ON FUNCTION raci_gates_manage_emit_trigger() IS
+'Trigger function on process_gates that (re)runs raci_install_or_drop_emit_trigger for the affected entity/entities so the raci_emit_on_<entity> trigger is installed or dropped as emits_events gates change.';
+
 -- Wire the installer to process_gates
 CREATE TRIGGER raci_gates_manage_emit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON process_gates
@@ -14047,159 +14258,6 @@ CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
 
 UPDATE entities SET order_column = 'row_order' WHERE table_name = 'user_bookmarks';
 `,
-    "0281_fix_select_rule_revoke": `-- =====================================================
--- FIX: REVOKE EXECUTE on generated select_rule functions
--- =====================================================
--- build_select_rule_policy() (migration 0180) generates a per-table
--- per-row function (select_rule_<table>) but forgot to REVOKE EXECUTE
--- on that function from PUBLIC, leaving it callable by any database role.
---
--- The gap was masked previously because all select_rule entities in the
--- tests set/unset select_rule inside a ROLLBACK transaction, so no
--- generated function survived. The user_bookmarks entity (migration 0280)
--- is the first permanent entity with a select_rule, which exposed it.
---
--- Fix: update build_select_rule_policy() to add the REVOKE, then rebuild
--- all existing select_rule functions to apply the revoke retroactively.
-
--- =====================================================
--- STEP 1: Patch build_select_rule_policy to add REVOKE
--- =====================================================
-
-CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
-RETURNS VOID AS $$
-DECLARE
-    v_entity entities%ROWTYPE;
-    v_fn_name TEXT;
-    v_policy_name TEXT;
-    v_body TEXT;
-    v_logic_lit TEXT;
-BEGIN
-    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
-    IF NOT FOUND THEN
-        -- Entity is being deleted — drop the function if it exists
-        v_fn_name := 'select_rule_' || p_table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
-        RETURN;
-    END IF;
-
-    -- Skip unmanaged tables
-    IF NOT v_entity.managed THEN
-        RETURN;
-    END IF;
-
-    v_fn_name := 'select_rule_' || p_table_name;
-    v_policy_name := p_table_name || '_select_policy';
-
-    -- Always drop old function (CASCADE removes anything depending on it)
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
-
-    -- Drop the existing select policy so we can recreate it
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
-
-    -- If select_rule is empty, restore the default permission-only policies (read = view
-    -- permission, writes = edit permission, no per-row rule).
-    IF v_entity.select_rule = '{}'::jsonb THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
-            v_policy_name, p_table_name, v_entity.view_permission);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
-            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
-            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
-        RETURN;
-    END IF;
-
-    v_logic_lit := quote_literal(v_entity.select_rule::text);
-
-    -- Build the per-row evaluation function
-    v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
-DECLARE
-    v_data jsonb;
-    v_result jsonb;
-    v_uid_text text;
-BEGIN
-    PERFORM rbac.ensure_context_initialized();
-    v_uid_text := current_setting('app.current_user_id', true);
-    v_data := to_jsonb(p_row) || jsonb_build_object(
-        '$today',   to_jsonb(CURRENT_DATE),
-        '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        '$user_id', CASE
-                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
-                   END
-    );
-
-    BEGIN
-        v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RETURN FALSE;
-    END;
-
-    RETURN jl_truthy(v_result);
-END;
-$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit);
-
-    EXECUTE v_body;
-
-    -- Revoke PUBLIC execute on the generated function (security best practice).
-    -- Without this revoke the function is callable by any database role, which
-    -- violates the project's no-public-execute invariant (0060_test_security.sql).
-    -- Grant EXECUTE to semantius_user so the RLS policy can call the function.
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
-
-    -- Create the new select policy using the generated function
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
-        v_policy_name, p_table_name, v_fn_name, p_table_name);
-
-    -- The canonical predicate ALSO gates writes: edit_permission AND the row rule.
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*)) WITH CHECK (rbac.has_permission(%L))',
-        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*))',
-        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row. The generated function has EXECUTE revoked from PUBLIC.';
-
-REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
-
--- =====================================================
--- STEP 2: Rebuild select_rule functions for existing entities
--- =====================================================
--- Re-runs build_select_rule_policy for every managed entity with a non-empty
--- select_rule so the generated functions get REVOKE applied retroactively.
-
-DO $$
-DECLARE
-    v_table_name TEXT;
-BEGIN
-    FOR v_table_name IN
-        SELECT e.table_name
-        FROM entities e
-        WHERE e.managed = TRUE
-          AND e.select_rule IS NOT NULL
-          AND e.select_rule != '{}'::jsonb
-    LOOP
-        PERFORM build_select_rule_policy(v_table_name);
-        RAISE NOTICE 'Rebuilt select_rule policy for "%"', v_table_name;
-    END LOOP;
-END;
-$$;
-`,
     "0282_module_version": `-- =====================================================
 -- MODULE VERSION TRACKING
 -- =====================================================
@@ -14320,6 +14378,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+COMMENT ON FUNCTION bump_module_version() IS
+'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
+COMMENT ON FUNCTION bump_module_version_from_related() IS
+'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, using app.bumping_module_version to avoid recursive double-bumps.';
+
 -- =====================================================
 -- TRIGGERS ON MODULES TABLE
 -- =====================================================
@@ -14357,6 +14420,216 @@ CREATE TRIGGER bump_module_version_on_processes
 REVOKE EXECUTE ON FUNCTION bump_module_version() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION bump_module_version_from_related() FROM PUBLIC;
 `,
+    "0284_module_slug_provision": `-- =====================================================
+-- MIGRATION: provision modules.module_slug, drop modules.alias
+-- =====================================================
+-- modules.alias was renamed to modules.module_slug (commit 6b3c56b) by editing
+-- 0020/0040/0060/0080 in place. Databases provisioned before that edit still
+-- carry the old shape:
+--   * column  modules.alias  (TEXT NOT NULL DEFAULT '', no UNIQUE)
+--   * no     modules.module_slug column / UNIQUE constraint
+--   * dictionary row fields('modules','alias') "Alias"
+--   * get_user_modules() emitting an "alias" key
+-- while the tool contract (create_module/update_module require module_slug),
+-- the SKILL docs ({ui_baseurl}/{module_slug}/{table_name}), the UI routing and
+-- 0200/0220 all expect module_slug.
+--
+-- This migration brings existing databases in line. It is idempotent and a
+-- no-op on fresh databases where 0020 already created module_slug:
+--   1. physical column: RENAME alias -> module_slug (or merge + DROP alias when
+--      both exist)
+--   2. backfill empty slugs from module_name (same rule the old auto_set_module_slug
+--      trigger used, made unique with an _<id> suffix on collision) so the UNIQUE
+--      constraint can be added and every module is routable
+--   3. DEFAULT '' NOT NULL UNIQUE + column comment (matches 0020)
+--   4. dictionary: fields('modules','alias') -> ('modules','module_slug') with the
+--      0060/0220 metadata (title/description/input_type)
+--   5. get_user_modules(): re-issue the current 0080 body (to_jsonb(m)) so the
+--      payload carries module_slug instead of alias
+--
+-- Ordering note: this file runs after 0200 (slug JsonLogic rule) and 0220
+-- (module_slug field metadata, a no-op while the row is still named alias),
+-- which is why step 4 sets the metadata itself.
+
+DO $$
+DECLARE
+    v_has_alias_col   BOOLEAN;
+    v_has_slug_col    BOOLEAN;
+    v_has_alias_field BOOLEAN;
+    v_has_slug_field  BOOLEAN;
+    v_has_rename_trg  BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'modules' AND column_name = 'alias'
+    ) INTO v_has_alias_col;
+
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'modules' AND column_name = 'module_slug'
+    ) INTO v_has_slug_col;
+
+    SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'modules' AND field_name = 'alias')
+      INTO v_has_alias_field;
+    SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'modules' AND field_name = 'module_slug')
+      INTO v_has_slug_field;
+
+    -- =====================================================
+    -- STEP 1: physical column
+    -- =====================================================
+    IF v_has_alias_col AND NOT v_has_slug_col THEN
+        ALTER TABLE modules RENAME COLUMN alias TO module_slug;
+        RAISE NOTICE 'modules: renamed column alias -> module_slug';
+        v_has_slug_col  := TRUE;
+        v_has_alias_col := FALSE;
+    ELSIF v_has_alias_col AND v_has_slug_col THEN
+        -- Both present (partially migrated database): keep module_slug, take the
+        -- alias value only where module_slug is still empty, then drop alias.
+        UPDATE modules SET module_slug = alias WHERE module_slug = '' AND alias <> '';
+        ALTER TABLE modules DROP COLUMN alias;
+        RAISE NOTICE 'modules: merged alias into module_slug and dropped alias';
+        v_has_alias_col := FALSE;
+    END IF;
+
+    -- =====================================================
+    -- STEP 2: backfill empty slugs so UNIQUE can be enforced
+    -- =====================================================
+    -- Base slug: lowercase module_name with every non-alphanumeric run collapsed
+    -- to '_' and leading/trailing '_' trimmed (the old auto_set_module_slug rule).
+    -- Collisions (with an existing slug or another backfilled row) get '_<id>'.
+    -- Result always matches the 0200 rule ^[a-z0-9][a-z0-9_-]*$.
+    WITH candidates AS (
+        SELECT id,
+               trim(both '_' from lower(regexp_replace(module_name, '[^a-zA-Z0-9]+', '_', 'g'))) AS base
+        FROM modules
+        WHERE module_slug = ''
+    ),
+    resolved AS (
+        SELECT c.id,
+               CASE
+                   WHEN c.base = '' THEN 'module_' || c.id
+                   WHEN EXISTS (SELECT 1 FROM modules m2 WHERE m2.module_slug = c.base AND m2.id <> c.id)
+                     OR (SELECT count(*) FROM candidates c2 WHERE c2.base = c.base) > 1
+                        THEN c.base || '_' || c.id
+                   ELSE c.base
+               END AS slug
+        FROM candidates c
+    )
+    UPDATE modules m
+       SET module_slug = r.slug
+      FROM resolved r
+     WHERE m.id = r.id;
+
+    -- =====================================================
+    -- STEP 3: column contract (matches 0020: TEXT DEFAULT '' NOT NULL UNIQUE)
+    -- =====================================================
+    ALTER TABLE modules ALTER COLUMN module_slug SET DEFAULT '';
+    UPDATE modules SET module_slug = '' WHERE module_slug IS NULL;
+    ALTER TABLE modules ALTER COLUMN module_slug SET NOT NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'modules'
+          AND t.relnamespace = 'public'::regnamespace
+          AND c.contype = 'u'
+          AND c.conkey = ARRAY[(
+              SELECT attnum FROM pg_attribute
+              WHERE attrelid = t.oid AND attname = 'module_slug'
+          )]
+    ) THEN
+        ALTER TABLE modules ADD CONSTRAINT modules_module_slug_key UNIQUE (module_slug);
+        RAISE NOTICE 'modules: added UNIQUE (module_slug)';
+    END IF;
+
+    COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module';
+
+    -- =====================================================
+    -- STEP 4: dictionary row
+    -- =====================================================
+    IF v_has_alias_field AND NOT v_has_slug_field THEN
+        -- Renaming fields.field_name fires validate_field_rename_and_format(),
+        -- which would try to ALTER TABLE ... RENAME COLUMN alias -> module_slug on
+        -- a managed entity. The physical rename already happened in step 1, so
+        -- suspend that trigger for this metadata-only rename.
+        SELECT EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = 'public.fields'::regclass
+              AND tgname = 'validate_field_rename_and_format_trigger'
+        ) INTO v_has_rename_trg;
+
+        IF v_has_rename_trg THEN
+            ALTER TABLE fields DISABLE TRIGGER validate_field_rename_and_format_trigger;
+        END IF;
+
+        UPDATE fields
+           SET field_name  = 'module_slug',
+               title       = 'Module Slug',
+               description = 'URL-safe unique identifier for module',
+               input_type  = 'required'
+         WHERE table_name = 'modules'
+           AND field_name = 'alias';
+
+        IF v_has_rename_trg THEN
+            ALTER TABLE fields ENABLE TRIGGER validate_field_rename_and_format_trigger;
+        END IF;
+
+        RAISE NOTICE 'fields: renamed modules.alias -> modules.module_slug';
+
+    ELSIF v_has_alias_field AND v_has_slug_field THEN
+        -- delete_dd_field() runs ALTER TABLE ... DROP COLUMN IF EXISTS alias for a
+        -- managed entity; the column is already gone after step 1, so this is safe.
+        DELETE FROM fields WHERE table_name = 'modules' AND field_name = 'alias';
+        RAISE NOTICE 'fields: dropped stale modules.alias row';
+
+    ELSIF NOT v_has_slug_field THEN
+        -- No dictionary row at all: seed it as 0060 does. add_dd_field() uses
+        -- ADD COLUMN IF NOT EXISTS, so the existing physical column is kept.
+        INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order,
+                            input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+        VALUES ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module',
+                'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', '');
+        RAISE NOTICE 'fields: seeded modules.module_slug row';
+    END IF;
+
+    -- Make sure the metadata matches 0060/0220 even if the row already existed.
+    UPDATE fields
+       SET title       = 'Module Slug',
+           description = 'URL-safe unique identifier for module',
+           input_type  = 'required'
+     WHERE table_name = 'modules'
+       AND field_name = 'module_slug'
+       AND (title <> 'Module Slug'
+            OR description IS DISTINCT FROM 'URL-safe unique identifier for module'
+            OR input_type <> 'required');
+END;
+$$;
+
+-- =====================================================
+-- STEP 5: get_user_modules() (current 0080 body)
+-- =====================================================
+-- Older databases still run the pre-rename body that builds the object by hand
+-- and emits "alias"; to_jsonb(m) returns every current column, incl. module_slug.
+
+CREATE OR REPLACE FUNCTION public.get_user_modules()
+RETURNS JSONB AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
+        FROM modules m
+        WHERE rbac.has_any_permission('admin', m.view_permission)),
+        '[]'::jsonb
+    );
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_modules IS
+'Returns modules array filtered by RLS. Used internally by get_userinfo().';
+
+REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
+`,
   },
   "nwind": {
     "0010_create": `-- =====================================================
@@ -14384,8 +14657,24 @@ WHERE p.permission_name = 'nwind:manage'
   AND c.permission_name = 'nwind:view';
 
 -- Set module FK references for Northwind
+-- Role: Northwind Sales (read + manage Northwind data). The slug is auto-generated
+-- as 'northwind_sales'; Administrator receives nwind:* automatically via the
+-- permissions auto-grant trigger, so no explicit grant to role 2 is needed.
+INSERT INTO roles (role_name, description, origin, module_id)
+VALUES ('Northwind Sales', 'Read and manage Northwind data', 'model',
+        (SELECT id FROM modules WHERE module_slug = 'nwind'));
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+CROSS JOIN permissions p
+WHERE r.slug = 'northwind_sales'
+  AND p.permission_name IN ('nwind:view', 'nwind:manage');
+
+-- Module FK references
 UPDATE modules SET
-    manage_permission_id = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage')
+    manage_permission_id    = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage'),
+    default_manager_role_id = (SELECT id FROM roles WHERE slug = 'northwind_sales')
 WHERE module_name = 'Northwind';
 
 -- =====================================================
@@ -14393,7 +14682,9 @@ WHERE module_name = 'Northwind';
 -- =====================================================
 
 -- 1. categories
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- order_column: a physical INTEGER column 'sort_order' is provisioned with an
+-- auto-assign trigger (10, 20, 30, ...) for manual ordering of categories.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, order_column)
 VALUES (
     'categories',
     'category',
@@ -14404,7 +14695,8 @@ VALUES (
     'nwind:view',
     'nwind:manage',
     'id',
-    'category_name'
+    'category_name',
+    'sort_order'
 );
 
 -- 2. customers
@@ -14594,7 +14886,6 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employees', 'first_name',         'First Name',         'text', 20,  'required', 'default', '',                                        '', TRUE,  ''),
     ('employees', 'title',              'Title',              'text', 30,  'default',  'default', 'Job title',                               '', FALSE, ''),
-    ('employees', 'title_of_courtesy',  'Title of Courtesy',  'text', 40,  'default',  'default', 'Courtesy title (Mr., Ms., Dr., etc.)',    '', FALSE, ''),
     ('employees', 'address',            'Street Address',     'text', 60,  'default',  'w',       '',                                        '', FALSE, ''),
     ('employees', 'city',               'City',               'text', 70,  'default',  'default', '',                                        '', TRUE,  ''),
     ('employees', 'region',             'Region',             'text', 80,  'default',  'default', 'State or province',                       '', FALSE, ''),
@@ -14604,6 +14895,11 @@ VALUES
     ('employees', 'extension',          'Extension',          'text', 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
     ('employees', 'notes',              'Notes',              'text', 130, 'default',  'w',       '',                                        '', FALSE, ''),
     ('employees', 'photo_path',         'Photo Path',         'text', 140, 'default',  'default', '',                                        '', FALSE, '');
+
+-- title_of_courtesy: enum (optional, so '' is also accepted)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
+VALUES
+    ('employees', 'title_of_courtesy', 'Title of Courtesy', 'enum', 40, 'default', 'default', 'Courtesy title (Mr., Ms., Dr., etc.)', '', '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb, FALSE, '');
 
 -- birth_date: nullable (no sensible default)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, searchable, ctype)
@@ -14615,10 +14911,11 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employees', 'hire_date', 'Hire Date', 'date', 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
--- reports_to: self-reference, nullable
+-- reports_to: self-reference, nullable; 'clear' = when a manager is deleted the
+-- reports_to of their reports is set to NULL (ON DELETE SET NULL)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE, 'manages');
+    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'clear', FALSE, 'manages');
 
 -- Rename the employees.last_name field title
 UPDATE fields SET title = 'Last Name' WHERE table_name = 'employees' AND field_name = 'last_name';
@@ -14638,7 +14935,7 @@ VALUES
     ('suppliers', 'country',       'Country',       'text', 80,  'default',  'default', '',                               '', TRUE,  ''),
     ('suppliers', 'phone',         'Phone',         'text', 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
     ('suppliers', 'fax',           'Fax',           'text', 100, 'default',  'default', '',                               '', FALSE, ''),
-    ('suppliers', 'homepage',      'Homepage',      'text', 110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
+    ('suppliers', 'homepage',      'Homepage',      'url',  110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
 
 -- -----------------------------------------------------
 -- products fields
@@ -14649,7 +14946,7 @@ VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    50, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
     ('products', 'unit_price',        'Unit Price',         'number',  60, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
     ('products', 'units_in_stock',    'Units In Stock',     'int32',   70, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'readonly',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
     ('products', 'reorder_level',     'Reorder Level',      'int32',   90, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
     ('products', 'discontinued',      'Discontinued',       'boolean', 100, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
@@ -14695,10 +14992,15 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('orders', 'shipped_date', 'Shipped Date', 'date', 130, 'default', 'default', '', FALSE, '');
 
--- FK references on orders (not parent — orders is not a junction/child table)
+-- status: lifecycle state (required enum with default; '' is rejected)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
+VALUES
+    ('orders', 'status', 'Status', 'enum', 25, 'required', 'default', 'Order lifecycle state', 'pending', '["pending", "shipped"]'::jsonb, FALSE, '');
+
+-- FK references on orders (not parent: orders is not a junction/child table)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('orders', 'customer_id',  'Customer',    'reference', 30, 'default', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
+    ('orders', 'customer_id',  'Customer',    'reference', 30, 'required', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
     ('orders', 'employee_id',  'Employee',    'reference', 34, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
     ('orders', 'ship_via',     'Shipped Via', 'reference', 38, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
 
@@ -14714,6 +15016,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE, 'contains');
 
+-- Composed label: "Eastern > Westboro" (must be set after the FK field exists)
+UPDATE entities SET label_parent = 'region_id' WHERE table_name = 'territories';
+
 -- -----------------------------------------------------
 -- employee_territories fields (junction)
 -- -----------------------------------------------------
@@ -14721,6 +15026,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',   'restrict', FALSE, 'assigned to'),
     ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE, 'staffed by');
+
+-- Pure junction (two parent legs, no payload): its _label composes from both legs
+UPDATE entities SET entity_type = 'junction' WHERE table_name = 'employee_territories';
 
 -- -----------------------------------------------------
 -- order_details fields (junction)
@@ -14736,31 +15044,10 @@ VALUES
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
     ('order_details', 'discount',   'Discount',   'number', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
+-- Composed label: an order line is labelled by its order (local label is empty)
+UPDATE entities SET label_parent = 'order_id' WHERE table_name = 'order_details';
 
--- =====================================================
--- ROLE PERMISSIONS
--- =====================================================
 
--- Grant nwind:view and nwind:manage to role 2
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT 2, p.id
-FROM permissions p
-WHERE p.permission_name IN ('nwind:view', 'nwind:manage')
-  AND NOT EXISTS (
-    SELECT 1 FROM role_permissions rp WHERE rp.role_id = 2 AND rp.permission_id = p.id
-  );
-
--- Grant nwind:view and nwind:manage to role 10001 (Sales User) if it exists
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.id = 10001
-  AND r.role_name = 'Sales User'
-  AND p.permission_name IN ('nwind:view', 'nwind:manage')
-  AND NOT EXISTS (
-    SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
-  );
 
 -- =====================================================
 -- ENABLE AUDIT LOGGING FOR KEY TABLES
@@ -18184,6 +18471,49 @@ SELECT setval('products_id_seq', (SELECT MAX(id) FROM products), true);
 SELECT setval('regions_id_seq', (SELECT MAX(id) FROM regions), true);
 SELECT setval('shippers_id_seq', (SELECT MAX(id) FROM shippers), true);
 SELECT setval('orders_id_seq', (SELECT MAX(id) FROM orders), true);
+
+-- =====================================================
+-- ORDER STATUS
+-- =====================================================
+-- orders.status defaults to 'pending'; mark every order with a shipped_date as shipped.
+UPDATE orders SET status = 'shipped' WHERE shipped_date IS NOT NULL;
+
+-- =====================================================
+-- PLATFORM SAMPLE ROWS
+-- =====================================================
+-- Sample rows that show how platform features attach to a module.
+
+-- Webhook receiver: inbound order intake, plus one processed log entry
+INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, header_name, header_value)
+VALUES ('Order Intake', 'orders', 'Inbound order webhook', 'hmac', 'nwind-demo-secret', '', '');
+
+INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, received_timestamp, payload, result, error_message)
+SELECT w.id, w.id, 'ord-evt-0001', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"order_id": 10248}'::jsonb, '20', ''
+FROM webhook_receivers w WHERE w.label = 'Order Intake';
+
+-- Dashboard for the module landing page (visible to nwind:view holders)
+INSERT INTO dashboards (label, config, position, module_id, view_permission)
+VALUES ('Northwind Overview',
+        '{"widgets": [{"type": "count", "entity": "orders"}]}'::jsonb,
+        10,
+        (SELECT id FROM modules WHERE module_slug = 'nwind'),
+        (SELECT id FROM permissions WHERE permission_name = 'nwind:view'));
+
+-- RACI registry: the order fulfilment process with a transition gate on orders.status.
+-- Registry only (no raci_assignments / validation_rules), so writes are not gated.
+INSERT INTO processes (name, process_key, description, ordering, module_id)
+VALUES ('Fulfil Order', 'fulfil_order', 'Ship a pending order', 10,
+        (SELECT id FROM modules WHERE module_slug = 'nwind'));
+
+INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
+SELECT p.id, 'orders', 'transition', 'shipped', 'status', FALSE
+FROM processes p WHERE p.process_key = 'fulfil_order';
+
+-- Queue mapping: every new order enqueues an entity_event on the 'events' queue.
+-- Created after the data load so the import itself does not enqueue 830 messages.
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT q.id, 'Order created', 'orders', 'insert'
+FROM queues q WHERE q.queue_name = 'events';
 `,
   },
 };

@@ -23,7 +23,7 @@ INSERT INTO entities (
 ) VALUES (
     'lblren1', 'item', 'Item', 'Items',
     'Label column rename test entity',
-    1001, 'public:read', 'sales:manage', 'id', 'item_label'
+    1, 'public:read', 'nwind:manage', 'id', 'item_label'
 );
 
 -- =====================================================

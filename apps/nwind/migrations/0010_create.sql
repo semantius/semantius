@@ -23,8 +23,24 @@ WHERE p.permission_name = 'nwind:manage'
   AND c.permission_name = 'nwind:view';
 
 -- Set module FK references for Northwind
+-- Role: Northwind Sales (read + manage Northwind data). The slug is auto-generated
+-- as 'northwind_sales'; Administrator receives nwind:* automatically via the
+-- permissions auto-grant trigger, so no explicit grant to role 2 is needed.
+INSERT INTO roles (role_name, description, origin, module_id)
+VALUES ('Northwind Sales', 'Read and manage Northwind data', 'model',
+        (SELECT id FROM modules WHERE module_slug = 'nwind'));
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+CROSS JOIN permissions p
+WHERE r.slug = 'northwind_sales'
+  AND p.permission_name IN ('nwind:view', 'nwind:manage');
+
+-- Module FK references
 UPDATE modules SET
-    manage_permission_id = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage')
+    manage_permission_id    = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage'),
+    default_manager_role_id = (SELECT id FROM roles WHERE slug = 'northwind_sales')
 WHERE module_name = 'Northwind';
 
 -- =====================================================
@@ -32,7 +48,9 @@ WHERE module_name = 'Northwind';
 -- =====================================================
 
 -- 1. categories
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+-- order_column: a physical INTEGER column 'sort_order' is provisioned with an
+-- auto-assign trigger (10, 20, 30, ...) for manual ordering of categories.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, order_column)
 VALUES (
     'categories',
     'category',
@@ -43,7 +61,8 @@ VALUES (
     'nwind:view',
     'nwind:manage',
     'id',
-    'category_name'
+    'category_name',
+    'sort_order'
 );
 
 -- 2. customers
@@ -233,7 +252,6 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employees', 'first_name',         'First Name',         'text', 20,  'required', 'default', '',                                        '', TRUE,  ''),
     ('employees', 'title',              'Title',              'text', 30,  'default',  'default', 'Job title',                               '', FALSE, ''),
-    ('employees', 'title_of_courtesy',  'Title of Courtesy',  'text', 40,  'default',  'default', 'Courtesy title (Mr., Ms., Dr., etc.)',    '', FALSE, ''),
     ('employees', 'address',            'Street Address',     'text', 60,  'default',  'w',       '',                                        '', FALSE, ''),
     ('employees', 'city',               'City',               'text', 70,  'default',  'default', '',                                        '', TRUE,  ''),
     ('employees', 'region',             'Region',             'text', 80,  'default',  'default', 'State or province',                       '', FALSE, ''),
@@ -243,6 +261,11 @@ VALUES
     ('employees', 'extension',          'Extension',          'text', 120, 'default',  'default', 'Phone extension',                         '', FALSE, ''),
     ('employees', 'notes',              'Notes',              'text', 130, 'default',  'w',       '',                                        '', FALSE, ''),
     ('employees', 'photo_path',         'Photo Path',         'text', 140, 'default',  'default', '',                                        '', FALSE, '');
+
+-- title_of_courtesy: enum (optional, so '' is also accepted)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
+VALUES
+    ('employees', 'title_of_courtesy', 'Title of Courtesy', 'enum', 40, 'default', 'default', 'Courtesy title (Mr., Ms., Dr., etc.)', '', '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb, FALSE, '');
 
 -- birth_date: nullable (no sensible default)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, searchable, ctype)
@@ -254,10 +277,11 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employees', 'hire_date', 'Hire Date', 'date', 55, 'default', 'default', '', 'CURRENT_DATE', FALSE, '');
 
--- reports_to: self-reference, nullable
+-- reports_to: self-reference, nullable; 'clear' = when a manager is deleted the
+-- reports_to of their reports is set to NULL (ON DELETE SET NULL)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'restrict', FALSE, 'manages');
+    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'clear', FALSE, 'manages');
 
 -- Rename the employees.last_name field title
 UPDATE fields SET title = 'Last Name' WHERE table_name = 'employees' AND field_name = 'last_name';
@@ -277,7 +301,7 @@ VALUES
     ('suppliers', 'country',       'Country',       'text', 80,  'default',  'default', '',                               '', TRUE,  ''),
     ('suppliers', 'phone',         'Phone',         'text', 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
     ('suppliers', 'fax',           'Fax',           'text', 100, 'default',  'default', '',                               '', FALSE, ''),
-    ('suppliers', 'homepage',      'Homepage',      'text', 110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
+    ('suppliers', 'homepage',      'Homepage',      'url',  110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
 
 -- -----------------------------------------------------
 -- products fields
@@ -288,7 +312,7 @@ VALUES
     ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    50, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
     ('products', 'unit_price',        'Unit Price',         'number',  60, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
     ('products', 'units_in_stock',    'Units In Stock',     'int32',   70, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'default',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'readonly',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
     ('products', 'reorder_level',     'Reorder Level',      'int32',   90, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
     ('products', 'discontinued',      'Discontinued',       'boolean', 100, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
 
@@ -334,10 +358,15 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('orders', 'shipped_date', 'Shipped Date', 'date', 130, 'default', 'default', '', FALSE, '');
 
--- FK references on orders (not parent — orders is not a junction/child table)
+-- status: lifecycle state (required enum with default; '' is rejected)
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
+VALUES
+    ('orders', 'status', 'Status', 'enum', 25, 'required', 'default', 'Order lifecycle state', 'pending', '["pending", "shipped"]'::jsonb, FALSE, '');
+
+-- FK references on orders (not parent: orders is not a junction/child table)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('orders', 'customer_id',  'Customer',    'reference', 30, 'default', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
+    ('orders', 'customer_id',  'Customer',    'reference', 30, 'required', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
     ('orders', 'employee_id',  'Employee',    'reference', 34, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
     ('orders', 'ship_via',     'Shipped Via', 'reference', 38, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
 
@@ -353,6 +382,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE, 'contains');
 
+-- Composed label: "Eastern > Westboro" (must be set after the FK field exists)
+UPDATE entities SET label_parent = 'region_id' WHERE table_name = 'territories';
+
 -- -----------------------------------------------------
 -- employee_territories fields (junction)
 -- -----------------------------------------------------
@@ -360,6 +392,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES
     ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',   'restrict', FALSE, 'assigned to'),
     ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE, 'staffed by');
+
+-- Pure junction (two parent legs, no payload): its _label composes from both legs
+UPDATE entities SET entity_type = 'junction' WHERE table_name = 'employee_territories';
 
 -- -----------------------------------------------------
 -- order_details fields (junction)
@@ -375,31 +410,10 @@ VALUES
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
     ('order_details', 'discount',   'Discount',   'number', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
+-- Composed label: an order line is labelled by its order (local label is empty)
+UPDATE entities SET label_parent = 'order_id' WHERE table_name = 'order_details';
 
--- =====================================================
--- ROLE PERMISSIONS
--- =====================================================
 
--- Grant nwind:view and nwind:manage to role 2
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT 2, p.id
-FROM permissions p
-WHERE p.permission_name IN ('nwind:view', 'nwind:manage')
-  AND NOT EXISTS (
-    SELECT 1 FROM role_permissions rp WHERE rp.role_id = 2 AND rp.permission_id = p.id
-  );
-
--- Grant nwind:view and nwind:manage to role 10001 (Sales User) if it exists
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.id = 10001
-  AND r.role_name = 'Sales User'
-  AND p.permission_name IN ('nwind:view', 'nwind:manage')
-  AND NOT EXISTS (
-    SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
-  );
 
 -- =====================================================
 -- ENABLE AUDIT LOGGING FOR KEY TABLES

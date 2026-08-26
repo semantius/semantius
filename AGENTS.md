@@ -77,7 +77,9 @@ apps/
 ├── test/           # pgTAP testing framework
 │   ├── migrations/ # Test infrastructure setup
 │   └── tests/      # Actual test files
-└── nwind/          # Example app (Northwind)
+└── nwind/          # Northwind sample module (the ONLY persisted sample data)
+    ├── migrations/ # Module, role, entities, dataset, sample platform rows
+    └── tests/      # The module's own pgTAP tests (run by deno task test)
 ```
 
 ## Standard Development Workflow
@@ -104,9 +106,9 @@ deno task dropall --confirm
 
 **Step 3 - Deploy Schema**:
 ```bash
-# Deploy all migrations and test infrastructure
-# IMPORTANT: test must come before nwind to avoid module ID conflicts
-deno task migrate --apps _core,test,nwind --verbose
+# Deploy core, the Northwind sample module and the test identities
+# IMPORTANT: nwind must come before test (the test seed assigns user2 to the Northwind Sales role)
+deno task migrate --apps _core,nwind,test --verbose
 ```
 
 **Step 4 - Execute Tests**:
@@ -135,7 +137,7 @@ deno task test
 2. **Set environment**: `export DENO_TLS_CA_STORE=system` (for GitHub Copilot agents)
 3. **Test connection**: `deno task connect` - if fails, STOP and inform user
 4. **Reset database**: `deno task dropall --confirm`
-5. **Deploy schema**: `deno task migrate --apps _core,test,nwind --verbose`
+5. **Deploy schema**: `deno task migrate --apps _core,nwind,test --verbose`
 6. **Run tests**: `deno task test`
 7. **Verify ALL tests pass** before marking task complete
 
@@ -206,11 +208,15 @@ deno task test
   - Functions, triggers, RLS policies
   - Constraints, indexes, foreign keys
   - NO sample/seed data records
-- **`apps/test/migrations/`**: Contains sample/seed DATA for testing
-  - INSERT statements with actual records for testing
-  - Test users, test modules, test data
-  - Sample webhook receivers, sample logs, etc.
-- **Key distinction**: Table DEFINITIONS go in `_core`, actual DATA RECORDS go in `test`
+- **`apps/test/migrations/`**: Contains ONLY the test harness and the test identities
+  - pgTAP and the `authenticate_as()` helper
+  - Test users 1001–1003 (`user1` plain user, `user2` member of `Northwind Sales`, `user3` administrator), their role memberships and API keys
+  - NO entities, NO modules, NO sample rows
+- **`apps/nwind/migrations/`**: The Northwind sample module — the ONLY persisted sample data
+  - Module, permissions, the `Northwind Sales` role, entities/fields, the full Northwind dataset
+  - Sample platform rows (webhook receiver, dashboard, RACI process/gate, queue mapping)
+- Tests that need any other fixture create it inside their own transaction (ephemeral entities with `module_id = 1`, `view_permission = 'public:read'`, rolled back at the end) — never add seed data for a single test
+- **Key distinction**: Table DEFINITIONS go in `_core`, identities go in `test`, sample DATA goes in `nwind`
 - Sample data must use **fixed, known values** for timestamps (e.g., `'2026-01-01 12:34:00'::timestamptz`)
 - **NEVER use CURRENT_TIMESTAMP or NOW()** in test/sample data - tests must be reproducible with consistent results
 - Example: Use `'2026-01-01 12:34:00'::timestamptz` instead of `CURRENT_TIMESTAMP`
@@ -316,10 +322,18 @@ The `public.get_schema()` function returns JSON Schema with:
 
 ## Testing Framework
 
-Tests are written in pgTAP and stored in `apps/test/tests/`. The testing workflow ensures:
+Tests are written in pgTAP and stored in `apps/test/tests/` (platform suite) and `apps/nwind/tests/` (Northwind module suite). `deno task test` runs `apps/test/tests` first and then every other app's `tests/` folder, each sorted by filename; `deno task test <prefix>*` runs a subset. The testing workflow ensures:
 1. Clean database state via `dropall`
-2. Fresh schema deployment via `migrate --apps _core,test,nwind` (**order matters**: `test` must run before `nwind` to avoid module ID sequence conflicts)
+2. Fresh schema deployment via `migrate --apps _core,nwind,test` (**order matters**: `nwind` must run before `test` because the test seed assigns user2 to the `Northwind Sales` role)
 3. Comprehensive test execution via `test` command
+
+**Test conventions**
+- Every test file is `BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;` with an exact plan count.
+- Persisted data comes ONLY from the Northwind module: readers of nwind tables must be `user2` (Northwind Sales) or `user3` (admin); `user1` has no `nwind:view`.
+- Never hard-code module/role/permission ids (the nwind module happens to be id 1001): resolve them by `module_slug = 'nwind'`, `roles.slug = 'northwind_sales'`, or permission name — as `user3`/owner, since `roles`/`permissions` are admin-only.
+- Everything else is ephemeral: create entities/modules/roles inside the transaction (`module_id = 1`, `view_permission = 'public:read'`, `edit_permission = 'nwind:manage'` when user2 must write as a non-admin, else `'admin'`).
+- Seeded nwind rows are all referenced by RESTRICT foreign keys — delete-behaviour tests insert fresh rows first.
+- `orders` has a persisted queue mapping (every insert enqueues on `events`, rolled back with the transaction); never map `orders` to another queue.
 
 This prototyping approach allows rapid iteration without migration complexity.
 

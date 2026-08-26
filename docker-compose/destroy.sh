@@ -5,11 +5,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-read -r -p "This DELETES the pgrest DB volume (all data). Continue? [y/N] " ans
+read -r -p "This DELETES the PostgREST stack's DB volume (all data). Continue? [y/N] " ans
 case "$ans" in
   y|Y) ;;
   *) echo "Cancelled."; exit 0 ;;
 esac
 
 docker compose down -v
-echo "Removed the pgrest containers, network, and data + jwks volumes (image kept)."
+echo "Removed the PostgREST stack's containers, network, and data + jwks volumes (image kept)."

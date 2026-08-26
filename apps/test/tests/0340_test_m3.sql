@@ -1,4 +1,6 @@
 -- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
+-- Fixtures: nwind permissions nwind:view / nwind:manage and role 'Northwind Sales' (apps/nwind);
+-- the in-test hierarchy edges are added under user:manage (no persisted edge from there).
 BEGIN;
 
 SELECT plan(55);
@@ -116,9 +118,9 @@ SELECT is(
 );
 
 SELECT is(
-    (SELECT slug FROM roles WHERE role_name = 'Sales User'),
-    'sales_user',
-    'roles.slug auto-generated from role_name (Sales User -> sales_user)'
+    (SELECT slug FROM roles WHERE role_name = 'Northwind Sales'),
+    'northwind_sales',
+    'roles.slug auto-generated from role_name (Northwind Sales -> northwind_sales)'
 );
 
 -- Test explicit slug
@@ -193,13 +195,13 @@ SELECT is(
 INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
 SELECT p1.id, p2.id, 'model'
 FROM permissions p1, permissions p2
-WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:read';
+WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:view';
 
 SELECT is(
     (SELECT origin FROM permission_hierarchy ph
      JOIN permissions p1 ON ph.including_permission_id = p1.id
      JOIN permissions p2 ON ph.included_permission_id = p2.id
-     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:read'),
+     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:view'),
     'model',
     'permission_hierarchy.origin can be set to model'
 );
@@ -209,7 +211,7 @@ SELECT throws_ok(
     $$INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
       SELECT p1.id, p2.id, 'invalid'
       FROM permissions p1, permissions p2
-      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage'$$,
+      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage'$$,
     '23514',
     NULL,
     'permission_hierarchy.origin rejects invalid values'
@@ -219,13 +221,13 @@ SELECT throws_ok(
 INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
 SELECT p1.id, p2.id, 'model_master'
 FROM permissions p1, permissions p2
-WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage';
+WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage';
 
 SELECT is(
     (SELECT origin FROM permission_hierarchy ph
      JOIN permissions p1 ON ph.including_permission_id = p1.id
      JOIN permissions p2 ON ph.included_permission_id = p2.id
-     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'sales:manage'),
+     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage'),
     'model_master',
     'permission_hierarchy.origin can be set to model_master'
 );

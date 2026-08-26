@@ -1,6 +1,6 @@
 /**
  * Retest command implementation
- * Combines dropall + migrate --apps test,nwind + test into a single command
+ * Combines dropall + migrate --apps nwind,test + test into a single command
  */
 
 import { dropallCommand } from "./dropall.ts";
@@ -27,8 +27,8 @@ export async function retestCommand(
   console.log("\n--- Step 1/3: dropall ---");
   await dropallCommand(databaseUrl, true, false);
 
-  console.log("\n--- Step 2/3: migrate --apps test,nwind ---");
-  await migrateCommand("test,nwind", databaseUrl, false);
+  console.log("\n--- Step 2/3: migrate --apps nwind,test ---");
+  await migrateCommand("nwind,test", databaseUrl, false);
 
   console.log("\n--- Step 3/3: test ---");
   await testCommand(databaseUrl, false, failFast);

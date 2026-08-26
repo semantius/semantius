@@ -11,7 +11,7 @@
 -- Fixtures: user3 = Administrator; user1/user2 = non-admin.
 BEGIN;
 
-SELECT plan(6);
+SELECT plan(4);
 
 SELECT authenticate_as('user3');
 
@@ -61,22 +61,13 @@ BEGIN
     VALUES ('for user1', v_u1), ('for user2', v_u2), ('unassigned', NULL);
 END $$;
 
-SELECT is(
-    (SELECT count(*)::int FROM em_rule_test),
-    3,
-    'admin sees all 3 rows through the rule');
-
+-- (admin-sees-all and the visible-row label value are covered by 0330_test_select_rule.)
 SELECT authenticate_as('user1');
 
 SELECT is(
     (SELECT count(*)::int FROM em_rule_test),
     1,
     'user1 sees only their own row — the select_rule is enforced after the toggle');
-
-SELECT is(
-    (SELECT label FROM em_rule_test),
-    'for user1',
-    'the single visible row is user1''s own');
 
 SELECT * FROM finish();
 ROLLBACK;

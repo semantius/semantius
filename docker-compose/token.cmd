@@ -1,8 +1,8 @@
 @echo off
 REM Mint a JWT for a test user and print it, to paste into the Scalar docs
 REM "Authentication" box or use with curl.
-REM   pg-rest-token.cmd            (default user1)
-REM   pg-rest-token.cmd user2
+REM   token.cmd            (default user1)
+REM   token.cmd user2
 REM Test-issuer users: user1 (John Smith), user2 (Maria Garcia), user3 (Wei Chen).
 cd /d "%~dp0"
 

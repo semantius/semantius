@@ -316,19 +316,19 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: Seed data has searchable fields marked
+-- TEST: nwind sample data has searchable fields marked
 -- =====================================================
 
--- Verify customers_test table has searchable fields
+-- Verify customers table has searchable fields
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'customers_test' AND searchable = TRUE) >= 3,
-    'customers_test table should have at least 3 searchable fields (email, company, phone, etc.)'
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'customers' AND searchable = TRUE) >= 3,
+    'customers table should have at least 3 searchable fields (company_name, customer_id, contact_name, city, country)'
 );
 
--- Verify employees_test table has searchable fields  
+-- Verify employees table has searchable fields
 SELECT ok(
-    (SELECT COUNT(*) FROM fields WHERE table_name = 'employees_test' AND searchable = TRUE) >= 3,
-    'employees_test table should have at least 3 searchable fields (email, department, position)'
+    (SELECT COUNT(*) FROM fields WHERE table_name = 'employees' AND searchable = TRUE) >= 3,
+    'employees table should have at least 3 searchable fields (last_name, first_name, city, country)'
 );
 
 
@@ -449,8 +449,8 @@ SELECT ok(
 
 -- Test FTS works on modules core table
 SELECT ok(
-    (SELECT COUNT(*) FROM modules WHERE search_vector @@ to_tsquery('simple', 'CRM')) >= 1,
-    'Full-text search should find "CRM" in modules table'
+    (SELECT COUNT(*) FROM modules WHERE search_vector @@ to_tsquery('simple', 'Northwind')) >= 1,
+    'Full-text search should find "Northwind" in modules table'
 );
 
 -- Test FTS works on roles core table

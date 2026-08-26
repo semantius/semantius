@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# pg-rest-test.sh  -  Test the EXACT pgrest deployment behavior end to end: a FRESH
+# test.sh  -  Test the EXACT PostgREST deployment behavior end to end: a FRESH
 # container, a FRESH data volume, and `_core` installed the real way via
 # `CREATE EXTENSION pg_semantic_platform` (the whole _core install in ONE
-# transaction) — then deploy test,nwind and run the full pgTAP suite.
+# transaction) — then deploy nwind,test and run the full pgTAP suite.
 #
 # This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds the
 # stack from current source, so it also exercises the image build, the baked init
 # scripts (install-extension, authenticator-login, anon) and role bootstrap FROM
-# SCRATCH — i.e. the real production install path. It is the pgrest twin of
+# SCRATCH — i.e. the real production install path. It is the PostgREST twin of
 # pgdocker/pg-ext-retest.sh.
 #
 # Why recreate instead of reset-in-place? Local Docker makes a fresh container
@@ -17,23 +17,23 @@
 # `_core` via the migrate path (per-file BEGIN/COMMIT), which cannot see the
 # single-transaction CREATE EXTENSION defects this script is built to catch.
 #
-# DESTRUCTIVE: wipes the pgrest data volume and rebuilds the stack. PROMPTS for
-# confirmation first (like pg-rest-destroy.sh); bypass with -y/--yes or ASSUME_YES=1
-# / CI=true. Afterwards the stack holds the test,nwind fixtures; run
-# ./pg-rest-create.sh for a clean semantius again.
+# DESTRUCTIVE: wipes the stack's data volume and rebuilds it. PROMPTS for
+# confirmation first (like destroy.sh); bypass with -y/--yes or ASSUME_YES=1
+# / CI=true. Afterwards the stack holds the nwind,test fixtures; run
+# ./create.sh for a clean semantius again.
 #
 # Steps:
 #   0. deno task extension <ver>   regenerate the extension SQL from the CURRENT
 #                     migrations so the rebuilt image bakes what you just changed
 #                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1).
-#   1. down -v        wipe the pgrest stack + its data volume.
-#   2. pg-rest-create rebuild the semantius-db image + bring the stack up fresh;
+#   1. down -v        wipe the PostgREST stack + its data volume.
+#   2. create         rebuild the semantius-db image + bring the stack up fresh;
 #                     init runs CREATE EXTENSION (installs _core in ONE txn, seeds
 #                     the _versions guard rows).
 #   3. readiness gate poll pg_extension until the extension is present (the
 #                     pg_isready healthcheck can go green before init finishes).
-#   4. migrate --apps test,nwind   migrate auto-prepends _core, SKIPPED because the
-#                     extension seeded _versions; only test,nwind deploy.
+#   4. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED because the
+#                     extension seeded _versions; only nwind,test deploy.
 #   5. test           run the full pgTAP suite against the extension DB.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -54,13 +54,13 @@ PORT="$(read_env POSTGRES_PORT)";  PORT="${PORT:-5434}"
 DB="$(read_env POSTGRES_DB)";      DB="${DB:-semantius}"
 REST_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
-# Safety: this DESTROYS the running pgrest stack + its data volume (down -v) and
-# rebuilds it. Confirm before any changes — same guard as pg-rest-destroy.sh.
+# Safety: this DESTROYS the running PostgREST stack + its data volume (down -v) and
+# rebuilds it. Confirm before any changes — same guard as destroy.sh.
 # Bypass for automation: pass -y/--yes, or set ASSUME_YES=1 or CI=true.
 FORCE=0
 case "${1:-}" in -y|--yes) FORCE=1 ;; esac
 if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" ]; then
-  read -r -p "This DESTROYS the running pgrest stack and WIPES its data volume ('${DB}', all data), then rebuilds. Continue? [y/N] " ans
+  read -r -p "This DESTROYS the running PostgREST stack and WIPES its data volume ('${DB}', all data), then rebuilds. Continue? [y/N] " ans
   case "$ans" in
     y|Y) ;;
     *) echo "Cancelled."; exit 0 ;;
@@ -81,11 +81,11 @@ if [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
   ( cd "$REPO_ROOT" && deno task extension "$VERSION" )
 fi
 
-echo "== [1/5] Resetting the pgrest stack (down -v) =="
+echo "== [1/5] Resetting the PostgREST stack (down -v) =="
 docker compose down -v
 
 echo "== [2/5] Rebuilding the image + bringing the stack up fresh =="
-"$SCRIPT_DIR/pg-rest-create.sh"
+"$SCRIPT_DIR/create.sh"
 
 echo "== [3/5] Waiting for the pg_semantic_platform extension to install =="
 # Tolerate early connection refused / empty results while init runs.
@@ -101,13 +101,13 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
 done
 echo "Extension present."
 
-echo "== [4/5] Deploying test,nwind (migrate skips the seeded _core) =="
-( cd "$REPO_ROOT" && deno task migrate --apps test,nwind --database-url "$REST_URL" )
+echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
+( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$REST_URL" )
 
 echo "== [5/5] Running the pgTAP suite against the extension DB =="
 ( cd "$REPO_ROOT" && deno task test --database-url "$REST_URL" )
 
 echo
-echo "pg-rest-test complete. If all tests are green, the CREATE EXTENSION"
-echo "install of _core is equivalent to the migrate install. Run ./pg-rest-create.sh"
-echo "for a clean semantius (this left the test,nwind fixtures in place)."
+echo "Test complete. If all tests are green, the CREATE EXTENSION"
+echo "install of _core is equivalent to the migrate install. Run ./create.sh"
+echo "for a clean semantius (this left the nwind,test fixtures in place)."

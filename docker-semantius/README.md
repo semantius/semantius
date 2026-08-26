@@ -7,8 +7,9 @@ ghcr.io/adenin-platform/semantius-db:<version>   # + :latest
 ```
 
 It is **PostgreSQL 18 with the `pg_semantic_platform` extension installed and the
-whole runtime baked in**, so a consumer stack (see [`../pgrest`](../pgrest)) is
-*just a docker-compose file* — it mounts nothing from the host. On a fresh data
+whole runtime baked in**, so a consumer stack (see
+[`../docker-compose`](../docker-compose/README.md)) is *just a docker-compose
+file* — it mounts nothing from the host. On a fresh data
 volume the image, driven by a few env vars, sets up:
 
 | Baked-in step (`initdb/`) | Does |
@@ -79,11 +80,11 @@ Both `build.sh` and CI (`.github/workflows/extension-release.yml`) build with th
 Build locally, then any consumer stack uses the `:latest` tag without pulling:
 
 ```bash
-./docker-semantius/build.sh          # from repo root
-cd pgrest && docker compose up -d    # uses the local image
+./docker-semantius/build.sh                # from repo root
+cd docker-compose && docker compose up -d  # uses the local image
 ```
 
-`pgrest/pg-rest-create.sh` runs `build.sh` for you.
+`docker-compose/create.sh` runs `build.sh` for you.
 
 ## Publishing
 
@@ -102,7 +103,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 
 ## Consuming it
 
-`pgrest/docker-compose.yml` references
+`docker-compose/docker-compose.yml` references
 `ghcr.io/adenin-platform/semantius-db:${SEMANTIUS_DB_VERSION:-latest}`. Pin
 `SEMANTIUS_DB_VERSION` in `.env` for reproducible/server deploys; leave it at
 `latest` to track your local build.

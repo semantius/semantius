@@ -4,12 +4,41 @@
 -- Validates the RACI catalog entities, SQL functions,
 -- JsonLogic operators, emit trigger, and queue wiring.
 -- All operations run as admin (user3) unless noted.
+--
+-- Fixtures: the governed entity is an ephemeral DD entity `raci_probe` created
+-- in-tx (module 1, public:read / admin) with a declared `status` enum field
+-- (draft | approved | rejected, default 'draft') — no raw ALTER TABLE, no owner
+-- dance. Three rows are inserted and their ids captured in a TEMP table:
+-- probe_a (manually inserted events), probe_b (emit-trigger transitions),
+-- probe_c (queue wiring). RACI roles: R/C = Northwind Sales (apps/nwind),
+-- A = Administrator, I = User. The emit-trigger INSTALLER (install/drop on the
+-- emits_events toggle) is covered by 0400_test_raci_gates_emit_trigger.sql.
 BEGIN;
 
-SELECT plan(68);
+SELECT plan(66);
 
 -- Authenticate as admin for all RACI setup
 SELECT authenticate_as('user3');
+
+-- =====================================================
+-- FIXTURES: governed DD entity (ephemeral, rolled back)
+-- =====================================================
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label,
+                      description, module_id, view_permission, edit_permission,
+                      id_column, label_column)
+VALUES ('raci_probe', 'raci_probe', 'raci_probes', 'RACI Probe', 'RACI Probes',
+        'raci runtime test entity', 1, 'public:read', 'admin', 'id', 'name');
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+VALUES ('raci_probe', 'status', 'Status', 'enum', 'required',
+        '["draft", "approved", "rejected"]'::jsonb, 'draft');
+
+INSERT INTO raci_probe (name) VALUES ('probe_a'), ('probe_b'), ('probe_c');
+
+CREATE TEMP TABLE _rp ON COMMIT DROP AS
+SELECT (SELECT id FROM raci_probe WHERE name = 'probe_a') AS a_id,
+       (SELECT id FROM raci_probe WHERE name = 'probe_b') AS b_id,
+       (SELECT id FROM raci_probe WHERE name = 'probe_c') AS c_id;
 
 -- =====================================================
 -- GROUP 1: users.is_agent column
@@ -192,7 +221,7 @@ SELECT is(
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'responsible', r.id, 'read'
 FROM   processes p, roles r
-WHERE  p.process_key = 'make_offer' AND r.role_name = 'Sales User';
+WHERE  p.process_key = 'make_offer' AND r.role_name = 'Northwind Sales';
 
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'accountable', r.id, 'read'
@@ -202,12 +231,12 @@ WHERE  p.process_key = 'make_offer' AND r.role_name = 'Administrator';
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'consulted', r.id, 'block'
 FROM   processes p, roles r
-WHERE  p.process_key = 'make_offer' AND r.role_name = 'Sales User';
+WHERE  p.process_key = 'make_offer' AND r.role_name = 'Northwind Sales';
 
 -- Informed is held by `User` (role id 1) — deliberately a DIFFERENT role from
--- Consulted (`Sales User`) and Accountable (`Administrator`) so the emit tests
--- below can assert C and I in isolation (a bug emitting two consulted / zero
--- informed would otherwise pass when C and I share a role).
+-- Consulted (`Northwind Sales`) and Accountable (`Administrator`) so the emit
+-- tests below can assert C and I in isolation (a bug emitting two consulted /
+-- zero informed would otherwise pass when C and I share a role).
 INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'informed', r.id, 'read'
 FROM   processes p, roles r
@@ -236,7 +265,7 @@ SELECT throws_ok(
     $$INSERT INTO raci_assignments (process_id, raci, role_id)
       SELECT p.id, 'accountable', r.id
       FROM   processes p, roles r
-      WHERE  p.process_key = 'make_offer' AND r.role_name = 'Sales User'$$,
+      WHERE  p.process_key = 'make_offer' AND r.role_name = 'Northwind Sales'$$,
     '23505',
     NULL,
     'At most one accountable per process should be enforced'
@@ -269,7 +298,7 @@ SELECT ok(
 -- Test 28: gate_kind validation
 SELECT throws_ok(
     $$INSERT INTO process_gates (process_id, entity, gate_kind, to_state)
-      SELECT id, 'departments', 'bad_kind', 'approved'
+      SELECT id, 'raci_probe', 'bad_kind', 'approved'
       FROM processes WHERE process_key = 'make_offer'$$,
     '23514',
     NULL,
@@ -278,13 +307,13 @@ SELECT throws_ok(
 
 -- Test 29: Insert a valid process_gate
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
-SELECT id, 'departments', 'approval', 'approved', 'status', FALSE
+SELECT id, 'raci_probe', 'approval', 'approved', 'status', FALSE
 FROM   processes WHERE process_key = 'make_offer';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM process_gates
-        WHERE entity = 'departments' AND to_state = 'approved' AND emits_events = FALSE
+        WHERE entity = 'raci_probe' AND to_state = 'approved' AND emits_events = FALSE
     )),
     'process_gate should be insertable for admin'
 );
@@ -292,7 +321,7 @@ SELECT ok(
 -- Test 29b: computed `name` label mirrors the gate_kind enum value
 SELECT is(
     (SELECT name FROM process_gates
-     WHERE entity = 'departments' AND to_state = 'approved'),
+     WHERE entity = 'raci_probe' AND to_state = 'approved'),
     'approval',
     'process_gates.name (computed) should mirror gate_kind'
 );
@@ -300,7 +329,7 @@ SELECT is(
 -- Test 30: emits_events defaults FALSE
 SELECT is(
     (SELECT emits_events FROM process_gates
-     WHERE entity = 'departments' AND to_state = 'approved'),
+     WHERE entity = 'raci_probe' AND to_state = 'approved'),
     FALSE,
     'emits_events should default to FALSE'
 );
@@ -308,7 +337,7 @@ SELECT is(
 -- Test 31: state_column defaults to status
 SELECT is(
     (SELECT state_column FROM process_gates
-     WHERE entity = 'departments' AND to_state = 'approved'),
+     WHERE entity = 'raci_probe' AND to_state = 'approved'),
     'status',
     'state_column should default to status'
 );
@@ -327,7 +356,7 @@ SELECT is(
 -- Test 33: raci field restricted to consulted/informed
 SELECT throws_ok(
     $$INSERT INTO raci_events (process_id, entity, record_id, raci, target_role_id, status)
-      SELECT p.id, 'departments', '1', 'accountable', r.id, 'pending'
+      SELECT p.id, 'raci_probe', (SELECT a_id::text FROM _rp), 'accountable', r.id, 'pending'
       FROM processes p, roles r
       WHERE p.process_key = 'make_offer' AND r.role_name = 'Administrator'$$,
     '23514',
@@ -338,7 +367,7 @@ SELECT throws_ok(
 -- Test 34: status validation
 SELECT throws_ok(
     $$INSERT INTO raci_events (process_id, entity, record_id, raci, target_role_id, status)
-      SELECT p.id, 'departments', '1', 'consulted', r.id, 'bad_status'
+      SELECT p.id, 'raci_probe', (SELECT a_id::text FROM _rp), 'consulted', r.id, 'bad_status'
       FROM processes p, roles r
       WHERE p.process_key = 'make_offer' AND r.role_name = 'Administrator'$$,
     '23514',
@@ -346,16 +375,16 @@ SELECT throws_ok(
     'raci_events.status must be pending, sent, or acted'
 );
 
--- Test 35: Insert a valid raci_event manually
+-- Test 35: Insert a valid raci_event manually (for probe_a)
 INSERT INTO raci_events (process_id, entity, record_id, raci, target_role_id, status)
-SELECT p.id, 'departments', '1', 'consulted', r.id, 'pending'
+SELECT p.id, 'raci_probe', (SELECT a_id::text FROM _rp), 'consulted', r.id, 'pending'
 FROM   processes p, roles r
 WHERE  p.process_key = 'make_offer' AND r.role_name = 'Administrator';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM raci_events
-        WHERE entity = 'departments' AND record_id = '1' AND raci = 'consulted'
+        WHERE entity = 'raci_probe' AND record_id = (SELECT a_id::text FROM _rp) AND raci = 'consulted'
     )),
     'Valid raci_event should be insertable'
 );
@@ -363,7 +392,7 @@ SELECT ok(
 -- Test 36: acted_at is nullable by default
 SELECT ok(
     (SELECT acted_at IS NULL FROM raci_events
-     WHERE entity = 'departments' AND record_id = '1'),
+     WHERE entity = 'raci_probe' AND record_id = (SELECT a_id::text FROM _rp)),
     'raci_events.acted_at should be NULL by default'
 );
 
@@ -390,14 +419,14 @@ SELECT ok(
 
 -- Test 39: Returns TRUE for user3 (Administrator = accountable for make_offer/approved)
 SELECT is(
-    is_raci_actor('departments', 'approved', 'accountable'),
+    is_raci_actor('raci_probe', 'approved', 'accountable'),
     TRUE,
     'is_raci_actor should return TRUE for user3 as accountable'
 );
 
 -- Test 40: Returns FALSE for wrong letter
 SELECT is(
-    is_raci_actor('departments', 'approved', 'responsible'),
+    is_raci_actor('raci_probe', 'approved', 'responsible'),
     FALSE,
     'is_raci_actor should return FALSE when user does not hold that letter'
 );
@@ -425,7 +454,7 @@ SELECT ok(
 
 -- Test 43: Returns FALSE when event is still pending
 SELECT is(
-    has_consultation('departments', 'approved', '1'),
+    has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp)),
     FALSE,
     'has_consultation should return FALSE when consulted event is pending'
 );
@@ -433,10 +462,10 @@ SELECT is(
 -- Test 44: Returns TRUE after event is acted
 UPDATE raci_events
 SET    status = 'acted', acted_at = CURRENT_TIMESTAMP
-WHERE  entity = 'departments' AND record_id = '1' AND raci = 'consulted';
+WHERE  entity = 'raci_probe' AND record_id = (SELECT a_id::text FROM _rp) AND raci = 'consulted';
 
 SELECT is(
-    has_consultation('departments', 'approved', '1'),
+    has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp)),
     TRUE,
     'has_consultation should return TRUE after consulted event is acted'
 );
@@ -472,7 +501,7 @@ SELECT ok(
 -- Test 47: is_raci_actor operator returns true
 SELECT is(
     evaluate_json_logic(
-        '{"is_raci_actor": ["departments", "approved", "accountable"]}'::jsonb,
+        '{"is_raci_actor": ["raci_probe", "approved", "accountable"]}'::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
@@ -482,7 +511,7 @@ SELECT is(
 -- Test 48: is_raci_actor operator returns false
 SELECT is(
     evaluate_json_logic(
-        '{"is_raci_actor": ["departments", "approved", "responsible"]}'::jsonb,
+        '{"is_raci_actor": ["raci_probe", "approved", "responsible"]}'::jsonb,
         '{}'::jsonb
     ),
     'false'::jsonb,
@@ -492,7 +521,8 @@ SELECT is(
 -- Test 49: has_consultation operator returns true (event acted above)
 SELECT is(
     evaluate_json_logic(
-        '{"has_consultation": ["departments", "approved", "1"]}'::jsonb,
+        jsonb_build_object('has_consultation',
+            jsonb_build_array('raci_probe', 'approved', (SELECT a_id::text FROM _rp))),
         '{}'::jsonb
     ),
     'true'::jsonb,
@@ -502,7 +532,7 @@ SELECT is(
 -- Test 50: has_consultation operator returns false for unknown record
 SELECT is(
     evaluate_json_logic(
-        '{"has_consultation": ["departments", "approved", "999"]}'::jsonb,
+        '{"has_consultation": ["raci_probe", "approved", "999"]}'::jsonb,
         '{}'::jsonb
     ),
     'false'::jsonb,
@@ -513,7 +543,7 @@ SELECT is(
 SELECT is(
     evaluate_json_logic(
         '{"if": [
-            {"is_raci_actor": ["departments", "approved", "accountable"]},
+            {"is_raci_actor": ["raci_probe", "approved", "accountable"]},
             "yes",
             "no"
          ]}'::jsonb,
@@ -524,28 +554,14 @@ SELECT is(
 );
 
 -- =====================================================
--- GROUP 11: Emit trigger
+-- GROUP 11: Emit trigger (runtime behaviour)
 -- =====================================================
--- Add a status column to departments for testing state transitions.
--- ALTER TABLE requires owner privileges, so reset role first.
-RESET ROLE;
-ALTER TABLE departments ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
--- Re-authenticate as admin
-SELECT authenticate_as('user3');
-
--- Enable emit for the gate → triggers trigger installation
+-- raci_probe already has the declared `status` column (enum, default 'draft').
+-- Enable emit for the gate; the installer puts raci_emit_on_raci_probe on the
+-- table (install/drop on the toggle is asserted in 0400, not here).
 UPDATE process_gates
 SET    emits_events = TRUE
-WHERE  entity = 'departments' AND to_state = 'approved';
-
--- Test 52: Trigger installed when emits_events = TRUE
-SELECT ok(
-    (SELECT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'raci_emit_on_departments'
-    )),
-    'raci_emit_on_departments trigger should be installed when emits_events=TRUE'
-);
+WHERE  entity = 'raci_probe' AND to_state = 'approved';
 
 -- Test 53: raci_emit_trigger_fn function exists
 SELECT ok(
@@ -557,17 +573,17 @@ SELECT ok(
     'raci_emit_trigger_fn trigger function should exist'
 );
 
--- Clean any existing events for record 2 before transition tests
-DELETE FROM raci_events WHERE entity = 'departments' AND record_id = '2';
+-- Clean any existing events for probe_b before transition tests
+DELETE FROM raci_events WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp);
 
--- Transition department 2 → 'approved': emit trigger should fire
-UPDATE departments SET status = 'approved' WHERE id = 2;
+-- Transition probe_b → 'approved': emit trigger should fire
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT b_id FROM _rp);
 
 -- Test 54: Events created for C/I actors
 SELECT ok(
     (SELECT COUNT(*) >= 1
      FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'),
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'),
     'Emit trigger should insert raci_events on status transition to approved'
 );
 
@@ -575,7 +591,7 @@ SELECT ok(
 SELECT ok(
     (SELECT NOT EXISTS (
         SELECT 1 FROM raci_events
-        WHERE entity = 'departments' AND record_id = '2'
+        WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp)
           AND raci NOT IN ('consulted', 'informed')
     )),
     'Emit trigger should only insert events for consulted/informed actors'
@@ -584,23 +600,23 @@ SELECT ok(
 -- Test 56: Exact count matches C/I assignment count for this process
 SELECT is(
     (SELECT COUNT(*)::integer FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'),
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'),
     (SELECT COUNT(*)::integer FROM raci_assignments ra
      JOIN processes p ON p.id = ra.process_id
      WHERE p.process_key = 'make_offer' AND ra.raci IN ('consulted', 'informed')),
     'Number of raci_events should match C/I assignment count'
 );
 
--- Test 56b: exactly ONE consulted event, targeting the Consulted role (Sales User).
+-- Test 56b: exactly ONE consulted event, targeting the Consulted role (Northwind Sales).
 -- With C and I on distinct roles this isolates the consulted letter — a bug that
 -- emitted two consulted events (or mislabelled informed as consulted) fails here.
 SELECT is(
     (SELECT COUNT(*)::integer FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'
        AND raci = 'consulted'
-       AND target_role_id = (SELECT id FROM roles WHERE role_name = 'Sales User')),
+       AND target_role_id = (SELECT id FROM roles WHERE role_name = 'Northwind Sales')),
     1,
-    'Emit should create exactly one consulted event targeting the Sales User role'
+    'Emit should create exactly one consulted event targeting the Northwind Sales role'
 );
 
 -- Test 56c: exactly ONE informed event, targeting the Informed role (User).
@@ -608,7 +624,7 @@ SELECT is(
 -- into the consulted count.
 SELECT is(
     (SELECT COUNT(*)::integer FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'
        AND raci = 'informed'
        AND target_role_id = (SELECT id FROM roles WHERE role_name = 'User')),
     1,
@@ -616,11 +632,11 @@ SELECT is(
 );
 
 -- Test 57: Re-entering the same state does NOT create duplicate events
-UPDATE departments SET status = 'approved' WHERE id = 2;   -- already approved → no re-emit
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT b_id FROM _rp);   -- already approved → no re-emit
 
 SELECT is(
     (SELECT COUNT(*)::integer FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'),
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'),
     (SELECT COUNT(*)::integer FROM raci_assignments ra
      JOIN processes p ON p.id = ra.process_id
      WHERE p.process_key = 'make_offer' AND ra.raci IN ('consulted', 'informed')),
@@ -628,28 +644,15 @@ SELECT is(
 );
 
 -- Test 58: Transitioning away then back DOES emit again
-DELETE FROM raci_events WHERE entity = 'departments' AND record_id = '2';
-UPDATE departments SET status = 'draft'    WHERE id = 2;
-UPDATE departments SET status = 'approved' WHERE id = 2;
+DELETE FROM raci_events WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp);
+UPDATE raci_probe SET status = 'draft'    WHERE id = (SELECT b_id FROM _rp);
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT b_id FROM _rp);
 
 SELECT ok(
     (SELECT COUNT(*) >= 1
      FROM raci_events
-     WHERE entity = 'departments' AND record_id = '2' AND status = 'pending'),
+     WHERE entity = 'raci_probe' AND record_id = (SELECT b_id::text FROM _rp) AND status = 'pending'),
     'Transitioning back to approved should create new raci_events'
-);
-
--- Test 59: Disabling emits_events drops the trigger
-UPDATE process_gates
-SET    emits_events = FALSE
-WHERE  entity = 'departments' AND to_state = 'approved';
-
-SELECT ok(
-    (SELECT NOT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'raci_emit_on_departments'
-    )),
-    'raci_emit_on_departments trigger should be dropped when emits_events=FALSE'
 );
 
 -- =====================================================
@@ -675,9 +678,7 @@ SELECT ok(
 );
 
 -- Test 62: Inserting a raci_event triggers a queue message
--- Re-enable the gate so a fresh insert fires the queue trigger
-UPDATE process_gates SET emits_events = TRUE
-WHERE  entity = 'departments' AND to_state = 'approved';
+-- (the gate is still emits_events = TRUE from group 11)
 
 -- Purge any existing messages from earlier steps
 RESET ROLE;
@@ -689,10 +690,10 @@ SET ROLE semantius_user;
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', 'user3', true);
 
--- Clear old events and trigger a fresh transition
-DELETE FROM raci_events WHERE entity = 'departments' AND record_id = '3';
-UPDATE departments SET status = 'draft'    WHERE id = 3;
-UPDATE departments SET status = 'approved' WHERE id = 3;
+-- Clear old events and trigger a fresh transition on probe_c
+DELETE FROM raci_events WHERE entity = 'raci_probe' AND record_id = (SELECT c_id::text FROM _rp);
+UPDATE raci_probe SET status = 'draft'    WHERE id = (SELECT c_id FROM _rp);
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT c_id FROM _rp);
 
 -- Read the queue ONCE as owner (pgmq requires elevated access; a second read in
 -- this txn would hit the visibility timeout) and capture the messages so several
@@ -719,13 +720,13 @@ SELECT ok(
 );
 
 -- Test 62c: each message's id_value matches an actually-inserted raci_events row
--- (the C/I events emitted for the record-3 transition), proving the payload
+-- (the C/I events emitted for the probe_c transition), proving the payload
 -- identifies the real row, not a placeholder.
 SELECT ok(
     (SELECT bool_and(
                 (message->>'id_value')::integer IN (
                     SELECT id FROM raci_events
-                    WHERE entity = 'departments' AND record_id = '3'
+                    WHERE entity = 'raci_probe' AND record_id = (SELECT c_id::text FROM _rp)
                 ))
      FROM _raci_notify_msgs
      WHERE message->>'table' = 'raci_events'),

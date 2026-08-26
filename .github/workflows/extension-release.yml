@@ -92,7 +92,7 @@ jobs:
       # --- Publish the DB image (PostgreSQL 18 + extension) to GHCR -----------
       # The extension files were generated above, so the build context already
       # has them. Publishes ghcr.io/<owner>/semantius-db:<version> + :latest,
-      # consumed by pgrest/docker-compose.yml and any Dokploy template.
+      # consumed by docker-compose/docker-compose.yml and any Dokploy template.
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:

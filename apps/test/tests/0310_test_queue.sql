@@ -1,4 +1,11 @@
 -- Test queue system: queues entity, queue_table_events, triggers, and RPC functions
+--
+-- Handler targets are nwind sample tables (apps/nwind): categories (insert),
+-- shippers (update), suppliers (delete) and regions (change). All four have a
+-- single required label column with defaults on everything else, so plain
+-- label-only INSERTs work, and nwind resets every sequence after its data load.
+-- `orders` already carries the persisted 'Order created' mapping
+-- (queue_table_events.table_name is unique), so it is never mapped here.
 BEGIN;
 
 SELECT plan(41);
@@ -159,23 +166,23 @@ SELECT throws_ok(
 -- TEST: Add event handler, verify trigger creation
 -- =====================================================
 
--- Use customers_test as target table (from seed data)
+-- Use nwind categories as the insert target
 -- Test 20: Insert event handler for insert events
 INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-SELECT id, 'customer insert event', 'customers_test', 'insert'
+SELECT id, 'category insert event', 'categories', 'insert'
 FROM queues WHERE queue_name = 'test_q1';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q1_insert_on_customers_test'
+        WHERE tgname = 'queue_test_q1_insert_on_categories'
     )),
-    'Insert event handler should create trigger on customers_test'
+    'Insert event handler should create trigger on categories'
 );
 
 -- Test 21: Changing table_name on event should raise error
 SELECT throws_ok(
-    $$UPDATE queue_table_events SET table_name = 'employees_test' WHERE table_name = 'customers_test'$$,
+    $$UPDATE queue_table_events SET table_name = 'shippers' WHERE table_name = 'categories'$$,
     'Cannot change table_name on a queue table event',
     'Changing table_name on event should raise error'
 );
@@ -184,19 +191,19 @@ SELECT throws_ok(
 -- TEST: Event handlers queue records for insert
 -- =====================================================
 
--- Test 22: Insert a record into customers_test and verify message is queued
-INSERT INTO customers_test (customer_name) VALUES ('Queue Test Customer');
+-- Test 22: Insert a record into categories and verify message is queued
+INSERT INTO categories (category_name) VALUES ('Queue Test Category');
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10) WHERE message->>'op' = 'INSERT'),
-    'Insert into customers_test should queue a message with op INSERT'
+    'Insert into categories should queue a message with op INSERT'
 );
 
 -- Test 23: Queued message should contain id_field and id_value matching the inserted record
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
      WHERE message->>'id_field' = 'id'
-       AND (message->'id_value')::bigint = (SELECT MAX(id) FROM customers_test WHERE customer_name = 'Queue Test Customer')),
+       AND (message->'id_value')::bigint = (SELECT MAX(id) FROM categories WHERE category_name = 'Queue Test Category')),
     'Queued message should contain id_field=id and id_value matching the inserted record id'
 );
 
@@ -214,37 +221,37 @@ SELECT ok(
 
 -- Test 24: Create update event handler
 INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-SELECT id, 'employee update event', 'employees_test', 'update'
+SELECT id, 'shipper update event', 'shippers', 'update'
 FROM queues WHERE queue_name = 'test_q1';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q1_update_on_employees_test'
+        WHERE tgname = 'queue_test_q1_update_on_shippers'
     )),
-    'Update event handler should create trigger on employees_test'
+    'Update event handler should create trigger on shippers'
 );
 
--- Test 25: Insert into employees_test should NOT trigger (update handler only)
+-- Test 25: Insert into shippers should NOT trigger (update handler only)
 -- First purge existing messages
 SELECT pgmq.delete('test_q1', msg_id) FROM pgmq.read('test_q1', 0, 100);
 
-INSERT INTO employees_test (full_name) VALUES ('Queue Test Employee');
+INSERT INTO shippers (company_name) VALUES ('Queue Test Shipper');
 
 SELECT is(
     (SELECT COUNT(*)::integer FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->>'table' = 'employees_test' AND message->>'op' = 'INSERT'),
+     WHERE message->>'table' = 'shippers' AND message->>'op' = 'INSERT'),
     0,
-    'Insert into employees_test should NOT queue a message (update handler only)'
+    'Insert into shippers should NOT queue a message (update handler only)'
 );
 
--- Test 26: Update employees_test SHOULD trigger
-UPDATE employees_test SET full_name = 'Updated Employee' WHERE full_name = 'Queue Test Employee';
+-- Test 26: Update shippers SHOULD trigger
+UPDATE shippers SET company_name = 'Updated Shipper' WHERE company_name = 'Queue Test Shipper';
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->>'table' = 'employees_test' AND message->>'op' = 'UPDATE'),
-    'Update of employees_test should queue a message with op UPDATE'
+     WHERE message->>'table' = 'shippers' AND message->>'op' = 'UPDATE'),
+    'Update of shippers should queue a message with op UPDATE'
 );
 
 -- =====================================================
@@ -253,37 +260,37 @@ SELECT ok(
 
 -- Test 27: Create delete event handler
 INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-SELECT id, 'product delete event', 'products_test', 'delete'
+SELECT id, 'supplier delete event', 'suppliers', 'delete'
 FROM queues WHERE queue_name = 'test_q1';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q1_delete_on_products_test'
+        WHERE tgname = 'queue_test_q1_delete_on_suppliers'
     )),
-    'Delete event handler should create trigger on products_test'
+    'Delete event handler should create trigger on suppliers'
 );
 
 -- Purge messages
 SELECT pgmq.delete('test_q1', msg_id) FROM pgmq.read('test_q1', 0, 100);
 
--- Test 28: Insert into products_test should NOT trigger (delete handler only)
-INSERT INTO products_test (product_name, price) VALUES ('Queue Test Product', 9.99);
+-- Test 28: Insert into suppliers should NOT trigger (delete handler only)
+INSERT INTO suppliers (company_name) VALUES ('Queue Test Supplier');
 
 SELECT is(
     (SELECT COUNT(*)::integer FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->>'table' = 'products_test' AND message->>'op' = 'INSERT'),
+     WHERE message->>'table' = 'suppliers' AND message->>'op' = 'INSERT'),
     0,
-    'Insert into products_test should NOT queue a message (delete handler only)'
+    'Insert into suppliers should NOT queue a message (delete handler only)'
 );
 
--- Test 29: Delete from products_test SHOULD trigger
-DELETE FROM products_test WHERE product_name = 'Queue Test Product';
+-- Test 29: Delete from suppliers SHOULD trigger
+DELETE FROM suppliers WHERE company_name = 'Queue Test Supplier';
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q1', 0, 10)
-     WHERE message->>'table' = 'products_test' AND message->>'op' = 'DELETE'),
-    'Delete from products_test should queue a message with op DELETE'
+     WHERE message->>'table' = 'suppliers' AND message->>'op' = 'DELETE'),
+    'Delete from suppliers should queue a message with op DELETE'
 );
 
 -- =====================================================
@@ -293,47 +300,44 @@ SELECT ok(
 -- Create a second queue for change tests
 INSERT INTO queues (queue_name) VALUES ('test_q2');
 
--- Test 30: Create change event handler using a different target table
--- Use departments table which has explicit seed IDs; fix sequence first
-SELECT setval(pg_get_serial_sequence('departments', 'id'), (SELECT MAX(id) FROM departments));
-
+-- Test 30: Create change event handler using a different target table (regions)
 INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-SELECT id, 'department change event', 'departments', 'change'
+SELECT id, 'region change event', 'regions', 'change'
 FROM queues WHERE queue_name = 'test_q2';
 
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q2_change_on_departments'
+        WHERE tgname = 'queue_test_q2_change_on_regions'
     )),
-    'Change event handler should create trigger on departments'
+    'Change event handler should create trigger on regions'
 );
 
 -- Test 31: Insert should trigger (change = insert + update + delete)
-INSERT INTO departments (department_name) VALUES ('Queue Test Dept');
+INSERT INTO regions (region_description) VALUES ('Queue Test Region');
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q2', 0, 10)
-     WHERE message->>'table' = 'departments' AND message->>'op' = 'INSERT'),
-    'Insert into departments should queue a message (change handler covers inserts)'
+     WHERE message->>'table' = 'regions' AND message->>'op' = 'INSERT'),
+    'Insert into regions should queue a message (change handler covers inserts)'
 );
 
 -- Test 32: Update should trigger
-UPDATE departments SET department_name = 'Updated Dept' WHERE department_name = 'Queue Test Dept';
+UPDATE regions SET region_description = 'Updated Region' WHERE region_description = 'Queue Test Region';
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q2', 0, 10)
-     WHERE message->>'table' = 'departments' AND message->>'op' = 'UPDATE'),
-    'Update departments should queue a message (change handler covers updates)'
+     WHERE message->>'table' = 'regions' AND message->>'op' = 'UPDATE'),
+    'Update regions should queue a message (change handler covers updates)'
 );
 
 -- Test 33: Delete should trigger
-DELETE FROM departments WHERE department_name = 'Updated Dept';
+DELETE FROM regions WHERE region_description = 'Updated Region';
 
 SELECT ok(
     (SELECT COUNT(*) > 0 FROM pgmq.read('test_q2', 0, 10)
-     WHERE message->>'table' = 'departments' AND message->>'op' = 'DELETE'),
-    'Delete from departments should queue a message (change handler covers deletes)'
+     WHERE message->>'table' = 'regions' AND message->>'op' = 'DELETE'),
+    'Delete from regions should queue a message (change handler covers deletes)'
 );
 
 -- =====================================================
@@ -341,14 +345,14 @@ SELECT ok(
 -- =====================================================
 
 -- Test 34: Delete event handler should drop trigger
-DELETE FROM queue_table_events WHERE table_name = 'customers_test';
+DELETE FROM queue_table_events WHERE table_name = 'categories';
 
 SELECT ok(
     (SELECT NOT EXISTS (
         SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q1_insert_on_customers_test'
+        WHERE tgname = 'queue_test_q1_insert_on_categories'
     )),
-    'Deleting event handler should remove trigger from customers_test'
+    'Deleting event handler should remove trigger from categories'
 );
 
 -- =====================================================

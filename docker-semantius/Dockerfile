@@ -4,16 +4,16 @@
 # publishable DB image:
 #   ghcr.io/adenin-platform/semantius-db:<version>
 #
-# "Self-contained" is the point: a consumer stack (e.g. ../pgrest) needs to mount
-# NOTHING — no init scripts, no pg_hba, no role bootstrap. It just references this
-# image, sets a few env vars, and gets a database with:
+# "Self-contained" is the point: a consumer stack (e.g. ../docker-compose) needs
+# to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just
+# references this image, sets a few env vars, and gets a database with:
 #   * the pg_semantic_platform extension installed (roles + schemas + dictionary)
 #   * semantius_authenticator flipped to LOGIN with a password from env
 #   * the PostgREST `anon` role
 #   * a custom pg_hba
 #   * (optional) the Northwind demo module, when NWIND is set
-# That makes ../pgrest a single copy-paste docker-compose.yml (+ .env) — e.g. a
-# Dokploy template — with no sidecar files.
+# That makes ../docker-compose a single copy-paste docker-compose.yml (+ .env) —
+# e.g. a Dokploy template — with no sidecar files.
 #
 # Build context is the REPO ROOT (see build.sh / the CI workflow) so this can COPY
 # the generated ./extension files AND the ./apps/nwind migrations. The repo-root

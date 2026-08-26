@@ -1,7 +1,19 @@
 -- Test public.get_userinfo() function
+--
+-- Identity fixtures: user1 (User), user2 (User + Northwind Sales -> nwind:view),
+-- user3 (User + Administrator). The modules arm uses the same ladder as
+-- 0020_test_modules: two in-tx modules inserted as user3 ('Ladder Users' ->
+-- user:read, 'Ladder Public' -> public:read) plus the persisted Northwind
+-- (nwind:view) and _core (admin) modules.
 BEGIN;
 
 SELECT plan(35);
+
+SELECT authenticate_as('user3');
+
+INSERT INTO modules (module_name, module_slug, description, view_permission) VALUES
+    ('Ladder Users',  'ladder_users',  'in-tx ladder rung', 'user:read'),
+    ('Ladder Public', 'ladder_public', 'in-tx ladder rung', 'public:read');
 
 -- =====================================================
 -- TEST: get_userinfo() returns correct data for user1
@@ -128,21 +140,21 @@ SELECT is(
     'get_userinfo() should return is_disabled false for user2'
 );
 
--- Test user2 has both User and Sales User roles
+-- Test user2 has both User and Northwind Sales roles
 SELECT ok(
     (SELECT public.get_userinfo()->'roles' @> '[{"role_name": "User"}]'::jsonb),
     'get_userinfo() should show user2 has User role'
 );
 
 SELECT ok(
-    (SELECT public.get_userinfo()->'roles' @> '[{"role_name": "Sales User"}]'::jsonb),
-    'get_userinfo() should show user2 has Sales User role'
+    (SELECT public.get_userinfo()->'roles' @> '[{"role_name": "Northwind Sales"}]'::jsonb),
+    'get_userinfo() should show user2 has Northwind Sales role'
 );
 
--- Test user2 has sales:read permission
+-- Test user2 has nwind:view permission
 SELECT ok(
-    (SELECT public.get_userinfo()->'permissions' @> '["sales:read"]'::jsonb),
-    'get_userinfo() should show user2 has sales:read permission'
+    (SELECT public.get_userinfo()->'permissions' @> '["nwind:view"]'::jsonb),
+    'get_userinfo() should show user2 has nwind:view permission'
 );
 
 -- =====================================================
@@ -223,24 +235,24 @@ SELECT ok(
     'get_userinfo() should return modules as a JSON array for user1'
 );
 
--- Test user1 can see HR module (ignoring any additional modules)
+-- Test user1 can see both ladder modules (ignoring any additional modules)
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "HR"}]'::jsonb),
-    'user1 should see HR module'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "Ladder Users"}, {"module_name": "Ladder Public"}]'::jsonb),
+    'user1 should see the Ladder Users and Ladder Public modules'
 );
 
--- Test user2 modules should include CRM and HR (ignoring any additional modules)
+-- Test user2 modules should include Northwind (ignoring any additional modules)
 select authenticate_as('user2');
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
-    'user2 should see CRM and HR modules'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "Northwind"}]'::jsonb),
+    'user2 should see the Northwind module'
 );
 
--- Test user3 (admin) modules should include _core, CRM, and HR (ignoring any additional modules)
+-- Test user3 (admin) modules should include _core and Northwind (ignoring any additional modules)
 select authenticate_as('user3');
 SELECT ok(
-    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_core"}, {"module_name": "CRM"}, {"module_name": "HR"}]'::jsonb),
-    'user3 (admin) should see _core, CRM, and HR modules'
+    (SELECT public.get_userinfo()->'modules' @> '[{"module_name": "_core"}, {"module_name": "Northwind"}]'::jsonb),
+    'user3 (admin) should see _core and Northwind modules'
 );
 
 -- Test _core module has logo_url

@@ -1,6 +1,16 @@
+-- JsonLogic extension operators (value_changed, has_permission, require_permission,
+-- get_record_by_id, let, set_record, throw_error, concat).
+--
+-- Record fixtures use the persisted Northwind module (module_name 'Northwind',
+-- description 'Northwind Sample Database', view via 'nwind:view'). Its id is
+-- resolved by slug as admin into a temp table (modules is RLS-filtered) and
+-- never hard-coded.
 BEGIN;
 
 SELECT plan(81);
+
+SELECT authenticate_as('user3');
+CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
 
 -- Rule under test:
 -- target_start_date is null OR target_completion_date is null OR target_start_date <= target_completion_date
@@ -175,16 +185,16 @@ SELECT is(
     'has_permission: user3 (admin) should return true for admin'
 );
 
--- user2 (sales) should return true for has_permission sales:read
+-- user2 (sales) should return true for has_permission nwind:view
 SELECT authenticate_as('user2');
 
 SELECT is(
     evaluate_json_logic(
-        '{"has_permission":"sales:read"}'::jsonb,
+        '{"has_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
-    'has_permission: user2 (sales) should return true for sales:read'
+    'has_permission: user2 (sales) should return true for nwind:view'
 );
 
 -- user1 (basic user) should return false for has_permission admin (no exception)
@@ -199,14 +209,14 @@ SELECT is(
     'has_permission: user1 should return false for admin (no exception)'
 );
 
--- user1 should return false for has_permission sales:read
+-- user1 should return false for has_permission nwind:view
 SELECT is(
     evaluate_json_logic(
-        '{"has_permission":"sales:read"}'::jsonb,
+        '{"has_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     ),
     'false'::jsonb,
-    'has_permission: user1 should return false for sales:read'
+    'has_permission: user1 should return false for nwind:view'
 );
 
 -- user2 (sales) should return false for has_permission admin
@@ -221,16 +231,16 @@ SELECT is(
     'has_permission: user2 (sales) should return false for admin'
 );
 
--- user3 (admin) should also return true for sales:read (admin implies all)
+-- user3 (admin) should also return true for nwind:view (admin implies all)
 SELECT authenticate_as('user3');
 
 SELECT is(
     evaluate_json_logic(
-        '{"has_permission":"sales:read"}'::jsonb,
+        '{"has_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
-    'has_permission: user3 (admin) should return true for sales:read (admin implies all)'
+    'has_permission: user3 (admin) should return true for nwind:view (admin implies all)'
 );
 
 -- =====================================================
@@ -249,16 +259,16 @@ SELECT is(
     'require_permission: user3 (admin) should pass admin check'
 );
 
--- user2 (sales) should succeed with require_permission sales:read
+-- user2 (sales) should succeed with require_permission nwind:view
 SELECT authenticate_as('user2');
 
 SELECT is(
     evaluate_json_logic(
-        '{"require_permission":"sales:read"}'::jsonb,
+        '{"require_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
-    'require_permission: user2 (sales) should pass sales:read check'
+    'require_permission: user2 (sales) should pass nwind:view check'
 );
 
 -- user1 (basic user) should fail with require_permission admin
@@ -276,17 +286,17 @@ SELECT throws_ok(
     'require_permission: user1 should fail admin check'
 );
 
--- user1 should fail with require_permission sales:read
+-- user1 should fail with require_permission nwind:view
 SELECT throws_ok(
     $$
     SELECT evaluate_json_logic(
-        '{"require_permission":"sales:read"}'::jsonb,
+        '{"require_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     )
     $$,
     '42501',
     NULL,
-    'require_permission: user1 should fail sales:read check'
+    'require_permission: user1 should fail nwind:view check'
 );
 
 -- user2 (sales) should fail with require_permission admin
@@ -304,16 +314,16 @@ SELECT throws_ok(
     'require_permission: user2 (sales) should fail admin check'
 );
 
--- user3 (admin) should also pass sales:read (admin implies all)
+-- user3 (admin) should also pass nwind:view (admin implies all)
 SELECT authenticate_as('user3');
 
 SELECT is(
     evaluate_json_logic(
-        '{"require_permission":"sales:read"}'::jsonb,
+        '{"require_permission":"nwind:view"}'::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
-    'require_permission: user3 (admin) should pass sales:read check (admin implies all)'
+    'require_permission: user3 (admin) should pass nwind:view check (admin implies all)'
 );
 
 -- =====================================================
@@ -405,15 +415,15 @@ SELECT is(
 SELECT authenticate_as('user3');
 
 SELECT isnt(
-    get_record_by_id('modules', 1001),
+    get_record_by_id('modules', (SELECT id FROM nw)),
     NULL,
-    'get_record_by_id: should return a record for existing module 1001'
+    'get_record_by_id: should return a record for the existing Northwind module'
 );
 
 SELECT is(
-    (get_record_by_id('modules', 1001)) ->> 'module_name',
-    'CRM',
-    'get_record_by_id: returned module 1001 should have module_name CRM'
+    (get_record_by_id('modules', (SELECT id FROM nw))) ->> 'module_name',
+    'Northwind',
+    'get_record_by_id: returned Northwind module should have module_name Northwind'
 );
 
 -- get_record_by_id: existing entity but non-existing record
@@ -442,7 +452,7 @@ SELECT is(
 SELECT authenticate_as('user1');
 
 SELECT is(
-    get_record_by_id('modules', 1001),
+    get_record_by_id('modules', (SELECT id FROM nw)),
     NULL,
     'security: user1 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
 );
@@ -451,7 +461,7 @@ SELECT is(
 SELECT authenticate_as('user2');
 
 SELECT is(
-    get_record_by_id('modules', 1001),
+    get_record_by_id('modules', (SELECT id FROM nw)),
     NULL,
     'security: user2 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
 );
@@ -461,7 +471,7 @@ SELECT authenticate_as('user1');
 
 SELECT is(
     evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"var":"mod.module_name"}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"var":"mod.module_name"}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     ),
     'null'::jsonb,
@@ -471,7 +481,7 @@ SELECT is(
 -- user1 must NOT obtain the whole record via set_record
 SELECT is(
     evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"var":"mod"}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"var":"mod"}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     ),
     'null'::jsonb,
@@ -483,9 +493,9 @@ SELECT is(
 SELECT authenticate_as('user3');
 
 SELECT is(
-    (get_record_by_id('modules', 1001)) ->> 'module_name',
-    'CRM',
-    'security: admin (user3) still reads module 1001 via get_record_by_id (positive control)'
+    (get_record_by_id('modules', (SELECT id FROM nw))) ->> 'module_name',
+    'Northwind',
+    'security: admin (user3) still reads the Northwind module via get_record_by_id (positive control)'
 );
 
 -- =====================================================
@@ -529,11 +539,11 @@ SELECT is(
 -- set_record: load a module record and access its fields
 SELECT is(
     evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"var":"mod.module_name"}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"var":"mod.module_name"}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     ),
-    '"CRM"'::jsonb,
-    'set_record: load module 1001 and read module_name should return CRM'
+    '"Northwind"'::jsonb,
+    'set_record: load the Northwind module and read module_name should return Northwind'
 );
 
 -- set_record: load non-existing record, variable should be null
@@ -550,10 +560,10 @@ SELECT is(
 SELECT is(
     evaluate_json_logic(
         '{"set_record":["mod", "modules", {"var":"module_id"}, {"var":"mod.module_name"}]}'::jsonb,
-        '{"module_id": 1001}'::jsonb
+        jsonb_build_object('module_id', (SELECT id FROM nw))
     ),
-    '"CRM"'::jsonb,
-    'set_record: load module by id from data should return CRM'
+    '"Northwind"'::jsonb,
+    'set_record: load module by id from data should return Northwind'
 );
 
 -- set_record: non-existing entity should set variable to null
@@ -611,23 +621,23 @@ SELECT throws_ok(
 -- Load a module, check a condition, throw error if met
 -- =====================================================
 
--- Scenario: load module by id, if description contains "Customer", throw error
+-- Scenario: load module by id, if description contains "Sample", throw error
 SELECT throws_ok(
     $$
     SELECT evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"if":[{"in":["Customer", {"var":"mod.description"}]}, {"throw_error":"Cannot modify customer module"}, true]}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"if":[{"in":["Sample", {"var":"mod.description"}]}, {"throw_error":"Cannot modify sample module"}, true]}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     )
     $$,
     '23514',
-    'Cannot modify customer module',
+    'Cannot modify sample module',
     'complex: set_record + throw_error should throw when condition matches'
 );
 
 -- Scenario: load module by id, if description contains "NonExistent", should pass
 SELECT is(
     evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"if":[{"in":["NonExistent", {"var":"mod.description"}]}, {"throw_error":"Should not happen"}, true]}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"if":[{"in":["NonExistent", {"var":"mod.description"}]}, {"throw_error":"Should not happen"}, true]}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     ),
     'true'::jsonb,
@@ -841,10 +851,10 @@ SELECT is(
 -- concat: with set_record - load module and concat fields
 SELECT is(
     evaluate_json_logic(
-        '{"set_record":["mod", "modules", 1001, {"concat":["Module: ", {"var":"mod.module_name"}]}]}'::jsonb,
+        format('{"set_record":["mod", "modules", %s, {"concat":["Module: ", {"var":"mod.module_name"}]}]}', (SELECT id FROM nw))::jsonb,
         '{}'::jsonb
     ),
-    '"Module: CRM"'::jsonb,
+    '"Module: Northwind"'::jsonb,
     'concat: with set_record should concat module fields'
 );
 

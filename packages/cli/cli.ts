@@ -143,7 +143,7 @@ COMMANDS:
     extension <VER>  Generate the extension with an explicit version (e.g. 0.2.0)
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
     reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
-    retest           ⚠️ Drop all, migrate --apps test,nwind, and run tests (requires --confirm)
+    retest           ⚠️ Drop all, migrate --apps nwind,test, and run tests (requires --confirm)
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
     kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog

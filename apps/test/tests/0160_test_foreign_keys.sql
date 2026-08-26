@@ -1,258 +1,248 @@
 -- Test foreign key functionality
+--
+-- Targets the persisted nwind sample module:
+--   • products.supplier_id  → suppliers  (reference, restrict)
+--   • products.category_id  → categories (reference, restrict)
+--   • orders.customer_id    → customers  (reference, restrict, input_type='required')
+--   • employees.reports_to  → employees  (reference, clear → ON DELETE SET NULL)
+-- Every seeded category/supplier/customer/employee is referenced, so the
+-- delete-mode scenarios insert fresh rows inside this transaction.
+-- Writer is user2 (role Northwind Sales: nwind:view + nwind:manage).
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(22);
 
 -- =====================================================
 -- TEST: Foreign key constraints are created
 -- =====================================================
-select authenticate_as('user1');
+select authenticate_as('user2');
 
--- Test that customers_test.region_id foreign key constraint exists
+-- Test 1: products.supplier_id foreign key constraint exists
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'customers_test_region_id_fkey'
-        AND conrelid = 'customers_test'::regclass
+        WHERE conname = 'products_supplier_id_fkey'
+        AND conrelid = 'products'::regclass
     ),
-    'Foreign key constraint customers_test_region_id_fkey should exist'
+    'Foreign key constraint products_supplier_id_fkey should exist'
 );
 
--- Test that employees_test.department_id foreign key constraint exists
+-- Test 2: orders.customer_id foreign key constraint exists
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'employees_test_department_id_fkey'
-        AND conrelid = 'employees_test'::regclass
+        WHERE conname = 'orders_customer_id_fkey'
+        AND conrelid = 'orders'::regclass
     ),
-    'Foreign key constraint employees_test_department_id_fkey should exist'
+    'Foreign key constraint orders_customer_id_fkey should exist'
 );
 
--- Test that indexes are created for foreign key columns
+-- Test 3/4: indexes are created for foreign key columns
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_indexes
-        WHERE tablename = 'customers_test'
-        AND indexname = 'idx_customers_test_region_id'
+        WHERE tablename = 'products'
+        AND indexname = 'idx_products_supplier_id'
     ),
-    'Index idx_customers_test_region_id should exist'
+    'Index idx_products_supplier_id should exist'
 );
 
 SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_indexes
-        WHERE tablename = 'employees_test'
-        AND indexname = 'idx_employees_test_department_id'
+        WHERE tablename = 'orders'
+        AND indexname = 'idx_orders_customer_id'
     ),
-    'Index idx_employees_test_department_id should exist'
+    'Index idx_orders_customer_id should exist'
 );
 
 -- =====================================================
 -- TEST: Valid references can be inserted
 -- =====================================================
 
--- Switch to user2 (has sales:manage) to insert test customers_test
-select authenticate_as('user2');
-
--- Test inserting a customer with a valid region_id
+-- Test 5: product with a valid category_id and supplier_id
 SELECT lives_ok(
     $$
-    INSERT INTO customers_test (customer_name, email, phone, company, status, total_orders, region_id)
-    VALUES ('Test Customer', 'test@example.com', '+1-555-0199', 'Test Corp', 'active', 0, 1)
+    INSERT INTO products (product_name, category_id, supplier_id, unit_price, units_in_stock)
+    VALUES ('FK Probe Product', 1, 1, 9.99, 5)
     $$,
-    'Should be able to insert customer with valid region_id'
+    'Should be able to insert product with valid category_id and supplier_id'
 );
 
--- Switch to admin for employee tests
-select authenticate_as('user3');
-
--- Test inserting an employee with a valid department_id
+-- Test 6: order with a valid customer_id (ALFKI)
 SELECT lives_ok(
     $$
-    INSERT INTO employees_test (full_name, email, department_id, position, hire_date, salary, is_active)
-    VALUES ('Test Employee', 'test.employee@company.com', 1, 'Test Position', '2023-01-01', 50000, TRUE)
+    INSERT INTO orders (ship_name, customer_id)
+    VALUES ('FK Probe Order ALFKI', (SELECT id FROM customers WHERE customer_id = 'ALFKI'))
     $$,
-    'Should be able to insert employee with valid department_id'
+    'Should be able to insert order with valid customer_id'
 );
 
 -- =====================================================
 -- TEST: Invalid references are rejected
 -- =====================================================
 
--- Switch to user2 for customer tests
-select authenticate_as('user2');
-
--- Test that inserting a customer with invalid region_id fails
+-- Test 7: product with an invalid category_id
 SELECT throws_ok(
     $$
-    INSERT INTO customers_test (customer_name, email, phone, company, status, total_orders, region_id)
-    VALUES ('Invalid Customer', 'invalid@example.com', '+1-555-0198', 'Invalid Corp', 'active', 0, 9999)
+    INSERT INTO products (product_name, category_id, supplier_id)
+    VALUES ('FK Invalid Product', 9999, 1)
     $$,
     '23503',
     NULL,
-    'Should not be able to insert customer with invalid region_id'
+    'Should not be able to insert product with invalid category_id'
 );
 
--- Switch to admin for employee tests
-select authenticate_as('user3');
-
--- Test that inserting an employee with invalid department_id fails
+-- Test 8: order with an invalid customer_id
 SELECT throws_ok(
     $$
-    INSERT INTO employees_test (full_name, email, department_id, position, hire_date, salary, is_active)
-    VALUES ('Invalid Employee', 'invalid.employee@company.com', 9999, 'Invalid Position', '2023-01-01', 50000, TRUE)
+    INSERT INTO orders (ship_name, customer_id)
+    VALUES ('FK Invalid Order', 9999)
     $$,
     '23503',
     NULL,
-    'Should not be able to insert employee with invalid department_id'
-);
-
--- =====================================================
--- TEST: NULL values are allowed for nullable foreign keys
--- =====================================================
-
--- Switch to user2 for customer tests
-select authenticate_as('user2');
-
--- Test inserting a customer with NULL region_id (region_id is nullable)
-SELECT lives_ok(
-    $$
-    INSERT INTO customers_test (customer_name, email, phone, company, status, total_orders, region_id)
-    VALUES ('No Region Customer', 'noregion@example.com', '+1-555-0197', 'No Region Corp', 'active', 0, NULL)
-    $$,
-    'Should be able to insert customer with NULL region_id (nullable)'
+    'Should not be able to insert order with invalid customer_id'
 );
 
 -- =====================================================
 -- TEST: NULL values are allowed for reference fields (all references are nullable)
 -- =====================================================
 
--- Switch to admin for employee tests
-select authenticate_as('user3');
-
--- Test that inserting an employee with NULL department_id succeeds (reference fields are nullable)
+-- Test 9: product with NULL supplier_id
 SELECT lives_ok(
     $$
-    INSERT INTO employees_test (full_name, email, department_id, position, hire_date, salary, is_active)
-    VALUES ('No Dept Employee', 'nodept.employee@company.com', NULL, 'No Dept Position', '2023-01-01', 50000, TRUE)
+    INSERT INTO products (product_name, category_id, supplier_id)
+    VALUES ('FK No Supplier Product', 1, NULL)
     $$,
-    'Should be able to insert employee with NULL department_id (reference fields are nullable)'
+    'Should be able to insert product with NULL supplier_id (reference fields are nullable)'
 );
 
--- Clean up
-DELETE FROM employees_test WHERE full_name = 'No Dept Employee';
+-- Test 10: orders.customer_id has input_type='required', which is a UI hint only —
+-- the physical reference column stays nullable.
+SELECT lives_ok(
+    $$
+    INSERT INTO orders (ship_name, customer_id)
+    VALUES ('FK No Customer Order', NULL)
+    $$,
+    'Should be able to insert order with NULL customer_id even though input_type=required (reference fields are nullable)'
+);
 
 -- =====================================================
--- TEST: ON DELETE RESTRICT behavior for employees_test-departments
+-- TEST: ON DELETE RESTRICT behavior for products-categories
 -- =====================================================
 
--- Try to delete a department that has employees_test (should fail due to RESTRICT)
+-- Test 11: deleting a category that has products must fail (RESTRICT).
 -- ON DELETE RESTRICT raises 23001 (restrict_violation) on PostgreSQL 18, but
 -- 23503 (foreign_key_violation) on PG<=17 (Neon/Supabase). Match the FK-violation
 -- message common to both codes so the test is valid on either version.
 SELECT throws_like(
     $$
-    DELETE FROM departments WHERE id = 1
+    DELETE FROM categories WHERE id = 1
     $$,
     '%foreign key constraint%',
-    'Should not be able to delete department with existing employees_test (RESTRICT)'
+    'Should not be able to delete category with existing products (RESTRICT)'
 );
 
--- Verify the department still exists
+-- Test 12: the category still exists
 SELECT ok(
-    EXISTS (SELECT 1 FROM departments WHERE id = 1),
-    'Department should still exist after failed delete attempt'
+    EXISTS (SELECT 1 FROM categories WHERE id = 1),
+    'Category should still exist after failed delete attempt'
 );
 
--- Delete the test employee first, then delete should succeed
-DELETE FROM employees_test WHERE email = 'test.employee@company.com';
+-- Test 13/14: a fresh, unreferenced category can be inserted and deleted
+SELECT lives_ok(
+    $$
+    INSERT INTO categories (category_name, description)
+    VALUES ('FK Probe Category', 'Category for FK delete test')
+    $$,
+    'Should be able to insert test category'
+);
 
 SELECT lives_ok(
     $$
-    INSERT INTO departments (id, department_name, code, description, budget)
-    VALUES (99, 'Test Department', 'TEST', 'Test department for deletion', 0.0)
+    DELETE FROM categories WHERE category_name = 'FK Probe Category'
     $$,
-    'Should be able to insert test department'
-);
-
-SELECT lives_ok(
-    $$
-    DELETE FROM departments WHERE id = 99
-    $$,
-    'Should be able to delete department without employees_test'
-);
-
--- =====================================================
--- TEST: ON DELETE RESTRICT behavior for customers_test-regions_test (default)
--- =====================================================
-
--- Switch to user2 who has sales:manage permission
-select authenticate_as('user2');
-
--- Try to delete a region that has customers_test (should fail due to RESTRICT)
--- (RESTRICT -> 23001 on PG18, 23503 on PG<=17; match the message common to both)
-SELECT throws_like(
-    $$
-    DELETE FROM regions_test WHERE id = 1
-    $$,
-    '%foreign key constraint%',
-    'Should not be able to delete region with existing customers_test (RESTRICT)'
-);
-
--- Verify the region still exists
-SELECT ok(
-    EXISTS (SELECT 1 FROM regions_test WHERE id = 1),
-    'Region should still exist after failed delete attempt'
+    'Should be able to delete category without products'
 );
 
 -- =====================================================
 -- TEST: Updating foreign key references
 -- =====================================================
 
--- Switch to user2 for customer tests
-select authenticate_as('user2');
-
--- Test updating a customer's region_id to another valid region
+-- Test 15: move the probe product to another valid category
 SELECT lives_ok(
     $$
-    UPDATE customers_test SET region_id = 2 WHERE email = 'test@example.com'
+    UPDATE products SET category_id = 2 WHERE product_name = 'FK Probe Product'
     $$,
-    'Should be able to update customer region_id to another valid region'
+    'Should be able to update product category_id to another valid category'
 );
 
--- Verify the update
+-- Test 16: verify the update
 SELECT is(
-    (SELECT region_id FROM customers_test WHERE email = 'test@example.com'),
+    (SELECT category_id FROM products WHERE product_name = 'FK Probe Product'),
     2,
-    'Customer region_id should be updated to 2'
+    'Product category_id should be updated to 2'
 );
 
--- Test updating a customer's region_id to NULL
+-- Test 17: clear the reference
 SELECT lives_ok(
     $$
-    UPDATE customers_test SET region_id = NULL WHERE email = 'test@example.com'
+    UPDATE products SET category_id = NULL WHERE product_name = 'FK Probe Product'
     $$,
-    'Should be able to update customer region_id to NULL'
+    'Should be able to update product category_id to NULL'
 );
 
 -- =====================================================
 -- TEST: Format 'reference' is properly mapped to INTEGER
 -- =====================================================
 
--- Verify that the region_id column is INTEGER type
+-- Test 18/19
 SELECT is(
-    (SELECT data_type FROM information_schema.columns 
-     WHERE table_name = 'customers_test' AND column_name = 'region_id'),
+    (SELECT data_type FROM information_schema.columns
+     WHERE table_name = 'products' AND column_name = 'category_id'),
     'integer',
-    'region_id column should have INTEGER data type'
+    'products.category_id column should have INTEGER data type'
 );
 
--- Verify that the department_id column is INTEGER type
 SELECT is(
-    (SELECT data_type FROM information_schema.columns 
-     WHERE table_name = 'employees_test' AND column_name = 'department_id'),
+    (SELECT data_type FROM information_schema.columns
+     WHERE table_name = 'orders' AND column_name = 'customer_id'),
     'integer',
-    'department_id column should have INTEGER data type'
+    'orders.customer_id column should have INTEGER data type'
+);
+
+-- =====================================================
+-- TEST: reference_delete_mode='clear' (employees.reports_to → ON DELETE SET NULL)
+-- A fresh manager has no orders/territories, so RESTRICT does not apply to it.
+-- =====================================================
+
+INSERT INTO employees (last_name, first_name, title)
+VALUES ('FK Probe Manager', 'Max', 'Probe Manager');
+
+INSERT INTO employees (last_name, first_name, title, reports_to)
+VALUES ('FK Probe Report', 'Rhea', 'Probe Report',
+        (SELECT id FROM employees WHERE last_name = 'FK Probe Manager'));
+
+-- Test 20: precondition — the report points at the manager
+SELECT is(
+    (SELECT reports_to FROM employees WHERE last_name = 'FK Probe Report'),
+    (SELECT id FROM employees WHERE last_name = 'FK Probe Manager'),
+    'Report employee should reference the manager before the delete'
+);
+
+-- Test 21: deleting the manager succeeds (clear, not restrict)
+SELECT lives_ok(
+    $$
+    DELETE FROM employees WHERE last_name = 'FK Probe Manager'
+    $$,
+    'Should be able to delete a manager that is referenced via reports_to (delete mode clear)'
+);
+
+-- Test 22: the report survives with reports_to cleared
+SELECT is(
+    (SELECT reports_to FROM employees WHERE last_name = 'FK Probe Report'),
+    NULL::integer,
+    'reports_to should be set to NULL after the manager is deleted (delete mode clear)'
 );
 
 SELECT * FROM finish();

@@ -330,15 +330,15 @@ extension-`_core` ≡ migrate-`_core`.
 
 | Path | Harness | What it does |
 | ---- | ------- | ------------ |
-| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,test,nwind` → test), on port 5432 |
-| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `test,nwind` → test, on port 5433 |
+| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,nwind,test` → test), on port 5432 |
+| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `nwind,test` → test, on port 5433 |
 
 ```bash
 ./pg-cli-retest.sh      # Path A — migrate-installed _core
 ./pg-ext-retest.sh      # Path B — extension-installed _core
 ```
 
-In **Path B**, `migrate --apps test,nwind` auto-prepends `_core`, but the
+In **Path B**, `migrate --apps nwind,test` auto-prepends `_core`, but the
 extension already seeded the `_versions` run-once guards, so every `_core.*`
 migration is **skipped** (not re-run) and only `test`/`nwind` are
 deployed onto the extension's `_core` — the exact same app set Path A migrates,
@@ -358,7 +358,7 @@ install itself (`_core/0050` attaches an RLS policy to `_versions`).
 > `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged — no new CLI flags.
 
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
-`migrate --apps test,nwind` + `test` steps stays green (migrate reports
+`migrate --apps nwind,test` + `test` steps stays green (migrate reports
 `test`/`nwind` already applied and the tests roll back cleanly).
 
 ### Just deploy a module (no reset, no tests)
@@ -377,7 +377,7 @@ present, whether from a CLI migrate or the extension):
 
 ```bash
 ./pg-cli-deploy-module.sh nwind          # deploy the Northwind sample onto the CLI stack
-./pg-cli-deploy-module.sh test,nwind     # deploy several modules at once
+./pg-cli-deploy-module.sh nwind,test     # deploy several modules at once
 ./pg-ext-deploy-module.sh nwind          # same, onto the extension stack
 ```
 

@@ -32,7 +32,7 @@ INSERT INTO entities (
 VALUES (
     'precision_test', 'Precision Test', 'precision_test',
     'Precision Test', 'Precision Tests',
-    1001, 'public:read', 'admin', 'id', 'label'
+    1, 'public:read', 'admin', 'id', 'label'
 );
 
 INSERT INTO fields (table_name, field_name, title, format, default_value)
@@ -119,7 +119,7 @@ SELECT is(
 SELECT is(
     (SELECT count(*)::INTEGER FROM fields f
        JOIN entities e ON e.table_name = f.table_name
-      WHERE e.module_id = (SELECT id FROM modules WHERE module_name = 'Northwind')
+      WHERE e.module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')
         AND f.format = 'float'),
     0,
     'nwind: no fields should still use the float format'

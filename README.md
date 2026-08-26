@@ -48,8 +48,8 @@ cp .env.example .env.local
 # Test the database connection
 deno task connect
 
-# Deploy schema + test data, then run tests
-deno task reset --confirm
+# Deploy core + Northwind sample module + test identities, then run tests
+deno task retest --confirm
 ```
 
 ---
@@ -88,7 +88,8 @@ deno task [COMMAND] [OPTIONS]
 | `migrate` | Execute SQL migrations for specified apps |
 | `extension` | Generate the Semantius core PostgreSQL extension into `extension/` |
 | `dropall` | **DESTRUCTIVE** — drop ALL objects in public schema |
-| `reset` | **DESTRUCTIVE** — dropall + migrate test + run tests |
+| `reset` | **DESTRUCTIVE** — dropall + migrate `_core` only (no sample data, no tests) |
+| `retest` | **DESTRUCTIVE** — dropall + migrate `_core,nwind,test` + run tests |
 | `docgen` | Generate `schema.md` from entity metadata |
 | `bundle-sql` | Bundle SQL files for Node.js/serverless deployment |
 
@@ -101,8 +102,8 @@ deno task connect --verbose
 # Supply the database URL directly (overrides .env)
 deno task connect --database-url "postgresql://user:pass@host:5432/db"
 
-# Run migrations
-deno task migrate --apps _core,nwind --verbose
+# Run migrations (nwind before test: the test seed assigns user2 to the Northwind Sales role)
+deno task migrate --apps _core,nwind,test --verbose
 deno task migrate --apps nwind --database-url "postgresql://..."
 
 # Generate a migration SQL script without executing
@@ -115,17 +116,21 @@ deno task extension 0.2.0    # explicit version
 # Drop all database objects (requires confirmation)
 deno task dropall --confirm
 
-# Full reset: drop all + re-migrate + run tests
+# Full cycle: drop all + migrate _core,nwind,test + run tests
+deno task retest --confirm
+deno task retest --confirm --failfast
+
+# Reset to a bare _core schema (no sample data, no tests)
 deno task reset --confirm
-deno task reset --confirm --verbose
 
 # Use a different environment file
 deno task connect --env staging
 deno task migrate --apps nwind --env staging
 
-# Run pgTAP tests
+# Run pgTAP tests (apps/test/tests first, then every other apps/*/tests, sorted by filename)
 deno task test
 deno task test --tap   # plain TAP output
+deno task test 0160*   # only files whose name matches the prefix
 ```
 
 ---
@@ -246,8 +251,8 @@ Migrations and tests are organised into **apps**:
 ```
 apps/
 ├── _core/     # Core schema: RBAC, RLS, data dictionary
-├── test/      # pgTAP testing infrastructure + seed data
-└── nwind/     # Example app (Northwind)
+├── test/      # pgTAP framework, authenticate_as() helper, test identities (users, API keys)
+└── nwind/     # Northwind sample module: the only persisted sample data, with its own pgTAP tests
 ```
 
 Each app folder follows this structure:
@@ -259,6 +264,11 @@ apps/<appName>/
 ```
 
 The `_core` app is always migrated first regardless of which apps you specify.
+Migrate `nwind` before `test` (`--apps _core,nwind,test`): the test seed assigns
+user2 to the `Northwind Sales` role, which the nwind module defines.
+
+`deno task test` runs `apps/test/tests` first and then every other app's
+`tests/` folder (e.g. `apps/nwind/tests`), each sorted by filename.
 
 ---
 
@@ -275,9 +285,18 @@ deno task dropall --confirm
 
 ### `reset`
 
-Combines `dropall --confirm` → `migrate --apps test` → `test`. Requires
-`--confirm`:
+Combines `dropall --confirm` → `migrate --apps _core` (no sample data, no
+tests). Requires `--confirm`:
 
 ```bash
 deno task reset --confirm
+```
+
+### `retest`
+
+Combines `dropall --confirm` → `migrate --apps nwind,test` (`_core` is
+prepended automatically) → `test`. Requires `--confirm`:
+
+```bash
+deno task retest --confirm
 ```
