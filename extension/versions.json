@@ -1,6 +1,6 @@
 {
   "versions": {
-    "0.2.0": {
+    "0.3.0": {
       "files": {
         "_core/0010_create_core": "1ff747f180457d753d07723e5940d6efa43feb8e6b948dde2efeb513e55e5cec",
         "_core/0011_session_authenticator": "38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef",
@@ -16,7 +16,7 @@
         "_core/0080_public_functions": "8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a",
         "_core/0090_notify_triggers": "674944ae8d367c06dd2e4bd8cf237b628db178ddb5e0d6831e5a01087ba3d52b",
         "_core/0110_apikeys": "ab9efe3351cca781a71fde3d41292f726184795ab0962242ac1561feb94befb7",
-        "_core/0130_create_tables_view_compat": "9aa24d2b24c5d6e2675a5c9cfe406249bf629d1162240b018c008031d57c285a",
+        "_core/0130_create_tables_view_compat": "220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f",
         "_core/0140_dd_rename": "cbb048c45076ef393bad3802e8b92b384429874d33aee4cd257be7a147f743d6",
         "_core/0145_managed_enable": "8078cf826a10a17bbb1a665af9218e9e60ab3d96a77ec95599ef4395b9293c46",
         "_core/0150_audit_log": "feb89cdc5b9c99392de8f873d8ce94c81c88a7c03102f83e5e2aeeac444fafd2",
@@ -33,7 +33,8 @@
         "_core/0260_dashboard": "89e072363b89f0379c1690f7deb9e940e9aab2b1345cbe9a05baa82828eedf37",
         "_core/0270_entity_order_column": "cca529ede2964a409112694adcc0bed862153749bd2a59739fef34a3af616cc2",
         "_core/0280_user_bookmarks": "5ec55bbb3d987d7e7377d749543710040d001ea0c21d2ae6e36e8fe6f39a6358",
-        "_core/0282_module_version": "3b559f6209f1e015f8fe535ad6ed77b35a64008d2cb022af7c6dbfed35aa588c"
+        "_core/0282_module_version": "3b559f6209f1e015f8fe535ad6ed77b35a64008d2cb022af7c6dbfed35aa588c",
+        "_core/0284_module_slug_provision": "a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28"
       }
     }
   }

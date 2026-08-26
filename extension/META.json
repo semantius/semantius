@@ -1,18 +1,18 @@
 {
-  "name": "pg_semantic_platform",
+  "name": "pg_semantius",
   "abstract": "Database-first RBAC, RLS, data dictionary, and message queue for PostgreSQL",
   "description": "Semantius core packaged as a PostgreSQL extension: role-based access control, row-level security, a semantic data dictionary, and a message queue. An alternative to deploying the migrations with the Semantius CLI.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "maintainer": [
     "adenin TECHNOLOGIES"
   ],
   "license": "mit",
   "provides": {
-    "pg_semantic_platform": {
+    "pg_semantius": {
       "abstract": "Semantius core: RBAC, RLS, data dictionary, and message queue",
-      "file": "pg_semantic_platform--0.2.0.sql",
+      "file": "pg_semantius--0.3.0.sql",
       "docfile": "README.md",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   },
   "prereqs": {
