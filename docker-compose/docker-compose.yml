@@ -6,6 +6,12 @@ name: semantius-rest
 # the DB over SCRAM as `semantius_authenticator`, SET ROLE-ing into `authenticated`
 # (valid token) or `anon` (no token) per request.
 #
+# The tokens come from the BUNDLED `idp` service (semantius-idp) — a full
+# OIDC/OAuth issuer sharing this stack's Postgres, mounted at /idp on the front
+# door. It is the DEFAULT issuer: a fresh `create` is a complete auth story with
+# no external IdP. Point VITE_OAUTH_CONFIG / VITE_OAUTH_CLIENT_ID / JWKS_URL
+# elsewhere to run against your own instead.
+#
 # Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
 # ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
 # colliding. Bring it up with create.sh / .cmd (fresh database) or up.sh / .cmd
@@ -13,10 +19,12 @@ name: semantius-rest
 #
 # FRONT DOOR: the `caddy` service (host port WEB_PORT, default 7070) is the single
 # public entrypoint — `/` serves the admin SPA (`web`), `/api/*` proxies to
-# PostgREST and `/api-docs/*` to Scalar, both with the prefix stripped. The routes
-# live in the sibling ./Caddyfile, bind-mounted as a REGULAR file: edit it and
-# `docker compose restart caddy` to apply. This local-dev file additionally keeps
-# every service's own host port published for direct access.
+# PostgREST and `/api-docs/*` to Scalar, both with the prefix stripped, and
+# `/idp/*` + `/.well-known/*` reach the identity provider (prefix INTACT there —
+# it is part of the issuer URL). The routes live in the sibling ./Caddyfile,
+# bind-mounted as a REGULAR file: edit it and `docker compose restart caddy` to
+# apply. This local-dev file additionally keeps every service's own host port
+# published for direct access.
 #
 # THIS file is the local-dev stack. The DEPLOYMENT variant in ./dokploy/ is
 # GENERATED from this file + ./Caddyfile by `./dokploy-build.sh` (host ports and
@@ -51,17 +59,40 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-semantius}"]
+      # `-h 127.0.0.1` FORCES A TCP CHECK, and that is the whole point. A bare
+      # `pg_isready` talks over the unix socket, which starts answering during the
+      # image's FIRST-INIT phase — while the server runs with listen_addresses=''
+      # and refuses every TCP client. On a fresh volume that gap is over a minute,
+      # and `depends_on: service_healthy` hands it to services that then fail to
+      # connect (PostgREST survives it by retrying in a loop; the idp does not).
+      # start_period covers the init — extension install, roles, the optional
+      # NWIND load — without those failures counting toward `retries`.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d ${POSTGRES_DB:-semantius}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 180s
 
-  # --- PgBouncer (pooled endpoint for external apps) -------------------------
-  # Transaction-pooled endpoint for external apps using the SET LOCAL ROLE
-  # pattern (transaction-pooling-safe, see pgdocker/README.md). Pools the
-  # `semantius_authenticator` login only; the `postgres` DBA login and PostgREST
-  # keep connecting to postgres directly — PostgREST needs LISTEN/NOTIFY
+  # --- PgBouncer (pooled endpoint for external apps + the idp) ---------------
+  # Transaction-pooled endpoint, for transaction-pooling-safe usage only (the SET
+  # LOCAL ROLE pattern, see pgdocker/README.md). It pools TWO logins:
+  #   `semantius_authenticator`  external apps talking SQL directly, on the
+  #                              published PGBOUNCER_PORT;
+  #   `postgres`                 the RUNTIME connection of the bundled idp below
+  #                              (its DATABASE_URL). The idp's startup, migrations,
+  #                              CLI and cleanup job hold SESSION advisory locks,
+  #                              which do not survive a pooler — those use
+  #                              DATABASE_URL_ADMIN, direct to postgres:5432.
+  # PostgREST still connects to postgres directly as well: it needs LISTEN/NOTIFY
   # (PGRST_DB_CHANNEL), which transaction pooling does not support.
+  #
+  # DATABASE_URLS (plural) is edoburu/pgbouncer's MULTI-USER form: the entrypoint
+  # parses each comma-separated URL and appends one userlist.txt entry per distinct
+  # user — env only, no mounted userlist to keep in step. Two caveats it earns:
+  # that parser is naive (grep/cut), so every password spliced in here must be
+  # URL-SAFE (no @ : / ? # or spaces); and both URLs name the same database, so
+  # `[databases]` gets a duplicate key — harmless, the two entries differ only in
+  # `auth_user`, which goes unused once both users are in the userlist.
   pgbouncer:
     image: edoburu/pgbouncer:latest
     pull_policy: always
@@ -71,17 +102,146 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: ${POSTGRES_DB:-semantius}
-      DB_USER: semantius_authenticator
-      DB_PASSWORD: ${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}
+      DATABASE_URLS: "postgres://semantius_authenticator:${SEMANTIUS_AUTHENTICATOR_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-semantius},postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-semantius}"
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
       MAX_CLIENT_CONN: "200"
       DEFAULT_POOL_SIZE: "20"
+      # PgBouncer REJECTS a startup parameter it does not know, with a FATAL
+      # "unsupported startup parameter"; listing one here makes it ignore the
+      # parameter instead of the connection. `search_path` is on the list because
+      # the idp's driver sends one as a best-effort convenience — every query it
+      # emits is schema-qualified, so dropping it changes nothing — and without
+      # this every idp query through the pooler dies at connect. The image's own
+      # default is `extra_float_digits` alone, so it has to be repeated here.
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,search_path
     ports:
       - "${PGBOUNCER_PORT:-6432}:5432"
+
+  # --- Identity provider (the bundled OIDC/OAuth issuer) ---------------------
+  # semantius-idp: this stack's DEFAULT issuer. It signs the bearer tokens the SPA
+  # sends and publishes the JWKS PostgREST validates them against, so the stack
+  # owns its whole auth story out of the box — no external IdP, no public throwaway
+  # test issuer.
+  #
+  # MOUNTED AT /idp on the caddy front door (see ../Caddyfile), and the prefix is
+  # NOT stripped: `server.baseUrl` in idp-config/config.jsonc carries it, and every
+  # link, cookie Path, e-mail URL and redirect the idp emits derives from that one
+  # value. Its discovery documents are ALSO served from the ORIGIN ROOT
+  # (/.well-known/*), because a client handed the issuer <origin>/idp looks for
+  # metadata there and never under the mount path (RFC 8414 §3.1).
+  #
+  # SHARES this stack's Postgres, in its own `idp` schema, and migrates itself on
+  # boot. Two connection strings, both as the `postgres` superuser for now:
+  #   DATABASE_URL        runtime traffic, THROUGH pgbouncer. Safe under transaction
+  #                       pooling: the idp's driver disables prepared statements and
+  #                       schema-qualifies every query.
+  #   DATABASE_URL_ADMIN  DIRECT to postgres:5432 — startup, migrations, the CLI and
+  #                       the cleanup job hold SESSION advisory locks, which a
+  #                       transaction pooler does not preserve.
+  #
+  # CONFIG is the sibling ./idp-config/ (config.jsonc + oauth_clients.jsonc), bind
+  # mounted READ-ONLY: the container never writes its own configuration, so
+  # "restart to apply" is a property of the mount rather than a promise in the
+  # documentation. The `${env:...}` placeholders inside those files resolve from
+  # the environment below.
+  #
+  # FIRST RUN: no bootstrap account, and no password in the environment. While the
+  # user table is empty the idp serves a setup page at /idp — whoever completes it
+  # becomes the first administrator.
+  idp:
+    image: ghcr.io/semantius/semantius-idp:${SEMANTIUS_IDP_VERSION:-latest}
+    pull_policy: always
+    container_name: postgres18-rest-idp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # service_healthy, not merely started: the idp migrates on boot, and a
+        # migration against a Postgres still running initdb fails the whole start.
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+    environment:
+      # Where the config files live INSIDE the container (the mount below). Pinned
+      # here rather than defaulted, so a host IDP_CONFIG_DIR naming a host path
+      # cannot send the container looking for a directory that does not exist in it.
+      IDP_CONFIG_DIR: /config
+      # Every idp table — drizzle's migration bookkeeping included — lives in this
+      # schema. Nothing is created in `public`, so nothing can collide with
+      # pg_semantius's own objects.
+      IDP_SCHEMA_NAME: idp
+      # THE ISSUER: scheme + host[:port] + the /idp mount path, no trailing slash.
+      # Everything absolute the idp emits derives from this, and it is also the
+      # default `aud` of its access tokens (jwt.audience in config.jsonc). Going
+      # live, set IDP_BASE_URL=https://yourdomain.com/idp in .env.
+      IDP_BASE_URL: ${IDP_BASE_URL:-http://localhost:${WEB_PORT:-7070}/idp}
+      # What the healthcheck below probes. Two things about this URL:
+      #
+      # /readyz, NOT /healthz. /healthz is liveness — "the process is up" — and it
+      # answers 200 while the database is still refusing connections. jwks-fetch
+      # waits on THIS service being healthy before downloading the signing keys, so
+      # a liveness probe lets it fire at an idp that 500s, and a one-shot container
+      # that fails is a failed `create`. /readyz checks config, database,
+      # migrations AND the signing key — which is exactly the precondition.
+      #
+      # It must carry the SAME path prefix as IDP_BASE_URL: under a sub-path
+      # /readyz sits at /idp/readyz, and a probe of the origin root would report a
+      # perfectly healthy container as failing.
+      IDP_HEALTH_URL: http://127.0.0.1:3000/idp/readyz
+      # Signs sessions AND encrypts the JWT signing keys at rest. Rotating it logs
+      # everyone out and makes the stored signing keys undecryptable — read the
+      # idp's key-rotation runbook before you do. >= 32 random bytes:
+      # `openssl rand -base64 48`.
+      IDP_SECRET: ${IDP_SECRET:?set IDP_SECRET in .env (openssl rand -base64 48)}
+      # Runtime pooled / admin direct, as described above. The password is spliced
+      # into a URL, so POSTGRES_PASSWORD must be URL-safe.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@pgbouncer:5432/${POSTGRES_DB:-semantius}
+      DATABASE_URL_ADMIN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-semantius}
+      # ORIGIN of the admin SPA — no path, no trailing slash.
+      # idp-config/oauth_clients.jsonc builds the SPA's redirect URIs from it, and
+      # those are matched EXACTLY, so it has to be the origin the browser really uses.
+      PUBLIC_WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://localhost:${WEB_PORT:-7070}}
+      # Optional. Without it the idp runs DEGRADED: password reset, e-mail
+      # verification and every notification are disabled and hidden in the UI (and
+      # auth.requireEmailVerification is forced off). Fine locally, where an admin
+      # creates the accounts; set it for anything people depend on.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    volumes:
+      # Regular directory, read-only. Edit ./idp-config/*.jsonc and
+      # `docker compose restart idp` — configuration is read ONCE at start-up;
+      # there is no hot reload and SIGHUP is ignored. The dokploy build embeds
+      # these files as `configs:` instead (no bind mounts there), so regenerate
+      # after every change to keep the two in sync.
+      - ./idp-config:/config:ro
+    ports:
+      # Container port 3000; POSTGREST_PORT already owns 3000 on the host, hence
+      # 3001. Direct access is a local-dev convenience only — every URL the idp
+      # emits carries the front door's origin + /idp, so signing in has to go
+      # through http://localhost:${WEB_PORT}/idp.
+      - "${IDP_PORT:-3001}:3000"
+    # Nothing writes to the image. The one writable path it needs holds scratch,
+    # so a tmpfs rather than a volume — it should not survive a restart.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Longer than the idp's own drain (server.shutdownTimeoutSeconds, 10s by
+    # default), or Docker kills the process in the middle of the thing that exists
+    # to avoid being killed in the middle.
+    stop_grace_period: 30s
+    healthcheck:
+      # The image is a Bun runtime with no shell utilities in it — no curl, no wget.
+      test: ["CMD", "bun", "-e", "const r = await fetch(process.env.IDP_HEALTH_URL); process.exit(r.ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      # Generous, because a FIRST boot is a schema creation, a full migration run
+      # and an ES256 key generation before /readyz can answer — and because these
+      # failures are what `create` would report as "dependency failed to start".
+      start_period: 90s
 
   # --- One-shot: fetch the issuer JWKS to a file PostgREST can read ----------
   # PostgREST CANNOT fetch a JWKS from a URL; jwt-secret only takes inline JSON or
@@ -90,9 +250,15 @@ services:
   # root); curl writes jwks.json world-readable, so PostgREST (a different user)
   # can read it.
   #
-  # KEYS URL: if JWKS_URL is set, it is used directly. If it is EMPTY, the URL is
-  # DERIVED from VITE_OAUTH_CONFIG's OIDC discovery document (its `jwks_uri`), so
-  # pointing the stack at an issuer only needs VITE_OAUTH_CONFIG. Set one or both.
+  # KEYS URL: JWKS_URL, when set, is fetched directly. It DEFAULTS to the bundled
+  # idp reached IN-NETWORK (http://idp:3000/idp/.well-known/jwks.json) —
+  # deliberately explicit rather than derived, because the `jwks_uri` the idp
+  # advertises is built from its PUBLIC baseUrl (localhost:WEB_PORT), an address
+  # this container cannot resolve.
+  #
+  # For an EXTERNAL issuer, set JWKS_URL empty and VITE_OAUTH_CONFIG to that
+  # issuer's discovery URL: an empty JWKS_URL makes this service DERIVE the keys
+  # URL from the discovery document's `jwks_uri`, so the issuer is named once.
   #
   # LIMITATION: fetched ONCE per start. When the issuer ROTATES signing keys, tokens
   # signed by a new key fail until this is re-run AND PostgREST is restarted to
@@ -108,10 +274,22 @@ services:
     container_name: postgres18-rest-jwks
     user: "0:0"
     restart: "no"
+    depends_on:
+      idp:
+        # The default JWKS_URL points at the idp, so it has to be serving keys
+        # before this runs. Harmless when the two vars below name an external
+        # issuer — the idp is part of the stack either way.
+        condition: service_healthy
     environment:
-      # JWKS_URL is OPTIONAL — leave empty to derive it from VITE_OAUTH_CONFIG below.
-      JWKS_URL: ${JWKS_URL:-}
-      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-https://oidc-test.semanti.us/.well-known/openid-configuration}
+      # Defaults to the bundled idp, in-network. `-` and NOT `:-`, deliberately:
+      # the default applies only when JWKS_URL is UNSET, so an EMPTY `JWKS_URL=`
+      # in .env survives as empty and selects the derive-from-discovery path
+      # below. With `:-` an empty value would silently take the default back and
+      # the external-issuer route would be unreachable.
+      JWKS_URL: ${JWKS_URL-http://idp:3000/idp/.well-known/jwks.json}
+      # Only consulted when JWKS_URL is empty. Defaults to the front door's origin
+      # root, which caddy routes to the bundled idp.
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-7070}/.well-known/openid-configuration}
     volumes:
       - jwks:/jwks
     entrypoint:
@@ -126,7 +304,7 @@ services:
             exit 1
           fi
           echo "JWKS_URL empty — discovering jwks_uri from $${VITE_OAUTH_CONFIG} ..."
-          url="$$(curl -fsS --retry 5 --retry-connrefused "$${VITE_OAUTH_CONFIG}" \
+          url="$$(curl -fsS --retry 5 --retry-connrefused --retry-all-errors "$${VITE_OAUTH_CONFIG}" \
                   | tr -d '[:space:]' | sed 's/.*"jwks_uri":"//; s/".*//')"
           case "$${url}" in
             http://*|https://*) echo "Discovered jwks_uri: $${url}" ;;
@@ -134,7 +312,10 @@ services:
           esac
         fi
         echo "Fetching JWKS from $${url} ..."
-        curl -fsS --retry 5 --retry-connrefused "$${url}" -o /jwks/jwks.json
+        # --retry-all-errors as well as --retry-connrefused: an issuer that is
+        # listening but not yet able to serve keys answers 500, and without this
+        # curl retries the connection failure but not the HTTP error.
+        curl -fsS --retry 5 --retry-connrefused --retry-all-errors "$${url}" -o /jwks/jwks.json
         echo "JWKS written to /jwks/jwks.json:"
         cat /jwks/jwks.json
 
@@ -158,7 +339,9 @@ services:
       # JWKS from a FILE (PostgREST can't take a URL). @-prefix = read from file.
       PGRST_JWT_SECRET: "@/jwks/jwks.json"
       # The JWT `role` claim selects the DB role (default claim key = .role). The
-      # test issuer already mints "role":"authenticated", so it maps automatically.
+      # bundled idp mints "role":"authenticated" into every access token (a static
+      # claim — `jwt.claims` in idp-config/config.jsonc), so it maps automatically;
+      # an external issuer has to be configured to emit the same claim.
       PGRST_JWT_ROLE_CLAIM_KEY: ".role"
       # Emit the FULL OpenAPI spec regardless of the requesting role's privileges,
       # so the token-less docs site sees every endpoint while `anon` still has no
@@ -232,10 +415,27 @@ services:
       # CORS and no need to publish PostgREST's port. Doesn't change going live.
       VITE_API_BASE_URL: /api
       # OIDC discovery URL + client id — the SPA resolves the OAuth endpoints from
-      # this at boot. These are the ONLY vars you MUST change going live; both are
-      # .env-driven with test-issuer defaults so it still works out of the box.
-      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-https://oidc-test.semanti.us/.well-known/openid-configuration}
+      # this at boot. Both default to the BUNDLED idp: caddy serves its discovery
+      # document from the front door's ORIGIN ROOT, and `public-client` is the SPA
+      # registered in ./idp-config/oauth_clients.jsonc. Going live there is nothing
+      # to change here — set IDP_BASE_URL / PUBLIC_WEB_ORIGIN to your domain and
+      # leave these alone — unless you are replacing the issuer, in which case point
+      # them at yours (and see JWKS_URL on jwks-fetch above).
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-7070}/.well-known/openid-configuration}
       VITE_OAUTH_CLIENT_ID: ${VITE_OAUTH_CLIENT_ID:-public-client}
+      # The RFC 8707 resource the SPA asks its access tokens to be issued FOR —
+      # it becomes their `aud`. LOAD-BEARING: the SPA always sends one, falling
+      # back to a built-in placeholder (`web://api`) when this is empty, and the
+      # idp rejects a resource it has never heard of with
+      # `invalid_target: requested resource not authorized` — a "Login Error" on
+      # the callback page and nothing in the SPA to explain it. So name the idp's
+      # registered default audience, which is the issuer itself (`jwt.audience`
+      # in idp-config/config.jsonc, also defaulted from IDP_BASE_URL). With an
+      # external issuer, set VITE_OAUTH_AUDIENCE in .env to the audience that
+      # issuer expects — or to its issuer URL if it has no separate API audience.
+      # `-` and not `:-` again: an explicitly EMPTY VITE_OAUTH_AUDIENCE has to
+      # reach the SPA as empty, which is how you ask for its own built-in fallback.
+      VITE_OAUTH_AUDIENCE: ${VITE_OAUTH_AUDIENCE-${IDP_BASE_URL:-http://localhost:${WEB_PORT:-7070}/idp}}
       # SINGLE SPACE — LOAD-BEARING, do not "tidy" it to "" or delete the line. The
       # SPA's cloud control plane is opt-OUT: an UNSET **or EMPTY** value still
       # activates it (the runtime-env reader ignores empty strings and falls through
@@ -257,9 +457,12 @@ services:
 
   # --- Caddy front door ------------------------------------------------------
   # The single public entrypoint. Routes (see the sibling ./Caddyfile):
-  #   /           -> web:80          (the SPA)
-  #   /api/*      -> postgrest:3000  (prefix stripped by handle_path)
-  #   /api-docs/* -> scalar:8080     (prefix stripped by handle_path)
+  #   /              -> web:80          (the SPA)
+  #   /api/*         -> postgrest:3000  (prefix stripped by handle_path)
+  #   /api-docs/*    -> scalar:8080     (prefix stripped by handle_path)
+  #   /idp/*         -> idp:3000        (prefix KEPT — it is part of the issuer URL)
+  #   /.well-known/* -> idp:3000        (rewritten under /idp: the issuer's metadata
+  #                                      has to live at the origin root)
   # No depends_on: Caddy re-resolves upstream DNS per request, so an upstream that
   # hasn't started yet is a brief 502 that self-heals — no start-order coupling.
   caddy:

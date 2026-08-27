@@ -2,7 +2,7 @@
   "id": "semantius",
   "name": "Semantius",
   "version": "1.0.0",
-  "description": "Semantic data-model platform: PostgreSQL 18 with the pg_semantius extension, a PostgREST HTTP API with OpenAPI docs, and the admin SPA — behind one Caddy front door. Auth is OIDC bearer tokens verified against your issuer's JWKS; the defaults point at a public test issuer, so set VITE_OAUTH_CONFIG and VITE_OAUTH_CLIENT_ID to your own IdP before using this for anything real.",
+  "description": "Semantic data-model platform: PostgreSQL 18 with the pg_semantius extension, a PostgREST HTTP API with OpenAPI docs, and the admin SPA — behind one Caddy front door. Auth is self-contained: a bundled OIDC/OAuth identity provider at /idp issues the bearer tokens and publishes the JWKS PostgREST validates them against, so the first visit to /idp creates the first administrator and nothing external has to be registered. Point VITE_OAUTH_CONFIG, VITE_OAUTH_CLIENT_ID and JWKS_URL elsewhere to use your own issuer instead.",
   "logo": "logo.svg",
   "links": {
     "github": "https://github.com/semantius/semantius",
@@ -14,6 +14,7 @@
     "api",
     "postgres",
     "postgrest",
+    "oidc",
     "low-code"
   ]
 }

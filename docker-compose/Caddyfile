@@ -4,11 +4,13 @@
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 
-	# Bare /api or /api-docs wouldn't match handle_path's /api/* and would fall
-	# through to the SPA — bounce to the canonical slash form (redir sorts
-	# before handle_path in Caddy's directive order; 308 keeps the method).
+	# Bare /api, /api-docs or /idp wouldn't match the /*-suffixed matchers below
+	# and would fall through to the SPA — bounce to the canonical slash form
+	# (redir sorts before handle/handle_path in Caddy's directive order; 308
+	# keeps the method).
 	redir /api /api/ 308
 	redir /api-docs /api-docs/ 308
+	redir /idp /idp/ 308
 
 	handle_path /api/* {
 		reverse_proxy postgrest:3000
@@ -16,6 +18,48 @@
 	handle_path /api-docs/* {
 		reverse_proxy scalar:8080
 	}
+
+	# --- the identity provider ----------------------------------------------
+	#
+	# Two rules, and both are easy to get wrong in ways that fail quietly.
+	#
+	# 1. The idp is served at /idp WITHOUT stripping the prefix — `handle`, never
+	#    `handle_path`. Its `server.baseUrl` carries /idp and it renders every
+	#    link, cookie Path, e-mail URL and redirect from that value; strip the
+	#    prefix here and all of them point one level too high, so sign-in appears
+	#    to work while the session cookie is set on a path the browser never
+	#    sends back.
+	#
+	# 2. The discovery documents are served from the ORIGIN ROOT, which belongs to
+	#    the SPA. A client handed the issuer `<origin>/idp` does NOT fetch
+	#    `{issuer}/.well-known/...`: RFC 8414 §3.1 inserts the well-known segment
+	#    BETWEEN the host and the path, so it asks for
+	#    `<origin>/.well-known/oauth-authorization-server/idp`. Both spellings of
+	#    the suffix form are routed below, plus the plain `/.well-known/*` root
+	#    form that this stack's own SPA and jwks tooling use. Nothing does this
+	#    for you, and the symptom is a client that cannot discover an idp which is
+	#    otherwise working perfectly.
+	#
+	# Caddy sorts `handle` blocks by matcher specificity, so the two suffix forms
+	# win over the general /.well-known/* below regardless of the order here.
+	handle /.well-known/oauth-authorization-server/idp* {
+		rewrite * /idp/.well-known/oauth-authorization-server
+		reverse_proxy idp:3000
+	}
+	handle /.well-known/openid-configuration/idp* {
+		rewrite * /idp/.well-known/openid-configuration
+		reverse_proxy idp:3000
+	}
+	# The root form: /.well-known/openid-configuration, /.well-known/jwks.json and
+	# anything else the idp publishes there, re-prefixed onto its mount path.
+	handle /.well-known/* {
+		rewrite * /idp{uri}
+		reverse_proxy idp:3000
+	}
+	handle /idp/* {
+		reverse_proxy idp:3000
+	}
+
 	handle {
 		reverse_proxy web:80
 	}

@@ -6,6 +6,9 @@
  * Sources (hand-maintained):
  *   docker-compose/docker-compose.yml   the ONE complete local stack
  *   docker-compose/Caddyfile            the front-door routes (bind-mounted locally)
+ *   docker-compose/idp-config/*.jsonc   the identity provider's configuration
+ *                                       (bind-mounted locally; every .jsonc in
+ *                                       the folder is picked up)
  *
  * Output (GENERATED — committed, never hand-edited):
  *   docker-compose/dokploy/docker-compose.yml   deployment variant
@@ -16,10 +19,16 @@
  *   - drop every `ports:`      — Dokploy/Traefik routes by service name, not host ports
  *   - drop every `container_name:` — names must not collide across deployments
  *   - no custom networks       — Dokploy attaches its own
- *   - no bind mounts           — the Caddyfile is embedded via a top-level
- *                                `configs:` entry with inline `content:`, so the
- *                                template needs `mounts = []` and the stack stays
- *                                a single self-contained file
+ *   - no bind mounts           — every bind-mounted file is embedded instead, as a
+ *                                top-level `configs:` entry with inline `content:`,
+ *                                so the template needs `mounts = []` and the stack
+ *                                stays a single self-contained file
+ *   - no `read_only:` on a service that gains such a config — compose delivers an
+ *                                inline `content:` config by WRITING it into the
+ *                                container filesystem, and refuses outright on a
+ *                                read-only one ("cannot create config … in
+ *                                read-only service"). Nothing else about the
+ *                                service changes.
  *
  * Comments in the source compose are preserved (yaml Document round-trip).
  *
@@ -29,7 +38,7 @@
  * or directly, from anywhere:
  *   node scripts/dokploy-build.mjs
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isMap, isSeq, parseDocument, Scalar, YAMLMap } from "yaml";
 
 // Paths are resolved relative to THIS file, so the task works from any cwd.
@@ -43,18 +52,25 @@ const BLUEPRINT_ID = "semantius";
 
 // ---------------------------------------------------------------------------
 // The generated compose header. Replaces the local-dev header, which documents
-// host ports and the bind-mounted Caddyfile — neither of which exists here.
+// host ports and the bind-mounted config files — neither of which exists here.
 // ---------------------------------------------------------------------------
 const GENERATED_HEADER = ` GENERATED FILE — DO NOT EDIT.
- Built from ../docker-compose.yml + ../Caddyfile by \`./dokploy-build.sh\`
- (scripts/dokploy-build.mjs). Change those, then regenerate.
+ Built from ../docker-compose.yml + ../Caddyfile + ../idp-config/*.jsonc by
+ \`./dokploy-build.sh\` (scripts/dokploy-build.mjs). Change those, then regenerate.
 
  The Dokploy blueprint variant of the semantius-rest stack. Same services as the
  local-dev compose, minus everything a one-click deployment must not carry:
  host \`ports:\` (Dokploy's Traefik routes to the \`caddy\` service by name — see
  template.toml's [[config.domains]]), \`container_name:\` (would collide across
- deployments) and bind mounts (the Caddyfile is embedded in the top-level
- \`configs:\` block below, so \`mounts = []\` in the template).
+ deployments) and bind mounts (the Caddyfile and the identity provider's
+ configuration are embedded in the top-level \`configs:\` block below, so
+ \`mounts = []\` in the template).
+
+ One further difference, forced rather than chosen: a service carrying an inline
+ \`content:\` config cannot also be \`read_only\`, because compose delivers such a
+ config by writing it into the container filesystem. \`read_only\` is therefore
+ dropped from those services here — cap_drop, no-new-privileges and the tmpfs
+ are not.
 
  Requires docker compose >= 2.23.1 on the target server (inline configs.content).`;
 
@@ -69,21 +85,40 @@ const TEMPLATE_TOML = `# Dokploy template for the Semantius PostgREST stack.
 main_domain = "\${domain}"
 postgres_password = "\${password:32}"
 authenticator_password = "\${password:32}"
+# Signs the identity provider's sessions and encrypts its JWT signing keys at
+# rest. Generated once per deployment and never rotated casually: changing it
+# logs every user out and makes the stored signing keys undecryptable.
+idp_secret = "\${password:64}"
 
 [config]
-# No bind mounts: the Caddyfile ships inside docker-compose.yml (configs.content).
+# No bind mounts: the Caddyfile and the idp's config files ship inside
+# docker-compose.yml (configs.content).
 mounts = []
 env = [
-  # OIDC issuer — the ONLY settings a real deployment must change. The defaults
-  # point at a public THROWAWAY test issuer so the one-click deploy works out of
-  # the box; swap both for your own IdP before using this for anything real.
-  "VITE_OAUTH_CONFIG=https://oidc-test.semanti.us/.well-known/openid-configuration",
+  # The stack brings its OWN issuer — the \`idp\` service, mounted at /idp on the
+  # front door — so a one-click deploy has a complete auth story with nothing to
+  # register anywhere. On first visit, https://\${main_domain}/idp serves a setup
+  # page: whoever completes it becomes the first administrator.
+  #
+  # The SPA discovers it at the origin root (caddy routes /.well-known/* there),
+  # and \`public-client\` is the SPA registered in idp-config/oauth_clients.jsonc.
+  "VITE_OAUTH_CONFIG=https://\${main_domain}/.well-known/openid-configuration",
   "VITE_OAUTH_CLIENT_ID=public-client",
+  # The keys PostgREST validates tokens against: the idp, IN-NETWORK. Explicit
+  # rather than derived from discovery, because the jwks_uri the idp advertises
+  # carries its public URL, which the jwks-fetch container cannot resolve.
+  "JWKS_URL=http://idp:3000/idp/.well-known/jwks.json",
+  "IDP_SECRET=\${idp_secret}",
+  # The issuer, and the origin the SPA's redirect URIs are built from. Both must
+  # be the public front door — every URL the idp emits derives from them.
+  "IDP_BASE_URL=https://\${main_domain}/idp",
+  "PUBLIC_WEB_ORIGIN=https://\${main_domain}",
   "POSTGRES_PASSWORD=\${postgres_password}",
   "SEMANTIUS_AUTHENTICATOR_PASSWORD=\${authenticator_password}",
   "POSTGRES_DB=semantius",
   "SEMANTIUS_DB_VERSION=latest",
   "SEMANTIUS_APP_VERSION=latest",
+  "SEMANTIUS_IDP_VERSION=latest",
   # Public front door, including the /api prefix that caddy strips.
   "PUBLIC_API_URL=https://\${main_domain}/api",
   # Load the Northwind demo module on first init so the deploy has data to show.
@@ -92,7 +127,8 @@ env = [
 ]
 
 # Traefik routes the domain to the caddy front door; caddy fans out to the SPA,
-# PostgREST (/api/*) and Scalar (/api-docs/*).
+# PostgREST (/api/*), Scalar (/api-docs/*) and the identity provider (/idp/* plus
+# the discovery documents at /.well-known/*).
 [[config.domains]]
 serviceName = "caddy"
 port = 80
@@ -109,16 +145,18 @@ const META_JSON = {
   description:
     "Semantic data-model platform: PostgreSQL 18 with the pg_semantius extension, " +
     "a PostgREST HTTP API with OpenAPI docs, and the admin SPA — behind one Caddy " +
-    "front door. Auth is OIDC bearer tokens verified against your issuer's JWKS; " +
-    "the defaults point at a public test issuer, so set VITE_OAUTH_CONFIG and " +
-    "VITE_OAUTH_CLIENT_ID to your own IdP before using this for anything real.",
+    "front door. Auth is self-contained: a bundled OIDC/OAuth identity provider at " +
+    "/idp issues the bearer tokens and publishes the JWKS PostgREST validates them " +
+    "against, so the first visit to /idp creates the first administrator and nothing " +
+    "external has to be registered. Point VITE_OAUTH_CONFIG, VITE_OAUTH_CLIENT_ID " +
+    "and JWKS_URL elsewhere to use your own issuer instead.",
   logo: "logo.svg",
   links: {
     github: "https://github.com/semantius/semantius",
     website: "https://semantius.com",
     docs: "https://github.com/semantius/semantius/tree/main/docker-compose",
   },
-  tags: ["database", "api", "postgres", "postgrest", "low-code"],
+  tags: ["database", "api", "postgres", "postgrest", "oidc", "low-code"],
 };
 
 // ---------------------------------------------------------------------------
@@ -139,8 +177,59 @@ function writeText(path, text) {
   writeFileSync(path, text.replace(/\r\n/g, "\n"));
 }
 
+// ---------------------------------------------------------------------------
+// What gets embedded. One group per service that bind-mounts configuration
+// locally: the mount is dropped, each file becomes a top-level `configs:` entry,
+// and the service gets a `configs:` list pointing at the same paths the mount
+// used to provide.
+//
+// The idp's files are DISCOVERED rather than listed, so adding e.g. a
+// roles.jsonc to docker-compose/idp-config/ needs no change here.
+// ---------------------------------------------------------------------------
+const idpConfigFiles = readdirSync(src("idp-config/"))
+  .filter((f) => f.endsWith(".jsonc"))
+  .sort()
+  .map((f) => ({
+    // Compose config names: the file's stem, prefixed so it cannot collide with
+    // another service's. `config.jsonc` -> `idp_config`.
+    name: `idp_${f.replace(/\.jsonc$/, "").replace(/[^A-Za-z0-9]+/g, "_")}`,
+    source: `idp-config/${f}`,
+    target: `/config/${f}`,
+  }));
+
+if (!idpConfigFiles.length) fail("no *.jsonc files in docker-compose/idp-config/");
+
+const EMBED_GROUPS = [
+  {
+    service: "caddy",
+    // The bind mount this replaces.
+    isMount: (v) => v.includes("/etc/caddy/Caddyfile"),
+    files: [{ name: "caddyfile", source: "Caddyfile", target: "/etc/caddy/Caddyfile" }],
+    comment:
+      " The Caddyfile, embedded at the bottom of this file (no bind mounts in a\n" +
+      " blueprint). Edit ../Caddyfile and regenerate — never this copy.",
+  },
+  {
+    service: "idp",
+    isMount: (v) => v.includes(":/config"),
+    files: idpConfigFiles,
+    comment:
+      " The identity provider's configuration, embedded at the bottom of this file\n" +
+      " (no bind mounts in a blueprint). Edit ../idp-config/*.jsonc and regenerate\n" +
+      " — never these copies. Restarting the service applies a change.",
+  },
+];
+
+// Read every source file up front, so a typo in a path fails before anything is
+// written and the round-trip check below has the exact bytes to compare against.
+for (const group of EMBED_GROUPS) {
+  for (const file of group.files) {
+    const text = readText(src(file.source));
+    file.content = text.endsWith("\n") ? text : `${text}\n`;
+  }
+}
+
 const composeSrc = readText(src("docker-compose.yml"));
-const caddySrc = readText(src("Caddyfile"));
 
 const doc = parseDocument(composeSrc);
 if (doc.errors.length) fail(`source compose has YAML errors: ${doc.errors[0].message}`);
@@ -161,6 +250,7 @@ if (!isMap(services)) fail("`services:` is not a mapping");
 // --- per-service: strip host ports + container names ------------------------
 let strippedPorts = 0;
 let strippedNames = 0;
+let strippedReadOnly = 0;
 for (const pair of services.items) {
   const svc = pair.value;
   if (!isMap(svc)) continue;
@@ -174,62 +264,85 @@ for (const pair of services.items) {
   }
 }
 
-// --- caddy: bind mount -> compose config ------------------------------------
-const caddy = services.get("caddy");
-if (!isMap(caddy)) fail("no `caddy` service in the source compose");
-
-const caddyVolumes = caddy.get("volumes");
-if (!isSeq(caddyVolumes)) fail("`caddy` has no `volumes:` list");
-const before = caddyVolumes.items.length;
-caddyVolumes.items = caddyVolumes.items.filter((item) => {
-  const v = item.value;
-  return !(typeof v === "string" && v.includes("/etc/caddy/Caddyfile"));
-});
-if (caddyVolumes.items.length === before) {
-  fail("`caddy` has no ./Caddyfile bind mount to replace — did the compose change?");
-}
-// The comment that introduced the bind mount describes local-dev editing; it is
-// wrong here, and the yaml round-trip re-anchors it onto whatever item follows.
-caddyVolumes.commentBefore = undefined;
-const firstVolume = caddyVolumes.items[0];
-if (firstVolume?.commentBefore?.includes("Caddyfile")) firstVolume.commentBefore = undefined;
-
-const configRef = doc.createNode([
-  { source: "caddyfile", target: "/etc/caddy/Caddyfile" },
-]);
-caddy.set(doc.createNode("configs"), configRef);
-const caddyConfigsPair = caddy.items.find(
-  (p) => String(p.key.value) === "configs",
-);
-if (caddyConfigsPair) {
-  caddyConfigsPair.key.commentBefore =
-    " The Caddyfile, embedded at the bottom of this file (no bind mounts in a\n" +
-    " blueprint). Edit ../Caddyfile and regenerate — never this copy.";
-}
-
-// --- top-level configs: the Caddyfile, inline -------------------------------
-// `$` must be escaped as `$$`: compose interpolates `${...}` inside `content:`,
-// and `{$SITE_ADDRESS::80}` has to reach Caddy verbatim as its own env placeholder.
-const caddyContent = caddySrc.endsWith("\n") ? caddySrc : `${caddySrc}\n`;
-const escaped = caddyContent.replaceAll("$", "$$$$");
-
-const contentScalar = new Scalar(escaped);
-contentScalar.type = Scalar.BLOCK_LITERAL;
-
-const caddyfileEntry = new YAMLMap();
-caddyfileEntry.set(doc.createNode("content"), contentScalar);
+// --- bind mounts -> compose configs -----------------------------------------
 const configsMap = new YAMLMap();
-configsMap.set(doc.createNode("caddyfile"), caddyfileEntry);
+
+for (const group of EMBED_GROUPS) {
+  const svc = services.get(group.service);
+  if (!isMap(svc)) fail(`no \`${group.service}\` service in the source compose`);
+
+  const volumes = svc.get("volumes");
+  if (!isSeq(volumes)) fail(`\`${group.service}\` has no \`volumes:\` list`);
+  const before = volumes.items.length;
+  volumes.items = volumes.items.filter((item) => {
+    const v = item.value;
+    return !(typeof v === "string" && group.isMount(v));
+  });
+  if (volumes.items.length === before) {
+    fail(
+      `\`${group.service}\` has no config bind mount to replace — did the compose change?`,
+    );
+  }
+  if (volumes.items.length === 0) {
+    // Nothing left to mount; an empty `volumes:` is noise at best.
+    svc.delete("volumes");
+  } else {
+    // The comment that introduced the bind mount describes local-dev editing; it
+    // is wrong here, and the yaml round-trip re-anchors it onto whatever item
+    // follows.
+    volumes.commentBefore = undefined;
+    const first = volumes.items[0];
+    if (first?.commentBefore?.includes("Caddyfile")) first.commentBefore = undefined;
+  }
+
+  // The service-level reference: `configs: [{source, target}, …]`.
+  svc.set(
+    doc.createNode("configs"),
+    doc.createNode(group.files.map((f) => ({ source: f.name, target: f.target }))),
+  );
+  // An inline `content:` config is WRITTEN INTO the container filesystem, so it
+  // cannot be delivered to a read-only one — compose fails the container outright
+  // ("cannot create config … in read-only service: \`file\` is the sole supported
+  // option"). A `file:` config would bind-mount and leave read_only intact, but a
+  // blueprint has no files beside it to point at. So the config wins and read_only
+  // goes, here only; the rest of the service's hardening is untouched.
+  let comment = group.comment;
+  if (svc.has("read_only")) {
+    svc.delete("read_only");
+    strippedReadOnly++;
+    comment +=
+      "\n\n An inline config is written into the container filesystem, so this service\n" +
+      " cannot also be `read_only` — it is dropped in this generated variant and\n" +
+      " nowhere else. cap_drop, no-new-privileges and the tmpfs are unchanged.";
+  }
+
+  const configsPair = svc.items.find((p) => String(p.key.value) === "configs");
+  if (configsPair) configsPair.key.commentBefore = comment;
+
+  // The top-level entry, one per file.
+  for (const file of group.files) {
+    // `$` must be escaped as `$$`: compose interpolates `${...}` inside
+    // `content:`, and both Caddy's `{$SITE_ADDRESS::80}` and the idp's
+    // `${env:...}` placeholders have to reach their reader verbatim.
+    const contentScalar = new Scalar(file.content.replaceAll("$", "$$$$"));
+    contentScalar.type = Scalar.BLOCK_LITERAL;
+    const entry = new YAMLMap();
+    entry.set(doc.createNode("content"), contentScalar);
+    configsMap.set(doc.createNode(file.name), entry);
+  }
+}
+
 doc.set(doc.createNode("configs"), configsMap);
 
-const configsPair = doc.contents.items.find(
+const topConfigsPair = doc.contents.items.find(
   (p) => String(p.key.value) === "configs",
 );
-if (configsPair) {
-  configsPair.key.commentBefore =
-    " The front-door routes, copied verbatim from ../Caddyfile at build time.\n" +
-    " `$` is escaped as `$$` so compose leaves Caddy's own {$SITE_ADDRESS::80}\n" +
-    " placeholder alone (it resolves from the caddy service's environment).\n" +
+if (topConfigsPair) {
+  topConfigsPair.key.commentBefore =
+    " The bind-mounted files, copied verbatim from ../Caddyfile and\n" +
+    " ../idp-config/*.jsonc at build time. `$` is escaped as `$$` so compose\n" +
+    " leaves Caddy's own {$SITE_ADDRESS::80} and the idp's ${env:...} placeholders\n" +
+    " alone — each is resolved by its own reader, from that service's environment.\n" +
     " Needs docker compose >= 2.23.1 (inline `content:` support).";
 }
 
@@ -254,6 +367,10 @@ if (!Object.keys(outServices).length) problems.push("generated compose has no se
 
 for (const [name, svc] of Object.entries(outServices)) {
   if (svc.ports) problems.push(`service \`${name}\` still has ports:`);
+  // Compose refuses to create such a container at all — catch it here, not there.
+  if (svc.configs?.length && svc.read_only) {
+    problems.push(`service \`${name}\` is read_only but carries an inline config`);
+  }
   if (svc.container_name) problems.push(`service \`${name}\` still has container_name:`);
   if (svc.networks) problems.push(`service \`${name}\` declares networks: (Dokploy attaches its own)`);
   for (const v of svc.volumes ?? []) {
@@ -265,11 +382,23 @@ for (const [name, svc] of Object.entries(outServices)) {
 }
 if (outAny?.networks) problems.push("generated compose declares top-level networks:");
 
-const embedded = outAny?.configs?.caddyfile?.content;
-if (!embedded) {
-  problems.push("configs.caddyfile.content is missing or empty");
-} else if (embedded.replaceAll("$$", "$") !== caddyContent) {
-  problems.push("configs.caddyfile.content does not round-trip back to ../Caddyfile");
+// Every embedded file must be present, referenced by its service, and round-trip
+// back to its source byte for byte once the `$$` escaping is undone.
+for (const group of EMBED_GROUPS) {
+  const refs = outServices[group.service]?.configs ?? [];
+  for (const file of group.files) {
+    const embedded = outAny?.configs?.[file.name]?.content;
+    if (!embedded) {
+      problems.push(`configs.${file.name}.content is missing or empty`);
+    } else if (embedded.replaceAll("$$", "$") !== file.content) {
+      problems.push(`configs.${file.name}.content does not round-trip back to ../${file.source}`);
+    }
+    if (!refs.some((r) => r?.source === file.name && r?.target === file.target)) {
+      problems.push(
+        `service \`${group.service}\` does not mount config \`${file.name}\` at ${file.target}`,
+      );
+    }
+  }
 }
 
 // Every `${VAR:?...}` (required, no default) must be supplied by the template env.
@@ -317,8 +446,11 @@ try {
   // no logo in the repo yet
 }
 
-console.log(`Wrote docker-compose/dokploy/ (stripped ${strippedPorts} ports:, ${strippedNames} container_name:)`);
-console.log(`  docker-compose.yml`);
+const embeddedNames = EMBED_GROUPS.flatMap((g) => g.files.map((f) => f.source));
+console.log(
+  `Wrote docker-compose/dokploy/ (stripped ${strippedPorts} ports:, ${strippedNames} container_name:, ${strippedReadOnly} read_only:)`,
+);
+console.log(`  docker-compose.yml    embeds ${embeddedNames.join(", ")}`);
 console.log(`  template.toml`);
 console.log(`  meta.json`);
 console.log(logoNote);

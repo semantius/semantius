@@ -17,9 +17,30 @@ that change is implemented and verified (see [README.md](README.md)).
       - the `configs:` block survives Dokploy's compose processing (the one
         residual unknown; needs docker compose ≥ 2.23.1 on the server),
       - Traefik routes `${main_domain}` → `caddy`:80,
-      - `/`, `/api/`, `/api-docs/` all work at `https://<domain>`.
+      - `/`, `/api/`, `/api-docs/` all work at `https://<domain>`,
+      - the identity provider works end to end: `/idp` serves the setup page, its
+        two embedded `idp-config/*.jsonc` configs arrive with their `${env:…}`
+        placeholders intact, `/.well-known/openid-configuration` (and the RFC 8414
+        suffix form `/.well-known/oauth-authorization-server/idp`) resolve, and a
+        login through the SPA completes.
 
 ## Follow-ups
+
+- [ ] **`token.sh` / `api-test.sh` mint from the retired test issuer.** Both call
+      `pgdocker/get_user_token.ts`, whose issuer is hardcoded in
+      `pgdocker/verify_oauth.ts`, so their tokens no longer verify against the
+      bundled idp's JWKS and `api-test.sh` fails against a default stack. Point
+      them at the idp instead — the supported headless path is a per-user API key
+      exchanged at `GET /idp/api/auth/token` (see the README), which needs a user
+      to exist, so it probably wants a small bootstrap helper.
+
+- [ ] **`read_only: true` is dropped from `idp` in the blueprint.** Not a choice:
+      docker compose delivers an inline `configs.content` by writing it into the
+      container filesystem and refuses outright on a read-only service
+      (*"cannot create config … in read-only service: `file` is the sole supported
+      option"*). The generator strips it and says so. To get it back, the
+      blueprint would have to ship the config as a `file:` config — which means
+      files beside the compose, the thing a one-click blueprint exists to avoid.
 
 - [ ] **Clean self-hosted opt-out in the `semantius-app` repo.** The `web` service
       has to pass `VITE_CONTROL_PLANE_URL: " "` — a literal single space — because

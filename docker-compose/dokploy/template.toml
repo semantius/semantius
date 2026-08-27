@@ -5,21 +5,40 @@
 main_domain = "${domain}"
 postgres_password = "${password:32}"
 authenticator_password = "${password:32}"
+# Signs the identity provider's sessions and encrypts its JWT signing keys at
+# rest. Generated once per deployment and never rotated casually: changing it
+# logs every user out and makes the stored signing keys undecryptable.
+idp_secret = "${password:64}"
 
 [config]
-# No bind mounts: the Caddyfile ships inside docker-compose.yml (configs.content).
+# No bind mounts: the Caddyfile and the idp's config files ship inside
+# docker-compose.yml (configs.content).
 mounts = []
 env = [
-  # OIDC issuer — the ONLY settings a real deployment must change. The defaults
-  # point at a public THROWAWAY test issuer so the one-click deploy works out of
-  # the box; swap both for your own IdP before using this for anything real.
-  "VITE_OAUTH_CONFIG=https://oidc-test.semanti.us/.well-known/openid-configuration",
+  # The stack brings its OWN issuer — the `idp` service, mounted at /idp on the
+  # front door — so a one-click deploy has a complete auth story with nothing to
+  # register anywhere. On first visit, https://${main_domain}/idp serves a setup
+  # page: whoever completes it becomes the first administrator.
+  #
+  # The SPA discovers it at the origin root (caddy routes /.well-known/* there),
+  # and `public-client` is the SPA registered in idp-config/oauth_clients.jsonc.
+  "VITE_OAUTH_CONFIG=https://${main_domain}/.well-known/openid-configuration",
   "VITE_OAUTH_CLIENT_ID=public-client",
+  # The keys PostgREST validates tokens against: the idp, IN-NETWORK. Explicit
+  # rather than derived from discovery, because the jwks_uri the idp advertises
+  # carries its public URL, which the jwks-fetch container cannot resolve.
+  "JWKS_URL=http://idp:3000/idp/.well-known/jwks.json",
+  "IDP_SECRET=${idp_secret}",
+  # The issuer, and the origin the SPA's redirect URIs are built from. Both must
+  # be the public front door — every URL the idp emits derives from them.
+  "IDP_BASE_URL=https://${main_domain}/idp",
+  "PUBLIC_WEB_ORIGIN=https://${main_domain}",
   "POSTGRES_PASSWORD=${postgres_password}",
   "SEMANTIUS_AUTHENTICATOR_PASSWORD=${authenticator_password}",
   "POSTGRES_DB=semantius",
   "SEMANTIUS_DB_VERSION=latest",
   "SEMANTIUS_APP_VERSION=latest",
+  "SEMANTIUS_IDP_VERSION=latest",
   # Public front door, including the /api prefix that caddy strips.
   "PUBLIC_API_URL=https://${main_domain}/api",
   # Load the Northwind demo module on first init so the deploy has data to show.
@@ -28,7 +47,8 @@ env = [
 ]
 
 # Traefik routes the domain to the caddy front door; caddy fans out to the SPA,
-# PostgREST (/api/*) and Scalar (/api-docs/*).
+# PostgREST (/api/*), Scalar (/api-docs/*) and the identity provider (/idp/* plus
+# the discovery documents at /.well-known/*).
 [[config.domains]]
 serviceName = "caddy"
 port = 80

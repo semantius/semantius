@@ -1,0 +1,58 @@
+// OAuth clients of the bundled `idp` service. THIS FILE IS THE SOURCE OF TRUTH:
+// at every start the idp validates it and reconciles it into the database under
+// an advisory lock — missing clients are inserted, changed ones updated, and a
+// client no longer listed here is DISABLED (its tokens and consents revoked), or
+// deleted when `oauth.reconcile.prune` is true in config.jsonc. Dynamic client
+// registration is off and the client CRUD endpoints are unreachable, so adding an
+// application means adding it here and restarting the idp:
+//
+//   docker compose restart idp
+//
+// The same `${env:NAME}` / `${env:NAME:-default}` placeholders as config.jsonc
+// work here, resolved from the `idp` service's environment in
+// ../docker-compose.yml. The dokploy build EMBEDS this file into the generated
+// compose — regenerate after every change (../dokploy-build.sh).
+//
+// v1 supports the `authorization_code` (PKCE S256) and `refresh_token` grants
+// only. There is no `client_credentials`: for scripted access, issue yourself a
+// per-user API key at /idp/account/api-keys and exchange it for a JWT at
+// GET /idp/api/auth/token with an `x-api-key` header.
+{
+  "clients": [
+    {
+      // The admin SPA — the `web` service, served at the front door's root. A
+      // public client: no secret, PKCE S256 required.
+      //
+      // The id must match VITE_OAUTH_CLIENT_ID on the `web` service; both
+      // default to `public-client`.
+      "clientId": "public-client",
+      "name": "Semantius Admin",
+      "type": "spa",
+
+      // EXACT match, no wildcards. The SPA builds its redirect URI as
+      // `${window.location.origin}/oauth2_callback`, so this has to be the
+      // origin the browser actually uses — which is what PUBLIC_WEB_ORIGIN is
+      // for (the caddy front door, no path, no trailing slash). Going live, set
+      // PUBLIC_WEB_ORIGIN=https://yourdomain.com in .env; add a second entry
+      // here if the same deployment is reached on more than one origin.
+      "redirectUris": ["${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"],
+
+      // Where the idp may send the browser after an RP-initiated logout. Three
+      // entries because the SPA has three exits: its /logout route calls the
+      // end-session endpoint with no redirect at all, its OAuth library falls
+      // back to the redirect URI when no logout redirect is configured, and a
+      // plain return lands on the app root.
+      "postLogoutRedirectUris": [
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/",
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/logout-success",
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"
+      ],
+
+      // Must be a subset of `oauth.scopes` in config.jsonc.
+      "scopes": ["openid", "profile", "email", "offline_access"],
+
+      // Needs at least one postLogoutRedirectUris entry, above.
+      "enableEndSession": true
+    }
+  ]
+}
