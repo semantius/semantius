@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Destroy the PostgREST stack: its containers, network, and data + jwks volumes.
-# Keeps the semantius-db image (a reusable, versioned artifact — rebuild/pull as
+# Keeps the semantius/postgres image (a reusable, versioned artifact — rebuild/pull as
 # needed) and leaves the pgdocker stacks untouched.
 set -euo pipefail
 cd "$(dirname "$0")"

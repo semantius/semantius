@@ -1,9 +1,11 @@
-# docker-semantius — the Semantius DB image
+# docker-postgres — the Semantius DB image
 
 Builds and publishes the self-contained database image:
 
 ```
-ghcr.io/semantius/semantius-db:<version>   # + :latest
+ghcr.io/semantius/postgres:<version>-pg<major>   # canonical, immutable
+ghcr.io/semantius/postgres:latest-pg<major>      # moving, major pinned
+ghcr.io/semantius/postgres:latest                # moving, default major
 ```
 
 It is **PostgreSQL 18 with the `pg_semantius` extension installed and the
@@ -26,7 +28,11 @@ scripts. This image just adds the deployment layer (LOGIN/password, `anon`,
 pg_hba, demo data) that an extension architecturally can't own.
 
 The image version tracks the repo-wide extension version (`extension/META.json`),
-so `semantius-db:0.3.0` contains extension `0.3.0`.
+so `semantius/postgres:0.3.0-pg18` contains extension `0.3.0` on PostgreSQL 18.
+The `-pg<major>` suffix comes from the Dockerfile's `FROM postgres:` line, so one
+release can ship the same extension version for several majors side by side.
+There is deliberately **no bare `:0.3.0`** — a version tag that silently changed
+major later is the ambiguity the suffix removes.
 
 ## Environment variables
 
@@ -55,11 +61,11 @@ already deployed.
 
 | Script | What it does |
 |---|---|
-| `./build.sh [version]` | Builds `semantius-db:<version>` + `:latest` **locally** from `./extension` (+ the nwind migrations). Does NOT regenerate the extension. |
+| `./build.sh [version]` | Builds `semantius/postgres:<version>-pg<major>` + `:latest-pg<major>` + `:latest` **locally** from `./extension` (+ the nwind migrations). Does NOT regenerate the extension. |
 | `./publish.sh [version]` | Pushes those tags to GHCR (login required; CI does this on tag). |
 
 Both infer the version from the `./extension` build when no argument is given, and
-honour an `IMAGE=` override (default `ghcr.io/semantius/semantius-db`).
+honour an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
 
 > **Changed migrations?** Regenerate the extension first, with an **explicit**
 > version — a bare `deno task extension` falls back to the CLI's own `0.1.0` and
@@ -71,8 +77,8 @@ honour an `IMAGE=` override (default `ghcr.io/semantius/semantius-db`).
 ## Build context
 
 Both `build.sh` and CI (`.github/workflows/extension-release.yml`) build with the
-**repo root** as context and `docker-semantius/Dockerfile`. The repo-root
-`.dockerignore` whitelists exactly `extension/`, `docker-semantius/`, and
+**repo root** as context and `docker-postgres/Dockerfile`. The repo-root
+`.dockerignore` whitelists exactly `extension/`, `docker-postgres/`, and
 `apps/nwind/migrations/` so the context stays tiny.
 
 ## Local development
@@ -80,7 +86,7 @@ Both `build.sh` and CI (`.github/workflows/extension-release.yml`) build with th
 Build locally, then any consumer stack uses the `:latest` tag without pulling:
 
 ```bash
-./docker-semantius/build.sh                # from repo root
+./docker-postgres/build.sh                # from repo root
 cd docker-compose && docker compose up -d  # uses the local image
 ```
 
@@ -97,13 +103,13 @@ Manual:
 
 ```bash
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
-./docker-semantius/build.sh 0.3.0
-./docker-semantius/publish.sh 0.3.0
+./docker-postgres/build.sh 0.3.0
+./docker-postgres/publish.sh 0.3.0
 ```
 
 ## Consuming it
 
 `docker-compose/docker-compose.yml` references
-`ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION:-latest}`. Pin
+`ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}`. Pin
 `SEMANTIUS_DB_VERSION` in `.env` for reproducible/server deploys; leave it at
 `latest` to track your local build.

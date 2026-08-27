@@ -2,7 +2,7 @@
 # =============================================================================
 # 20-authenticator-login.sh  -  give semantius_authenticator a LOGIN + password
 # =============================================================================
-# Baked into the semantius-db image. Runs once, at first container init, over the
+# Baked into the semantius/postgres image. Runs once, at first container init, over the
 # local socket as `postgres`, AFTER 10-install-extension.sql (so the extension has
 # already created semantius_authenticator NOLOGIN with its `authenticated`
 # membership).

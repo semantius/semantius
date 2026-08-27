@@ -27,7 +27,7 @@
 #                     migrations so the rebuilt image bakes what you just changed
 #                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1).
 #   1. down -v        wipe the PostgREST stack + its data volume.
-#   2. create         rebuild the semantius-db image + bring the stack up fresh;
+#   2. create         rebuild the semantius/postgres image + bring the stack up fresh;
 #                     init runs CREATE EXTENSION (installs _core in ONE txn, seeds
 #                     the _versions guard rows).
 #   3. readiness gate poll pg_extension until the extension is present (the
@@ -69,7 +69,7 @@ fi
 
 # [0/5] Regenerate the extension from CURRENT migrations, so the rebuilt image
 # tests what is on disk now. Version inferred from the newest built extension SQL,
-# exactly like docker-semantius/build.sh.
+# exactly like docker-postgres/build.sh.
 if [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
   VERSION="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql 2>/dev/null \
     | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)"

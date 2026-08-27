@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------------------
-# docker-semantius/Dockerfile — PostgreSQL 18 with the Semantius core extension
+# docker-postgres/Dockerfile — PostgreSQL 18 with the Semantius core extension
 # INSTALLED and the full runtime baked in. This is the self-contained,
 # publishable DB image:
-#   ghcr.io/semantius/semantius-db:<version>
+#   ghcr.io/semantius/postgres:<version>
 #
 # "Self-contained" is the point: a consumer stack (e.g. ../docker-compose) needs
 # to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just
@@ -29,11 +29,11 @@ COPY extension/pg_semantius.control extension/pg_semantius--*.sql \
      /usr/share/postgresql/18/extension/
 
 # --- Client auth config (activated by the CMD at the bottom) ----------------
-COPY docker-semantius/conf/pg_hba.conf /etc/postgresql/pg_hba.conf
+COPY docker-postgres/conf/pg_hba.conf /etc/postgresql/pg_hba.conf
 
 # --- First-init scripts: run once, in filename order, on a fresh data dir ----
 #     10 install extension → 20 authenticator LOGIN+password → 30 anon → 40 nwind
-COPY docker-semantius/initdb/ /docker-entrypoint-initdb.d/
+COPY docker-postgres/initdb/ /docker-entrypoint-initdb.d/
 RUN chmod 0755 /docker-entrypoint-initdb.d/*.sh
 
 # --- Optional Northwind demo module -----------------------------------------

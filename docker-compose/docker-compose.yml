@@ -13,13 +13,13 @@ name: semantius-rest
 services:
   # --- PostgreSQL 18 + extension --------------------------------------------
   postgres:
-    # Self-contained image (../docker-semantius): PostgreSQL 18 with the extension
+    # Self-contained image (../docker-postgres): PostgreSQL 18 with the extension
     # INSTALLED, plus pg_hba, the roles, the authenticator LOGIN, and an optional
     # Northwind demo module all baked in. NOTHING is mounted from the host — this
     # stack is just this compose file + .env (a copy-paste Dokploy template).
-    # Locally, docker-semantius/build.sh tags :latest so `up` uses your fresh
+    # Locally, docker-postgres/build.sh tags :latest so `up` uses your fresh
     # build; on a server it is pulled from GHCR. Pin the version via SEMANTIUS_DB_VERSION.
-    image: ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION:-latest}
+    image: ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}
     container_name: postgres18-rest
     restart: unless-stopped
     environment:

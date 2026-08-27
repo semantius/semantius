@@ -2,7 +2,7 @@
 # =============================================================================
 # 40-nwind.sh  -  optionally load the Northwind demo module (gated by $NWIND)
 # =============================================================================
-# Baked into the semantius-db image. Runs once at first container init, AFTER the
+# Baked into the semantius/postgres image. Runs once at first container init, AFTER the
 # extension is installed (10) so the data-dictionary (modules/entities/fields
 # tables) exists for the module to register into.
 #
@@ -12,7 +12,7 @@
 #
 # The seed itself (/opt/semantius/nwind.sql) is the app's two migrations
 # (apps/nwind/migrations/0010_create.sql + 0020_load_data.sql) MERGED at image
-# build time (see docker-semantius/Dockerfile). 0010 registers the Northwind
+# build time (see docker-postgres/Dockerfile). 0010 registers the Northwind
 # module/entities into the dictionary (triggers auto-create the physical tables);
 # 0020 loads the sample rows. Neither redeclares _core — that comes from the
 # extension. The build also appends _versions guards so a later `deno task

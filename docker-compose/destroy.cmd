@@ -1,6 +1,6 @@
 @echo off
 REM Destroy the PostgREST stack: containers, network, and data + jwks volumes.
-REM Keeps the semantius-db image (reusable, versioned artifact) and leaves the
+REM Keeps the semantius/postgres image (reusable, versioned artifact) and leaves the
 REM pgdocker stacks untouched.
 cd /d "%~dp0"
 

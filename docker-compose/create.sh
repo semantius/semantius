@@ -14,7 +14,7 @@ fi
 # Build the Semantius DB image locally (regenerates the extension + tags :latest),
 # so the compose `image:` resolves to your current source without pulling. On a
 # server you would instead pull a published version (set SEMANTIUS_DB_VERSION).
-../docker-semantius/build.sh
+../docker-postgres/build.sh
 
 # --force-recreate: always replace existing containers with fresh ones built from
 # the current compose config, so create can never resume a stale/half-built

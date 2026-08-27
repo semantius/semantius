@@ -43,6 +43,17 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Resolved extension version: $V"
 
+      # The Postgres major in the image tags comes from the Dockerfile's FROM
+      # line, so a base bump (postgres:18 -> :19) moves the tags with it and the
+      # suffix can never claim a major the image does not actually have.
+      - name: Resolve Postgres major
+        id: pg
+        run: |
+          M="$(sed -nE 's|^FROM postgres:([0-9]+).*|\1|p' docker-postgres/Dockerfile | head -1)"
+          [ -n "$M" ] || { echo "could not parse the Postgres major from docker-postgres/Dockerfile" >&2; exit 1; }
+          echo "major=$M" >> "$GITHUB_OUTPUT"
+          echo "Resolved Postgres major: $M"
+
       - name: Generate extension
         run: deno task extension "${{ steps.ver.outputs.version }}"
 
@@ -91,8 +102,12 @@ jobs:
 
       # --- Publish the DB image (PostgreSQL 18 + extension) to GHCR -----------
       # The extension files were generated above, so the build context already
-      # has them. Publishes ghcr.io/<owner>/semantius-db:<version> + :latest,
-      # consumed by docker-compose/docker-compose.yml and any Dokploy template.
+      # has them. Publishes ghcr.io/<owner>/postgres under three names for one
+      # image: :<version>-pg<major> (canonical, immutable), :latest-pg<major>
+      # (moving, major pinned) and :latest (moving, default major). There is
+      # deliberately no bare :<version> — a version tag that silently changed
+      # Postgres major later is exactly the ambiguity the suffix removes.
+      # Consumed by docker-compose/docker-compose.yml and any Dokploy template.
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -104,8 +119,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker-semantius/Dockerfile
+          file: docker-postgres/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/semantius-db:${{ steps.ver.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/semantius-db:latest
+            ghcr.io/${{ github.repository_owner }}/postgres:${{ steps.ver.outputs.version }}-pg${{ steps.pg.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/postgres:latest-pg${{ steps.pg.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/postgres:latest

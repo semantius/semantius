@@ -1,7 +1,7 @@
 -- =============================================================================
 -- 10-install-extension.sql  -  install the Semantius core extension
 -- =============================================================================
--- Baked into the semantius-db image and run once, at first container init, over
+-- Baked into the semantius/postgres image and run once, at first container init, over
 -- the local socket as `postgres` (superuser), against POSTGRES_DB. This is what
 -- makes the image's "extension baked in" promise real: the .control + versioned
 -- SQL are staged into the cluster's extension dir by the Dockerfile, and this

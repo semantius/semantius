@@ -5,8 +5,8 @@ OpenAPI docs and an admin SPA in front of a PostgreSQL 18 database carrying the
 `pg_semantius` extension.
 
 Everything the database needs (extension install, roles, `pg_hba`, the
-authenticator LOGIN, optional demo data) is **baked into the `semantius-db`
-image** from [`../docker-semantius`](../docker-semantius/README.md), so this stack
+authenticator LOGIN, optional demo data) is **baked into the `semantius/postgres`
+image** from [`../docker-postgres`](../docker-postgres/README.md), so this stack
 mounts nothing from the host — it is just this `docker-compose.yml` + a `.env`.
 That makes it a copy-paste Dokploy template.
 
@@ -40,7 +40,7 @@ Six services (project `semantius-rest`), five long-running + one one-shot:
 
 | Service | Image | Host port | Purpose |
 |---|---|---|---|
-| `postgres` | `ghcr.io/semantius/semantius-db:${SEMANTIUS_DB_VERSION}` (built from [`../docker-semantius`](../docker-semantius/README.md)) | **5434** | PG18 with the extension installed + roles/pg_hba/authenticator/nwind baked in |
+| `postgres` | `ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION}` (built from [`../docker-postgres`](../docker-postgres/README.md)) | **5434** | PG18 with the extension installed + roles/pg_hba/authenticator/nwind baked in |
 | `pgbouncer` | `edoburu/pgbouncer:latest` | **6432** | transaction-pooled `semantius_authenticator` endpoint for apps that talk SQL directly ([see below](#the-pgbouncer-service--a-pooled-endpoint-for-external-apps)) |
 | `jwks-fetch` | `curlimages/curl:latest` | — | **one-shot**: downloads the issuer JWKS to a file PostgREST can read (see below) |
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |
@@ -67,7 +67,7 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `POSTGRES_PASSWORD` | **(required)** | `postgres` | `postgres` DBA login password. The stack refuses to start if unset. |
 | `POSTGRES_DB` | `semantius` | `postgres`, `postgrest` | Database created on first init and served by the API. |
 | `SEMANTIUS_AUTHENTICATOR_PASSWORD` | `devpassword` | `postgres`, `postgrest` | Password for `semantius_authenticator`, the role PostgREST logs in as. Consumed by the image's baked `20-authenticator-login.sh` **and** by `PGRST_DB_URI` — kept in sync automatically. Per-environment secret. |
-| `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius-db` image to run. Pin (e.g. `0.3.0`) for reproducible/server deploys; `latest` tracks your local `docker-semantius/build.sh`. |
+| `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius/postgres` image to run. Pin (e.g. `0.3.0-pg18`) for reproducible/server deploys; `latest` tracks your local `docker-postgres/build.sh`. |
 | `NWIND` | *(unset)* | `postgres` | Set to **any** non-empty value (e.g. `TRUE`) to load the optional Northwind demo module on first init. Takes effect only on a **fresh** data volume (init runs once). |
 | `POSTGRES_PORT` | `5434` | `postgres` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
 | `PGBOUNCER_PORT` | `6432` | `pgbouncer` | Host port for the transaction-pooled PgBouncer endpoint. |
@@ -153,7 +153,7 @@ NOINHERIT`) and `SET ROLE`s per request:
   even consulted.
 
 The roles (`authenticated`, `semantius_user`, `semantius_authenticator`) are
-created by the extension itself; the `semantius-db` image's baked init scripts only
+created by the extension itself; the `semantius/postgres` image's baked init scripts only
 flip `semantius_authenticator` to LOGIN+password and add the `anon` role — this
 stack mounts nothing.
 
@@ -207,7 +207,7 @@ each has a `.sh` (bash) and `.cmd` (Windows) form.
 
 | Script | Does | `docker compose` |
 |---|---|---|
-| `create` | build the DB image (via `../docker-semantius`) + (re)create all containers fresh and start them (copies `.env` on first run) | `up -d --force-recreate --remove-orphans` |
+| `create` | build the DB image (via `../docker-postgres`) + (re)create all containers fresh and start them (copies `.env` on first run) | `up -d --force-recreate --remove-orphans` |
 | `start` | start the existing (stopped) containers | `start` |
 | `stop` | stop containers, keep them + volumes | `stop` |
 | `status` | container status | `ps -a` |

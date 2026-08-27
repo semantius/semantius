@@ -1,7 +1,7 @@
 -- =============================================================================
 -- 30-postgrest-anon.sql  -  the PostgREST anonymous role (OpenAPI visibility)
 -- =============================================================================
--- Baked into the semantius-db image. Runs once at first init, AFTER
+-- Baked into the semantius/postgres image. Runs once at first init, AFTER
 -- 20-authenticator-login.sh (so semantius_authenticator exists and is LOGIN).
 --
 -- Pure SQL — no env var, so it is a .sql, not a .sh. `anon` is a PURELY PostgREST

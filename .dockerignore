@@ -1,5 +1,5 @@
 # Repo-root Docker build context. Used by:
-#   * docker-semantius/Dockerfile        -> ghcr.io/semantius/semantius-db
+#   * docker-postgres/Dockerfile        -> ghcr.io/semantius/postgres
 #   * pgdocker/docker-compose.ext.yml    -> Dockerfile.ext (COPYs the extension)
 # (The base pgdocker build uses context ./pgdocker and is unaffected by this file.)
 #
@@ -11,8 +11,8 @@
 # Generated extension (.control + versioned SQL).
 !extension
 
-# semantius-db build inputs: pg_hba, first-init scripts, Dockerfile, build scripts.
-!docker-semantius
+# semantius/postgres build inputs: pg_hba, first-init scripts, Dockerfile, build scripts.
+!docker-postgres
 
 # Northwind demo module — the two migrations merged into the image at build time.
 !apps
