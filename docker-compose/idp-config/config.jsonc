@@ -102,6 +102,17 @@
     "from": "Semantius <idp@example.com>"
   },
 
+  "auth": {
+    // Where a completed sign-in lands when there is no OAuth continuation and no
+    // validated returnTo — the first-run setup page and a direct visit to
+    // /idp/login are exactly those cases. The idp's own default is "/account",
+    // its profile page, which is the wrong destination here: nobody signs in to
+    // this stack to look at the identity provider, they sign in to use the admin
+    // SPA. An ABSOLUTE URL is supported precisely for this "the idp sits beside
+    // the product" arrangement, so send them to the product's root.
+    "defaultRedirect": "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/"
+  },
+
   // Invite-only: administrators create users from /idp/admin. Self-registration
   // is off for both password and social sign-up — an issuer that anyone can
   // register with is exactly what replacing the public test issuer was for.

@@ -126,7 +126,12 @@ your source back.
 
 ## Services & images
 
-Eight services (project `semantius-rest`), seven long-running + one one-shot:
+Eight services (compose project `semantius`), seven long-running + one one-shot.
+The **container** names say what each one is rather than repeating the service
+name — `postgrest` runs as `semantius-api`, `scalar` as `semantius-docs`, `web`
+as `semantius-app`, `jwks-fetch` as `semantius-jwks`; the rest match
+(`semantius-postgres`, `-pgbouncer`, `-idp`, `-caddy`). Use the **service** name
+with `docker compose`, the **container** name with plain `docker`:
 
 | Service | Image | Host port | Purpose |
 |---|---|---|---|
@@ -523,7 +528,7 @@ you want it gone.
 
 ## Management scripts
 
-Thin wrappers over `docker compose` in this folder (project `semantius-rest`);
+Thin wrappers over `docker compose` in this folder (project `semantius`);
 each has a `.sh` (bash) and `.cmd` (Windows) form.
 
 | Script | Does | `docker compose` |

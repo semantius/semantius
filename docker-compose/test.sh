@@ -55,7 +55,7 @@ cd "$(dirname "$0")"
 
 SCRIPT_DIR="$(pwd)"
 REPO_ROOT="$(cd .. && pwd)"
-CONTAINER="postgres18-rest"
+CONTAINER="semantius-postgres"
 
 # The DBA connection is derived from the live .env (NOT hard-coded: a checked-out
 # .env may differ from .env.example).

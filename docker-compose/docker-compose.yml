@@ -1,4 +1,4 @@
-name: semantius-rest
+name: semantius
 
 # PostgREST stack: PostgreSQL 18 + the pg_semantius extension, fronted by
 # PostgREST (HTTP + OpenAPI) with a Scalar docs site. NO PostgreSQL-native OAuth —
@@ -12,9 +12,14 @@ name: semantius-rest
 # no external IdP. Point VITE_OAUTH_CONFIG / VITE_OAUTH_CLIENT_ID / JWKS_URL
 # elsewhere to run against your own instead.
 #
-# Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
-# ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
-# colliding. Bring it up with create.sh / .cmd (fresh database) or up.sh / .cmd
+# Its OWN compose project (semantius, set by `name:` above) on its OWN host
+# ports, so it runs alongside the pgdocker CLI (semantius-cli, 5432) and ext
+# (semantius-ext, 5433) stacks without colliding. Each container is named for what
+# it IS rather than for its compose service — semantius-postgres / -pgbouncer /
+# -idp / -jwks / -api / -docs / -app / -caddy — which is what `docker ps` and
+# `docker logs` want. (`-app` and not `-web`: it runs the semantius-app image, and
+# the shorter name is taken on some dev machines by the semantius-web repo's own
+# stack.) Bring it up with create.sh / .cmd (fresh database) or up.sh / .cmd
 # (recreates the containers, keeps the data).
 #
 # FRONT DOOR: the `caddy` service (host port WEB_PORT, default 7070) is the single
@@ -41,7 +46,7 @@ services:
     # Locally, docker-postgres/build.sh tags :latest so `up` uses your fresh
     # build; on a server it is pulled from GHCR. Pin the version via SEMANTIUS_DB_VERSION.
     image: ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}
-    container_name: postgres18-rest
+    container_name: semantius-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -96,7 +101,7 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:latest
     pull_policy: always
-    container_name: postgres18-rest-pgbouncer
+    container_name: semantius-pgbouncer
     restart: unless-stopped
     depends_on:
       postgres:
@@ -152,7 +157,7 @@ services:
   idp:
     image: ghcr.io/semantius/semantius-idp:${SEMANTIUS_IDP_VERSION:-latest}
     pull_policy: always
-    container_name: postgres18-rest-idp
+    container_name: semantius-idp
     restart: unless-stopped
     depends_on:
       postgres:
@@ -271,7 +276,7 @@ services:
   jwks-fetch:
     image: curlimages/curl:latest
     pull_policy: always
-    container_name: postgres18-rest-jwks
+    container_name: semantius-jwks
     user: "0:0"
     restart: "no"
     depends_on:
@@ -323,7 +328,7 @@ services:
   postgrest:
     image: postgrest/postgrest:latest
     pull_policy: always
-    container_name: postgres18-rest-api
+    container_name: semantius-api
     restart: unless-stopped
     depends_on:
       postgres:
@@ -384,7 +389,7 @@ services:
   scalar:
     image: scalarapi/api-reference:latest
     pull_policy: always
-    container_name: postgres18-rest-docs
+    container_name: semantius-docs
     restart: unless-stopped
     depends_on:
       postgrest:
@@ -407,7 +412,7 @@ services:
     # pulls when the image is missing locally, so create would keep running a stale
     # cached SPA. NOT set on `postgres`, which is built locally by build.sh.
     pull_policy: always
-    container_name: postgres18-rest-web
+    container_name: semantius-app
     restart: unless-stopped
     environment:
       # Same-origin API base: the browser calls http://<host>:${WEB_PORT}/api/...
@@ -468,7 +473,7 @@ services:
   caddy:
     image: caddy:2-alpine
     pull_policy: always
-    container_name: postgres18-rest-caddy
+    container_name: semantius-caddy
     restart: unless-stopped
     environment:
       # ":80" = plain HTTP (local, or TLS terminated by Dokploy/Traefik in front).

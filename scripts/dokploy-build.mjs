@@ -58,7 +58,7 @@ const GENERATED_HEADER = ` GENERATED FILE — DO NOT EDIT.
  Built from ../docker-compose.yml + ../Caddyfile + ../idp-config/*.jsonc by
  \`./dokploy-build.sh\` (scripts/dokploy-build.mjs). Change those, then regenerate.
 
- The Dokploy blueprint variant of the semantius-rest stack. Same services as the
+ The Dokploy blueprint variant of the semantius stack. Same services as the
  local-dev compose, minus everything a one-click deployment must not carry:
  host \`ports:\` (Dokploy's Traefik routes to the \`caddy\` service by name — see
  template.toml's [[config.domains]]), \`container_name:\` (would collide across

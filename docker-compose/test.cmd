@@ -33,7 +33,7 @@ REM        nwind,test, 4 test.
 cd /d "%~dp0"
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%~dp0.."
-set "CONTAINER=postgres18-rest"
+set "CONTAINER=semantius-postgres"
 
 if not exist ".env" (
   copy /y ".env.example" ".env" >nul

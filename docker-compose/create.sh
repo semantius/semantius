@@ -4,7 +4,7 @@
 #
 # The stack is PostgreSQL 18 + the pg_semantius extension, fronted by PostgREST
 # (HTTP + OpenAPI), a Scalar docs site and the Caddy front door. It runs as its own
-# compose project (semantius-rest, set by `name:` in docker-compose.yml) on port
+# compose project (semantius, set by `name:` in docker-compose.yml) on port
 # 5434, alongside the pgdocker CLI (5432) and ext (5433) stacks.
 #
 # WHY IT WIPES: the image's first-init scripts (CREATE EXTENSION, the authenticator
