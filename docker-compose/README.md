@@ -34,13 +34,79 @@ your app ─▶ PgBouncer   (:6432) ──transaction pooling┘
 ```bash
 cd docker-compose
 cp .env.example .env   # Windows: copy .env.example .env  (create does this for you)
-./create.sh            # build the DB image + bring the stack up (Windows: create.cmd)
+./create.sh            # pull the DB image + a FRESH database, stack up (Windows: create.cmd)
 ./api-test.sh          # smoke test: mint a JWT, read data, confirm anon is blocked
 ```
 
 - **Front door:** http://localhost:7070 — admin SPA at `/`, API at `/api/`,
   docs at `/api-docs/`.
 - Direct, for local dev: **API** http://localhost:3000 · **Docs** http://localhost:8080
+
+Then, day to day — every command is a script in **this folder**, `.sh` for bash and
+`.cmd` for Windows ([full table below](#management-scripts)):
+
+```bash
+./up.sh                  # re-apply compose/.env/Caddyfile changes  (KEEPS the data)
+./create.sh --build      # same as create, but on an image built from your source
+./status.sh              # what's running
+./stop.sh  /  ./start.sh # stop / restart the containers (data kept)
+./token.sh user1         # mint a test JWT to paste into the docs
+./api-test.sh            # HTTP/auth smoke test against the running stack
+./test.sh                # full pgTAP suite on a from-scratch stack  (DESTRUCTIVE)
+./jwks-refresh.sh        # re-fetch the issuer keys after a rotation
+./dokploy-build.sh       # regenerate the dokploy/ blueprint from this stack
+./destroy.sh             # remove containers + volumes              (all data gone)
+```
+
+### `create` vs `up` — a fresh *container* is not a fresh *database*
+
+The image's first-init scripts (`CREATE EXTENSION`, the authenticator LOGIN,
+`anon`, the optional `NWIND` load) run **once per data directory**. Recreating
+containers over an existing `pgdata` volume therefore keeps the **old** schema, no
+matter how clean the containers are — which is why these are two commands rather
+than one command with a flag:
+
+| | wipes the DB? | use it when |
+|---|---|---|
+| **`create`** | **yes** — `down -v` first, so the image installs itself from scratch | you want a clean database: first run, after changing migrations or init scripts, or to test an image honestly. Prompts when a volume exists (`-y` skips) |
+| **`up`** | no — containers only | you changed `docker-compose.yml`, `.env` or the `Caddyfile` and want it applied to the **running data** |
+
+`create` is the exact inverse of `destroy`; `up` is `docker compose up
+--force-recreate` with the image build in front of it. Reach for `up` when you
+meant `create` and the symptom is a database that stubbornly reflects the previous
+version — that is the init-once rule, not a broken image.
+
+### Published image vs. local build
+
+`create` and `up` **pull the DB image from GHCR**, like every other service in this
+stack — so a fresh clone can stand the whole thing up with no Deno, no
+`../extension` and no local build. A bare argument pins the tag:
+
+```bash
+./create.sh                  # fresh DB on the published image (tag from .env, default latest)
+./create.sh 0.4.0-pg18       # ... pinned to a released tag
+./up.sh     0.4.0-pg18       # swap the running stack onto that tag, keep the data
+```
+
+Pass **`--build`** to run YOUR working tree instead — `../docker-postgres/build.sh`
+packages whatever is in `../extension` and tags it `:latest`. That is the
+development loop, and it needs the extension generated first
+(`deno task extension <version>` from the repo root):
+
+```bash
+./create.sh --build          # fresh DB on an image built from your source
+./up.sh     --build          # rebuild + restart the containers, keep the data
+```
+
+A version tag names a *published* image, so `--build 0.4.0-pg18` is rejected rather
+than silently running something else. And note that pulling `latest` **overwrites
+the `:latest` tag a previous `--build` left behind** — run `--build` again to get
+your source back.
+
+> **`test` defaults the other way round**, deliberately: `create`/`up` are stack
+> operations, so they run the registry image like every other service, while
+> `test.sh` is a *source*-testing tool — it defaults to `--build` and takes
+> `--pull` for the post-release check. Both flags work on all three.
 
 ## Services & images
 
@@ -228,15 +294,17 @@ each has a `.sh` (bash) and `.cmd` (Windows) form.
 
 | Script | Does | `docker compose` |
 |---|---|---|
-| `create` | build the DB image (via `../docker-postgres`) + (re)create all containers fresh and start them (copies `.env` on first run) | `up -d --force-recreate --remove-orphans` |
+| `create` | **from scratch**: wipe the volumes, pull the DB image, (re)create all containers and start them — a **fresh database** (copies `.env` on first run). Prompts when a volume exists; `-y` skips. A bare argument pins the tag; **`--build`** builds from [`../docker-postgres`](../docker-postgres/README.md) instead | `down -v` + `up -d --force-recreate --remove-orphans` |
+| `up` | re-pull (or `--build`) the image and recreate the **containers**, **keeping the database** — for compose/`.env`/`Caddyfile` changes. See [`create` vs `up`](#create-vs-up--a-fresh-container-is-not-a-fresh-database) | `up -d --force-recreate --remove-orphans` |
 | `start` | start the existing (stopped) containers | `start` |
 | `stop` | stop containers, keep them + volumes | `stop` |
 | `status` | container status | `ps -a` |
-| `destroy` | remove containers, network, and **both volumes** (keeps the image; confirm prompt) | `down -v` |
+| `destroy` | remove containers, network, and **both volumes** (keeps the image; confirm prompt). The inverse of `create` | `down -v` |
 | `token` | mint a JWT for a test user (paste into the docs / use with curl) | — |
 | `jwks-refresh` | re-fetch the issuer JWKS + restart PostgREST to pick up rotated keys (see [Key rotation](#the-jwks-fetch-service--why-it-exists)) | `run --rm jwks-fetch` + `restart postgrest` |
 | `api-test` | mint a JWT → read data → confirm anon is blocked (HTTP/auth smoke test) | — |
-| `test` | full pgTAP suite against a freshly rebuilt stack (`down -v`, destructive) | — |
+| `test` | full pgTAP suite against a from-scratch stack (calls `create -y`, destructive). Defaults to **`--build`** (your source); **`--pull`** or a bare tag tests the published image | — |
+| `dokploy-build` | regenerate the [`dokploy/`](#dokploy-one-click-template) blueprint from `docker-compose.yml` + `Caddyfile` (needs Node) | — |
 
 > **Windows:** `start` and `test` are `cmd.exe` builtins, so invoke the scripts
 > explicitly — `.\start.cmd`, `.	est.cmd` (bash: `./start.sh`, `./test.sh`).
@@ -247,13 +315,14 @@ each has a `.sh` (bash) and `.cmd` (Windows) form.
 this same stack, ready to drop into a Dokploy templates gallery.
 
 ```bash
-pnpm dokploy:build     # from the repo root (node scripts/dokploy-build.mjs)
+./dokploy-build.sh     # from this folder (Windows: dokploy-build.cmd)
 ```
 
 It is **generated** from `docker-compose.yml` + `Caddyfile` by
-[`../scripts/dokploy-build.mjs`](../scripts/dokploy-build.mjs) and **committed**.
-Never hand-edit anything under `dokploy/` — change the two sources and
-regenerate. The transform:
+[`../scripts/dokploy-build.mjs`](../scripts/dokploy-build.mjs) — which the script
+above is a thin, folder-local wrapper around (it needs Node and the repo root's
+`node_modules`) — and **committed**. Never hand-edit anything under `dokploy/` —
+change the two sources and regenerate. The transform:
 
 - **strips every `ports:`** — a blueprint publishes nothing; Dokploy's Traefik
   routes to a service by name;

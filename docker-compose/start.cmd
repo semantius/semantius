@@ -1,7 +1,7 @@
 @echo off
-REM Start the PostgREST-stack containers that create.cmd already created.
+REM Start the PostgREST-stack containers that create.cmd / up.cmd already created.
 REM This ONLY starts existing (stopped) containers - it never creates them. If the
-REM stack has not been created yet (or was destroyed), run create.cmd instead.
+REM containers are gone, run up.cmd (keeps the database) or create.cmd (fresh one).
 cd /d "%~dp0"
 
 if not exist ".env" (
@@ -11,7 +11,7 @@ if not exist ".env" (
 
 for /f %%i in ('docker compose ps -aq') do set HAVE=1
 if not defined HAVE (
-  echo No containers exist. Run create.cmd first.
+  echo No containers exist. Run up.cmd ^(keeps existing data^) or create.cmd ^(fresh database^).
   goto :err
 )
 

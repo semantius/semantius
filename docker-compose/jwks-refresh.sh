@@ -21,7 +21,7 @@ if [ ! -f .env ]; then
 fi
 
 if [ -z "$(docker compose ps -aq)" ]; then
-  echo "No containers exist. Run ./create.sh first." >&2
+  echo "No containers exist. Run ./up.sh (keeps any existing data) or ./create.sh (fresh database)." >&2
   exit 1
 fi
 

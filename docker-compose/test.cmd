@@ -15,8 +15,21 @@ REM PROMPTS for confirmation first (like destroy.cmd); bypass with -y/--yes
 REM or ASSUME_YES=1 / CI=true. Afterwards the stack holds nwind,test; run
 REM create.cmd for a clean semantius.
 REM
-REM Steps: 0 regen extension SQL, 1 down -v, 2 create, 3 wait for extension,
-REM        4 migrate nwind,test, 5 test.
+REM Usage:
+REM   test.cmd                test LOCAL source: regenerate the extension, build the
+REM                           image, run the suite  (the default -- the pre-release
+REM                           check that YOUR migrations install cleanly)
+REM   test.cmd --pull         test the PUBLISHED image, pulled fresh from GHCR
+REM   test.cmd 0.4.0-pg18     ... pinned to that tag (a tag always implies --pull)
+REM   -y/--yes                skip the confirmation prompt
+REM
+REM NOTE the default is the opposite way round from create/up, deliberately: they are
+REM stack operations, so they run the registry image like every other service; this is
+REM a source-testing tool, so it defaults to the source you are sitting on.
+REM
+REM Steps: 0 regen extension SQL, 1 create (wipes the volume + builds/pulls the
+REM        image + brings the stack up), 2 wait for extension, 3 migrate
+REM        nwind,test, 4 test.
 cd /d "%~dp0"
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%~dp0.."
@@ -42,8 +55,34 @@ REM Safety: this DESTROYS the running PostgREST stack + its data volume (down -v
 REM rebuilds it. Confirm before any changes -- same guard as destroy.cmd.
 REM Bypass for automation: pass -y/--yes, or set ASSUME_YES=1 or CI=true.
 set "FORCE=0"
-if /i "%~1"=="-y" set "FORCE=1"
-if /i "%~1"=="--yes" set "FORCE=1"
+set "PULL=0"
+set "BUILD=0"
+set "DB_VERSION="
+:parse
+if "%~1"=="" goto :parsed
+if /i "%~1"=="-y" ( set "FORCE=1" & shift & goto :parse )
+if /i "%~1"=="--yes" ( set "FORCE=1" & shift & goto :parse )
+if /i "%~1"=="--pull" ( set "PULL=1" & shift & goto :parse )
+if /i "%~1"=="--build" ( set "BUILD=1" & shift & goto :parse )
+set "ARG=%~1"
+if "!ARG:~0,1!"=="-" (
+  echo Unknown option: %~1
+  echo Usage: test.cmd [--pull^|--build] [version] [-y]
+  exit /b 1
+)
+REM A bare argument is the image tag.
+set "DB_VERSION=%~1"
+shift
+goto :parse
+:parsed
+
+REM A tag names a PUBLISHED image, so it implies --pull and cannot combine with
+REM --build (which runs whatever ..\extension holds).
+if "%BUILD%"=="1" (
+  if "%PULL%"=="1" goto :badcombo
+  if defined DB_VERSION goto :badcombo
+)
+if defined DB_VERSION set "PULL=1"
 if "%ASSUME_YES%"=="1" set "FORCE=1"
 if "%CI%"=="true" set "FORCE=1"
 if "%FORCE%"=="0" (
@@ -53,7 +92,9 @@ if "%FORCE%"=="0" (
 
 REM [0/5] Regenerate the extension from CURRENT migrations (skip with SKIP_EXT_REGEN=1).
 REM Version inferred from the newest built extension SQL (dir /o-n = name-descending).
-if not "%SKIP_EXT_REGEN%"=="1" (
+if "%PULL%"=="1" (
+  echo == [0/4] Skipped -- --pull tests the PUBLISHED image, not local source ==
+) else if not "%SKIP_EXT_REGEN%"=="1" (
   set "VERSION="
   for /f "delims=" %%F in ('dir /b /o-n "%REPO_ROOT%\extension\pg_semantius--*.sql" 2^>nul') do (
     if not defined VERSION (
@@ -66,19 +107,23 @@ if not "%SKIP_EXT_REGEN%"=="1" (
     echo Cannot infer extension version. Run "deno task extension <ver>" once, or set SKIP_EXT_REGEN=1.
     goto :err
   )
-  echo == [0/5] Regenerating the extension SQL from current migrations (v!VERSION!) ==
+  echo == [0/4] Regenerating the extension SQL from current migrations ^(v!VERSION!^) ==
   pushd "%REPO_ROOT%"
   call deno task extension "!VERSION!" || (popd & goto :err)
   popd
 )
 
-echo == [1/5] Resetting the PostgREST stack (down -v) ==
-docker compose down -v || goto :err
+REM create wipes the volume itself (that is what create means here), so the suite
+REM always runs against a database the image built from scratch.
+if "%PULL%"=="1" (
+  echo == [1/4] Creating the stack from scratch, on the PUBLISHED image ==
+  call "%SCRIPT_DIR%create.cmd" -y --pull !DB_VERSION! || goto :err
+) else (
+  echo == [1/4] Creating the stack from scratch, on a locally built image ==
+  call "%SCRIPT_DIR%create.cmd" -y --build || goto :err
+)
 
-echo == [2/5] Rebuilding the image + bringing the stack up fresh ==
-call "%SCRIPT_DIR%create.cmd" || goto :err
-
-echo == [3/5] Waiting for the pg_semantius extension to install ==
+echo == [2/4] Waiting for the pg_semantius extension to install ==
 set /a tries=0
 :wait
 set "EXTOK="
@@ -95,11 +140,11 @@ goto :wait
 :ready
 echo Extension present.
 
-echo == [4/5] Deploying nwind,test (migrate skips the seeded _core) ==
+echo == [3/4] Deploying nwind,test (migrate skips the seeded _core) ==
 pushd "%REPO_ROOT%"
 call deno task migrate --apps nwind,test --database-url "%REST_URL%" || (popd & goto :err)
 
-echo == [5/5] Running the pgTAP suite against the extension DB ==
+echo == [4/4] Running the pgTAP suite against the extension DB ==
 call deno task test --database-url "%REST_URL%" || (popd & goto :err)
 popd
 
@@ -108,6 +153,10 @@ echo Test complete. If all tests are green, the CREATE EXTENSION
 echo install of _core is equivalent to the migrate install. Run create.cmd
 echo for a clean semantius (this left the nwind,test fixtures in place).
 exit /b 0
+
+:badcombo
+echo --build tests local source; drop --pull / the version tag.
+exit /b 1
 
 :err
 echo.

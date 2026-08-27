@@ -23,8 +23,10 @@
  *
  * Comments in the source compose are preserved (yaml Document round-trip).
  *
- * Usage (from the repo root):
- *   pnpm dokploy:build
+ * Usage (from docker-compose/, the folder it builds):
+ *   ./dokploy-build.sh          (Windows: dokploy-build.cmd)
+ *
+ * or directly, from anywhere:
  *   node scripts/dokploy-build.mjs
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -44,8 +46,8 @@ const BLUEPRINT_ID = "semantius";
 // host ports and the bind-mounted Caddyfile — neither of which exists here.
 // ---------------------------------------------------------------------------
 const GENERATED_HEADER = ` GENERATED FILE — DO NOT EDIT.
- Built from ../docker-compose.yml + ../Caddyfile by \`pnpm dokploy:build\`
- (scripts/dokploy-build.ts). Change those, then regenerate.
+ Built from ../docker-compose.yml + ../Caddyfile by \`./dokploy-build.sh\`
+ (scripts/dokploy-build.mjs). Change those, then regenerate.
 
  The Dokploy blueprint variant of the semantius-rest stack. Same services as the
  local-dev compose, minus everything a one-click deployment must not carry:
@@ -123,7 +125,7 @@ const META_JSON = {
 // Build
 // ---------------------------------------------------------------------------
 function fail(msg) {
-  console.error(`\ndokploy:build FAILED — ${msg}\n`);
+  console.error(`\ndokploy-build FAILED — ${msg}\n`);
   process.exit(1);
 }
 

@@ -8,7 +8,8 @@ name: semantius-rest
 #
 # Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
 # ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
-# colliding. Bring it up with create.sh / .cmd.
+# colliding. Bring it up with create.sh / .cmd (fresh database) or up.sh / .cmd
+# (recreates the containers, keeps the data).
 #
 # FRONT DOOR: the `caddy` service (host port WEB_PORT, default 7070) is the single
 # public entrypoint — `/` serves the admin SPA (`web`), `/api/*` proxies to
@@ -18,7 +19,7 @@ name: semantius-rest
 # every service's own host port published for direct access.
 #
 # THIS file is the local-dev stack. The DEPLOYMENT variant in ./dokploy/ is
-# GENERATED from this file + ./Caddyfile by `pnpm dokploy:build` (host ports and
+# GENERATED from this file + ./Caddyfile by `./dokploy-build.sh` (host ports and
 # container_names stripped, the Caddyfile embedded via a top-level `configs:`
 # block). NEVER hand-edit ./dokploy/ — change this file, then regenerate.
 

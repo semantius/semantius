@@ -19,7 +19,7 @@ if not exist ".env" (
 
 for /f %%i in ('docker compose ps -aq') do set HAVE=1
 if not defined HAVE (
-  echo No containers exist. Run create.cmd first.
+  echo No containers exist. Run up.cmd ^(keeps existing data^) or create.cmd ^(fresh database^).
   goto :err
 )
 

@@ -1,6 +1,6 @@
 # GENERATED FILE — DO NOT EDIT.
-# Built from ../docker-compose.yml + ../Caddyfile by `pnpm dokploy:build`
-# (scripts/dokploy-build.ts). Change those, then regenerate.
+# Built from ../docker-compose.yml + ../Caddyfile by `./dokploy-build.sh`
+# (scripts/dokploy-build.mjs). Change those, then regenerate.
 
 # The Dokploy blueprint variant of the semantius-rest stack. Same services as the
 # local-dev compose, minus everything a one-click deployment must not carry:

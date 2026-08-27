@@ -22,19 +22,34 @@
 # / CI=true. Afterwards the stack holds the nwind,test fixtures; run
 # ./create.sh for a clean semantius again.
 #
+# Usage:
+#   ./test.sh                test LOCAL source: regenerate the extension, build the
+#                            image, run the suite   (the default — this is the
+#                            pre-release check that YOUR migrations install cleanly)
+#   ./test.sh --pull         test the PUBLISHED image, pulled fresh from GHCR
+#   ./test.sh 0.4.0-pg18     ... pinned to that tag (a tag always implies --pull)
+#   -y/--yes                 skip the confirmation prompt
+#
+# NOTE the default is the opposite way round from create/up, deliberately: they are
+# stack operations, so they run the registry image like every other service; this is
+# a source-testing tool, so it defaults to the source you are sitting on. --pull is
+# the post-release check — it skips the extension regen + image build and runs the
+# suite against exactly what a consumer/server pulls, on a FRESH volume.
+#
 # Steps:
 #   0. deno task extension <ver>   regenerate the extension SQL from the CURRENT
 #                     migrations so the rebuilt image bakes what you just changed
-#                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1).
-#   1. down -v        wipe the PostgREST stack + its data volume.
-#   2. create         rebuild the semantius/postgres image + bring the stack up fresh;
-#                     init runs CREATE EXTENSION (installs _core in ONE txn, seeds
-#                     the _versions guard rows).
-#   3. readiness gate poll pg_extension until the extension is present (the
+#                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1
+#                     — and skipped implicitly by --pull, which tests published bits).
+#   1. create -y      wipe the stack + its data volume, rebuild (or --pull) the
+#                     semantius/postgres image, bring it up fresh; init runs
+#                     CREATE EXTENSION (installs _core in ONE txn, seeds the
+#                     _versions guard rows).
+#   2. readiness gate poll pg_extension until the extension is present (the
 #                     pg_isready healthcheck can go green before init finishes).
-#   4. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED because the
+#   3. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED because the
 #                     extension seeded _versions; only nwind,test deploy.
-#   5. test           run the full pgTAP suite against the extension DB.
+#   4. test           run the full pgTAP suite against the extension DB.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -58,7 +73,28 @@ REST_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 # rebuilds it. Confirm before any changes — same guard as destroy.sh.
 # Bypass for automation: pass -y/--yes, or set ASSUME_YES=1 or CI=true.
 FORCE=0
-case "${1:-}" in -y|--yes) FORCE=1 ;; esac
+PULL=0
+BUILD=0
+DB_VERSION=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -y|--yes) FORCE=1 ;;
+    --pull)   PULL=1 ;;
+    --build)  BUILD=1 ;;   # the default; accepted so it can be stated explicitly
+    -*) echo "Unknown option: $1 (usage: ./test.sh [--pull|--build] [<version>] [-y])" >&2; exit 1 ;;
+    *)  DB_VERSION="$1" ;;   # a bare argument is the image tag
+  esac
+  shift
+done
+
+# A tag names a PUBLISHED image, so it implies --pull and cannot combine with
+# --build (which runs whatever ../extension holds).
+if [ "$BUILD" = 1 ] && { [ "$PULL" = 1 ] || [ -n "$DB_VERSION" ]; }; then
+  echo "--build tests local source; drop --pull / the version tag." >&2
+  exit 1
+fi
+if [ -n "$DB_VERSION" ]; then PULL=1; fi
+
 if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" ]; then
   read -r -p "This DESTROYS the running PostgREST stack and WIPES its data volume ('${DB}', all data), then rebuilds. Continue? [y/N] " ans
   case "$ans" in
@@ -70,24 +106,30 @@ fi
 # [0/5] Regenerate the extension from CURRENT migrations, so the rebuilt image
 # tests what is on disk now. Version inferred from the newest built extension SQL,
 # exactly like docker-postgres/build.sh.
-if [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
+if [ "$PULL" = 1 ]; then
+  echo "== [0/4] Skipped — --pull tests the PUBLISHED image, not local source =="
+elif [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
   VERSION="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql 2>/dev/null \
     | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)"
   if [ -z "$VERSION" ]; then
     echo "Cannot infer extension version. Run 'deno task extension <ver>' once, or set SKIP_EXT_REGEN=1." >&2
     exit 1
   fi
-  echo "== [0/5] Regenerating the extension SQL from current migrations (v$VERSION) =="
+  echo "== [0/4] Regenerating the extension SQL from current migrations (v$VERSION) =="
   ( cd "$REPO_ROOT" && deno task extension "$VERSION" )
 fi
 
-echo "== [1/5] Resetting the PostgREST stack (down -v) =="
-docker compose down -v
+# create wipes the volume itself (that is what create means here), so the suite
+# always runs against a database the image built from scratch.
+if [ "$PULL" = 1 ]; then
+  echo "== [1/4] Creating the stack from scratch, on the PUBLISHED image =="
+  "$SCRIPT_DIR/create.sh" -y --pull ${DB_VERSION:+"$DB_VERSION"}
+else
+  echo "== [1/4] Creating the stack from scratch, on a locally built image =="
+  "$SCRIPT_DIR/create.sh" -y --build
+fi
 
-echo "== [2/5] Rebuilding the image + bringing the stack up fresh =="
-"$SCRIPT_DIR/create.sh"
-
-echo "== [3/5] Waiting for the pg_semantius extension to install =="
+echo "== [2/4] Waiting for the pg_semantius extension to install =="
 # Tolerate early connection refused / empty results while init runs.
 deadline=$(( SECONDS + 180 ))
 until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
@@ -101,10 +143,10 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
 done
 echo "Extension present."
 
-echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
+echo "== [3/4] Deploying nwind,test (migrate skips the seeded _core) =="
 ( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$REST_URL" )
 
-echo "== [5/5] Running the pgTAP suite against the extension DB =="
+echo "== [4/4] Running the pgTAP suite against the extension DB =="
 ( cd "$REPO_ROOT" && deno task test --database-url "$REST_URL" )
 
 echo

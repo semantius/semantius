@@ -86,11 +86,13 @@ Both `build.sh` and CI (`.github/workflows/extension-release.yml`) build with th
 Build locally, then any consumer stack uses the `:latest` tag without pulling:
 
 ```bash
-./docker-postgres/build.sh                # from repo root
-cd docker-compose && docker compose up -d  # uses the local image
+./docker-postgres/build.sh                 # from repo root
+cd docker-compose && ./up.sh --build       # or: docker compose up -d
 ```
 
-`docker-compose/create.sh` runs `build.sh` for you.
+`docker-compose/create.sh` (fresh database) and `docker-compose/up.sh` (keeps the
+data) **pull** the published image by default; pass either one `--build` and it
+runs `build.sh` for you instead.
 
 ## Publishing
 
@@ -112,4 +114,5 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 `docker-compose/docker-compose.yml` references
 `ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}`. Pin
 `SEMANTIUS_DB_VERSION` in `.env` for reproducible/server deploys; leave it at
-`latest` to track your local build.
+`latest` to track the moving published tag (or run the consumer stack's
+`create`/`up` with `--build` to run your local build instead).
