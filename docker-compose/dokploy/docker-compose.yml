@@ -1,26 +1,17 @@
-name: semantius-rest
+# GENERATED FILE — DO NOT EDIT.
+# Built from ../docker-compose.yml + ../Caddyfile by `pnpm dokploy:build`
+# (scripts/dokploy-build.ts). Change those, then regenerate.
 
-# PostgREST stack: PostgreSQL 18 + the pg_semantius extension, fronted by
-# PostgREST (HTTP + OpenAPI) with a Scalar docs site. NO PostgreSQL-native OAuth —
-# PostgREST verifies the OIDC bearer token against the issuer JWKS and connects to
-# the DB over SCRAM as `semantius_authenticator`, SET ROLE-ing into `authenticated`
-# (valid token) or `anon` (no token) per request.
-#
-# Its OWN compose project (semantius-rest, set by `name:` above) on its OWN host
-# ports, so it runs alongside the pgdocker CLI (5432) and ext (5433) stacks without
-# colliding. Bring it up with create.sh / .cmd.
-#
-# FRONT DOOR: the `caddy` service (host port WEB_PORT, default 7070) is the single
-# public entrypoint — `/` serves the admin SPA (`web`), `/api/*` proxies to
-# PostgREST and `/api-docs/*` to Scalar, both with the prefix stripped. The routes
-# live in the sibling ./Caddyfile, bind-mounted as a REGULAR file: edit it and
-# `docker compose restart caddy` to apply. This local-dev file additionally keeps
-# every service's own host port published for direct access.
-#
-# THIS file is the local-dev stack. The DEPLOYMENT variant in ./dokploy/ is
-# GENERATED from this file + ./Caddyfile by `pnpm dokploy:build` (host ports and
-# container_names stripped, the Caddyfile embedded via a top-level `configs:`
-# block). NEVER hand-edit ./dokploy/ — change this file, then regenerate.
+# The Dokploy blueprint variant of the semantius-rest stack. Same services as the
+# local-dev compose, minus everything a one-click deployment must not carry:
+# host `ports:` (Dokploy's Traefik routes to the `caddy` service by name — see
+# template.toml's [[config.domains]]), `container_name:` (would collide across
+# deployments) and bind mounts (the Caddyfile is embedded in the top-level
+# `configs:` block below, so `mounts = []` in the template).
+
+# Requires docker compose >= 2.23.1 on the target server (inline configs.content).
+
+name: semantius-rest
 
 services:
   # --- PostgreSQL 18 + extension --------------------------------------------
@@ -32,7 +23,6 @@ services:
     # Locally, docker-postgres/build.sh tags :latest so `up` uses your fresh
     # build; on a server it is pulled from GHCR. Pin the version via SEMANTIUS_DB_VERSION.
     image: ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}
-    container_name: postgres18-rest
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -45,12 +35,10 @@ services:
       # first init (the image's baked 40-nwind.sh). Leave unset for an empty DB.
       # Only takes effect on a FRESH data volume — init scripts run once.
       NWIND: ${NWIND:-}
-    ports:
-      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-semantius}"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-semantius}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,7 +52,6 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:latest
     pull_policy: always
-    container_name: postgres18-rest-pgbouncer
     restart: unless-stopped
     depends_on:
       postgres:
@@ -79,8 +66,6 @@ services:
       POOL_MODE: transaction
       MAX_CLIENT_CONN: "200"
       DEFAULT_POOL_SIZE: "20"
-    ports:
-      - "${PGBOUNCER_PORT:-6432}:5432"
 
   # --- One-shot: fetch the issuer JWKS to a file PostgREST can read ----------
   # PostgREST CANNOT fetch a JWKS from a URL; jwt-secret only takes inline JSON or
@@ -104,7 +89,6 @@ services:
   jwks-fetch:
     image: curlimages/curl:latest
     pull_policy: always
-    container_name: postgres18-rest-jwks
     user: "0:0"
     restart: "no"
     environment:
@@ -141,7 +125,6 @@ services:
   postgrest:
     image: postgrest/postgrest:latest
     pull_policy: always
-    container_name: postgres18-rest-api
     restart: unless-stopped
     depends_on:
       postgres:
@@ -184,8 +167,6 @@ services:
       PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-7070}/api}"
       # PGRST_JWT_AUD left unset: rbac.uid() enforces aud in-DB (same as bearer
       # mode). Set it to one of the token's aud values to also check at this layer.
-    ports:
-      - "${POSTGREST_PORT:-3000}:3000"
     volumes:
       - jwks:/jwks:ro
 
@@ -200,15 +181,12 @@ services:
   scalar:
     image: scalarapi/api-reference:latest
     pull_policy: always
-    container_name: postgres18-rest-docs
     restart: unless-stopped
     depends_on:
       postgrest:
         condition: service_started
     environment:
       API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-7070}/api}/","title":"Semantius API"}]}'
-    ports:
-      - "${DOCS_PORT:-8080}:8080"
 
   # --- Admin SPA -------------------------------------------------------------
   # Static single-page admin app (nginx, container port 80). SPA ONLY — it does no
@@ -223,7 +201,6 @@ services:
     # pulls when the image is missing locally, so create would keep running a stale
     # cached SPA. NOT set on `postgres`, which is built locally by build.sh.
     pull_policy: always
-    container_name: postgres18-rest-web
     restart: unless-stopped
     environment:
       # Same-origin API base: the browser calls http://<host>:${WEB_PORT}/api/...
@@ -249,7 +226,7 @@ services:
       ENV_FILE: /dev/null
     healthcheck:
       # busybox wget — the nginx:alpine base has no curl.
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1/" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -264,27 +241,54 @@ services:
   caddy:
     image: caddy:2-alpine
     pull_policy: always
-    container_name: postgres18-rest-caddy
     restart: unless-stopped
     environment:
       # ":80" = plain HTTP (local, or TLS terminated by Dokploy/Traefik in front).
       # Set a bare domain in .env for Caddy auto-HTTPS on a bare VPS (then publish
       # 80:80 + 443:443 below instead of WEB_PORT).
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
-    ports:
-      - "${WEB_PORT:-7070}:80"
     volumes:
-      # Regular file — edit it and `docker compose restart caddy` to apply. The
-      # dokploy build embeds it into the generated compose instead (no bind mounts
-      # there), so regenerate after every change to keep the two in sync.
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificate/ACME store + autosaved config — only meaningful when
       # SITE_ADDRESS is a real domain (auto-HTTPS); harmless otherwise.
       - caddy_data:/data
       - caddy_config:/config
+    # The Caddyfile, embedded at the bottom of this file (no bind mounts in a
+    # blueprint). Edit ../Caddyfile and regenerate — never this copy.
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
 
 volumes:
   pgdata:
   jwks:
   caddy_data:
   caddy_config:
+# The front-door routes, copied verbatim from ../Caddyfile at build time.
+# `$` is escaped as `$$` so compose leaves Caddy's own {$SITE_ADDRESS::80}
+# placeholder alone (it resolves from the caddy service's environment).
+# Needs docker compose >= 2.23.1 (inline `content:` support).
+configs:
+  caddyfile:
+    content: |
+      # Front door for the semantius-rest stack. SITE_ADDRESS comes from the compose
+      # (default ":80" — plain HTTP; TLS terminated by Dokploy/Traefik or use a bare
+      # domain for Caddy auto-HTTPS on a bare VPS, then publish 80/443).
+      {$$SITE_ADDRESS::80} {
+      	encode zstd gzip
+
+      	# Bare /api or /api-docs wouldn't match handle_path's /api/* and would fall
+      	# through to the SPA — bounce to the canonical slash form (redir sorts
+      	# before handle_path in Caddy's directive order; 308 keeps the method).
+      	redir /api /api/ 308
+      	redir /api-docs /api-docs/ 308
+
+      	handle_path /api/* {
+      		reverse_proxy postgrest:3000
+      	}
+      	handle_path /api-docs/* {
+      		reverse_proxy scalar:8080
+      	}
+      	handle {
+      		reverse_proxy web:80
+      	}
+      }

@@ -27,6 +27,7 @@ docker compose ps
 set -a; . ./.env; set +a
 echo
 echo "Ready (PostgREST stack)."
+echo "  Admin : http://localhost:${WEB_PORT:-7070}/   (SPA; API at /api/, docs at /api-docs/)"
 echo "  API   : http://localhost:${POSTGREST_PORT:-3000}/   (OpenAPI spec at /)"
 echo "  Docs  : http://localhost:${DOCS_PORT:-8080}/         (Scalar API reference)"
 echo "  DBA   : postgresql://postgres:<POSTGRES_PASSWORD>@localhost:${POSTGRES_PORT:-5434}/semantius"

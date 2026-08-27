@@ -1,0 +1,22 @@
+# Front door for the semantius-rest stack. SITE_ADDRESS comes from the compose
+# (default ":80" — plain HTTP; TLS terminated by Dokploy/Traefik or use a bare
+# domain for Caddy auto-HTTPS on a bare VPS, then publish 80/443).
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# Bare /api or /api-docs wouldn't match handle_path's /api/* and would fall
+	# through to the SPA — bounce to the canonical slash form (redir sorts
+	# before handle_path in Caddy's directive order; 308 keeps the method).
+	redir /api /api/ 308
+	redir /api-docs /api-docs/ 308
+
+	handle_path /api/* {
+		reverse_proxy postgrest:3000
+	}
+	handle_path /api-docs/* {
+		reverse_proxy scalar:8080
+	}
+	handle {
+		reverse_proxy web:80
+	}
+}

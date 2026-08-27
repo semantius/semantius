@@ -6,13 +6,19 @@ OpenAPI docs and an admin SPA in front of a PostgreSQL 18 database carrying the
 
 Everything the database needs (extension install, roles, `pg_hba`, the
 authenticator LOGIN, optional demo data) is **baked into the `semantius/postgres`
-image** from [`../docker-postgres`](../docker-postgres/README.md), so this stack
-mounts nothing from the host — it is just this `docker-compose.yml` + a `.env`.
-That makes it a copy-paste Dokploy template.
+image** from [`../docker-postgres`](../docker-postgres/README.md), so the database
+side mounts nothing from the host. The only host file the stack reads is the
+sibling [`Caddyfile`](Caddyfile) — deliberately a plain, editable file. The
+deployment variant in [`dokploy/`](#dokploy-one-click-template) embeds it, so a
+one-click deploy really is just one compose file (see below).
+
+A single **Caddy front door** on `WEB_PORT` fans out to the three HTTP services;
+PostgREST and Scalar keep their own host ports for direct access in local dev.
 
 ```
-browser ──▶ Admin SPA   (:7070) ──/api/*──▶ PostgREST
-browser ──▶ Scalar docs (:8080) ──fetch spec──▶ PostgREST (:3000, OpenAPI at /)
+browser ──▶ Caddy (:7070) ──┬── /            ──▶ Admin SPA   (internal, no host port)
+                            ├── /api/*       ──▶ PostgREST   (also direct :3000, OpenAPI at /)
+                            └── /api-docs/*  ──▶ Scalar docs (also direct :8080)
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
@@ -32,11 +38,13 @@ cp .env.example .env   # Windows: copy .env.example .env  (create does this for 
 ./api-test.sh          # smoke test: mint a JWT, read data, confirm anon is blocked
 ```
 
-- **Admin:** http://localhost:7070 · **Docs:** http://localhost:8080 · **API:** http://localhost:3000
+- **Front door:** http://localhost:7070 — admin SPA at `/`, API at `/api/`,
+  docs at `/api-docs/`.
+- Direct, for local dev: **API** http://localhost:3000 · **Docs** http://localhost:8080
 
 ## Services & images
 
-Six services (project `semantius-rest`), five long-running + one one-shot:
+Seven services (project `semantius-rest`), six long-running + one one-shot:
 
 | Service | Image | Host port | Purpose |
 |---|---|---|---|
@@ -45,11 +53,20 @@ Six services (project `semantius-rest`), five long-running + one one-shot:
 | `jwks-fetch` | `curlimages/curl:latest` | — | **one-shot**: downloads the issuer JWKS to a file PostgREST can read (see below) |
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |
 | `scalar` | `scalarapi/api-reference:latest` | **8080** | renders PostgREST's Swagger 2.0 spec as browsable docs |
-| `web` | `ghcr.io/intranetfactory/semantius-web:latest` | **7070** | static admin SPA (Caddy also proxies `/api/*` → `postgrest:3000`) |
+| `web` | `ghcr.io/semantius/semantius-app:${SEMANTIUS_APP_VERSION}` | — | static admin SPA (nginx). **SPA only** — it proxies nothing; reach it through `caddy`. Runtime config is written to `config.js` at container start from its `VITE_*` env |
+| `caddy` | `caddy:2-alpine` | **7070** | **front door**: `/` → the SPA, `/api/*` → PostgREST, `/api-docs/*` → Scalar, both prefixes stripped. Routes live in the sibling [`Caddyfile`](Caddyfile) — edit it and `docker compose restart caddy` |
 
 The registry images use `:latest` and `pull_policy: always` (re-pulled on every
 `create`); `postgres` is the locally-built image, used as-is. Pin
 `postgrest`/`scalar` to fixed tags once you're happy.
+
+> **The SPA's control plane is opt-OUT.** The `web` service sets
+> `VITE_CONTROL_PLANE_URL: " "` — a **single space**, and it is load-bearing.
+> Unset *or empty* leaves the image's cloud default in place, which sends the app
+> to `api.semantius.cloud` for a tenant lookup and fails to boot when self-hosted;
+> a whitespace value survives the runtime-env filter and trims to `""` in the app,
+> selecting self-hosted mode. Don't "tidy" it away — the comment in
+> `docker-compose.yml` says the same thing next to the line.
 
 ## Environment variables (`.env`)
 
@@ -68,13 +85,15 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `POSTGRES_DB` | `semantius` | `postgres`, `postgrest` | Database created on first init and served by the API. |
 | `SEMANTIUS_AUTHENTICATOR_PASSWORD` | `devpassword` | `postgres`, `postgrest` | Password for `semantius_authenticator`, the role PostgREST logs in as. Consumed by the image's baked `20-authenticator-login.sh` **and** by `PGRST_DB_URI` — kept in sync automatically. Per-environment secret. |
 | `SEMANTIUS_DB_VERSION` | `latest` | `postgres` | Tag of the `semantius/postgres` image to run. Pin (e.g. `0.3.0-pg18`) for reproducible/server deploys; `latest` tracks your local `docker-postgres/build.sh`. |
+| `SEMANTIUS_APP_VERSION` | `latest` | `web` | Tag of the `semantius/semantius-app` admin SPA image. Re-pulled on every `create`; pin for reproducible/server deploys. |
 | `NWIND` | *(unset)* | `postgres` | Set to **any** non-empty value (e.g. `TRUE`) to load the optional Northwind demo module on first init. Takes effect only on a **fresh** data volume (init runs once). |
 | `POSTGRES_PORT` | `5434` | `postgres` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
 | `PGBOUNCER_PORT` | `6432` | `pgbouncer` | Host port for the transaction-pooled PgBouncer endpoint. |
 | `POSTGREST_PORT` | `3000` | `postgrest`, `scalar` | Host port for the PostgREST HTTP API (OpenAPI spec at `/`). |
 | `DOCS_PORT` | `8080` | `scalar` | Host port for the Scalar docs site. |
-| `WEB_PORT` | `7070` | `web` | Host port for the admin SPA (serves on container port 80). |
-| `PUBLIC_API_URL` | `http://localhost:${POSTGREST_PORT}` | `postgrest`, `scalar` | Browser-reachable base URL of the API. Used for BOTH the OpenAPI spec's advertised server and the docs' spec `url` — both resolved by the browser, so NEVER the in-network `postgrest` hostname. Behind a reverse proxy, set the public URL **including** the path prefix (e.g. `https://you.com/api`); the proxy must strip that prefix. |
+| `WEB_PORT` | `7070` | `caddy` | Host port of the **front door**: `/` the SPA, `/api/*` the API, `/api-docs/*` the docs. The SPA itself has no host port. |
+| `SITE_ADDRESS` | `:80` | `caddy` | The address Caddy serves inside the container. `:80` is plain HTTP — right for local dev and behind anything that terminates TLS (Dokploy/Traefik). On a **bare VPS** set your bare domain for automatic HTTPS, then publish `80:80` + `443:443` on `caddy` instead of `WEB_PORT`. |
+| `PUBLIC_API_URL` | `http://localhost:${WEB_PORT}/api` | `postgrest`, `scalar` | Browser-reachable base URL of the API. Used for BOTH the OpenAPI spec's advertised server and the docs' spec `url` — both resolved by the browser, so NEVER the in-network `postgrest` hostname. Defaults to this stack's own front door, whose `handle_path /api/*` strips the prefix. Going live, set the public front-door URL **including** `/api`. |
 
 > **Going live?** The only variables a real deployment is *required* to change are
 > **`VITE_OAUTH_CONFIG`** and **`VITE_OAUTH_CLIENT_ID`** (your OIDC issuer's discovery
@@ -90,9 +109,9 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
   test-only, so there's no issuer knob here. The real issuer settings are the
   `VITE_OAUTH_*` pair and `JWKS_URL` above.
 
-The `postgrest` and `web` services also set fixed operational env (`PGRST_*`,
-`VITE_API_BASE_URL`, etc.) inline; those are documented by comments in
-`docker-compose.yml` and rarely need changing.
+The `postgrest`, `web` and `caddy` services also set fixed operational env
+(`PGRST_*`, `VITE_API_BASE_URL`, `VITE_CONTROL_PLANE_URL`, …) inline; those are
+documented by comments in `docker-compose.yml` and rarely need changing.
 
 ## The `jwks-fetch` service — why it exists
 
@@ -138,6 +157,8 @@ runs as a different user), and PostgREST `depends_on` it with
 |---|---|---|
 | `pgdata` | `postgres` | the database cluster (survives stop/start; removed by `destroy`) |
 | `jwks` | `jwks-fetch` (rw), `postgrest` (ro) | the fetched `jwks.json` |
+| `caddy_data` | `caddy` | ACME account + issued certificates (only used when `SITE_ADDRESS` is a real domain) |
+| `caddy_config` | `caddy` | Caddy's autosaved config |
 
 ## Auth model (how a request flows)
 
@@ -219,6 +240,54 @@ each has a `.sh` (bash) and `.cmd` (Windows) form.
 
 > **Windows:** `start` and `test` are `cmd.exe` builtins, so invoke the scripts
 > explicitly — `.\start.cmd`, `.	est.cmd` (bash: `./start.sh`, `./test.sh`).
+
+## Dokploy one-click template
+
+`docker-compose/dokploy/` is a **Dokploy blueprint** — the deployment variant of
+this same stack, ready to drop into a Dokploy templates gallery.
+
+```bash
+pnpm dokploy:build     # from the repo root (node scripts/dokploy-build.mjs)
+```
+
+It is **generated** from `docker-compose.yml` + `Caddyfile` by
+[`../scripts/dokploy-build.mjs`](../scripts/dokploy-build.mjs) and **committed**.
+Never hand-edit anything under `dokploy/` — change the two sources and
+regenerate. The transform:
+
+- **strips every `ports:`** — a blueprint publishes nothing; Dokploy's Traefik
+  routes to a service by name;
+- **strips every `container_name:`** — fixed names collide across deployments;
+- **embeds the `Caddyfile`** in a top-level `configs:` block with inline
+  `content:` instead of the bind mount, so the blueprint needs no files beside it
+  (`mounts = []` in `template.toml`). `$` is escaped as `$$` there so compose
+  leaves Caddy's own `{$SITE_ADDRESS::80}` placeholder alone;
+- **validates the result** and fails loudly: no leftover ports, container names,
+  custom networks or bind mounts; the embedded Caddyfile must round-trip back to
+  the source; every `${VAR:?…}` the compose requires must be supplied by
+  `template.toml`; the `[[config.domains]]` service must exist.
+
+| File | What it is |
+|---|---|
+| `dokploy/docker-compose.yml` | the stack, portless, with the Caddyfile embedded |
+| `dokploy/template.toml` | Dokploy variables (`${domain}`, generated 32-char passwords), the env written to the deployment's `.env`, and the domain → `caddy`:80 mapping |
+| `dokploy/meta.json` | gallery card: id, name, description, logo, links, tags |
+
+The generated env keeps the **test issuer** defaults so a one-click deploy works
+immediately, and loads the Northwind demo module (`NWIND=TRUE`). Both are meant to
+be changed: point `VITE_OAUTH_CONFIG` / `VITE_OAUTH_CLIENT_ID` at your own IdP,
+and drop `NWIND` for an empty database.
+
+**Publishing it**, either way:
+
+- fork [github.com/Dokploy/templates](https://github.com/Dokploy/templates) and
+  copy the folder to `blueprints/semantius/` (add `logo.svg` — the build prints a
+  reminder while `docker-compose/logo.svg` is missing), then point your instance
+  at the fork as a custom templates repo;
+- or, in any instance: **Create Service → Advanced → Import → Base64** of these
+  files.
+
+The target server needs **docker compose ≥ 2.23.1** (inline `configs.content`).
 
 ## Using the CLI against this stack
 

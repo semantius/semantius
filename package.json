@@ -17,11 +17,15 @@
     "retest": "deno task retest",
     "docgen": "deno task docgen",
     "bundle-sql": "deno task bundle-sql",
+    "dokploy:build": "node scripts/dokploy-build.mjs",
     "triggerdev:build": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/triggerdev build",
     "neon-provisioner:dev": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/neon-provisioner dev",
     "neon-provisioner:deploy": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/neon-provisioner run deploy"
   },
   "engines": {
     "pnpm": ">=8.0.0"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.0"
   }
 }
