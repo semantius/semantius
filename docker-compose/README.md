@@ -447,7 +447,7 @@ They accept `${env:NAME}` / `${env:NAME:-default}` placeholders, resolved from t
 `idp` service's environment. Configuration is read **once, at start-up**: edit,
 then `docker compose restart idp`. There is no hot reload and `SIGHUP` is ignored.
 
-Three settings there are load-bearing and worth knowing:
+Four settings there are load-bearing and worth knowing:
 
 - **`database.ssl: "disable"`** — the idp defaults `ssl` to `require` for any
   non-localhost host, and the bundled Postgres speaks plain TCP inside the compose
@@ -457,6 +457,15 @@ Three settings there are load-bearing and worth knowing:
   (that file is the per-user catalog, emitted as the `roles` array).
 - **`server.trustProxy: true`** — the idp always sits behind this stack's Caddy,
   which sets `X-Forwarded-*` by default.
+- **`admin.database: "read-only"`** — turns on `/idp/admin/database`, a schema
+  explorer and SQL console over this stack's Postgres (the whole cluster, not just
+  the `idp` schema — this stack exposes no `psql`). Every statement runs in a
+  READ ONLY transaction, one per run, 10 s timeout, 500 rows, each execution
+  audited as `database.queried`. The idp's own default is `disabled`, so this is a
+  deliberate departure: an administrator who can run SQL reads every row at rest,
+  password hashes and session tokens included. Set it back to `"disabled"` if your
+  administrators are not trusted with that; `"read-write"` adds a mode toggle that
+  commits.
 
 `server.allowInsecureHttp` is *not* needed for `http://localhost:7070/idp` —
 localhost is exempt from the https requirement. Turn it on only to reach a dev

@@ -707,7 +707,18 @@ configs:
           // `user` are the built-in catalog — this stack ships no roles.jsonc, so
           // every name here must come from it.
           "adminRoles": ["admin"],
-          "allowImpersonation": false
+          "allowImpersonation": false,
+
+          // /idp/admin/database, a schema explorer and SQL console over THIS stack's
+          // Postgres — the same instance pg_semantius lives in, so it reads the whole
+          // cluster, not just the `idp` schema. "read-only" runs every statement in a
+          // READ ONLY transaction: one statement per run, 10 s timeout, 500 rows, each
+          // execution audited as `database.queried`. Useful here because this stack has
+          // no other SQL console (psql is not exposed) — but an administrator who can
+          // run SQL reads every row at rest, password hashes and session tokens
+          // included. Set "disabled" to remove the page and both endpoints; going live
+          // with untrusted administrators, do. "read-write" additionally commits.
+          "database": "read-only"
         },
 
         "apiKeys": {
