@@ -17,7 +17,7 @@ that change is implemented and verified (see [README.md](README.md)).
       - the `configs:` block survives Dokploy's compose processing (the one
         residual unknown; needs docker compose ≥ 2.23.1 on the server),
       - Traefik routes `${main_domain}` → `caddy`:80,
-      - `/`, `/api/`, `/api-docs/` all work at `https://<domain>`,
+      - `/`, `/rest/`, `/gateway/rest/`, `/api-docs/` all work at `https://<domain>`,
       - the identity provider works end to end: `/idp` serves the setup page, its
         two embedded `idp-config/*.jsonc` configs arrive with their `${env:…}`
         placeholders intact, `/.well-known/openid-configuration` (and the RFC 8414

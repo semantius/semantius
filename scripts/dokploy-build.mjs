@@ -119,16 +119,19 @@ env = [
   "SEMANTIUS_DB_VERSION=latest",
   "SEMANTIUS_APP_VERSION=latest",
   "SEMANTIUS_IDP_VERSION=latest",
-  # Public front door, including the /api prefix that caddy strips.
-  "PUBLIC_API_URL=https://\${main_domain}/api",
+  # Public front door, including the /gateway/rest prefix the docs call through
+  # (the idp's authenticating proxy in front of PostgREST — an API key is enough
+  # there, which is what makes Scalar's "Test Request" usable on a deployment).
+  "PUBLIC_API_URL=https://\${main_domain}/gateway/rest",
   # Load the Northwind demo module on first init so the deploy has data to show.
   # Remove this line for an empty database.
   "NWIND=TRUE",
 ]
 
 # Traefik routes the domain to the caddy front door; caddy fans out to the SPA,
-# PostgREST (/api/*), Scalar (/api-docs/*) and the identity provider (/idp/* plus
-# the discovery documents at /.well-known/*).
+# PostgREST (/rest/*, plus /gateway/rest/* for the same API through the idp's
+# authenticating proxy), Scalar (/api-docs/*) and the identity provider (/idp/*
+# plus the discovery documents at /.well-known/*).
 [[config.domains]]
 serviceName = "caddy"
 port = 80

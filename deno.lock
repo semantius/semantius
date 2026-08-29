@@ -1,13 +1,11 @@
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@std/fmt@1.0.8": "jsr:@std/fmt@1.0.8"
-    },
-    "jsr": {
-      "@std/fmt@1.0.8": {
-        "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
-      }
+  "version": "5",
+  "specifiers": {
+    "jsr:@std/fmt@1.0.8": "1.0.8"
+  },
+  "jsr": {
+    "@std/fmt@1.0.8": {
+      "integrity": "71e1fc498787e4434d213647a6e43e794af4fd393ef8f52062246e06f7e372b7"
     }
   },
   "remote": {
@@ -162,6 +160,11 @@
     "https://deno.land/x/postgres@v0.17.0/utils/utils.ts": "19c3527ddd5c6c4c49ae36397120274c7f41f9d3cbf479cb36065d23329e9f90"
   },
   "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:yaml@^2.9.0"
+      ]
+    },
     "members": {
       "packages/cli": {
         "dependencies": [

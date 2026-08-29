@@ -90,7 +90,7 @@ docker compose up -d --force-recreate --remove-orphans || goto :err
 docker compose ps
 echo.
 echo Ready (PostgREST stack). Default ports (see .env):
-echo   Admin: http://localhost:3000/   (SPA; API at /api/, docs at /api-docs/)
+echo   Admin: http://localhost:3000/   (SPA; API at /rest/, docs at /api-docs/)
 echo   IdP  : http://localhost:3000/idp   (first run: create the first administrator)
 echo   API : http://localhost:3100/   (OpenAPI spec at /)
 echo   Docs: http://localhost:8080/   (Scalar API reference)

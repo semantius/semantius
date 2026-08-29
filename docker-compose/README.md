@@ -24,9 +24,10 @@ local dev.
 browser ──▶ Caddy (:3000) ──┬── /              ──▶ Admin SPA     (internal, no host port)
                             ├── /idp/*         ──▶ semantius-idp (also direct :3001)
                             ├── /.well-known/* ──▶ semantius-idp (issuer metadata, at the ORIGIN ROOT)
-                            ├── /gateway*      ──▶ semantius-idp (rewritten onto /idp/gateway/*)
+                            ├── /gateway*      ──▶ semantius-idp (rewritten onto /idp/gateway/*;
+                            │                                    /gateway/rest fronts PostgREST)
                             ├── /api-docs/*    ──▶ Scalar docs   (also direct :8080)
-                            └── /api/*         ──▶ PostgREST     (also direct :3100, OpenAPI at /)
+                            └── /rest/*        ──▶ PostgREST     (also direct :3100, OpenAPI at /)
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
@@ -53,8 +54,9 @@ first-run setup page, and whoever completes it becomes the first admin — there
 no bootstrap account and no password in the environment. Sign in to the admin SPA
 at **http://localhost:3000/** with it.
 
-- **Front door:** http://localhost:3000 — admin SPA at `/`, API at `/api/`,
-  docs at `/api-docs/`, identity provider at `/idp/`.
+- **Front door:** http://localhost:3000 — admin SPA at `/`, API at `/rest/`
+  (or `/gateway/rest/` for the same API through the idp's authenticating proxy,
+  which accepts an API key), docs at `/api-docs/`, identity provider at `/idp/`.
 - Direct, for local dev: **API** http://localhost:3100 · **Docs**
   http://localhost:8080 · **IdP** http://localhost:3001 (sign-in only works
   through the front door — see [below](#the-idp-service--the-bundled-identity-provider))
@@ -143,7 +145,7 @@ with `docker compose`, the **container** name with plain `docker`:
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |
 | `scalar` | `scalarapi/api-reference:latest` | **8080** | renders PostgREST's Swagger 2.0 spec as browsable docs |
 | `web` | `ghcr.io/semantius/semantius-app:${SEMANTIUS_APP_VERSION}` | — | static admin SPA (nginx). **SPA only** — it proxies nothing; reach it through `caddy`. Runtime config is written to `config.js` at container start from its `VITE_*` env |
-| `caddy` | `caddy:2-alpine` | **3000** | **front door**: `/` → the SPA, `/api/*` → PostgREST, `/api-docs/*` → Scalar (both prefixes stripped), `/idp/*` and `/.well-known/*` → the idp (prefix **kept**), `/gateway*` → the idp, **rewritten** onto `/idp/gateway` so the caller's URL stays short (safe only because the idp's session cookie is host-wide — see `cookiePath` in [`idp-config/config.jsonc`](idp-config/config.jsonc)). Routes live in the sibling [`Caddyfile`](Caddyfile) — edit it and `docker compose restart caddy` |
+| `caddy` | `caddy:2-alpine` | **3000** | **front door**: `/` → the SPA, `/rest/*` → PostgREST, `/api-docs/*` → Scalar (both prefixes stripped), `/idp/*` and `/.well-known/*` → the idp (prefix **kept**), `/gateway*` → the idp, **rewritten** onto `/idp/gateway` so the caller's URL stays short (safe only because the idp's session cookie is host-wide — see `cookiePath` in [`idp-config/config.jsonc`](idp-config/config.jsonc)). `/gateway/rest/*` therefore reaches **the same PostgREST** as `/rest/*`, with the idp's API-key→JWT exchange in front of it — and, because the idp session cookie is host-wide, a signed-in browser authenticates there automatically, which is what makes the Scalar docs' "Test Request" work with no credential to paste. One rule supports that: `@pgrstDocsAccept` collapses the four-content-type `Accept` header Scalar generates down to `application/json`, without which PostgREST answers `406 PGRST116` on every multi-row endpoint. Routes live in the sibling [`Caddyfile`](Caddyfile) — edit it and `docker compose restart caddy` |
 
 The registry images use `:latest` and `pull_policy: always` (re-pulled on every
 `create`); `postgres` is the locally-built image, used as-is. Pin
@@ -187,9 +189,9 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `POSTGREST_PORT` | `3100` | `postgrest`, `scalar` | Host port for the PostgREST HTTP API (OpenAPI spec at `/`). Deliberately clear of 3000-300x: a Vite dev server told to use 3000 walks upward until it finds a free port, so a host port parked in that range eventually collides with one. |
 | `IDP_PORT` | `3001` | `idp` | Host port for the identity provider (the front door owns 3000). For poking at the container only — the idp's own URLs all carry the front door's origin, so signing in must go through `/idp`. |
 | `DOCS_PORT` | `8080` | `scalar` | Host port for the Scalar docs site. |
-| `WEB_PORT` | `3000` | `caddy` | Host port of the **front door**: `/` the SPA, `/api/*` the API, `/api-docs/*` the docs. The SPA itself has no host port. |
+| `WEB_PORT` | `3000` | `caddy` | Host port of the **front door**: `/` the SPA, `/rest/*` the API, `/api-docs/*` the docs. The SPA itself has no host port. |
 | `SITE_ADDRESS` | `:80` | `caddy` | The address Caddy serves inside the container. `:80` is plain HTTP — right for local dev and behind anything that terminates TLS (Dokploy/Traefik). On a **bare VPS** set your bare domain for automatic HTTPS, then publish `80:80` + `443:443` on `caddy` instead of `WEB_PORT`. |
-| `PUBLIC_API_URL` | `http://localhost:${WEB_PORT}/api` | `postgrest`, `scalar` | Browser-reachable base URL of the API. Used for BOTH the OpenAPI spec's advertised server and the docs' spec `url` — both resolved by the browser, so NEVER the in-network `postgrest` hostname. Defaults to this stack's own front door, whose `handle_path /api/*` strips the prefix. Going live, set the public front-door URL **including** `/api`. |
+| `PUBLIC_API_URL` | `http://localhost:${WEB_PORT}/gateway/rest` | `postgrest`, `scalar` | Browser-reachable base URL of the API **as the docs see it**. Used for BOTH the OpenAPI spec's advertised server and the docs' spec `url` — both resolved by the browser, so NEVER the in-network `postgrest` hostname. It names the **gateway** route rather than the direct `/rest`, which is what lets the docs' "Test Request" work with an API key from `/idp/account/api-keys`. Going live, set the public front-door URL **including** `/gateway/rest`. |
 
 > **Going live?** With the bundled issuer, what a real deployment must set is
 > **`IDP_BASE_URL`** and **`PUBLIC_WEB_ORIGIN`** (your public front door, with and
@@ -283,7 +285,7 @@ SPA (/)  ──authorization_code + PKCE S256──▶  idp (/idp)
                                                │  "role": "authenticated"  (a static claim,
                                                │  jwt.claims in idp-config/config.jsonc)
          ◀───────── access token ──────────────┘
-SPA  ──Authorization: Bearer <jwt>──▶  Caddy /api/*  ──▶  PostgREST
+SPA  ──Authorization: Bearer <jwt>──▶  Caddy /rest/*  ──▶  PostgREST
                                                             │ verifies ES256 vs /jwks/jwks.json
                                                             │ reads the .role claim
                                                             ▼  SET ROLE authenticated
@@ -495,12 +497,20 @@ instead — the supported scripted-access path (there is no `client_credentials`
 grant):
 
 1. sign in and create a key at `/idp/account/api-keys`;
-2. exchange it for a JWT:
+2. send the key straight at the **gateway**, which performs the exchange itself
+   and injects the bearer token:
+
+```bash
+curl -s -H "x-api-key: idp_…" "http://localhost:3000/gateway/rest/_settings?limit=1"
+```
+
+   Or do the exchange yourself and call the direct `/rest` route — which is
+   exactly what the gateway does on your behalf:
 
 ```bash
 JWT=$(curl -s -H "x-api-key: idp_…" http://localhost:3000/idp/api/auth/token \
       | sed 's/.*"token":"//; s/".*//')
-curl -s -H "Authorization: Bearer $JWT" "http://localhost:3000/api/_settings?limit=1"
+curl -s -H "Authorization: Bearer $JWT" "http://localhost:3000/rest/_settings?limit=1"
 ```
 
 The exchanged token carries the same `"role": "authenticated"` claim, so PostgREST

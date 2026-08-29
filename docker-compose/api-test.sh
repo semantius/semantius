@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke-test the running PostgREST stack (needs curl; steps 3-5 need Deno).
 # The core flow: mint a JWT from the test issuer, then read real data with it.
-#   1. Check the Caddy front door: SPA, runtime config, /api/, /api-docs/.
+#   1. Check the Caddy front door: SPA, runtime config, /rest/, /api-docs/.
 #   2. GET the OpenAPI spec at / WITHOUT a token  -> proves anon spec visibility.
 #   3. Mint a token for a test user from the issuer (reuses ../pgdocker/get_user_token.ts).
 #   4. POST an RPC WITH the token   -> JWKS verify + SET ROLE authenticated + rbac.uid(); shows identity.
@@ -22,7 +22,7 @@ _status() { curl -s -o /dev/null -w '%{http_code}' "$1"; }
 
 echo "== 1. Front door (caddy) @ ${WEB} =="
 code="$(_status "${WEB}/")"
-echo "   /             HTTP ${code}  $([ "$code" = 200 ] && echo '(SPA served)' || echo '(expected 200)')"
+echo "   /              HTTP ${code}  $([ "$code" = 200 ] && echo '(SPA served)' || echo '(expected 200)')"
 
 # The SPA's runtime config, generated into config.js at container start. The
 # control plane is opt-OUT and an EMPTY value still activates it, so the compose
@@ -30,17 +30,19 @@ echo "   /             HTTP ${code}  $([ "$code" = 200 ] && echo '(SPA served)' 
 # control plane (api.semantius.cloud) and dies with a tenant-lookup error.
 cfg="$(curl -s "${WEB}/config.js" || true)"
 if printf '%s' "$cfg" | grep -Eq '"?VITE_CONTROL_PLANE_URL"?[[:space:]]*:[[:space:]]*"[[:space:]]+"'; then
-  echo "   /config.js    self-hosted OK (VITE_CONTROL_PLANE_URL is whitespace)"
+  echo "   /config.js     self-hosted OK (VITE_CONTROL_PLANE_URL is whitespace)"
 else
-  echo "   /config.js    WARNING: VITE_CONTROL_PLANE_URL is not a whitespace value —"
+  echo "   /config.js     WARNING: VITE_CONTROL_PLANE_URL is not a whitespace value —"
   echo "                 the SPA will call the CLOUD control plane and fail to boot."
   echo "                 See the web service's env in docker-compose.yml."
 fi
 
-code="$(_status "${WEB}/api/")"
-echo "   /api/         HTTP ${code}  $([ "$code" = 200 ] && echo '(spec through the front door)' || echo '(expected 200)')"
+code="$(_status "${WEB}/rest/")"
+echo "   /rest/         HTTP ${code}  $([ "$code" = 200 ] && echo '(spec through the front door)' || echo '(expected 200)')"
+code="$(_status "${WEB}/gateway/rest/")"
+echo "   /gateway/rest/ HTTP ${code}  $([ "$code" = 200 ] && echo '(spec through the idp gateway)' || echo '(expected 200)')"
 code="$(_status "${WEB}/api-docs/")"
-echo "   /api-docs/    HTTP ${code}  $([ "$code" = 200 ] && echo '(Scalar docs)' || echo '(expected 200)')"
+echo "   /api-docs/     HTTP ${code}  $([ "$code" = 200 ] && echo '(Scalar docs)' || echo '(expected 200)')"
 
 echo "== 2. OpenAPI spec (no token) @ ${API}/ =="
 code="$(_status "${API}/")"
@@ -69,6 +71,6 @@ code="$(_status "${API}/users?limit=1")"
 echo "   /users (anon) HTTP ${code}  $([ "$code" = 401 ] && echo '(locked down OK)' || echo '(expected 401)')"
 
 echo
-echo "Done. Expected: front door / + /api/ + /api-docs/ 200 and a whitespace"
+echo "Done. Expected: front door / + /rest/ + /gateway/rest/ + /api-docs/ 200 and a whitespace"
 echo "VITE_CONTROL_PLANE_URL; spec 200; get_userinfo(auth) 200 + data;"
 echo "/users(auth) 200 + rows; /users(anon) 401."

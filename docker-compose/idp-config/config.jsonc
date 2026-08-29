@@ -57,7 +57,7 @@
     // /idp would not be sent to /gateway/*, and the idp treats a missing
     // session as ANONYMOUS rather than as an error, so the calls would have
     // quietly succeeded as nobody. Narrow it to "/idp" only if you want the
-    // session kept off the SPA, /api/* and /api-docs/* on this origin — and
+    // session kept off the SPA, /rest/* and /api-docs/* on this origin — and
     // then drop the /gateway route from the Caddyfile in the same change.
     // "cookiePath": "/",
     //
@@ -182,6 +182,47 @@
     // false: a client removed from oauth_clients.jsonc is disabled and its tokens
     // revoked. true deletes its rows instead.
     "reconcile": { "prune": false }
+  },
+
+  // --- authenticating reverse proxies ---------------------------------------
+  //
+  // `/idp/gateway/<name>/<rest>` streams every method to `<url>/<rest>`, and
+  // caddy also serves it at the short root-level `/gateway/<name>/*` (see
+  // ../Caddyfile). A caller carrying `x-api-key` and no `Authorization` has the
+  // key exchanged for a session JWT — the same exchange GET /idp/api/auth/token
+  // performs — and the JWT injected as `Authorization: Bearer`. That is how a
+  // script holding only an API key reaches PostgREST, which validates bearer
+  // tokens against the JWKS. The exchange is cached for ten minutes, so a key
+  // revoked elsewhere keeps working for up to that long.
+  //
+  // THIS BLOCK IS THE SOURCE OF TRUTH: entries are reconciled into the `gateway`
+  // table on every boot, `oauth.reconcile.prune` above decides whether an entry
+  // removed from here is disabled or deleted, and the file owns `enabled` too —
+  // a config gateway is switched off by deleting it from this file, not on
+  // /idp/admin/gateways, which shows it read-only. A row added by hand on that
+  // page is marked `manual` and the sweep leaves it alone — until a config entry
+  // claims the same name, which adopts that row and makes it file-owned.
+  "gateways": {
+    // PostgREST, over the compose network: the SERVICE NAME and the CONTAINER
+    // port, which is also how caddy addresses it. Not localhost and not a
+    // published host port — inside the idp container `localhost:3000` is the idp
+    // ITSELF (the request loops back to the origin root, where the base-path
+    // guard 307s it to /idp/...), and `localhost:3100` is nothing at all
+    // (connection refused, surfaced as `bad_gateway`); 3100 is the host-side
+    // publish of this very container port, reachable only from the host.
+    //
+    // Plain http, so a bearer token minted from a caller's API key crosses the
+    // network in clear. Acceptable because that network is private to this
+    // stack, but the idp cannot know that: a PRODUCTION start-up raises
+    // `gateway.insecure_upstream` for any non-localhost http upstream, this one
+    // included. The warning is expected here and is not a reason to put TLS
+    // between two containers on the same compose network.
+    //
+    // `requireAuth` is left at its default of false: a call carrying no
+    // credential is forwarded ANONYMOUSLY and PostgREST answers as `anon`, which
+    // for most tables is 42501 permission denied. Add `"requireAuth": true` to
+    // have the gateway refuse those outright instead of passing them on.
+    "rest": { "url": "http://postgrest:3000" }
   },
 
   "admin": {

@@ -4,13 +4,37 @@
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 
-	# Bare /api, /api-docs or /idp wouldn't match the /*-suffixed matchers below
+	# Bare /rest, /api-docs or /idp wouldn't match the /*-suffixed matchers below
 	# and would fall through to the SPA — bounce to the canonical slash form
 	# (redir sorts before handle/handle_path in Caddy's directive order; 308
 	# keeps the method).
-	redir /api /api/ 308
+	redir /rest /rest/ 308
 	redir /api-docs /api-docs/ 308
 	redir /idp /idp/ 308
+
+	# THE DOCS' Accept HEADER, collapsed to plain JSON.
+	#
+	# Scalar builds "Test Request" headers by joining EVERY response content type
+	# the document declares for the first 2xx response, and PostgREST declares four
+	# of them GLOBALLY (`produces`), so every operation inherits all four and the
+	# docs send:
+	#
+	#   Accept: application/json, application/vnd.pgrst.object+json;nulls=stripped,
+	#           application/vnd.pgrst.object+json, text/csv
+	#
+	# PostgREST then picks the SINGULAR `vnd.pgrst.object+json` out of that list —
+	# not the `application/json` listed first — and every multi-row endpoint answers
+	# `406 PGRST116 Cannot coerce the result to a single JSON object`. Neither end
+	# can be configured out of it: PostgREST has no setting for `produces`, and
+	# Scalar has none for the Accept header. So it is collapsed here.
+	#
+	# The matcher is the exact machine-generated PREFIX, and that precision is the
+	# point: a caller who genuinely wants one object sends
+	# `application/vnd.pgrst.object+json` ALONE and never matches, so single-object
+	# requests keep working — including their PGRST116 when the result really is not
+	# a single row.
+	@pgrstDocsAccept header Accept "application/json, application/vnd.pgrst.object+json*"
+	request_header @pgrstDocsAccept Accept application/json
 
 	# /gateway/<name> is the idp's authenticating reverse proxy. It lives at
 	# /idp/gateway upstream, like the rest of the app; this serves it at the
@@ -32,7 +56,17 @@
 		reverse_proxy idp:3000
 	}
 
-	handle_path /api/* {
+	# PostgREST, and there are TWO ways in. THIS one is direct: the prefix is
+	# stripped and the request reaches the API with whatever `Authorization` the
+	# caller sent, or none. It is the admin SPA's path (VITE_API_BASE_URL=/rest)
+	# and the one to curl a bearer token against.
+	#
+	# The other is /gateway/rest above — the idp's authenticating proxy in front of
+	# the SAME upstream, which additionally exchanges an `x-api-key` for a bearer
+	# token. That is the one the OpenAPI spec advertises and the Scalar docs call
+	# (PGRST_OPENAPI_SERVER_PROXY_URI / PUBLIC_API_URL), so "Test Request" works
+	# with an API key and not only with a hand-minted JWT.
+	handle_path /rest/* {
 		reverse_proxy postgrest:3000
 	}
 	handle_path /api-docs/* {

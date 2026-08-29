@@ -23,7 +23,7 @@ name: semantius
 # (recreates the containers, keeps the data).
 #
 # FRONT DOOR: the `caddy` service (host port WEB_PORT, default 3000) is the single
-# public entrypoint — `/` serves the admin SPA (`web`), `/api/*` proxies to
+# public entrypoint — `/` serves the admin SPA (`web`), `/rest/*` proxies to
 # PostgREST and `/api-docs/*` to Scalar, both with the prefix stripped, and
 # `/idp/*` + `/.well-known/*` reach the identity provider (prefix INTACT there —
 # it is part of the issuer URL). The routes live in the sibling ./Caddyfile,
@@ -368,12 +368,15 @@ services:
       # http://0.0.0.0:3000/... which the browser rejects (ERR_ADDRESS_INVALID).
       # The browser resolves this URL, so it must be browser-reachable — NOT the
       # in-network `postgrest` hostname. The default is this stack's OWN front door
-      # (caddy on WEB_PORT) — its `handle_path /api/*` strips the prefix before
-      # proxying here, so the spec advertises basePath=/api, the browser calls
-      # /api/..., caddy strips /api and PostgREST sees /... . Going live, set
-      # PUBLIC_API_URL to the PUBLIC front-door URL INCLUDING the /api prefix, e.g.
-      # https://yourdomain.com/api. See README / .env.example.
-      PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/api}"
+      # (caddy on WEB_PORT), and specifically its /gateway/rest route — the idp's
+      # authenticating proxy — NOT the direct /rest one. That is what makes the
+      # docs usable with an API key: the gateway exchanges an `x-api-key` for a
+      # bearer token, so "Test Request" needs a key rather than a hand-minted JWT.
+      # Either route reaches the same PostgREST; only this advertised basePath
+      # decides which one the generated calls use. Going live, set PUBLIC_API_URL
+      # to the PUBLIC front-door URL INCLUDING that prefix, e.g.
+      # https://yourdomain.com/gateway/rest. See README / .env.example.
+      PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/gateway/rest}"
       # PGRST_JWT_AUD left unset: rbac.uid() enforces aud in-DB (same as bearer
       # mode). Set it to one of the token's aud values to also check at this layer.
     ports:
@@ -383,10 +386,21 @@ services:
 
   # --- Scalar API reference (OpenAPI docs) -----------------------------------
   # Renders PostgREST's Swagger 2.0 spec. The `url` is fetched by the BROWSER, so
-  # it must be browser-reachable — the stack's own front door (`/api/` on caddy,
-  # the default) or your public /api URL — NOT the in-network `postgrest` hostname.
-  # Keep it in sync with PGRST_OPENAPI_SERVER_PROXY_URI above via the same
-  # PUBLIC_API_URL. Reached through the front door at /api-docs/ this is same-origin
+  # it must be browser-reachable — the stack's own front door (`/gateway/rest/` on
+  # caddy, the default) or your public URL for it — NOT the in-network `postgrest`
+  # hostname. Keep it in sync with PGRST_OPENAPI_SERVER_PROXY_URI above via the
+  # same PUBLIC_API_URL: fetching the spec from one route while it advertises
+  # another is how the docs end up describing an API they do not call. Both go
+  # through the idp gateway, so the browser's idp session cookie is enough to read
+  # the spec AND to try a call — no key to paste, which is the point of pointing
+  # the docs at the gateway rather than at /rest.
+  #
+  # One more thing is needed for "Test Request" to work, and it lives in the
+  # ../Caddyfile: Scalar sends EVERY content type the spec declares in one Accept
+  # header, which makes PostgREST answer 406 PGRST116 on every multi-row endpoint.
+  # See the @pgrstDocsAccept rule there.
+  #
+  # Reached through the front door at /api-docs/ this is same-origin
   # with the spec, so it no longer depends on PostgREST's permissive CORS. The host
   # port below stays published for direct access / back-compat.
   scalar:
@@ -398,13 +412,13 @@ services:
       postgrest:
         condition: service_started
     environment:
-      API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/api}/","title":"Semantius API"}]}'
+      API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/gateway/rest}/","title":"Semantius API"}]}'
     ports:
       - "${DOCS_PORT:-8080}:8080"
 
   # --- Admin SPA -------------------------------------------------------------
   # Static single-page admin app (nginx, container port 80). SPA ONLY — it does no
-  # proxying of its own; the `caddy` front door below routes /api/* and /api-docs/*
+  # proxying of its own; the `caddy` front door below routes /rest/* and /api-docs/*
   # and falls through to here for everything else. Deliberately NOT published on a
   # host port — reach it through caddy on WEB_PORT. Runtime config is generated
   # into config.js at container start from the VITE_* env below (the image's
@@ -418,10 +432,15 @@ services:
     container_name: semantius-app
     restart: unless-stopped
     environment:
-      # Same-origin API base: the browser calls http://<host>:${WEB_PORT}/api/...
-      # and caddy proxies /api/* -> postgrest:3000 with the prefix stripped, so no
+      # Same-origin API base: the browser calls http://<host>:${WEB_PORT}/rest/...
+      # and caddy proxies /rest/* -> postgrest:3000 with the prefix stripped, so no
       # CORS and no need to publish PostgREST's port. Doesn't change going live.
-      VITE_API_BASE_URL: /api
+      #
+      # The DIRECT route, not /gateway/rest: the SPA holds a real OAuth access
+      # token and has no use for the gateway's API-key exchange, so there is no
+      # reason to put a second proxy hop in front of every call it makes. The
+      # gateway route is for the docs and for key-holding scripts.
+      VITE_API_BASE_URL: /rest
       # OIDC discovery URL + client id — the SPA resolves the OAuth endpoints from
       # this at boot. Both default to the BUNDLED idp: caddy serves its discovery
       # document from the front door's ORIGIN ROOT, and `public-client` is the SPA
@@ -466,7 +485,9 @@ services:
   # --- Caddy front door ------------------------------------------------------
   # The single public entrypoint. Routes (see the sibling ./Caddyfile):
   #   /              -> web:80          (the SPA)
-  #   /api/*         -> postgrest:3000  (prefix stripped by handle_path)
+  #   /rest/*        -> postgrest:3000  (prefix stripped by handle_path)
+  #   /gateway/*     -> idp:3000        (the idp's authenticating proxy; /gateway/rest
+  #                                      fronts that same PostgREST)
   #   /api-docs/*    -> scalar:8080     (prefix stripped by handle_path)
   #   /idp/*         -> idp:3000        (prefix KEPT — it is part of the issuer URL)
   #   /.well-known/* -> idp:3000        (rewritten under /idp: the issuer's metadata
