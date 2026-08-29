@@ -134,7 +134,10 @@ services:
   # becomes the first administrator.
   idp:
     image: ghcr.io/semantius/semantius-idp:${SEMANTIUS_IDP_VERSION:-latest}
-    pull_policy: always
+    # `always` keeps a released tag honest — it is re-pulled on every create/up.
+    # A LOCALLY BUILT image needs `missing`, or the pull clobbers it with the
+    # registry's copy of the same tag (or fails, when the tag was never pushed).
+    pull_policy: ${IDP_PULL_POLICY:-always}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -156,7 +159,7 @@ services:
       # Everything absolute the idp emits derives from this, and it is also the
       # default `aud` of its access tokens (jwt.audience in config.jsonc). Going
       # live, set IDP_BASE_URL=https://yourdomain.com/idp in .env.
-      IDP_BASE_URL: ${IDP_BASE_URL:-http://localhost:${WEB_PORT:-7070}/idp}
+      IDP_BASE_URL: ${IDP_BASE_URL:-http://localhost:${WEB_PORT:-3000}/idp}
       # What the healthcheck below probes. Two things about this URL:
       #
       # /readyz, NOT /healthz. /healthz is liveness — "the process is up" — and it
@@ -182,7 +185,7 @@ services:
       # ORIGIN of the admin SPA — no path, no trailing slash.
       # idp-config/oauth_clients.jsonc builds the SPA's redirect URIs from it, and
       # those are matched EXACTLY, so it has to be the origin the browser really uses.
-      PUBLIC_WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://localhost:${WEB_PORT:-7070}}
+      PUBLIC_WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
       # Optional. Without it the idp runs DEGRADED: password reset, e-mail
       # verification and every notification are disabled and hidden in the UI (and
       # auth.requireEmailVerification is forced off). Fine locally, where an admin
@@ -266,7 +269,7 @@ services:
       JWKS_URL: ${JWKS_URL-http://idp:3000/idp/.well-known/jwks.json}
       # Only consulted when JWKS_URL is empty. Defaults to the front door's origin
       # root, which caddy routes to the bundled idp.
-      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-7070}/.well-known/openid-configuration}
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-3000}/.well-known/openid-configuration}
     volumes:
       - jwks:/jwks
     entrypoint:
@@ -341,7 +344,7 @@ services:
       # /api/..., caddy strips /api and PostgREST sees /... . Going live, set
       # PUBLIC_API_URL to the PUBLIC front-door URL INCLUDING the /api prefix, e.g.
       # https://yourdomain.com/api. See README / .env.example.
-      PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-7070}/api}"
+      PGRST_OPENAPI_SERVER_PROXY_URI: "${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/api}"
       # PGRST_JWT_AUD left unset: rbac.uid() enforces aud in-DB (same as bearer
       # mode). Set it to one of the token's aud values to also check at this layer.
     volumes:
@@ -363,7 +366,7 @@ services:
       postgrest:
         condition: service_started
     environment:
-      API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-7070}/api}/","title":"Semantius API"}]}'
+      API_REFERENCE_CONFIG: '{"sources":[{"url":"${PUBLIC_API_URL:-http://localhost:${WEB_PORT:-3000}/api}/","title":"Semantius API"}]}'
 
   # --- Admin SPA -------------------------------------------------------------
   # Static single-page admin app (nginx, container port 80). SPA ONLY — it does no
@@ -391,7 +394,7 @@ services:
       # to change here — set IDP_BASE_URL / PUBLIC_WEB_ORIGIN to your domain and
       # leave these alone — unless you are replacing the issuer, in which case point
       # them at yours (and see JWKS_URL on jwks-fetch above).
-      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-7070}/.well-known/openid-configuration}
+      VITE_OAUTH_CONFIG: ${VITE_OAUTH_CONFIG:-http://localhost:${WEB_PORT:-3000}/.well-known/openid-configuration}
       VITE_OAUTH_CLIENT_ID: ${VITE_OAUTH_CLIENT_ID:-public-client}
       # The RFC 8707 resource the SPA asks its access tokens to be issued FOR —
       # it becomes their `aud`. LOAD-BEARING: the SPA always sends one, falling
@@ -405,7 +408,7 @@ services:
       # issuer expects — or to its issuer URL if it has no separate API audience.
       # `-` and not `:-` again: an explicitly EMPTY VITE_OAUTH_AUDIENCE has to
       # reach the SPA as empty, which is how you ask for its own built-in fallback.
-      VITE_OAUTH_AUDIENCE: ${VITE_OAUTH_AUDIENCE-${IDP_BASE_URL:-http://localhost:${WEB_PORT:-7070}/idp}}
+      VITE_OAUTH_AUDIENCE: ${VITE_OAUTH_AUDIENCE-${IDP_BASE_URL:-http://localhost:${WEB_PORT:-3000}/idp}}
       # SINGLE SPACE — LOAD-BEARING, do not "tidy" it to "" or delete the line. The
       # SPA's cloud control plane is opt-OUT: an UNSET **or EMPTY** value still
       # activates it (the runtime-env reader ignores empty strings and falls through
@@ -481,6 +484,26 @@ configs:
       	redir /api /api/ 308
       	redir /api-docs /api-docs/ 308
       	redir /idp /idp/ 308
+
+      	# /gateway/<name> is the idp's authenticating reverse proxy. It lives at
+      	# /idp/gateway upstream, like the rest of the app; this serves it at the
+      	# short root-level form instead.
+      	#
+      	# A `rewrite`, so the caller's URL stays /gateway — and that is only correct
+      	# because the idp's session cookie is scoped to the WHOLE HOST. It was
+      	# scoped to /idp until the idp's **D97**, and under that scoping this had to
+      	# be a 308 to /idp/gateway: a rewrite would have kept the caller outside the
+      	# cookie's Path, the browser would have stopped attaching the session, and
+      	# the proxy treats a missing session as ANONYMOUS rather than as a refusal
+      	# (`sessionCredential`, server/gateways/proxy.ts) — so cookie-authenticated
+      	# calls would have quietly downgraded instead of failing.
+      	#
+      	# If `server.cookiePath` is ever narrowed back to /idp in idp-config, this
+      	# block has to go back to being a redirect, or come out.
+      	handle /gateway* {
+      		rewrite * /idp{uri}
+      		reverse_proxy idp:3000
+      	}
 
       	handle_path /api/* {
       		reverse_proxy postgrest:3000
@@ -563,10 +586,11 @@ configs:
         "server": {
           // THE ISSUER. Scheme + host[:port] + the /idp mount path, no trailing slash.
           // Every absolute URL the idp emits — discovery, e-mail links, social
-          // callbacks, cookie Path — derives from this and never from the Host header.
+          // callbacks — derives from this and never from the Host header. The cookie
+          // Path used to as well; since the idp's D97 it is `cookiePath` below.
           // The default matches caddy's default front door; going live, set
           // IDP_BASE_URL=https://yourdomain.com/idp in .env.
-          "baseUrl": "$${env:IDP_BASE_URL:-http://localhost:7070/idp}",
+          "baseUrl": "$${env:IDP_BASE_URL:-http://localhost:3000/idp}",
           "host": "0.0.0.0",
           "port": 3000,
 
@@ -576,15 +600,34 @@ configs:
           "trustProxy": true,
 
           // Left at the default `false`, which is right for both shipped cases: an
-          // https baseUrl in production, and http://localhost:7070/idp locally —
+          // https baseUrl in production, and http://localhost:3000/idp locally —
           // localhost is exempt from the https requirement. Turn it on ONLY for a
           // non-localhost http baseUrl, i.e. reaching a dev stack over a LAN IP
-          // (http://192.168.x.x:7070/idp). Never on a real deployment.
+          // (http://192.168.x.x:3000/idp). Never on a real deployment.
           // "allowInsecureHttp": true,
 
           // trustedOrigins is left out on purpose: empty trusts the address each
           // request actually arrived on (its X-Forwarded-Host), which is what a
           // deployment behind a proxy whose public URL is not known here needs.
+
+          // Session cookie scope (idp D97). Both are left at their defaults here and
+          // spelled out because the defaults are the reason /gateway works.
+          //
+          // cookiePath defaults to "/" — the WHOLE HOST, not the /idp mount. That is
+          // what lets caddy serve the gateway at the origin root: a cookie scoped to
+          // /idp would not be sent to /gateway/*, and the idp treats a missing
+          // session as ANONYMOUS rather than as an error, so the calls would have
+          // quietly succeeded as nobody. Narrow it to "/idp" only if you want the
+          // session kept off the SPA, /api/* and /api-docs/* on this origin — and
+          // then drop the /gateway route from the Caddyfile in the same change.
+          // "cookiePath": "/",
+          //
+          // cookieDomain is unset, which makes the cookie host-only. Set it to a
+          // registrable domain to share one session across its subdomains — every
+          // host under it can then read and set that session, so only across hosts
+          // you control.
+          // "cookieDomain": "example.com",
+
           "shutdownTimeoutSeconds": 10
         },
 
@@ -648,7 +691,7 @@ configs:
           // this stack to look at the identity provider, they sign in to use the admin
           // SPA. An ABSOLUTE URL is supported precisely for this "the idp sits beside
           // the product" arrangement, so send them to the product's root.
-          "defaultRedirect": "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/"
+          "defaultRedirect": "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/"
         },
 
         // Invite-only: administrators create users from /idp/admin. Self-registration
@@ -669,7 +712,7 @@ configs:
           // to the issuer. pg_semantius's rbac.uid() checks `aud` only when
           // `_settings.jwt_aud` is seeded (off by default); if you seed it, seed it
           // with EXACTLY this value.
-          "audience": "$${env:IDP_BASE_URL:-http://localhost:7070/idp}",
+          "audience": "$${env:IDP_BASE_URL:-http://localhost:3000/idp}",
 
           // THIS is what makes PostgREST accept the token: a static `role` claim in
           // every access token, which PostgREST reads (PGRST_JWT_ROLE_CLAIM_KEY=.role)
@@ -787,7 +830,7 @@ configs:
             // for (the caddy front door, no path, no trailing slash). Going live, set
             // PUBLIC_WEB_ORIGIN=https://yourdomain.com in .env; add a second entry
             // here if the same deployment is reached on more than one origin.
-            "redirectUris": ["$${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"],
+            "redirectUris": ["$${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/oauth2_callback"],
 
             // Where the idp may send the browser after an RP-initiated logout. Three
             // entries because the SPA has three exits: its /logout route calls the
@@ -795,9 +838,9 @@ configs:
             // back to the redirect URI when no logout redirect is configured, and a
             // plain return lands on the app root.
             "postLogoutRedirectUris": [
-              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/",
-              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/logout-success",
-              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"
+              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/",
+              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/logout-success",
+              "$${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/oauth2_callback"
             ],
 
             // Must be a subset of `oauth.scopes` in config.jsonc.

@@ -25,10 +25,11 @@
   "server": {
     // THE ISSUER. Scheme + host[:port] + the /idp mount path, no trailing slash.
     // Every absolute URL the idp emits — discovery, e-mail links, social
-    // callbacks, cookie Path — derives from this and never from the Host header.
+    // callbacks — derives from this and never from the Host header. The cookie
+    // Path used to as well; since the idp's D97 it is `cookiePath` below.
     // The default matches caddy's default front door; going live, set
     // IDP_BASE_URL=https://yourdomain.com/idp in .env.
-    "baseUrl": "${env:IDP_BASE_URL:-http://localhost:7070/idp}",
+    "baseUrl": "${env:IDP_BASE_URL:-http://localhost:3000/idp}",
     "host": "0.0.0.0",
     "port": 3000,
 
@@ -38,15 +39,34 @@
     "trustProxy": true,
 
     // Left at the default `false`, which is right for both shipped cases: an
-    // https baseUrl in production, and http://localhost:7070/idp locally —
+    // https baseUrl in production, and http://localhost:3000/idp locally —
     // localhost is exempt from the https requirement. Turn it on ONLY for a
     // non-localhost http baseUrl, i.e. reaching a dev stack over a LAN IP
-    // (http://192.168.x.x:7070/idp). Never on a real deployment.
+    // (http://192.168.x.x:3000/idp). Never on a real deployment.
     // "allowInsecureHttp": true,
 
     // trustedOrigins is left out on purpose: empty trusts the address each
     // request actually arrived on (its X-Forwarded-Host), which is what a
     // deployment behind a proxy whose public URL is not known here needs.
+
+    // Session cookie scope (idp D97). Both are left at their defaults here and
+    // spelled out because the defaults are the reason /gateway works.
+    //
+    // cookiePath defaults to "/" — the WHOLE HOST, not the /idp mount. That is
+    // what lets caddy serve the gateway at the origin root: a cookie scoped to
+    // /idp would not be sent to /gateway/*, and the idp treats a missing
+    // session as ANONYMOUS rather than as an error, so the calls would have
+    // quietly succeeded as nobody. Narrow it to "/idp" only if you want the
+    // session kept off the SPA, /api/* and /api-docs/* on this origin — and
+    // then drop the /gateway route from the Caddyfile in the same change.
+    // "cookiePath": "/",
+    //
+    // cookieDomain is unset, which makes the cookie host-only. Set it to a
+    // registrable domain to share one session across its subdomains — every
+    // host under it can then read and set that session, so only across hosts
+    // you control.
+    // "cookieDomain": "example.com",
+
     "shutdownTimeoutSeconds": 10
   },
 
@@ -110,7 +130,7 @@
     // this stack to look at the identity provider, they sign in to use the admin
     // SPA. An ABSOLUTE URL is supported precisely for this "the idp sits beside
     // the product" arrangement, so send them to the product's root.
-    "defaultRedirect": "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/"
+    "defaultRedirect": "${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/"
   },
 
   // Invite-only: administrators create users from /idp/admin. Self-registration
@@ -131,7 +151,7 @@
     // to the issuer. pg_semantius's rbac.uid() checks `aud` only when
     // `_settings.jwt_aud` is seeded (off by default); if you seed it, seed it
     // with EXACTLY this value.
-    "audience": "${env:IDP_BASE_URL:-http://localhost:7070/idp}",
+    "audience": "${env:IDP_BASE_URL:-http://localhost:3000/idp}",
 
     // THIS is what makes PostgREST accept the token: a static `role` claim in
     // every access token, which PostgREST reads (PGRST_JWT_ROLE_CLAIM_KEY=.role)

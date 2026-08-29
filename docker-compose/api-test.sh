@@ -11,8 +11,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 set -a; . ./.env; set +a
-WEB="http://localhost:${WEB_PORT:-7070}"
-API="http://localhost:${POSTGREST_PORT:-3000}"
+WEB="http://localhost:${WEB_PORT:-3000}"
+API="http://localhost:${POSTGREST_PORT:-3100}"
 USER_NAME="${1:-user1}"
 
 # Split a `curl -w $'\n%{http_code}'` response into $body / $code.

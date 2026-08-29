@@ -88,8 +88,8 @@ set -a; . ./.env; set +a
 echo
 echo "Ready (PostgREST stack)."
 echo "  Image : ghcr.io/semantius/postgres:${IMAGE_TAG}  ($([ "$PULL" = 1 ] && echo pulled || echo 'built from local source'))"
-echo "  Admin : http://localhost:${WEB_PORT:-7070}/   (SPA; API at /api/, docs at /api-docs/)"
-echo "  IdP   : http://localhost:${WEB_PORT:-7070}/idp   (first run: create the first administrator)"
-echo "  API   : http://localhost:${POSTGREST_PORT:-3000}/   (OpenAPI spec at /)"
+echo "  Admin : http://localhost:${WEB_PORT:-3000}/   (SPA; API at /api/, docs at /api-docs/)"
+echo "  IdP   : http://localhost:${WEB_PORT:-3000}/idp   (first run: create the first administrator)"
+echo "  API   : http://localhost:${POSTGREST_PORT:-3100}/   (OpenAPI spec at /)"
 echo "  Docs  : http://localhost:${DOCS_PORT:-8080}/         (Scalar API reference)"
 echo "  DBA   : postgresql://postgres:<POSTGRES_PASSWORD>@localhost:${POSTGRES_PORT:-5434}/semantius"

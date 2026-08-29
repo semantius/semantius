@@ -21,11 +21,12 @@ PostgREST, Scalar and the idp keep their own host ports for direct access in
 local dev.
 
 ```
-browser ──▶ Caddy (:7070) ──┬── /              ──▶ Admin SPA     (internal, no host port)
+browser ──▶ Caddy (:3000) ──┬── /              ──▶ Admin SPA     (internal, no host port)
                             ├── /idp/*         ──▶ semantius-idp (also direct :3001)
                             ├── /.well-known/* ──▶ semantius-idp (issuer metadata, at the ORIGIN ROOT)
+                            ├── /gateway*      ──▶ semantius-idp (rewritten onto /idp/gateway/*)
                             ├── /api-docs/*    ──▶ Scalar docs   (also direct :8080)
-                            └── /api/*         ──▶ PostgREST     (also direct :3000, OpenAPI at /)
+                            └── /api/*         ──▶ PostgREST     (also direct :3100, OpenAPI at /)
                                                      │  SCRAM as semantius_authenticator
                                                      │  SET ROLE authenticated | anon  (per request)
                                                      ▼
@@ -47,14 +48,14 @@ cp .env.example .env   # Windows: copy .env.example .env  (create does this for 
 ```
 
 Then, **once**, create the first administrator: open
-**http://localhost:7070/idp**. While the idp's user table is empty it serves a
+**http://localhost:3000/idp**. While the idp's user table is empty it serves a
 first-run setup page, and whoever completes it becomes the first admin — there is
 no bootstrap account and no password in the environment. Sign in to the admin SPA
-at **http://localhost:7070/** with it.
+at **http://localhost:3000/** with it.
 
-- **Front door:** http://localhost:7070 — admin SPA at `/`, API at `/api/`,
+- **Front door:** http://localhost:3000 — admin SPA at `/`, API at `/api/`,
   docs at `/api-docs/`, identity provider at `/idp/`.
-- Direct, for local dev: **API** http://localhost:3000 · **Docs**
+- Direct, for local dev: **API** http://localhost:3100 · **Docs**
   http://localhost:8080 · **IdP** http://localhost:3001 (sign-in only works
   through the front door — see [below](#the-idp-service--the-bundled-identity-provider))
 
@@ -142,7 +143,7 @@ with `docker compose`, the **container** name with plain `docker`:
 | `postgrest` | `postgrest/postgrest:latest` | **3000** | HTTP API; verifies the JWT vs the JWKS; serves OpenAPI at `/` |
 | `scalar` | `scalarapi/api-reference:latest` | **8080** | renders PostgREST's Swagger 2.0 spec as browsable docs |
 | `web` | `ghcr.io/semantius/semantius-app:${SEMANTIUS_APP_VERSION}` | — | static admin SPA (nginx). **SPA only** — it proxies nothing; reach it through `caddy`. Runtime config is written to `config.js` at container start from its `VITE_*` env |
-| `caddy` | `caddy:2-alpine` | **7070** | **front door**: `/` → the SPA, `/api/*` → PostgREST, `/api-docs/*` → Scalar (both prefixes stripped), `/idp/*` and `/.well-known/*` → the idp (prefix **kept**). Routes live in the sibling [`Caddyfile`](Caddyfile) — edit it and `docker compose restart caddy` |
+| `caddy` | `caddy:2-alpine` | **3000** | **front door**: `/` → the SPA, `/api/*` → PostgREST, `/api-docs/*` → Scalar (both prefixes stripped), `/idp/*` and `/.well-known/*` → the idp (prefix **kept**), `/gateway*` → the idp, **rewritten** onto `/idp/gateway` so the caller's URL stays short (safe only because the idp's session cookie is host-wide — see `cookiePath` in [`idp-config/config.jsonc`](idp-config/config.jsonc)). Routes live in the sibling [`Caddyfile`](Caddyfile) — edit it and `docker compose restart caddy` |
 
 The registry images use `:latest` and `pull_policy: always` (re-pulled on every
 `create`); `postgres` is the locally-built image, used as-is. Pin
@@ -183,10 +184,10 @@ The `.env` groups these into a **change-first** block (your OIDC issuer) and a
 | `NWIND` | *(unset)* | `postgres` | Set to **any** non-empty value (e.g. `TRUE`) to load the optional Northwind demo module on first init. Takes effect only on a **fresh** data volume (init runs once). |
 | `POSTGRES_PORT` | `5434` | `postgres` | Host port for Postgres (5432/5433 belong to pgdocker's cli/ext stacks). |
 | `PGBOUNCER_PORT` | `6432` | `pgbouncer` | Host port for the transaction-pooled PgBouncer endpoint. |
-| `POSTGREST_PORT` | `3000` | `postgrest`, `scalar` | Host port for the PostgREST HTTP API (OpenAPI spec at `/`). |
-| `IDP_PORT` | `3001` | `idp` | Host port for the identity provider (3000 is taken). For poking at the container only — the idp's own URLs all carry the front door's origin, so signing in must go through `/idp`. |
+| `POSTGREST_PORT` | `3100` | `postgrest`, `scalar` | Host port for the PostgREST HTTP API (OpenAPI spec at `/`). Deliberately clear of 3000-300x: a Vite dev server told to use 3000 walks upward until it finds a free port, so a host port parked in that range eventually collides with one. |
+| `IDP_PORT` | `3001` | `idp` | Host port for the identity provider (the front door owns 3000). For poking at the container only — the idp's own URLs all carry the front door's origin, so signing in must go through `/idp`. |
 | `DOCS_PORT` | `8080` | `scalar` | Host port for the Scalar docs site. |
-| `WEB_PORT` | `7070` | `caddy` | Host port of the **front door**: `/` the SPA, `/api/*` the API, `/api-docs/*` the docs. The SPA itself has no host port. |
+| `WEB_PORT` | `3000` | `caddy` | Host port of the **front door**: `/` the SPA, `/api/*` the API, `/api-docs/*` the docs. The SPA itself has no host port. |
 | `SITE_ADDRESS` | `:80` | `caddy` | The address Caddy serves inside the container. `:80` is plain HTTP — right for local dev and behind anything that terminates TLS (Dokploy/Traefik). On a **bare VPS** set your bare domain for automatic HTTPS, then publish `80:80` + `443:443` on `caddy` instead of `WEB_PORT`. |
 | `PUBLIC_API_URL` | `http://localhost:${WEB_PORT}/api` | `postgrest`, `scalar` | Browser-reachable base URL of the API. Used for BOTH the OpenAPI spec's advertised server and the docs' spec `url` — both resolved by the browser, so NEVER the in-network `postgrest` hostname. Defaults to this stack's own front door, whose `handle_path /api/*` strips the prefix. Going live, set the public front-door URL **including** `/api`. |
 
@@ -233,7 +234,7 @@ runs as a different user), and PostgREST `depends_on` it with
   bundled idp reached in-network, `http://idp:3000/idp/.well-known/jwks.json`.
   That is explicit rather than derived on purpose: the `jwks_uri` the idp
   advertises in its discovery document is built from its *public* base URL
-  (`localhost:7070`), an address this container cannot resolve.
+  (`localhost:3000`), an address this container cannot resolve.
 - If **`JWKS_URL` is empty** → it fetches **`VITE_OAUTH_CONFIG`** (the OIDC discovery
   document) and extracts its `jwks_uri`. That is the **external-issuer** path:
   point `VITE_OAUTH_CONFIG` at your issuer and blank `JWKS_URL`, and the SPA and
@@ -467,9 +468,9 @@ Four settings there are load-bearing and worth knowing:
   administrators are not trusted with that; `"read-write"` adds a mode toggle that
   commits.
 
-`server.allowInsecureHttp` is *not* needed for `http://localhost:7070/idp` —
+`server.allowInsecureHttp` is *not* needed for `http://localhost:3000/idp` —
 localhost is exempt from the https requirement. Turn it on only to reach a dev
-stack over a LAN IP (`http://192.168.x.x:7070/idp`), never on a real deployment.
+stack over a LAN IP (`http://192.168.x.x:3000/idp`), never on a real deployment.
 
 ### Adding an OAuth client
 
@@ -497,9 +498,9 @@ grant):
 2. exchange it for a JWT:
 
 ```bash
-JWT=$(curl -s -H "x-api-key: idp_…" http://localhost:7070/idp/api/auth/token \
+JWT=$(curl -s -H "x-api-key: idp_…" http://localhost:3000/idp/api/auth/token \
       | sed 's/.*"token":"//; s/".*//')
-curl -s -H "Authorization: Bearer $JWT" "http://localhost:7070/api/_settings?limit=1"
+curl -s -H "Authorization: Bearer $JWT" "http://localhost:3000/api/_settings?limit=1"
 ```
 
 The exchanged token carries the same `"role": "authenticated"` claim, so PostgREST

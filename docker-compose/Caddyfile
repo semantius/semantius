@@ -12,6 +12,26 @@
 	redir /api-docs /api-docs/ 308
 	redir /idp /idp/ 308
 
+	# /gateway/<name> is the idp's authenticating reverse proxy. It lives at
+	# /idp/gateway upstream, like the rest of the app; this serves it at the
+	# short root-level form instead.
+	#
+	# A `rewrite`, so the caller's URL stays /gateway — and that is only correct
+	# because the idp's session cookie is scoped to the WHOLE HOST. It was
+	# scoped to /idp until the idp's **D97**, and under that scoping this had to
+	# be a 308 to /idp/gateway: a rewrite would have kept the caller outside the
+	# cookie's Path, the browser would have stopped attaching the session, and
+	# the proxy treats a missing session as ANONYMOUS rather than as a refusal
+	# (`sessionCredential`, server/gateways/proxy.ts) — so cookie-authenticated
+	# calls would have quietly downgraded instead of failing.
+	#
+	# If `server.cookiePath` is ever narrowed back to /idp in idp-config, this
+	# block has to go back to being a redirect, or come out.
+	handle /gateway* {
+		rewrite * /idp{uri}
+		reverse_proxy idp:3000
+	}
+
 	handle_path /api/* {
 		reverse_proxy postgrest:3000
 	}

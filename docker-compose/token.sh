@@ -21,7 +21,7 @@ token="$(deno run --allow-net --allow-read ../pgdocker/get_user_token.ts "$@" 2>
 printf '%s\n' "$token"          # stdout = just the token
 
 {
-  base="http://localhost:${POSTGREST_PORT:-3000}"
+  base="http://localhost:${POSTGREST_PORT:-3100}"
   echo
   echo "Use it:"
   echo "  • Scalar docs (http://localhost:${DOCS_PORT:-8080}) → Authentication → JWT →"

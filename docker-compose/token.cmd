@@ -19,5 +19,5 @@ echo %TOKEN%
 echo.
 echo Use it:
 echo   - Scalar docs ^(http://localhost:8080^) -^> Authentication -^> JWT -^> paste:  Bearer ^<token^>
-echo   - curl:  curl -H "Authorization: Bearer ^<token^>" http://localhost:3000/users
+echo   - curl:  curl -H "Authorization: Bearer ^<token^>" http://localhost:3100/users
 exit /b 0

@@ -35,7 +35,7 @@
       // for (the caddy front door, no path, no trailing slash). Going live, set
       // PUBLIC_WEB_ORIGIN=https://yourdomain.com in .env; add a second entry
       // here if the same deployment is reached on more than one origin.
-      "redirectUris": ["${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"],
+      "redirectUris": ["${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/oauth2_callback"],
 
       // Where the idp may send the browser after an RP-initiated logout. Three
       // entries because the SPA has three exits: its /logout route calls the
@@ -43,9 +43,9 @@
       // back to the redirect URI when no logout redirect is configured, and a
       // plain return lands on the app root.
       "postLogoutRedirectUris": [
-        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/",
-        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/logout-success",
-        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:7070}/oauth2_callback"
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/",
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/logout-success",
+        "${env:PUBLIC_WEB_ORIGIN:-http://localhost:3000}/oauth2_callback"
       ],
 
       // Must be a subset of `oauth.scopes` in config.jsonc.

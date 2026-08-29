@@ -90,9 +90,9 @@ docker compose up -d --force-recreate --remove-orphans || goto :err
 docker compose ps
 echo.
 echo Ready (PostgREST stack). Default ports (see .env):
-echo   Admin: http://localhost:7070/   (SPA; API at /api/, docs at /api-docs/)
-echo   IdP  : http://localhost:7070/idp   (first run: create the first administrator)
-echo   API : http://localhost:3000/   (OpenAPI spec at /)
+echo   Admin: http://localhost:3000/   (SPA; API at /api/, docs at /api-docs/)
+echo   IdP  : http://localhost:3000/idp   (first run: create the first administrator)
+echo   API : http://localhost:3100/   (OpenAPI spec at /)
 echo   Docs: http://localhost:8080/   (Scalar API reference)
 echo   DBA : postgresql://postgres:^<POSTGRES_PASSWORD^>@localhost:5434/semantius
 exit /b 0
