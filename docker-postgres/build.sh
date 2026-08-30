@@ -18,8 +18,9 @@
 # `deno task extension` falls back to the CLI's own 0.1.0 and downgrades the build):
 #     deno task extension 0.3.0
 #
-# The :latest tag means a local `docker compose up` (e.g. in ../docker-compose)
-# uses THIS freshly-built image without pulling. Push it with ./publish.sh.
+# The :latest tag means a consumer stack can run THIS freshly-built image — but
+# only if it does not pull over it, so use the semantius-self-hosted stack's
+# `./up.sh --no-pull` / `./create.sh -y --no-pull`. Push it with ./publish.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root (build context; COPYs ./extension)
 

@@ -10,8 +10,8 @@ ghcr.io/semantius/postgres:latest                # moving, default major
 
 It is **PostgreSQL 18 with the `pg_semantius` extension installed and the
 whole runtime baked in**, so a consumer stack (see
-[`../docker-compose`](../docker-compose/README.md)) is *just a docker-compose
-file* — it mounts nothing from the host. On a fresh data
+[semantius-self-hosted](https://github.com/semantius/semantius-self-hosted)) is
+*just a docker-compose file* — it mounts nothing from the host. On a fresh data
 volume the image, driven by a few env vars, sets up:
 
 | Baked-in step (`initdb/`) | Does |
@@ -83,16 +83,20 @@ Both `build.sh` and CI (`.github/workflows/extension-release.yml`) build with th
 
 ## Local development
 
-Build locally, then any consumer stack uses the `:latest` tag without pulling:
+Build locally, then run a consumer stack on the `:latest` tag **without pulling**
+— the pull would overwrite the image you just built:
 
 ```bash
-./docker-postgres/build.sh                 # from repo root
-cd docker-compose && ./up.sh --build       # or: docker compose up -d
+./docker-postgres/build.sh                          # from repo root; tags :latest
+cd ../semantius-self-hosted && ./up.sh --no-pull    # or ./create.sh -y --no-pull for a fresh DB
 ```
 
-`docker-compose/create.sh` (fresh database) and `docker-compose/up.sh` (keeps the
-data) **pull** the published image by default; pass either one `--build` and it
-runs `build.sh` for you instead.
+The stack's `create.sh` (fresh database) and `up.sh` (keeps the data) **pull** the
+published image by default; `--no-pull` makes them run whatever `:latest` is
+already present locally.
+
+The whole loop — regenerate the extension, build the image, create the stack on
+it, migrate and run the pgTAP suite — is [`../docker-compose/test.sh`](../docker-compose/README.md).
 
 ## Publishing
 
@@ -111,8 +115,9 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
 
 ## Consuming it
 
-`docker-compose/docker-compose.yml` references
-`ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}`. Pin
-`SEMANTIUS_DB_VERSION` in `.env` for reproducible/server deploys; leave it at
-`latest` to track the moving published tag (or run the consumer stack's
-`create`/`up` with `--build` to run your local build instead).
+The self-hosting stack's `docker-compose.yml`
+([semantius-self-hosted](https://github.com/semantius/semantius-self-hosted))
+references `ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}`. Pin
+`SEMANTIUS_DB_VERSION` in its `.env` for reproducible/server deploys; leave it at
+`latest` to track the moving published tag (or run its `create`/`up` with
+`--no-pull` to use your local build instead).

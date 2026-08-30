@@ -7,10 +7,18 @@
 #   4. POST an RPC WITH the token   -> JWKS verify + SET ROLE authenticated + rbac.uid(); shows identity.
 #   5. GET a table WITH the token   -> real rows via RLS.
 #   6. GET a table WITHOUT a token  -> anon cannot read data (expect 401).
+#
+# Needs a running stack from github.com/semantius/semantius-self-hosted (default:
+# a sibling checkout; override with SELF_HOSTED_DIR) — its .env supplies the ports.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-set -a; . ./.env; set +a
+SELF_HOSTED_DIR="${SELF_HOSTED_DIR:-$(cd .. && pwd)/../semantius-self-hosted}"
+if [ ! -f "$SELF_HOSTED_DIR/.env" ]; then
+  echo "No stack .env at '$SELF_HOSTED_DIR/.env' — start the stack first, or point SELF_HOSTED_DIR at your checkout." >&2
+  exit 1
+fi
+set -a; . "$SELF_HOSTED_DIR/.env"; set +a
 WEB="http://localhost:${WEB_PORT:-3000}"
 API="http://localhost:${POSTGREST_PORT:-3100}"
 USER_NAME="${1:-user1}"

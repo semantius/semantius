@@ -4,15 +4,15 @@
 # publishable DB image:
 #   ghcr.io/semantius/postgres:<version>
 #
-# "Self-contained" is the point: a consumer stack (e.g. ../docker-compose) needs
-# to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just
+# "Self-contained" is the point: a consumer stack (e.g. semantius-self-hosted)
+# needs to mount NOTHING — no init scripts, no pg_hba, no role bootstrap. It just
 # references this image, sets a few env vars, and gets a database with:
 #   * the pg_semantius extension installed (roles + schemas + dictionary)
 #   * semantius_authenticator flipped to LOGIN with a password from env
 #   * the PostgREST `anon` role
 #   * a custom pg_hba
 #   * (optional) the Northwind demo module, when NWIND is set
-# That makes ../docker-compose a single copy-paste docker-compose.yml (+ .env) —
+# That makes the consumer stack a single copy-paste docker-compose.yml (+ .env) —
 # e.g. a Dokploy template — with no sidecar files.
 #
 # Build context is the REPO ROOT (see build.sh / the CI workflow) so this can COPY

@@ -17,10 +17,14 @@
 # `_core` via the migrate path (per-file BEGIN/COMMIT), which cannot see the
 # single-transaction CREATE EXTENSION defects this script is built to catch.
 #
+# REQUIRES A CHECKOUT OF github.com/semantius/semantius-self-hosted — the compose
+# stack itself lives there, not in this repo. Expected as a sibling of this repo
+# (../../semantius-self-hosted); override with SELF_HOSTED_DIR.
+#
 # DESTRUCTIVE: wipes the stack's data volume and rebuilds it. PROMPTS for
-# confirmation first (like destroy.sh); bypass with -y/--yes or ASSUME_YES=1
-# / CI=true. Afterwards the stack holds the nwind,test fixtures; run
-# ./create.sh for a clean semantius again.
+# confirmation first (like the stack's destroy.sh); bypass with -y/--yes or
+# ASSUME_YES=1 / CI=true. Afterwards the stack holds the nwind,test fixtures; run
+# the stack's ./create.sh for a clean semantius again.
 #
 # Usage:
 #   ./test.sh                test LOCAL source: regenerate the extension, build the
@@ -41,10 +45,12 @@
 #                     migrations so the rebuilt image bakes what you just changed
 #                     (build.sh packages ./extension as-is; skip with SKIP_EXT_REGEN=1
 #                     — and skipped implicitly by --pull, which tests published bits).
-#   1. create -y      wipe the stack + its data volume, rebuild (or --pull) the
-#                     semantius/postgres image, bring it up fresh; init runs
-#                     CREATE EXTENSION (installs _core in ONE txn, seeds the
-#                     _versions guard rows).
+#   0b. build.sh      package ./extension into ghcr.io/semantius/postgres:latest
+#                     (local source only — the stack itself never builds).
+#   1. create -y      wipe the stack + its data volume, pull (or, for local source,
+#                     --no-pull so the image just built survives), bring it up
+#                     fresh; init runs CREATE EXTENSION (installs _core in ONE txn,
+#                     seeds the _versions guard rows).
 #   2. readiness gate poll pg_extension until the extension is present (the
 #                     pg_isready healthcheck can go green before init finishes).
 #   3. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED because the
@@ -53,17 +59,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SCRIPT_DIR="$(pwd)"
 REPO_ROOT="$(cd .. && pwd)"
 CONTAINER="semantius-postgres"
 
-# The DBA connection is derived from the live .env (NOT hard-coded: a checked-out
-# .env may differ from .env.example).
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example."
+# The compose stack lives in its own repo now. Default to a sibling checkout.
+SELF_HOSTED_DIR="${SELF_HOSTED_DIR:-$REPO_ROOT/../semantius-self-hosted}"
+if [ ! -f "$SELF_HOSTED_DIR/docker-compose.yml" ]; then
+  echo "No stack found at '$SELF_HOSTED_DIR'." >&2
+  echo "Clone it:  git clone https://github.com/semantius/semantius-self-hosted" >&2
+  echo "or point SELF_HOSTED_DIR at your checkout." >&2
+  exit 1
 fi
-read_env() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
+SELF_HOSTED_DIR="$(cd "$SELF_HOSTED_DIR" && pwd)"
+
+# The DBA connection is derived from the stack's live .env (NOT hard-coded: a
+# checked-out .env may differ from .env.example).
+if [ ! -f "$SELF_HOSTED_DIR/.env" ]; then
+  cp "$SELF_HOSTED_DIR/.env.example" "$SELF_HOSTED_DIR/.env"
+  echo "Created $SELF_HOSTED_DIR/.env from .env.example."
+fi
+read_env() { grep -E "^$1=" "$SELF_HOSTED_DIR/.env" 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
 PW="$(read_env POSTGRES_PASSWORD)"; PW="${PW:-postgres}"
 PORT="$(read_env POSTGRES_PORT)";  PORT="${PORT:-5434}"
 DB="$(read_env POSTGRES_DB)";      DB="${DB:-semantius}"
@@ -123,10 +138,15 @@ fi
 # always runs against a database the image built from scratch.
 if [ "$PULL" = 1 ]; then
   echo "== [1/4] Creating the stack from scratch, on the PUBLISHED image =="
-  "$SCRIPT_DIR/create.sh" -y --pull ${DB_VERSION:+"$DB_VERSION"}
+  "$SELF_HOSTED_DIR/create.sh" -y --pull ${DB_VERSION:+"$DB_VERSION"}
 else
-  echo "== [1/4] Creating the stack from scratch, on a locally built image =="
-  "$SCRIPT_DIR/create.sh" -y --build
+  # The stack never builds — it only runs registry images. So package ./extension
+  # into :latest HERE, then create with --no-pull so that tag survives (a plain
+  # create would pull :latest from GHCR straight over the image just built).
+  echo "== [1/4] Building the DB image from local source =="
+  "$REPO_ROOT/docker-postgres/build.sh"
+  echo "== [1/4] Creating the stack from scratch, on the locally built image =="
+  "$SELF_HOSTED_DIR/create.sh" -y --no-pull
 fi
 
 echo "== [2/4] Waiting for the pg_semantius extension to install =="
@@ -136,7 +156,7 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
       "SELECT 1 FROM pg_extension WHERE extname='pg_semantius'" 2>/dev/null)" = "1" ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "Timed out waiting for the pg_semantius extension to install." >&2
-    docker compose logs --tail 60 postgres || true
+    docker compose --project-directory "$SELF_HOSTED_DIR" logs --tail 60 postgres || true
     exit 1
   fi
   sleep 2
@@ -151,5 +171,5 @@ echo "== [4/4] Running the pgTAP suite against the extension DB =="
 
 echo
 echo "Test complete. If all tests are green, the CREATE EXTENSION"
-echo "install of _core is equivalent to the migrate install. Run ./create.sh"
-echo "for a clean semantius (this left the nwind,test fixtures in place)."
+echo "install of _core is equivalent to the migrate install. Run the stack's"
+echo "./create.sh for a clean semantius (this left the nwind,test fixtures in place)."

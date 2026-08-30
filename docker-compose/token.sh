@@ -12,7 +12,12 @@
 # stdout; the usage hint goes to stderr, so `$(...)` capture stays clean.
 set -euo pipefail
 cd "$(dirname "$0")"
-[ -f .env ] && { set -a; . ./.env; set +a; }
+
+# Port hints come from the stack's .env — it lives in the semantius-self-hosted
+# repo (default: a sibling checkout; override with SELF_HOSTED_DIR). Optional:
+# the defaults below are right for a stock stack.
+SELF_HOSTED_DIR="${SELF_HOSTED_DIR:-$(cd .. && pwd)/../semantius-self-hosted}"
+[ -f "$SELF_HOSTED_DIR/.env" ] && { set -a; . "$SELF_HOSTED_DIR/.env"; set +a; }
 
 [ "$#" -gt 0 ] || set -- user1
 token="$(deno run --allow-net --allow-read ../pgdocker/get_user_token.ts "$@" 2>/dev/null)"

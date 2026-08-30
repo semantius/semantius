@@ -10,10 +10,14 @@ REM This is the FIRST-TIME test of a clean install (not a re-test): it rebuilds 
 REM current source, exercising the image build + init scripts + role bootstrap from
 REM scratch -- the real production install path. Twin of pgdocker/pg-ext-retest.cmd.
 REM
+REM REQUIRES A CHECKOUT OF github.com/semantius/semantius-self-hosted -- the compose
+REM stack itself lives there, not in this repo. Expected as a sibling of this repo
+REM (..\..\semantius-self-hosted); override with SELF_HOSTED_DIR.
+REM
 REM DESTRUCTIVE: wipes the stack's data volume and rebuilds from current source.
-REM PROMPTS for confirmation first (like destroy.cmd); bypass with -y/--yes
-REM or ASSUME_YES=1 / CI=true. Afterwards the stack holds nwind,test; run
-REM create.cmd for a clean semantius.
+REM PROMPTS for confirmation first; bypass with -y/--yes or ASSUME_YES=1 /
+REM CI=true. Afterwards the stack holds nwind,test; run the stack's create.cmd
+REM for a clean semantius.
 REM
 REM Usage:
 REM   test.cmd                test LOCAL source: regenerate the extension, build the
@@ -31,20 +35,28 @@ REM Steps: 0 regen extension SQL, 1 create (wipes the volume + builds/pulls the
 REM        image + brings the stack up), 2 wait for extension, 3 migrate
 REM        nwind,test, 4 test.
 cd /d "%~dp0"
-set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%~dp0.."
 set "CONTAINER=semantius-postgres"
 
-if not exist ".env" (
-  copy /y ".env.example" ".env" >nul
-  echo Created .env from .env.example.
+REM The compose stack lives in its own repo now. Default to a sibling checkout.
+if not defined SELF_HOSTED_DIR set "SELF_HOSTED_DIR=%REPO_ROOT%\..\semantius-self-hosted"
+if not exist "%SELF_HOSTED_DIR%\docker-compose.yml" (
+  echo No stack found at '%SELF_HOSTED_DIR%'.
+  echo Clone it:  git clone https://github.com/semantius/semantius-self-hosted
+  echo or point SELF_HOSTED_DIR at your checkout.
+  exit /b 1
 )
 
-REM Derive DBA connection from .env (defaults match .env.example).
+if not exist "%SELF_HOSTED_DIR%\.env" (
+  copy /y "%SELF_HOSTED_DIR%\.env.example" "%SELF_HOSTED_DIR%\.env" >nul
+  echo Created %SELF_HOSTED_DIR%\.env from .env.example.
+)
+
+REM Derive DBA connection from the stack's .env (defaults match .env.example).
 set "POSTGRES_PASSWORD=postgres"
 set "POSTGRES_PORT=5434"
 set "POSTGRES_DB=semantius"
-for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+for /f "usebackq tokens=1,* delims==" %%A in ("%SELF_HOSTED_DIR%\.env") do (
   if /i "%%A"=="POSTGRES_PASSWORD" set "POSTGRES_PASSWORD=%%B"
   if /i "%%A"=="POSTGRES_PORT" set "POSTGRES_PORT=%%B"
   if /i "%%A"=="POSTGRES_DB" set "POSTGRES_DB=%%B"
@@ -117,10 +129,17 @@ REM create wipes the volume itself (that is what create means here), so the suit
 REM always runs against a database the image built from scratch.
 if "%PULL%"=="1" (
   echo == [1/4] Creating the stack from scratch, on the PUBLISHED image ==
-  call "%SCRIPT_DIR%create.cmd" -y --pull !DB_VERSION! || goto :err
+  call "%SELF_HOSTED_DIR%\create.cmd" -y --pull !DB_VERSION! || goto :err
 ) else (
-  echo == [1/4] Creating the stack from scratch, on a locally built image ==
-  call "%SCRIPT_DIR%create.cmd" -y --build || goto :err
+  REM The stack never builds -- it only runs registry images. So package
+  REM ..\extension into :latest HERE, then create with --no-pull so that tag
+  REM survives (a plain create would pull :latest straight over it).
+  echo == [1/4] Building the DB image from local source ==
+  pushd "%REPO_ROOT%"
+  docker build -f docker-postgres\Dockerfile -t ghcr.io/semantius/postgres:latest . || (popd ^& goto :err)
+  popd
+  echo == [1/4] Creating the stack from scratch, on the locally built image ==
+  call "%SELF_HOSTED_DIR%\create.cmd" -y --no-pull || goto :err
 )
 
 echo == [2/4] Waiting for the pg_semantius extension to install ==
@@ -132,7 +151,7 @@ if "%EXTOK%"=="1" goto :ready
 set /a tries+=1
 if %tries% geq 90 (
   echo Timed out waiting for the pg_semantius extension to install.
-  docker compose logs --tail 60 postgres
+  docker compose --project-directory "%SELF_HOSTED_DIR%" logs --tail 60 postgres
   goto :err
 )
 ping -n 3 127.0.0.1 >nul
@@ -150,8 +169,8 @@ popd
 
 echo.
 echo Test complete. If all tests are green, the CREATE EXTENSION
-echo install of _core is equivalent to the migrate install. Run create.cmd
-echo for a clean semantius (this left the nwind,test fixtures in place).
+echo install of _core is equivalent to the migrate install. Run the stack's
+echo create.cmd for a clean semantius (this left the nwind,test fixtures in place).
 exit /b 0
 
 :badcombo

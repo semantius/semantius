@@ -23,8 +23,5 @@
   },
   "engines": {
     "pnpm": ">=8.0.0"
-  },
-  "devDependencies": {
-    "yaml": "^2.9.0"
   }
 }

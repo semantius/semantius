@@ -107,7 +107,7 @@ jobs:
       # (moving, major pinned) and :latest (moving, default major). There is
       # deliberately no bare :<version> — a version tag that silently changed
       # Postgres major later is exactly the ambiguity the suffix removes.
-      # Consumed by docker-compose/docker-compose.yml and any Dokploy template.
+      # Consumed by the semantius-self-hosted stack and any Dokploy template.
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
