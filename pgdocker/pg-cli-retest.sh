@@ -9,7 +9,8 @@
 #   3. retest --confirm --env pgdocker-cli
 #                     dropall -> migrate _core,nwind,test -> test.
 #
-# `retest`/`reset` are deliberately unchanged; this only wraps them. The DBA
+# `retest`/`reset` are deliberately unchanged; this only wraps them and forwards
+# extra arguments (e.g. `./pg-cli-retest.sh --coverage`). The DBA
 # connection comes from .env.pgdocker-cli (port 5432, password must match
 # pgdocker/.env).
 set -euo pipefail
@@ -40,7 +41,7 @@ done
 echo "PostgreSQL ready."
 
 echo "== [3/3] retest (dropall -> migrate _core,nwind,test -> test) =="
-( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker-cli )
+( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker-cli "$@" )
 
 echo
 echo "Path A complete. If all tests are green, the migrate path is good."

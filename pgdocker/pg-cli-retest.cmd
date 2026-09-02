@@ -3,6 +3,7 @@ setlocal enabledelayedexpansion
 REM pg-cli-retest.cmd  -  Path A harness: deploy `_core,nwind,test` via the
 REM CLI migrate path onto the plain CLI-testing container, then run the pgTAP
 REM suite. The mirror of pg-ext-retest.cmd. See pg-cli-retest.sh for details.
+REM Extra arguments are forwarded to `deno task retest` (e.g. --coverage).
 cd /d "%~dp0"
 set "REPO_ROOT=%~dp0.."
 set "CONTAINER=postgres18-cli"
@@ -33,7 +34,7 @@ echo PostgreSQL ready.
 
 echo == [3/3] retest (dropall -^> migrate _core,nwind,test -^> test) ==
 pushd "%REPO_ROOT%"
-call deno task retest --confirm --env pgdocker-cli || (popd & goto :err)
+call deno task retest --confirm --env pgdocker-cli %* || (popd & goto :err)
 popd
 
 echo.

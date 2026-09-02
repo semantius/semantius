@@ -7,6 +7,13 @@
 import { Client } from "@postgres";
 import { walk } from "@std/fs/walk";
 import { basename } from "@std/path";
+import {
+  CoverageCollector,
+  type CoverageOptions,
+  coverageGatePassed,
+  printCoverageSummary,
+  writeCoverageReports,
+} from "./coverage.ts";
 
 
 interface TestResult {
@@ -24,10 +31,18 @@ const RED = COLOR_ENABLED ? "\x1b[31m" : "";
 const BOLD_RED = COLOR_ENABLED ? "\x1b[1;31m" : "";
 const RESET = COLOR_ENABLED ? "\x1b[0m" : "";
 
+interface TestRun {
+  results: TestResult[];
+  /** false when any test failed, a file had a SQL error, or plan != executed */
+  passed: boolean;
+  /** true when --failfast stopped the run before the last file */
+  stoppedEarly: boolean;
+}
+
 interface TapReporter {
   start(): void;
   test(result: TestResult): boolean; // returns false if failFast should stop execution
-  finish(results: TestResult[]): void;
+  finish(results: TestResult[]): boolean; // returns true when the whole run passed
 }
 
 class DefaultReporter implements TapReporter {
@@ -84,7 +99,7 @@ class DefaultReporter implements TapReporter {
     return !(this.failFast && fileFailed);
   }
 
-  finish(results: TestResult[]): void {
+  finish(results: TestResult[]): boolean {
     const totalExecutionMs = results.reduce((sum, result) => sum + result.executionTimeMs, 0);
     
     console.log(`\n# Tests: ${this.totalTests}`);
@@ -108,10 +123,8 @@ class DefaultReporter implements TapReporter {
     const hasMissingTests = this.totalPlanned > 0 && this.totalTests !== this.totalPlanned;
     const overallResult = (hasFailures || hasMissingTests) ? "FAIL" : "PASS";
     console.log(`# Result: ${overallResult}`);
-    
-    if (hasFailures || hasMissingTests) {
-      Deno.exit(1);
-    }
+
+    return !(hasFailures || hasMissingTests);
   }
 }
 
@@ -215,7 +228,7 @@ class TapSpecReporter implements TapReporter {
     return !(this.failFast && fileFailed);
   }
 
-  finish(results: TestResult[]): void {
+  finish(results: TestResult[]): boolean {
     const totalExecutionMs = results.reduce((sum, result) => sum + result.executionTimeMs, 0);
     
     console.log(`\n\n  ${this.totalPassed} passing`);
@@ -244,10 +257,8 @@ class TapSpecReporter implements TapReporter {
     // Exit with failure if there are failed tests, plan mismatches, or file errors
     const hasFailures = this.totalFailed > 0 || this.filesWithErrors > 0;
     const hasMissingTests = this.totalPlanned > 0 && this.totalExecuted !== this.totalPlanned;
-    
-    if (hasFailures || hasMissingTests) {
-      Deno.exit(1);
-    }
+
+    return !(hasFailures || hasMissingTests);
   }
 }
 
@@ -265,7 +276,8 @@ function matchesFilter(filename: string, filter: string): boolean {
 }
 
 class PgTest {
-  private client: Client;
+  /** The single connection every test file runs on (coverage reads it too). */
+  readonly client: Client;
   private reporter: TapReporter;
 
   constructor(connectionString: string, reporter: TapReporter) {
@@ -384,8 +396,9 @@ class PgTest {
    * relies on numeric prefixes (e.g. 0990_cleanup must run last in apps/test/tests).
    * Missing directories are skipped.
    */
-  async runTests(testDirs: string[], filter?: string): Promise<TestResult[]> {
+  async runTests(testDirs: string[], filter?: string): Promise<TestRun> {
     const results: TestResult[] = [];
+    let stoppedEarly = false;
 
     this.reporter.start();
 
@@ -415,13 +428,14 @@ class PgTest {
         if (!shouldContinue) {
           console.log(`
 ${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
+          stoppedEarly = true;
           break outer;
         }
       }
     }
 
-    this.reporter.finish(results);
-    return results;
+    const passed = this.reporter.finish(results);
+    return { results, passed, stoppedEarly };
   }
 }
 
@@ -454,7 +468,19 @@ async function collectTestDirs(): Promise<string[]> {
   return dirs;
 }
 
-export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFast = false, filter?: string): Promise<void> {
+/**
+ * Runs the pgTAP suite. With `coverage` enabled the same run also measures
+ * which functions/statements/tables the suite executed (see coverage.ts) and
+ * writes the reports before the exit code is decided; without it the output
+ * and exit codes are exactly what they were before coverage existed.
+ */
+export async function testCommand(
+  databaseUrl: string,
+  tapFlag?: boolean,
+  failFast = false,
+  filter?: string,
+  coverage?: CoverageOptions,
+): Promise<void> {
   console.log("Running test command...");
 
   // Use plain TAP reporter when --tap flag is provided, otherwise use pretty formatted reporter
@@ -464,11 +490,57 @@ export async function testCommand(databaseUrl: string, tapFlag?: boolean, failFa
   try {
     await pgTest.connect();
     console.log(`Connected to PostgreSQL at ${databaseUrl.replace(/\/\/[^@]+@/, '//***:***@')}`);
-    
+
+    // Coverage hooks in before the first file: the profiler and the counters
+    // live on the test connection, so the collector shares pgTest.client.
+    let collector: CoverageCollector | undefined;
+    if (coverage?.enabled) {
+      collector = new CoverageCollector(pgTest.client, {
+        ...coverage,
+        tap: !!tapFlag,
+      });
+      await collector.preflight();
+      await collector.snapshotBefore();
+    }
+
     const testDirs = await collectTestDirs();
     console.log(`Test directories: ${testDirs.join(", ")}`);
-    const _results = await pgTest.runTests(testDirs, filter);
-    
+    const run = await pgTest.runTests(testDirs, filter);
+
+    let coverageOk = true;
+    if (collector && coverage) {
+      try {
+        const summary = await collector.collect({
+          filter,
+          failFast,
+          stoppedEarly: run.stoppedEarly,
+          files: run.results.length,
+          testsPassed: run.passed,
+          partial: !!filter || run.stoppedEarly,
+        }, databaseUrl);
+        let reportPaths: string[] = [];
+        try {
+          reportPaths = await writeCoverageReports(summary, coverage.outDir);
+        } catch (error) {
+          console.warn(
+            `Could not write coverage reports: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        printCoverageSummary(summary, !!tapFlag, reportPaths);
+        coverageOk = coverageGatePassed(summary);
+      } catch (error) {
+        console.warn(
+          `Coverage collection failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        // A requested threshold cannot be evaluated: treat as not met.
+        coverageOk = coverage.min === undefined;
+      }
+    }
+
+    if (!run.passed || !coverageOk) {
+      Deno.exit(1);
+    }
+
     await pgTest.disconnect();
     console.log("Test command completed!");
   } catch (error) {

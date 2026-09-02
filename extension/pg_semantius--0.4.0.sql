@@ -2979,7 +2979,17 @@ CREATE TABLE IF NOT EXISTS fields (
     description TEXT DEFAULT '',
     format TEXT NOT NULL DEFAULT 'text',
     is_pk BOOLEAN NOT NULL DEFAULT FALSE,
-    default_value TEXT DEFAULT '',
+    -- A default is a value (or one of the argument-less SQL expressions
+    -- quote_default_value() allow-lists), never a statement: the dictionary
+    -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
+    -- comment markers are rejected outright as a second line of defence.
+    default_value TEXT DEFAULT ''
+        CONSTRAINT valid_default_value CHECK (
+            length(default_value) <= 200
+            AND default_value !~ '[;[:cntrl:]]'
+            AND position('--' IN default_value) = 0
+            AND position('/*' IN default_value) = 0
+        ),
     field_order INTEGER NOT NULL DEFAULT 0,
     input_type TEXT NOT NULL DEFAULT 'default',
     width TEXT NOT NULL DEFAULT 'default',
@@ -3720,42 +3730,62 @@ COMMENT ON FUNCTION effective_enum_default IS
 -- Properly quotes default values based on data type
 -- Properly quotes default values based on data type for DDL statements
 
+-- SECURITY: the result of this function is interpolated verbatim (%s) into
+-- ALTER TABLE ... DEFAULT statements that run inside SECURITY DEFINER triggers,
+-- i.e. as the table owner. fields.default_value is writable by every holder of
+-- the admin permission, so this function must NEVER return caller-supplied text
+-- unquoted. A default is a VALUE, not an expression: a quoted string literal is
+-- cast by PostgreSQL to the column type, so quote_literal() is the safe general
+-- case. Only a fixed allow-list of well-known, argument-less SQL expressions and
+-- plain numeric/boolean/NULL literals are emitted bare.
 CREATE OR REPLACE FUNCTION quote_default_value(p_default_value TEXT, p_data_type TEXT)
 RETURNS TEXT AS $$
+DECLARE
+    v_value TEXT := trim(p_default_value);
+    v_upper TEXT;
 BEGIN
     -- If default value is NULL or empty, return as-is
-    IF p_default_value IS NULL OR trim(p_default_value) = '' THEN
+    IF p_default_value IS NULL OR v_value = '' THEN
         RETURN p_default_value;
     END IF;
-    
-    -- If it's a function call (contains parentheses) or cast (contains ::), return as-is
-    IF p_default_value ~ '\(|::' THEN
-        RETURN p_default_value;
+
+    v_upper := upper(v_value);
+
+    -- The NULL keyword
+    IF v_upper = 'NULL' THEN
+        RETURN 'NULL';
     END IF;
-    
-    -- If it's a numeric constant and data type is numeric, return as-is
-    IF p_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT', 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') 
-       AND p_default_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
-        RETURN p_default_value;
+
+    -- Boolean constants for boolean columns (t/f are normalised to keywords)
+    IF p_data_type = 'BOOLEAN' AND v_upper IN ('TRUE', 'FALSE', 'T', 'F') THEN
+        RETURN CASE WHEN v_upper IN ('TRUE', 'T') THEN 'TRUE' ELSE 'FALSE' END;
     END IF;
-    
-    -- If it's a boolean constant, return uppercase for consistency
-    IF p_data_type = 'BOOLEAN' AND p_default_value IN ('TRUE', 'FALSE', 'true', 'false', 't', 'f') THEN
-        RETURN UPPER(p_default_value);
+
+    -- Plain numeric constants for numeric columns (NUMERIC(18, n) included)
+    IF p_data_type ~ '^(INTEGER|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|DOUBLE PRECISION)'
+       AND v_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+        RETURN v_value;
     END IF;
-    
-    -- For TEXT and string-like types, quote the value
-    IF p_data_type IN ('TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING') THEN
-        RETURN quote_literal(p_default_value);
+
+    -- Allow-listed argument-less SQL expressions (exact, case-insensitive match)
+    IF v_upper IN (
+        'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME',
+        'LOCALTIMESTAMP', 'LOCALTIME',
+        'NOW()', 'CLOCK_TIMESTAMP()', 'STATEMENT_TIMESTAMP()', 'TRANSACTION_TIMESTAMP()',
+        'GEN_RANDOM_UUID()',
+        'CURRENT_USER', 'SESSION_USER'
+    ) THEN
+        RETURN v_upper;
     END IF;
-    
-    -- Default: return as-is (for special types like UUID, JSONB, etc.)
-    RETURN p_default_value;
+
+    -- Everything else is a literal value; PostgreSQL casts it to the column type
+    -- (so '[]' works for JSONB, '2026-01-01' for DATE, '1e3' for NUMERIC, ...).
+    RETURN quote_literal(p_default_value);
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION quote_default_value IS
-'Properly quotes default values based on data type for use in DDL statements.';
+'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -8188,6 +8218,7 @@ DECLARE
     v_parent_id   TEXT;
     v_spine_ref   TEXT;
     v_spine_fmt   TEXT;
+    v_sql         TEXT;
     r             RECORD;
 BEGIN
     -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
@@ -8217,7 +8248,11 @@ BEGIN
           AND p.pronargs = 1
           AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
     LOOP
-        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+        -- Build the statement first, then EXECUTE the variable: the plpgsql_check
+        -- profiler re-evaluates an EXECUTE's string expression after the statement
+        -- ran, and re-rendering r.sig after the DROP would yield a bare OID.
+        v_sql := 'DROP FUNCTION IF EXISTS ' || r.sig;
+        EXECUTE v_sql;
     END LOOP;
 
     -- Local term: own label value with '' folded to NULL (so it contributes nothing).
@@ -11863,16 +11898,20 @@ BEGIN
           INTO v_path_sql
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
+        -- The field name is admin-supplied text that lands inside the generated
+        -- function body: it is emitted as a quoted literal (with RAISE's %
+        -- placeholders escaped) so quotes or dollar signs in it cannot break out
+        -- of the string.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'computed_fields[%s]: %%', SQLERRM;
+        RAISE EXCEPTION %s, SQLERRM;
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
-            replace(v_name, '%', '%%'),
+            quote_literal('computed_fields[' || replace(v_name, '%', '%%') || ']: %'),
             v_path_sql);
     END LOOP;
 
@@ -11892,20 +11931,23 @@ $BLOCK$,
         END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 
+        -- code and message are admin-supplied text that lands inside the generated
+        -- function body: both are emitted as quoted literals, with RAISE's %
+        -- placeholders escaped where the literal is used as a RAISE format string.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'validation_rules[%s]: %%', SQLERRM;
+        RAISE EXCEPTION %s, SQLERRM;
     END;
     IF NOT jl_truthy(v_result) THEN
-        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = 'rule code: %s';
+        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = %s;
     END IF;
 $BLOCK$,
             v_logic_lit,
-            replace(v_code, '%', '%%'),
-            quote_literal(v_message),
-            replace(v_code, '%', '%%'));
+            quote_literal('validation_rules[' || replace(v_code, '%', '%%') || ']: %'),
+            quote_literal(replace(v_message, '%', '%%')),
+            quote_literal('rule code: ' || v_code));
     END LOOP;
 
     -- Write-back tail. Validation rules never modify the row, so a validation-only
@@ -14731,6 +14773,169 @@ REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
 
 -- =====================================================
+-- _core/0290_owner_hardening
+-- =====================================================
+-- =====================================================
+-- OWNER HARDENING: run the data dictionary as a non-superuser owner
+-- =====================================================
+-- Every data-dictionary trigger is SECURITY DEFINER and executes DDL as the
+-- owner of the functions and tables. Until this migration that owner was
+-- whoever installed Semantius core: on self-hosted servers the `postgres`
+-- superuser, because the extension needs a superuser to install. Any flaw in
+-- the DDL assembly (see the fields.default_value hardening in 0060/0070) would
+-- therefore have handed an application administrator superuser powers
+-- (COPY ... TO PROGRAM, CREATE ROLE ... SUPERUSER, ALTER SYSTEM).
+--
+-- This migration moves ownership of everything Semantius core created to a
+-- dedicated `semantius_owner` role: NOLOGIN, NOSUPERUSER, NOINHERIT and
+-- BYPASSRLS (SECURITY DEFINER code must still read and write every table
+-- regardless of RLS). From here on, dictionary code runs with the powers of a
+-- schema owner and nothing more; tables, functions and policies the
+-- dictionary creates later are owned by the same role, and default privileges
+-- FOR ROLE semantius_owner reproduce the grants 0010/0030/0050/0150/0160 set
+-- up for the installing role.
+--
+-- Only a superuser can create a BYPASSRLS role, so the block runs when the
+-- installer is a superuser (CREATE EXTENSION, pgdocker, docker-postgres) and
+-- is skipped with a NOTICE on managed platforms (Neon, Supabase), where the
+-- installing role already is a non-superuser BYPASSRLS owner.
+--
+-- Objects that belong to other extensions (pgcrypto in public, pgmq when the
+-- real extension is present) are left alone. Event triggers are not touched:
+-- PostgreSQL requires their owner to be a superuser.
+
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    IF current_setting('is_superuser') <> 'on' THEN
+        RAISE NOTICE 'owner hardening skipped: % is not a superuser, Semantius core objects stay owned by the installing role', current_user;
+        RETURN;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
+        CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+        COMMENT ON ROLE semantius_owner IS
+            'Owner of the Semantius core objects and the role its SECURITY DEFINER dictionary code runs as. NOLOGIN, NOSUPERUSER, BYPASSRLS.';
+        RAISE NOTICE 'Role semantius_owner created';
+    END IF;
+
+    -- The dictionary creates tables, functions, triggers and policies at runtime.
+    GRANT USAGE, CREATE ON SCHEMA public, common, rbac, audit, pgmq TO semantius_owner;
+
+    -- Relations: tables first (their owned sequences and row types follow),
+    -- then standalone sequences, then views.
+    FOR r IN
+        SELECT n.nspname, c.relname, c.relkind
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+          AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+          AND pg_get_userbyid(c.relowner) = current_user
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_extension e ON e.oid = d.refobjid
+              WHERE d.classid = 'pg_class'::regclass
+                AND d.objid = c.oid
+                AND d.refclassid = 'pg_extension'::regclass
+                AND d.deptype = 'e'
+                AND e.extname <> 'pg_semantius')
+        ORDER BY CASE c.relkind WHEN 'r' THEN 0 WHEN 'p' THEN 0 WHEN 'S' THEN 1 ELSE 2 END, n.nspname, c.relname
+    LOOP
+        -- A sequence owned by a column moves with its table; skip it if it already did.
+        IF r.relkind = 'S' AND EXISTS (
+            SELECT 1 FROM pg_class c2 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+            WHERE n2.nspname = r.nspname AND c2.relname = r.relname
+              AND pg_get_userbyid(c2.relowner) = 'semantius_owner') THEN
+            CONTINUE;
+        END IF;
+        EXECUTE format('ALTER %s %I.%I OWNER TO semantius_owner',
+            CASE r.relkind
+                WHEN 'S' THEN 'SEQUENCE'
+                WHEN 'v' THEN 'VIEW'
+                WHEN 'm' THEN 'MATERIALIZED VIEW'
+                ELSE 'TABLE'
+            END,
+            r.nspname, r.relname);
+    END LOOP;
+
+    -- Functions and procedures (this is what makes SECURITY DEFINER code run as semantius_owner).
+    FOR r IN
+        SELECT p.oid::regprocedure AS signature, p.prokind
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+          AND pg_get_userbyid(p.proowner) = current_user
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_extension e ON e.oid = d.refobjid
+              WHERE d.classid = 'pg_proc'::regclass
+                AND d.objid = p.oid
+                AND d.refclassid = 'pg_extension'::regclass
+                AND d.deptype = 'e'
+                AND e.extname <> 'pg_semantius')
+    LOOP
+        EXECUTE format('ALTER %s %s OWNER TO semantius_owner',
+            CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
+            r.signature);
+    END LOOP;
+
+    -- Standalone types: enums, domains, ranges and free-standing composite types
+    -- (table row types moved with their tables).
+    FOR r IN
+        SELECT t.oid::regtype AS type_name, t.typtype
+        FROM pg_type t
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+          AND pg_get_userbyid(t.typowner) = current_user
+          AND (
+              t.typtype IN ('e', 'd', 'r')
+              OR (t.typtype = 'c' AND EXISTS (
+                  SELECT 1 FROM pg_class c WHERE c.oid = t.typrelid AND c.relkind = 'c'))
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_extension e ON e.oid = d.refobjid
+              WHERE d.classid = 'pg_type'::regclass
+                AND d.objid = t.oid
+                AND d.refclassid = 'pg_extension'::regclass
+                AND d.deptype = 'e'
+                AND e.extname <> 'pg_semantius')
+    LOOP
+        EXECUTE format('ALTER %s %s OWNER TO semantius_owner',
+            CASE r.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
+            r.type_name);
+    END LOOP;
+
+    -- Objects the dictionary creates from now on are owned by semantius_owner:
+    -- reproduce the default privileges that 0010, 0030, 0050, 0150 and 0160
+    -- established for the installing role.
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
+        GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
+        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA common
+        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA audit
+        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
+        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
+        GRANT EXECUTE ON FUNCTIONS TO semantius_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
+        GRANT SELECT ON TABLES TO pg_monitor;
+    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
+        GRANT SELECT ON SEQUENCES TO pg_monitor;
+
+    RAISE NOTICE 'Semantius core objects are now owned by semantius_owner';
+END $$;
+
+-- =====================================================
 -- Seed _versions run-once guards (one row per migration)
 -- =====================================================
 -- So a subsequent `deno task migrate` skips these
@@ -14768,6 +14973,7 @@ INSERT INTO public._versions (name) VALUES
   ('_core.0270_entity_order_column'),
   ('_core.0280_user_bookmarks'),
   ('_core.0282_module_version'),
-  ('_core.0284_module_slug_provision')
+  ('_core.0284_module_slug_provision'),
+  ('_core.0290_owner_hardening')
 ON CONFLICT DO NOTHING;
 

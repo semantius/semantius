@@ -7,6 +7,7 @@ import { initProject } from "./commands/init.ts";
 import { migrateCommand } from "./commands/migrate.ts";
 import { connectDatabaseConnection } from "./commands/connect.ts";
 import { testCommand } from "./commands/test.ts";
+import type { CoverageOptions } from "./commands/coverage.ts";
 import { dropallCommand } from "./commands/dropall.ts";
 import { docgenCommand } from "./commands/docgen.ts";
 import { drizzlegenCommand } from "./commands/drizzlegen.ts";
@@ -41,6 +42,8 @@ interface CliArgs {
   confirm?: boolean;
   script?: boolean;
   failfast?: boolean;
+  coverage?: boolean;
+  "coverage-min"?: string;
   env?: string;
   "database-url"?: string;
   _: string[];
@@ -109,6 +112,27 @@ async function getDatabaseUrl(
   }
 }
 
+/**
+ * Coverage options for `test` / `retest`. `--coverage-min <pct>` implies
+ * `--coverage`; the percentage is validated here so a typo fails before any
+ * database work starts. Returns undefined when coverage was not requested.
+ */
+function parseCoverageOptions(args: CliArgs): CoverageOptions | undefined {
+  const minArg = args["coverage-min"];
+  if (!args.coverage && minArg === undefined) return undefined;
+  let min: number | undefined;
+  if (minArg !== undefined) {
+    min = Number(minArg);
+    if (minArg.trim() === "" || !Number.isFinite(min) || min < 0 || min > 100) {
+      console.error(
+        `--coverage-min must be a number between 0 and 100 (got "${minArg}")`,
+      );
+      Deno.exit(1);
+    }
+  }
+  return { enabled: true, min, outDir: "coverage" };
+}
+
 function showHelp(): void {
   console.log(`
 Semantius CLI v${VERSION}
@@ -127,6 +151,9 @@ OPTIONS:
     --confirm               Skip confirmation prompt (for dropall, reset, and retest commands)
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
     --failfast              Stop test execution after the first failed test file (for test and reset commands)
+    --coverage              Measure which functions/statements/tables the suite executes (for test and retest);
+                            writes coverage/summary.json, coverage/uncovered.md and coverage/lcov.info
+    --coverage-min <PCT>    Exit 1 when function coverage is below PCT percent (implies --coverage)
     --env <ENV>             Environment name to load (default: local, loads .env.<ENV> file)
     --database-url <URL>    Database connection URL (overrides DATABASE_URL env variable and .env file)
 
@@ -158,6 +185,8 @@ EXAMPLES:
     deno task test --failfast
     deno task test 0010*
     deno task test 0015_test_jsonlogic.sql
+    deno task test --coverage
+    deno task test --coverage --coverage-min 80
     deno task migrate --apps app1,app2,app3 --verbose
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
@@ -172,6 +201,7 @@ EXAMPLES:
     deno task reset --confirm --verbose
     deno task retest --confirm
     deno task retest --confirm --failfast
+    deno task retest --confirm --coverage
     deno task connect --env test
     deno task migrate --apps nwind --env staging
     deno task drizzlegen
@@ -258,11 +288,20 @@ async function main(): Promise<void> {
       "confirm",
       "script",
       "failfast",
+      "coverage",
     ],
     // "_" keeps positional args as strings; without it @std/flags coerces
     // numeric-looking positionals to numbers and drops leading zeros, which
     // breaks numeric test-file filters like `test 0335` (-> 335, never matches).
-    string: ["config", "output", "apps", "env", "database-url", "_"],
+    string: [
+      "config",
+      "output",
+      "apps",
+      "env",
+      "database-url",
+      "coverage-min",
+      "_",
+    ],
     alias: {
       h: "help",
       v: "verbose",
@@ -312,7 +351,13 @@ async function main(): Promise<void> {
 
     case "test": {
       const filter = args._.length > 1 ? String(args._[1]) : undefined;
-      await testCommand(databaseUrl!, args.tap, args.failfast, filter);
+      await testCommand(
+        databaseUrl!,
+        args.tap,
+        args.failfast,
+        filter,
+        parseCoverageOptions(args),
+      );
       break;
     }
 
@@ -361,6 +406,7 @@ async function main(): Promise<void> {
         databaseUrl!,
         args.confirm || false,
         args.failfast || false,
+        parseCoverageOptions(args),
       );
       break;
 

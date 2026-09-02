@@ -86,16 +86,20 @@ BEGIN
           INTO v_path_sql
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
+        -- The field name is admin-supplied text that lands inside the generated
+        -- function body: it is emitted as a quoted literal (with RAISE's %
+        -- placeholders escaped) so quotes or dollar signs in it cannot break out
+        -- of the string.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'computed_fields[%s]: %%', SQLERRM;
+        RAISE EXCEPTION %s, SQLERRM;
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
-            replace(v_name, '%', '%%'),
+            quote_literal('computed_fields[' || replace(v_name, '%', '%%') || ']: %'),
             v_path_sql);
     END LOOP;
 
@@ -115,20 +119,23 @@ $BLOCK$,
         END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 
+        -- code and message are admin-supplied text that lands inside the generated
+        -- function body: both are emitted as quoted literals, with RAISE's %
+        -- placeholders escaped where the literal is used as a RAISE format string.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'validation_rules[%s]: %%', SQLERRM;
+        RAISE EXCEPTION %s, SQLERRM;
     END;
     IF NOT jl_truthy(v_result) THEN
-        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = 'rule code: %s';
+        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = %s;
     END IF;
 $BLOCK$,
             v_logic_lit,
-            replace(v_code, '%', '%%'),
-            quote_literal(v_message),
-            replace(v_code, '%', '%%'));
+            quote_literal('validation_rules[' || replace(v_code, '%', '%%') || ']: %'),
+            quote_literal(replace(v_message, '%', '%%')),
+            quote_literal('rule code: ' || v_code));
     END LOOP;
 
     -- Write-back tail. Validation rules never modify the row, so a validation-only

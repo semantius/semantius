@@ -19,6 +19,9 @@
 #                     and several test files depend on.)
 #   5. test           run the full pgTAP suite against the ext DB.
 #
+# Extra arguments are forwarded to `deno task test`, so `./pg-ext-retest.sh --coverage`
+# is the extension-install + suite + coverage loop (see ../README.md).
+#
 # Re-runnable. The DBA connection is derived from pgdocker/.env (NOT hard-coded:
 # an existing .env may differ from .env.example) and passed via --database-url,
 # which also takes priority over any exported DATABASE_URL.
@@ -70,7 +73,7 @@ echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
 ( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$EXT_URL" )
 
 echo "== [5/5] Running the pgTAP suite against the extension DB =="
-( cd "$REPO_ROOT" && deno task test --database-url "$EXT_URL" )
+( cd "$REPO_ROOT" && deno task test --database-url "$EXT_URL" "$@" )
 
 echo
 echo "Path B complete. If all tests are green, extension-_core == migrate-_core."

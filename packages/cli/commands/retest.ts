@@ -6,11 +6,13 @@
 import { dropallCommand } from "./dropall.ts";
 import { migrateCommand } from "./migrate.ts";
 import { testCommand } from "./test.ts";
+import type { CoverageOptions } from "./coverage.ts";
 
 export async function retestCommand(
   databaseUrl: string,
   confirm: boolean = false,
   failFast = false,
+  coverage?: CoverageOptions,
 ): Promise<void> {
   if (!confirm) {
     const answer = prompt(
@@ -31,7 +33,7 @@ export async function retestCommand(
   await migrateCommand("nwind,test", databaseUrl, false);
 
   console.log("\n--- Step 3/3: test ---");
-  await testCommand(databaseUrl, false, failFast);
+  await testCommand(databaseUrl, false, failFast, undefined, coverage);
 
   console.log("\nRetest completed successfully!");
 }

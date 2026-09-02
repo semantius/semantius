@@ -74,6 +74,8 @@ deno task [COMMAND] [OPTIONS]
 | `--script` | Generate SQL file instead of executing |
 | `--env <ENV>` | Load `.env.<ENV>` instead of `.env.local` |
 | `--database-url <URL>` | Database URL — overrides `DATABASE_URL` env var and `.env` file |
+| `--coverage` | Measure which functions/statements/tables the pgTAP suite executes (for `test` and `retest`); writes `coverage/` |
+| `--coverage-min <PCT>` | Exit 1 when function coverage is below `PCT` percent (implies `--coverage`) |
 
 ### Commands
 
@@ -131,6 +133,13 @@ deno task migrate --apps nwind --env staging
 deno task test
 deno task test --tap   # plain TAP output
 deno task test 0160*   # only files whose name matches the prefix
+
+# Same suite with coverage: which core functions, PL/pgSQL statements and tables
+# the tests execute. Statement-level data needs the plpgsql_check extension on
+# the server (the pgdocker dev images); without it only function-level data is
+# reported. Reports: coverage/summary.json, coverage/uncovered.md, coverage/lcov.info
+deno task test --coverage
+deno task test --coverage --coverage-min 80   # exit 1 below 80% function coverage
 ```
 
 ---

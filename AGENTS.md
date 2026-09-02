@@ -66,6 +66,7 @@ export DENO_TLS_CA_STORE=system
 ### Database-First Design
 - All business logic implemented in PostgreSQL functions
 - Security enforced through RLS policies and custom RBAC
+- Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `0290_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
 - Infrastructure defined in `apps/_core/` folder
 - Automated testing using pgTAP framework
 
@@ -117,6 +118,11 @@ deno task migrate --apps _core,nwind,test --verbose
 deno task test
 ```
 
+**Optional - Coverage run** (the same suite on the same database, plus a report of which core functions, PL/pgSQL statements and tables it executed; statement-level data needs the `plpgsql_check` extension on the server, e.g. the pgdocker dev images):
+```bash
+deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.md, coverage/lcov.info
+```
+
 ### Testing Enforcement Rules
 
 **MANDATORY TESTING REQUIREMENTS**: 
@@ -147,7 +153,7 @@ deno task test
 
 - `migrate <app>`: Deploy migrations for specified app
 - `dropall --confirm`: Completely reset database (required for clean testing)
-- `test`: Run pgTAP tests
+- `test`: Run pgTAP tests (`--coverage` adds a coverage report under `coverage/`)
 - `connect`: Connect to database
 - `docgen`: Generate schema.md documentation from entities metadata for _core module
 
@@ -242,6 +248,7 @@ The `fields` table uses a JSON Schema-based format system:
 - **input_type** column: UI rendering hint - ENUM with allowed values `['default', 'required', 'readonly', 'disabled', 'hidden']`
 - **width** column: UI width hint - ENUM with allowed values `['default', 's', 'm', 'w']` (default/auto, small, medium, wide)
 - **ctype** column: Special column type AND the single marker of a DD-managed core column - ENUM with allowed values `['', 'id', 'label', 'audit', 'core']`. Empty = normal, user-editable field; `id` = primary key; `label` = display column; `audit` = managed record-versioning columns (created_at/updated_at, room for created_by/updated_by); `core` = other system/metadata columns. A non-empty ctype marks a protected core column (no rename/format/default/delete; the `label` rename is the one allowed exception). ctype is itself **immutable and privilege-locked** (the `fields_ctype_lock` trigger lets only BYPASSRLS DD/migration code set or change it; user writes get ctype forced to ''). The legacy `is_core` boolean column was **dropped** — `is_core` is now *derived* as `(ctype <> '')` and still emitted in `get_schema()` output for compatibility.
+- **default_value** column: a plain VALUE (`0`, `false`, `[]`, `2026-01-01`, `some text`) or one of the argument-less SQL expressions `quote_default_value()` allow-lists (`CURRENT_TIMESTAMP`, `CURRENT_DATE`, `now()`, `gen_random_uuid()`, ...). It is never SQL: the dictionary emits it as a quoted literal that PostgreSQL casts to the column type, and the `valid_default_value` CHECK rejects `;`, comment markers and control characters. Admin-writable columns are a trust boundary; anything interpolated into DDL must go through `%I`, `%L`/`quote_literal` or a fixed allow-list.
 - **title** column: Human-readable field label (renamed from 'label')
 - **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
   - Required when format='enum' to define allowed values

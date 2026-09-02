@@ -107,7 +107,17 @@ CREATE TABLE IF NOT EXISTS fields (
     description TEXT DEFAULT '',
     format TEXT NOT NULL DEFAULT 'text',
     is_pk BOOLEAN NOT NULL DEFAULT FALSE,
-    default_value TEXT DEFAULT '',
+    -- A default is a value (or one of the argument-less SQL expressions
+    -- quote_default_value() allow-lists), never a statement: the dictionary
+    -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
+    -- comment markers are rejected outright as a second line of defence.
+    default_value TEXT DEFAULT ''
+        CONSTRAINT valid_default_value CHECK (
+            length(default_value) <= 200
+            AND default_value !~ '[;[:cntrl:]]'
+            AND position('--' IN default_value) = 0
+            AND position('/*' IN default_value) = 0
+        ),
     field_order INTEGER NOT NULL DEFAULT 0,
     input_type TEXT NOT NULL DEFAULT 'default',
     width TEXT NOT NULL DEFAULT 'default',

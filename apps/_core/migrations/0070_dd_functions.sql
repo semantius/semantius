@@ -160,42 +160,62 @@ COMMENT ON FUNCTION effective_enum_default IS
 -- Properly quotes default values based on data type
 -- Properly quotes default values based on data type for DDL statements
 
+-- SECURITY: the result of this function is interpolated verbatim (%s) into
+-- ALTER TABLE ... DEFAULT statements that run inside SECURITY DEFINER triggers,
+-- i.e. as the table owner. fields.default_value is writable by every holder of
+-- the admin permission, so this function must NEVER return caller-supplied text
+-- unquoted. A default is a VALUE, not an expression: a quoted string literal is
+-- cast by PostgreSQL to the column type, so quote_literal() is the safe general
+-- case. Only a fixed allow-list of well-known, argument-less SQL expressions and
+-- plain numeric/boolean/NULL literals are emitted bare.
 CREATE OR REPLACE FUNCTION quote_default_value(p_default_value TEXT, p_data_type TEXT)
 RETURNS TEXT AS $$
+DECLARE
+    v_value TEXT := trim(p_default_value);
+    v_upper TEXT;
 BEGIN
     -- If default value is NULL or empty, return as-is
-    IF p_default_value IS NULL OR trim(p_default_value) = '' THEN
+    IF p_default_value IS NULL OR v_value = '' THEN
         RETURN p_default_value;
     END IF;
-    
-    -- If it's a function call (contains parentheses) or cast (contains ::), return as-is
-    IF p_default_value ~ '\(|::' THEN
-        RETURN p_default_value;
+
+    v_upper := upper(v_value);
+
+    -- The NULL keyword
+    IF v_upper = 'NULL' THEN
+        RETURN 'NULL';
     END IF;
-    
-    -- If it's a numeric constant and data type is numeric, return as-is
-    IF p_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT', 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') 
-       AND p_default_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
-        RETURN p_default_value;
+
+    -- Boolean constants for boolean columns (t/f are normalised to keywords)
+    IF p_data_type = 'BOOLEAN' AND v_upper IN ('TRUE', 'FALSE', 'T', 'F') THEN
+        RETURN CASE WHEN v_upper IN ('TRUE', 'T') THEN 'TRUE' ELSE 'FALSE' END;
     END IF;
-    
-    -- If it's a boolean constant, return uppercase for consistency
-    IF p_data_type = 'BOOLEAN' AND p_default_value IN ('TRUE', 'FALSE', 'true', 'false', 't', 'f') THEN
-        RETURN UPPER(p_default_value);
+
+    -- Plain numeric constants for numeric columns (NUMERIC(18, n) included)
+    IF p_data_type ~ '^(INTEGER|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|DOUBLE PRECISION)'
+       AND v_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+        RETURN v_value;
     END IF;
-    
-    -- For TEXT and string-like types, quote the value
-    IF p_data_type IN ('TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING') THEN
-        RETURN quote_literal(p_default_value);
+
+    -- Allow-listed argument-less SQL expressions (exact, case-insensitive match)
+    IF v_upper IN (
+        'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME',
+        'LOCALTIMESTAMP', 'LOCALTIME',
+        'NOW()', 'CLOCK_TIMESTAMP()', 'STATEMENT_TIMESTAMP()', 'TRANSACTION_TIMESTAMP()',
+        'GEN_RANDOM_UUID()',
+        'CURRENT_USER', 'SESSION_USER'
+    ) THEN
+        RETURN v_upper;
     END IF;
-    
-    -- Default: return as-is (for special types like UUID, JSONB, etc.)
-    RETURN p_default_value;
+
+    -- Everything else is a literal value; PostgreSQL casts it to the column type
+    -- (so '[]' works for JSONB, '2026-01-01' for DATE, '1e3' for NUMERIC, ...).
+    RETURN quote_literal(p_default_value);
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION quote_default_value IS
-'Properly quotes default values based on data type for use in DDL statements.';
+'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS

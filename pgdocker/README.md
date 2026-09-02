@@ -336,6 +336,13 @@ extension-`_core` ≡ migrate-`_core`.
 ```bash
 ./pg-cli-retest.sh      # Path A — migrate-installed _core
 ./pg-ext-retest.sh      # Path B — extension-installed _core
+
+# Same runs with a coverage report (extra arguments are forwarded to the CLI):
+# which core functions, PL/pgSQL statements and tables the suite executed.
+# Statement-level data needs the plpgsql_check extension in the image; without
+# it the report is function-level only. Output: ../coverage/{summary.json,uncovered.md,lcov.info}
+./pg-cli-retest.sh --coverage
+./pg-ext-retest.sh --coverage
 ```
 
 In **Path B**, `migrate --apps nwind,test` auto-prepends `_core`, but the
@@ -355,7 +362,8 @@ install itself (`_core/0050` attaches an RLS policy to `_versions`).
 > and passes `--database-url` (which also outranks any exported `DATABASE_URL`).
 > The lighter `deploy-module` scripts (below) use the matching `--env pgdocker-cli`
 > / `--env pgdocker-ext` profiles. Either way the profile's password must match
-> `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged — no new CLI flags.
+> `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged and forward any
+> extra arguments (such as `--coverage`) to the CLI.
 
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
 `migrate --apps nwind,test` + `test` steps stays green (migrate reports

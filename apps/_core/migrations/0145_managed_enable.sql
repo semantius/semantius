@@ -761,6 +761,7 @@ DECLARE
     v_parent_id   TEXT;
     v_spine_ref   TEXT;
     v_spine_fmt   TEXT;
+    v_sql         TEXT;
     r             RECORD;
 BEGIN
     -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
@@ -790,7 +791,11 @@ BEGIN
           AND p.pronargs = 1
           AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
     LOOP
-        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+        -- Build the statement first, then EXECUTE the variable: the plpgsql_check
+        -- profiler re-evaluates an EXECUTE's string expression after the statement
+        -- ran, and re-rendering r.sig after the DROP would yield a bare OID.
+        v_sql := 'DROP FUNCTION IF EXISTS ' || r.sig;
+        EXECUTE v_sql;
     END LOOP;
 
     -- Local term: own label value with '' folded to NULL (so it contributes nothing).

@@ -3,6 +3,7 @@ setlocal enabledelayedexpansion
 REM pg-ext-retest.cmd  -  Path B harness: prove the extension-installed `_core`
 REM is equivalent to the migrate-installed `_core` by running the SAME pgTAP
 REM suite on top of an EXTENSION install. See pg-ext-retest.sh for details.
+REM Extra arguments are forwarded to `deno task test` (e.g. --coverage).
 REM
 REM Fully non-interactive. Steps:
 REM   1. down -v        reset the ext stack (wipe the data volume). NOT
@@ -67,7 +68,7 @@ pushd "%REPO_ROOT%"
 call deno task migrate --apps nwind,test --database-url "%EXT_URL%" || (popd & goto :err)
 
 echo == [5/5] Running the pgTAP suite against the extension DB ==
-call deno task test --database-url "%EXT_URL%" || (popd & goto :err)
+call deno task test --database-url "%EXT_URL%" %* || (popd & goto :err)
 popd
 
 echo.
