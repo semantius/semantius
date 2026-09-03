@@ -11,11 +11,16 @@
 -- On self-hosted: You may need to run: ALTER ROLE your_role BYPASSRLS;
 -- Note: This verification will halt the script if BYPASSRLS is not available
 
+-- RAISE, not ASSERT: assertions are silently skipped when
+-- plpgsql.check_asserts is off, which would let the install proceed without
+-- BYPASSRLS and fail much later, in the dictionary's definer code (B11).
 DO $$
 BEGIN
-  ASSERT (
-    SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user
-  ), 'Current role does not have BYPASSRLS privilege';
+  IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'role "%" does not have BYPASSRLS, which the Semantius dictionary code requires', current_user
+      USING ERRCODE = '55000',
+            HINT = 'ALTER ROLE ' || quote_ident(current_user) || ' BYPASSRLS;';
+  END IF;
 END $$;
 
 

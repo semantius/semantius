@@ -2,7 +2,7 @@
  * Auto-generated SQL migrations bundle for @semantius/triggerdev.
  * DO NOT EDIT MANUALLY - regenerate with: deno task bundle-sql
  *
- * Generated: 2026-09-03T16:00:52.577Z
+ * Generated: 2026-09-03T20:44:28.413Z
  * Apps: 2  |  Migrations: 36
  */
 
@@ -60,8 +60,12 @@ BEGIN
             -- Grant authenticated to semantius_user
             GRANT semantius_user TO authenticated;
 
-            -- Grant semantius_user to current user
-            EXECUTE format('GRANT semantius_user TO %I', current_user);
+            -- Grant semantius_user to the installing role, but never to a
+            -- superuser: it already bypasses every check, and the membership
+            -- is a test artefact that survives DROP EXTENSION (B11).
+            IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+                EXECUTE format('GRANT semantius_user TO %I', current_user);
+            END IF;
         
         RAISE NOTICE 'Role semantius_user created with INHERIT and granted authenticated role';
     END IF;
@@ -295,8 +299,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
 
--- Grant schema usage to current user (database owner) for testing
-GRANT USAGE ON SCHEMA common TO CURRENT_USER;
+-- Grant schema usage to the installing role (database owner) for testing.
+-- Skipped for a superuser: it needs no grant and the ACL entry is a test
+-- artefact that outlives the extension (B11).
+DO $$
+BEGIN
+    IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+        EXECUTE format('GRANT USAGE ON SCHEMA common TO %I', current_user);
+    END IF;
+END $$;
 
 -- Do NOT grant execute permissions to semantius_user role
 -- This prevents access via PostgREST /rpc/ endpoints
@@ -2430,11 +2441,16 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
 -- On self-hosted: You may need to run: ALTER ROLE your_role BYPASSRLS;
 -- Note: This verification will halt the script if BYPASSRLS is not available
 
+-- RAISE, not ASSERT: assertions are silently skipped when
+-- plpgsql.check_asserts is off, which would let the install proceed without
+-- BYPASSRLS and fail much later, in the dictionary's definer code (B11).
 DO $$
 BEGIN
-  ASSERT (
-    SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user
-  ), 'Current role does not have BYPASSRLS privilege';
+  IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION 'role "%" does not have BYPASSRLS, which the Semantius dictionary code requires', current_user
+      USING ERRCODE = '55000',
+            HINT = 'ALTER ROLE ' || quote_ident(current_user) || ' BYPASSRLS;';
+  END IF;
 END $$;
 
 
@@ -8751,17 +8767,6 @@ COMMENT ON FUNCTION audit.current_user_id IS
 -- =====================================================
 -- STEP 5: DML audit trigger functions
 -- =====================================================
--- pg_semantius.skip_audit: when this setting is 'on' in a SUPERUSER session,
--- the three audit trigger functions below (rows, truncate, DDL) return
--- without logging. The generated extension script sets it for the duration
--- of CREATE EXTENSION / ALTER EXTENSION UPDATE, and the documented restore
--- procedure sets it for pg_restore (PGOPTIONS): the install's own
--- dictionary bookkeeping and the restore's own DDL are not user activity,
--- and their rows would take the ids that the audit rows copied back from a
--- dump need (both audit tables are registered with
--- pg_extension_config_dump). The superuser check is what stops a request
--- role from switching its own auditing off: session_user is the login role,
--- unaffected by SET ROLE, and never a superuser for application sessions.
 
 CREATE OR REPLACE FUNCTION audit.insert_update_delete_trigger()
     RETURNS TRIGGER
@@ -8778,13 +8783,6 @@ DECLARE
     v_record_pk TEXT;
     v_user_id INTEGER;
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN COALESCE(NEW, OLD);
-        END IF;
-    END IF;
-
     -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
@@ -8828,13 +8826,6 @@ CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN COALESCE(OLD, NEW);
-        END IF;
-    END IF;
-
     INSERT INTO public.audit_record_logs(
         op,
         user_id,
@@ -8941,13 +8932,6 @@ DECLARE
     obj RECORD;
     v_user_id INTEGER;
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN;
-        END IF;
-    END IF;
-
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
@@ -9193,15 +9177,20 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 ------------------------------------------------------------
 -- Schema, tables, records, privileges, indexes, etc
 ------------------------------------------------------------
--- When installed as an extension, we don't need to create the \`pgmq\` schema
--- because it is automatically created by postgres due to being declared in
--- the extension control file
+-- Semantius vendors pgmq rather than depending on the real extension. If the
+-- real one is installed, every \`CREATE OR REPLACE FUNCTION pgmq.*\` below would
+-- silently overwrite a member of that extension, so refuse instead (B4). The
+-- installer's own pre-flight raises the same 55000 earlier; this guard covers
+-- the CLI migrate path.
 DO
 $$
 BEGIN
-    IF (SELECT NOT EXISTS( SELECT 1 FROM pg_extension WHERE extname = 'pgmq')) THEN
-      CREATE SCHEMA IF NOT EXISTS pgmq;
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
+        RAISE EXCEPTION 'the pgmq extension is installed in this database; Semantius vendors its own pgmq schema and would overwrite it'
+            USING ERRCODE = '55000',
+                  HINT = 'DROP EXTENSION pgmq, or install Semantius into a different database';
     END IF;
+    CREATE SCHEMA IF NOT EXISTS pgmq;
 END
 $$;
 
@@ -9264,10 +9253,10 @@ CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
 -- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
 CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
 
--- pg_dump registration of pgmq.meta and pgmq.topic_bindings (upstream's
--- pg_extension_config_dump block) lives in the generated pg_semantius
--- extension script, see packages/cli/commands/extension-dump.ts. The
--- migrate path needs none: its tables are not extension members.
+-- No pg_dump registration is needed on either install path: these tables are
+-- ordinary objects, never extension members (the installer creates them from
+-- semantius.migrate(), outside any extension script), so pg_dump carries
+-- their rows by default.
 
 -- This type has the shape of a message in a queue, and is often returned by
 -- pgmq functions that return messages
@@ -14774,13 +14763,17 @@ DO $$
 DECLARE
     r RECORD;
 BEGIN
-    IF current_setting('is_superuser') <> 'on' THEN
+    -- rolsuper, not the is_superuser GUC: the GUC reports the OUTER user, so a
+    -- SECURITY DEFINER wrapper run by a non-superuser would report 'on' and
+    -- this block would try, and fail, to create a BYPASSRLS role. Same check
+    -- semantius.migrate() makes.
+    IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
         RAISE NOTICE 'owner hardening skipped: % is not a superuser, Semantius core objects stay owned by the installing role', current_user;
         RETURN;
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
-        CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+        CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT BYPASSRLS;
         COMMENT ON ROLE semantius_owner IS
             'Owner of the Semantius core objects and the role its SECURITY DEFINER dictionary code runs as. NOLOGIN, NOSUPERUSER, BYPASSRLS.';
         RAISE NOTICE 'Role semantius_owner created';

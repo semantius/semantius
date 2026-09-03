@@ -55,7 +55,15 @@ jobs:
           echo "Resolved Postgres major: $M"
 
       - name: Generate extension
-        run: deno task extension "${{ steps.ver.outputs.version }}"
+        run: deno task extension "${{ steps.ver.outputs.version }}" --strict
+        # --strict refuses to build when a migration that a PREVIOUS
+        # released version contained was edited in place or deleted:
+        # such a change is invisible to the upgrade script, so an
+        # existing installation would never receive it. It is inert
+        # while versions.json holds a single build (the check sits
+        # inside `if (prev)`), and becomes protective automatically at
+        # the second release. To hot-patch a released migration on
+        # purpose, drop the flag for that one release.
 
       # The step above REGENERATES extension/ on the runner. Without this guard
       # the release would publish whatever the runner produced, which is not
@@ -77,6 +85,13 @@ jobs:
           fi
           echo "extension/ matches the regenerated build"
 
+      # Checked out from a Windows repo, the harness scripts arrive as mode
+      # 100644 and will not run. `bash <script>` at the top level would not be
+      # enough either: pg-ext-retest.sh invokes ./pg-ext-create.sh itself.
+      # Harmless if the modes are ever fixed in git.
+      - name: Make the harness scripts executable
+        run: chmod +x pgdocker/*.sh
+
       # The suite runs here, against the tag, not in a separate workflow and not
       # on a pull request: a tag is a commit by definition, so this is the first
       # moment the artifact about to be published actually exists. Both harnesses
@@ -93,18 +108,53 @@ jobs:
       # release depends on that repo and on apt.postgresql.org being reachable.
       # If the suite fails, no release and no image are published; fix, and move
       # the tag.
-      # Checked out from a Windows repo, the harness scripts arrive as mode
-      # 100644 and will not run. `bash <script>` at the top level would not be
-      # enough either: pg-ext-retest.sh invokes ./pg-ext-create.sh itself.
-      # Harmless if the modes are ever fixed in git.
-      - name: Make the harness scripts executable
-        run: chmod +x pgdocker/*.sh
-
       - name: Suite on the extension install (Path B)
         run: ./pgdocker/pg-ext-retest.sh
 
       - name: Suite on the migrate install (Path A)
         run: ./pgdocker/pg-cli-retest.sh
+
+      # Both suites run inside a single database. This proves what they cannot
+      # see: the single-pass restore, DROP EXTENSION safety, and the refusals.
+      - name: Extension lifecycle (install, dump/restore, drop, uninstall)
+        run: ./pgdocker/pg-ext-lifecycle.sh
+
+      # pgxn_meta ships as a RUBY gem (pgxn_utils), not a PyPI package, so the
+      # spec validator is installed with gem. Whether or not it is available,
+      # the checks below always run: they assert the four specific defects that
+      # open item B10 named, which a generic spec validation would not catch.
+      - name: Validate the PGXN manifest
+        run: |
+          if gem install --no-document pgxn_utils >/dev/null 2>&1 \
+             && command -v pgxn_meta >/dev/null 2>&1; then
+            pgxn_meta validate extension/META.json
+          else
+            echo "::warning::pgxn_meta unavailable; running the B10 checks only"
+          fi
+          python3 - <<'PY'
+          import json, sys, os
+          m = json.load(open("extension/META.json"))
+          errors = []
+          for k in ("name", "version", "abstract", "maintainer", "license",
+                    "provides", "meta-spec"):
+              if k not in m:
+                  errors.append(f"missing required key: {k}")
+          url = m.get("resources", {}).get("repository", {}).get("url", "")
+          if url.startswith("git://"):
+              errors.append(f"repository url still uses git://: {url}")
+          if not any("@" in str(x) for x in m.get("maintainer", [])):
+              errors.append(f"no maintainer carries an email: {m.get('maintainer')}")
+          if "release_status" not in m:
+              errors.append("release_status is not set")
+          elif m["release_status"] not in ("stable", "testing", "unstable"):
+              errors.append(f"invalid release_status: {m['release_status']}")
+          if not os.path.exists("extension/CHANGES.md"):
+              errors.append("extension/CHANGES.md is missing from the archive inputs")
+          if errors:
+              sys.exit("META.json failed the B10 checks:\n  - " + "\n  - ".join(errors))
+          print(f"META.json passes: url={url}, release_status={m['release_status']}, "
+                f"maintainer={m['maintainer']}, CHANGES.md present")
+          PY
 
       - name: Package PGXN-style archive
         run: |
@@ -115,6 +165,7 @@ jobs:
              extension/pg_semantius.control \
              extension/Makefile \
              extension/README.md \
+             extension/CHANGES.md \
              SECURITY.md \
              LICENSE \
              "$DIST/"
@@ -136,7 +187,16 @@ jobs:
 
           **Install**
           - PGXN: \`pgxn install pg_semantius\`
-          - From this release: download \`pg_semantius-$V.zip\`, unzip, run \`make install\`, then \`CREATE EXTENSION pg_semantius CASCADE;\` (PostgreSQL 18, superuser).
+          - From this release: download \`pg_semantius-$V.zip\`, unzip, run \`make install\`.
+
+          Then, in the target database (PostgreSQL 18, superuser, UTF8), **two statements and no \`CASCADE\`**:
+
+          \`\`\`sql
+          CREATE EXTENSION pg_semantius;
+          SELECT semantius.migrate();
+          \`\`\`
+
+          \`CREATE EXTENSION\` creates only the cluster roles, the \`semantius\` schema and its functions; \`semantius.migrate()\` installs the core schema as ordinary objects, which is what makes a plain \`pg_dump\`, a single-pass \`pg_restore\` and a harmless \`DROP EXTENSION\` work.
 
           \`pg_semantius-$V.zip\` is also the PGXN distribution archive (contains META.json).
           EOF

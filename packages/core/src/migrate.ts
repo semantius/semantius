@@ -26,6 +26,11 @@ export interface DatabaseClient {
 
 /** Returns the SQL to create the _versions tracking table. */
 export function getVersionsTableSql(): string {
+  // `checksum` is the SHA-256 of the applied migration's LF-normalised text.
+  // Both install paths write it (this runner and the extension's
+  // semantius.migrate()), so semantius.status() can report a migration whose
+  // source changed after it was applied. ADD COLUMN IF NOT EXISTS keeps the
+  // statement idempotent for databases created before the column existed.
   return `CREATE TABLE IF NOT EXISTS _versions (
   name TEXT PRIMARY KEY,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -33,10 +38,30 @@ export function getVersionsTableSql(): string {
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
 
+ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
+
 ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
 }
 
-/** Ensures the _versions table exists, creating it if needed. */
+/** SHA-256 of the LF-normalised text, as written into `_versions.checksum`. */
+export async function migrationChecksum(content: string): Promise<string> {
+  const normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(normalised),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Ensures the _versions table exists and is up to date.
+ *
+ * The DDL runs unconditionally: every statement in it is idempotent, and a
+ * database created before `checksum` existed needs the ALTER to run too, or
+ * the INSERT below would fail on the missing column.
+ */
 export async function ensureVersionsTable(
   client: DatabaseClient,
 ): Promise<void> {
@@ -51,10 +76,8 @@ export async function ensureVersionsTable(
   const tableExists = await client.queryObject(checkTableQuery);
   const exists = (tableExists.rows[0] as { exists: boolean }).exists;
 
-  if (!exists) {
-    await client.queryObject(getVersionsTableSql());
-    console.info("Created _versions table");
-  }
+  await client.queryObject(getVersionsTableSql());
+  if (!exists) console.info("Created _versions table");
 }
 
 /**
@@ -187,8 +210,8 @@ export async function executeMigrations(
       await executeSQL(client, migration.content, migration.name);
 
       await client.queryObject(
-        `INSERT INTO public._versions (name) VALUES ($1)`,
-        [versionName],
+        `INSERT INTO public._versions (name, checksum) VALUES ($1, $2)`,
+        [versionName, await migrationChecksum(migration.content)],
       );
 
       // Notify PostgREST (if present) to reload its schema cache so the

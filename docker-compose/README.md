@@ -13,7 +13,7 @@ and so cannot live in a repo that has no source:
 
 | Script | Does |
 |---|---|
-| `test` | full pgTAP suite on a from-scratch stack: regenerate the extension, build the DB image from `../extension`, `create` the stack on it, `migrate --apps nwind,test`, run the suite. **DESTRUCTIVE** — wipes the stack's data volume |
+| `test` | full pgTAP suite on a from-scratch stack: regenerate the extension, build the DB image from `../extension`, `create` the stack on it (which runs `CREATE EXTENSION pg_semantius` then `SELECT semantius.migrate()`), `migrate --apps nwind,test`, run the suite. **DESTRUCTIVE** — wipes the stack's data volume |
 | `token` | mint a JWT for a test user via `../pgdocker/get_user_token.ts` |
 | `api-test` | HTTP/auth smoke test of a running stack (front door, `/rest/`, `/api-docs/`, token-authenticated calls) |
 

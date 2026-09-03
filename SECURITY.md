@@ -38,13 +38,25 @@ one of these is a vulnerability:
 - learn about rows they cannot read, through the audit log or the change
   queue;
 - leave privileges wider than documented after an install, upgrade, dump and
-  restore, or drop of the extension.
+  restore, or drop of the extension. `DROP EXTENSION` removes only the
+  `semantius` schema and its installer functions; it never touches data,
+  policies or grants.
 
 ## What is not
 
 These are documented behaviors rather than defects. If you think the reasoning
 is wrong, say so, but they will not be treated as vulnerabilities.
 
+- **A restore by a differently named superuser loses the installer's default
+  privileges.** The extension's `ALTER DEFAULT PRIVILEGES` entries bind to the
+  role that installed it, so restoring a dump as a superuser with a different
+  name leaves the four schemas and the event triggers owned by the restorer
+  and drops those entries, including `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`
+  in `public`. Functions created by hand afterwards are then PUBLIC-executable.
+  `semantius.status()` reports the drift. `pg_restore --no-owner` additionally
+  loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
+  would run as the restorer. Restore as the same superuser name, without
+  `--no-owner`.
 - **Session mode trusts the application tier.** When an application connects
   as `semantius_authenticator`, switches to the request role and writes the
   JWT claim settings itself, that application is the trust boundary: whoever

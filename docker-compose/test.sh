@@ -150,10 +150,15 @@ else
 fi
 
 echo "== [2/4] Waiting for the pg_semantius extension to install =="
+# The pg_extension row appears as soon as CREATE EXTENSION runs, but the core
+# schema only exists once semantius.migrate() has finished, so gate on a
+# migrated `_versions` instead of on the extension row alone.
 # Tolerate early connection refused / empty results while init runs.
 deadline=$(( SECONDS + 180 ))
 until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
-      "SELECT 1 FROM pg_extension WHERE extname='pg_semantius'" 2>/dev/null)" = "1" ]; do
+      "SELECT 1 FROM pg_extension e WHERE e.extname='pg_semantius'
+         AND to_regclass('public._versions') IS NOT NULL
+         AND EXISTS (SELECT 1 FROM public._versions WHERE name LIKE '_core.%')" 2>/dev/null)" = "1" ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "Timed out waiting for the pg_semantius extension to install." >&2
     docker compose --project-directory "$SELF_HOSTED_DIR" logs --tail 60 postgres || true

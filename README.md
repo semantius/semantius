@@ -193,11 +193,26 @@ pgxn install pg_semantius      # from PGXN
 make install
 ```
 
-Then, in the target database: `CREATE EXTENSION pg_semantius CASCADE;` — it creates
-its own `authenticated`/`semantius_user` roles and pulls in `pgcrypto`, so there's
-nothing to set up first. The [pgdocker](pgdocker/) stack can also build a
-ready-to-run image with the extension baked in — see `pg-ext-create` in
-[pgdocker/README.md](pgdocker/README.md#two-ways-to-load-semantius-core).
+Then, in the target database, two statements — and **no `CASCADE`**:
+
+```sql
+CREATE EXTENSION pg_semantius;   -- roles, the `semantius` schema, its functions
+SELECT semantius.migrate();      -- pgcrypto, schemas, dictionary, seed rows
+```
+
+`CREATE EXTENSION` is deliberately thin: it creates only the four cluster roles
+(`authenticated`, `semantius_user`, `semantius_authenticator`,
+`semantius_owner`), the `semantius` schema and its functions. `migrate()` then
+installs the core schema as **ordinary objects**, not extension members, which
+is what makes a plain `pg_dump`, a single-pass `pg_restore` and a harmless
+`DROP EXTENSION` work. `CASCADE` is omitted on purpose: it would install
+pgcrypto into the caller's default creation schema, while `migrate()` puts it
+in `public`, where the API-key code needs it.
+
+The [pgdocker](pgdocker/) stack can also build a ready-to-run image with the
+extension baked in — see `pg-ext-create` in
+[pgdocker/README.md](pgdocker/README.md#two-ways-to-load-semantius-core), and
+`pg-ext-lifecycle.sh` for the install/backup/restore/drop proof.
 
 ### Build & release (maintainers)
 
@@ -209,7 +224,11 @@ truth: the release workflow derives the version from it.
 Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)
 model: **one current full install plus an accumulated chain of upgrade scripts.**
 Because the `_core` migrations are append-only ordered deltas, both are derived
-automatically.
+automatically. An upgrade script is the same installer with
+`CREATE OR REPLACE` for the functions; `migrate()` is idempotent per migration,
+so one code path serves install, upgrade and re-run. Add `--strict` to fail
+instead of warn when a migration that a released version contained was edited
+or removed.
 
 ```bash
 deno task extension              # rebuild the current version (from the CLI package)

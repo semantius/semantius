@@ -43,6 +43,8 @@ interface CliArgs {
   script?: boolean;
   failfast?: boolean;
   coverage?: boolean;
+  /** `extension --strict`: fail instead of warn on edited/removed released migrations. */
+  strict?: boolean;
   "coverage-min"?: string;
   env?: string;
   "database-url"?: string;
@@ -167,7 +169,9 @@ COMMANDS:
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
     extension        Generate the PostgreSQL extension (control + SQL) into ./extension
-    extension <VER>  Generate the extension with an explicit version (e.g. 0.2.0)
+    extension <VER>  Generate the extension with an explicit version (e.g. 0.5.0)
+                     --strict fails (instead of warning) when a migration that
+                     a released version contained was edited or removed
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
     reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
     retest           ⚠️ Drop all, migrate --apps nwind,test, and run tests (requires --confirm)
@@ -192,7 +196,8 @@ EXAMPLES:
     deno task migrate --apps nwind --script
     deno task migrate --apps nwind --database-url postgresql://user:pass@host:5432/db
     deno task extension
-    deno task extension 0.2.0
+    deno task extension 0.5.0
+    deno task extension 0.5.0 --strict
     deno task extension --output ./extension
     deno task dropall --verbose
     deno task dropall --confirm
@@ -289,6 +294,7 @@ async function main(): Promise<void> {
       "script",
       "failfast",
       "coverage",
+      "strict",
     ],
     // "_" keeps positional args as strings; without it @std/flags coerces
     // numeric-looking positionals to numbers and drops leading zeros, which
@@ -385,6 +391,7 @@ async function main(): Promise<void> {
         version,
         name: "pg_semantius",
         outputDir: args.output || "./extension",
+        strict: args.strict === true,
       });
       break;
     }

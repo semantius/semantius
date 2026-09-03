@@ -16,7 +16,7 @@ volume the image, driven by a few env vars, sets up:
 
 | Baked-in step (`initdb/`) | Does |
 |---|---|
-| `10-install-extension.sql` | `CREATE EXTENSION pg_semantius CASCADE` → roles (NOLOGIN), schemas, data dictionary |
+| `10-install-extension.sql` | `CREATE EXTENSION pg_semantius` then `SELECT semantius.migrate()` → roles (NOLOGIN), schemas, data dictionary. No `CASCADE`: pgcrypto is created by `migrate()`, in `public`. |
 | `20-authenticator-login.sh` | flips `semantius_authenticator` to **LOGIN** + sets its password from `$SEMANTIUS_AUTHENTICATOR_PASSWORD` (the one secret-injecting shell step) |
 | `30-postgrest-anon.sql` | adds the PostgREST `anon` role (schema USAGE only) |
 | `40-nwind.sh` | **optional** — loads the Northwind demo module when `$NWIND` is set |

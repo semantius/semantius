@@ -31,8 +31,12 @@ BEGIN
             -- Grant authenticated to semantius_user
             GRANT semantius_user TO authenticated;
 
-            -- Grant semantius_user to current user
-            EXECUTE format('GRANT semantius_user TO %I', current_user);
+            -- Grant semantius_user to the installing role, but never to a
+            -- superuser: it already bypasses every check, and the membership
+            -- is a test artefact that survives DROP EXTENSION (B11).
+            IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+                EXECUTE format('GRANT semantius_user TO %I', current_user);
+            END IF;
         
         RAISE NOTICE 'Role semantius_user created with INHERIT and granted authenticated role';
     END IF;

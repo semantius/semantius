@@ -4,15 +4,20 @@
 ------------------------------------------------------------
 -- Schema, tables, records, privileges, indexes, etc
 ------------------------------------------------------------
--- When installed as an extension, we don't need to create the `pgmq` schema
--- because it is automatically created by postgres due to being declared in
--- the extension control file
+-- Semantius vendors pgmq rather than depending on the real extension. If the
+-- real one is installed, every `CREATE OR REPLACE FUNCTION pgmq.*` below would
+-- silently overwrite a member of that extension, so refuse instead (B4). The
+-- installer's own pre-flight raises the same 55000 earlier; this guard covers
+-- the CLI migrate path.
 DO
 $$
 BEGIN
-    IF (SELECT NOT EXISTS( SELECT 1 FROM pg_extension WHERE extname = 'pgmq')) THEN
-      CREATE SCHEMA IF NOT EXISTS pgmq;
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
+        RAISE EXCEPTION 'the pgmq extension is installed in this database; Semantius vendors its own pgmq schema and would overwrite it'
+            USING ERRCODE = '55000',
+                  HINT = 'DROP EXTENSION pgmq, or install Semantius into a different database';
     END IF;
+    CREATE SCHEMA IF NOT EXISTS pgmq;
 END
 $$;
 
@@ -75,10 +80,10 @@ CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
 -- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
 CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
 
--- pg_dump registration of pgmq.meta and pgmq.topic_bindings (upstream's
--- pg_extension_config_dump block) lives in the generated pg_semantius
--- extension script, see packages/cli/commands/extension-dump.ts. The
--- migrate path needs none: its tables are not extension members.
+-- No pg_dump registration is needed on either install path: these tables are
+-- ordinary objects, never extension members (the installer creates them from
+-- semantius.migrate(), outside any extension script), so pg_dump carries
+-- their rows by default.
 
 -- This type has the shape of a message in a queue, and is often returned by
 -- pgmq functions that return messages

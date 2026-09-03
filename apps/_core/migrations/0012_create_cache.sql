@@ -96,8 +96,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
 
--- Grant schema usage to current user (database owner) for testing
-GRANT USAGE ON SCHEMA common TO CURRENT_USER;
+-- Grant schema usage to the installing role (database owner) for testing.
+-- Skipped for a superuser: it needs no grant and the ACL entry is a test
+-- artefact that outlives the extension (B11).
+DO $$
+BEGIN
+    IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+        EXECUTE format('GRANT USAGE ON SCHEMA common TO %I', current_user);
+    END IF;
+END $$;
 
 -- Do NOT grant execute permissions to semantius_user role
 -- This prevents access via PostgREST /rpc/ endpoints

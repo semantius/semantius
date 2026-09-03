@@ -1,0 +1,137 @@
+# =============================================================================
+# test.yml - full verification of a CONTRIBUTOR pull request.
+# =============================================================================
+# Trigger is `pull_request` ONLY, deliberately.
+#
+# The maintainer works directly on `main` and tags releases; that workflow is
+# unchanged by this file and must stay that way. Nothing here runs on a push,
+# so a direct commit to `main` costs no CI time. The release gate in
+# extension-release.yml is what protects the maintainer's path: it runs these
+# same checks on the tag, and refuses to publish if any of them fail.
+#
+# This file exists for the other case: a pull request from a contributor, whose
+# work has never run on the maintainer's machine. It runs the same checks
+# before review, on a clean Linux runner - which also catches the class of
+# problem a Windows checkout hides, such as missing executable bits or CRLF
+# leaking into generated files.
+#
+# extension-release.yml deliberately does NOT depend on this workflow: a
+# release must be self-contained and must not require a pull request to have
+# happened first.
+# =============================================================================
+name: Test
+
+on:
+  pull_request:
+  workflow_dispatch:   # so the maintainer can run it by hand when useful
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # The version under test is whatever the committed control file says, so
+      # a PR is checked against the build it actually contains.
+      - name: Resolve version
+        id: ver
+        run: |
+          V="$(sed -nE "s/^default_version = '(.*)'/\1/p" extension/pg_semantius.control)"
+          [ -n "$V" ] || { echo "could not read default_version from the control file" >&2; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Testing pg_semantius $V"
+
+      - name: Regenerate the extension
+        run: deno task extension "${{ steps.ver.outputs.version }}" --strict
+        # --strict refuses to build when a migration that a PREVIOUS
+        # released version contained was edited in place or deleted:
+        # such a change is invisible to the upgrade script, so an
+        # existing installation would never receive it. It is inert
+        # while versions.json holds a single build (the check sits
+        # inside `if (prev)`), and becomes protective automatically at
+        # the second release. To hot-patch a released migration on
+        # purpose, drop the flag for that one pull request.
+
+      # Same guard as the release job: a PR that edits a migration without
+      # regenerating extension/ would otherwise pass its tests and then break
+      # the release. `git status --porcelain`, not `git diff`, because the
+      # generator also writes new upgrade scripts and prunes old full installs.
+      - name: Committed build must equal the regenerated one
+        run: |
+          if [ -n "$(git status --porcelain -- extension/)" ]; then
+            git status --porcelain -- extension/
+            git diff -- extension/ || true
+            echo '::error::extension/ differs from the regenerated build; run `deno task extension ${{ steps.ver.outputs.version }}` and commit the result'
+            exit 1
+          fi
+          echo "extension/ matches the regenerated build"
+
+      # Committed from Windows as mode 100644; pg-ext-retest.sh also invokes
+      # ./pg-ext-create.sh itself, so prefixing `bash` would not be enough.
+      - name: Make the harness scripts executable
+        run: chmod +x pgdocker/*.sh
+
+      # Path B is the artifact that ships; --coverage also proves the coverage
+      # universe is non-empty, which the thin installer changed.
+      - name: Suite on the extension install (Path B, with coverage)
+        run: ./pgdocker/pg-ext-retest.sh --coverage
+
+      # Path A is what Path B is compared against: if they diverge, the
+      # "extension-installed core == migrate-installed core" promise is broken.
+      - name: Suite on the migrate install (Path A)
+        run: ./pgdocker/pg-cli-retest.sh
+
+      # What the suites cannot see from inside one database: single-pass
+      # restore, DROP EXTENSION safety, the uninstall recipe, the refusals,
+      # and the schema equivalence of the two install paths.
+      - name: Extension lifecycle
+        run: ./pgdocker/pg-ext-lifecycle.sh
+
+      - name: Validate the PGXN manifest
+        run: |
+          if gem install --no-document pgxn_utils >/dev/null 2>&1 \
+             && command -v pgxn_meta >/dev/null 2>&1; then
+            pgxn_meta validate extension/META.json
+          else
+            echo "::warning::pgxn_meta unavailable; running the B10 checks only"
+          fi
+          python3 - <<'PY'
+          import json, sys, os
+          m = json.load(open("extension/META.json"))
+          errors = []
+          for k in ("name", "version", "abstract", "maintainer", "license",
+                    "provides", "meta-spec"):
+              if k not in m:
+                  errors.append(f"missing required key: {k}")
+          url = m.get("resources", {}).get("repository", {}).get("url", "")
+          if url.startswith("git://"):
+              errors.append(f"repository url still uses git://: {url}")
+          if not any("@" in str(x) for x in m.get("maintainer", [])):
+              errors.append(f"no maintainer carries an email: {m.get('maintainer')}")
+          if "release_status" not in m:
+              errors.append("release_status is not set")
+          elif m["release_status"] not in ("stable", "testing", "unstable"):
+              errors.append(f"invalid release_status: {m['release_status']}")
+          if not os.path.exists("extension/CHANGES.md"):
+              errors.append("extension/CHANGES.md is missing from the archive inputs")
+          if errors:
+              sys.exit("META.json failed the B10 checks:\n  - " + "\n  - ".join(errors))
+          print(f"META.json passes: url={url}, release_status={m['release_status']}, "
+                f"maintainer={m['maintainer']}, CHANGES.md present")
+          PY
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore

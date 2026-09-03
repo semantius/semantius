@@ -31,13 +31,17 @@ DO $$
 DECLARE
     r RECORD;
 BEGIN
-    IF current_setting('is_superuser') <> 'on' THEN
+    -- rolsuper, not the is_superuser GUC: the GUC reports the OUTER user, so a
+    -- SECURITY DEFINER wrapper run by a non-superuser would report 'on' and
+    -- this block would try, and fail, to create a BYPASSRLS role. Same check
+    -- semantius.migrate() makes.
+    IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
         RAISE NOTICE 'owner hardening skipped: % is not a superuser, Semantius core objects stay owned by the installing role', current_user;
         RETURN;
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
-        CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+        CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT BYPASSRLS;
         COMMENT ON ROLE semantius_owner IS
             'Owner of the Semantius core objects and the role its SECURITY DEFINER dictionary code runs as. NOLOGIN, NOSUPERUSER, BYPASSRLS.';
         RAISE NOTICE 'Role semantius_owner created';

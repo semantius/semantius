@@ -158,9 +158,10 @@ ON CONFLICT (name) DO NOTHING;
 ```
 
 `_settings` is deny-all for `semantius_user` and read only through SECURITY
-DEFINER code. It is registered with `pg_extension_config_dump` (every row
-except `db_version` is dumped, see `packages/cli/commands/extension-dump.ts`),
-so the secret survives dump and restore. Rotating the row invalidates every
+DEFINER code. Since the 2026-09-03 extension rebuild it is an ordinary table
+on both install paths — never an extension member — so `pg_dump` carries its
+rows by default and no `pg_extension_config_dump` registry is involved;
+the secret survives dump and restore. Rotating the row invalidates every
 in-flight cache, which only forces a rebuild. If the row is missing, the
 signer returns NULL and the cache is never trusted, so a broken install
 degrades to "slow", never to "open".

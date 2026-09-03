@@ -2,7 +2,7 @@
 
 Measured on 2026-09-02 with `deno task test --coverage` against a throwaway
 `postgres:18` container (PostgreSQL 18.6, plpgsql_check 2.10.4) on which the
-extension was installed with `CREATE EXTENSION pg_semantius CASCADE` and the
+extension was installed with `CREATE EXTENSION pg_semantius` + `SELECT semantius.migrate()` and the
 `nwind,test` apps were migrated on top (the "Path B" layout of
 `pgdocker/pg-ext-retest.sh`). The migrate-installed layout (Path A) gives the
 same function/statement numbers. Suite: 71 files, 1,840 assertions, all green.
@@ -131,9 +131,10 @@ Security-relevant uncovered paths inside these:
 - Large inputs (deep JsonLogic, huge enums, long text), DD failure mid-way.
 - Extension lifecycle: `ALTER EXTENSION ... UPDATE`, `DROP EXTENSION`,
   non-superuser install, `CREATE EXTENSION ... SCHEMA x` (covered by the
-  packaging review, not by pgTAP). `pg_dump`/`pg_restore` into a second
-  database on one cluster is covered by `pgdocker/pg-ext-dump-restore.sh`
-  since 2026-09-03; `0440` pins the `pg_extension_config_dump` registration.
+  packaging review, not by pgTAP). Install, `pg_dump`/single-pass
+  `pg_restore`, `DROP EXTENSION`, the uninstall recipe, schema pinning and the
+  refusals are covered by `pgdocker/pg-ext-lifecycle.sh` since 2026-09-03;
+  `0440` pins the extension-membership invariants inside the suite.
 - Ten files run as the RLS-exempt owner (`0015, 0060, 0130, 0180, 0200, 0240,
   0305, 0336, 0385, 0990`); their table accesses do not exercise policies.
 
@@ -144,7 +145,7 @@ Security-relevant uncovered paths inside these:
 | `0306_test_pgmq_operations.sql` | 28 vendored pgmq functions: send_batch, read_with_poll, set_vt, pop, archive/delete (array forms), purge_queue, metrics, list_queues, drop_queue, topic routing, insert-notify throttle |
 | `0405_test_rbac_helpers.sql` | `rbac.has_any_permission`, `require_any_permission`, `user_has_permission`, `get_current_user_permissions`, `validate_oauth_scopes`, `whoami`, the OAuth-scope branches of `has_permission`, `public.ping` |
 | `0410_test_uid_claim_paths.sql` | the Supabase-style `request.jwt.claims` blob path of `rbac.uid()` and the JSON-scalar audience form |
-| `0440_test_config_dump.sql` | on the extension install: every member table and sequence is registered with `pg_extension_config_dump` or a documented transient, the seed filters keep the seeded rows out and everything else in, the conditions run under pg_dump's `search_path = pg_catalog`; on both installs: `pg_semantius.skip_audit` silences the three audit trigger functions in a superuser session |
+| `0440_test_extension_membership.sql` | on the extension install: the only members are the `semantius` schema and its functions, no core relation or function belongs to an unexpected extension, `extconfig IS NULL`, the extension is pinned to `public` and not relocatable, every installer function is non-PUBLIC / not SECURITY DEFINER / search_path-pinned / commented, `pending()` is empty, a non-superuser is refused, and `DROP EXTENSION` (rolled back) leaves every relation, policy, trigger, event trigger and `_versions` row intact; on both installs: every applied `_core` row carries a checksum and `pg_semantius.skip_audit` no longer silences the audit triggers |
 | `0415_test_queue_rpc_mutators.sql` | `queue_pop`, `queue_archive`, `queue_delete` (admin path); since 2026-09-03 also `queue_authorize`, `queue_validate_permissions` and the `queue_read` clamps (release review S4: denied, view-only and manage paths for user1/user2) |
 | `0420_test_audit_truncate.sql` | `audit.truncate_trigger` |
 | `0435_test_bearer_context_bypass.sql` | `rbac.is_bearer_session`, `rbac.user_id_or_null`, the `permission_cache` row of `whoami`, `audit.current_user_id` and the generated compute/validate trigger deriving `$user_id` through rbac (release review S2). The bearer bypass itself is not reachable from pgTAP (`system_user` cannot be faked); it was verified once by running the suite with the detector forced on, see the review's Fix status. |
@@ -166,6 +167,7 @@ Still never called after these: 37 pgmq functions
 | 2026-09-03 | 183/294 (62.2%) | not measured (plpgsql_check absent from the extension image on this run) | 2,018 | after the S2 bearer-session cache bypass and test 0435 (two new functions in the universe) |
 | 2026-09-03 | 186/295 (63.1%) | not measured (plpgsql_check absent from the extension image) | 2,083 | after the P1 InitPlan policy form and test 0445; also includes 0440 and the 0415 additions made since the previous row |
 | 2026-09-03 | 186/295 (63.1%) | 1,823/2,171 (84.0%) | 2,083 | same suite, statements measurable again: `postgresql-18-plpgsql-check` added to `pgdocker/Dockerfile` (R5), so both pgdocker stacks report statement data without a throwaway container |
+| 2026-09-03 | 186/295 (63.1%) | 1,816/2,162 (84.0%) | 2,079 | after the extension rebuild (0.5.0, thin installer). The four fewer assertions are `0440_test_config_dump.sql` (33) replaced by `0440_test_extension_membership.sql` (29); the smaller universe is the removed `pg_extension_config_dump` scaffolding. The coverage universe is now the five core schemas on BOTH install paths - deriving it from extension membership would report four objects, since the extension's only members are the `semantius` schema and its functions. |
 
 Re-run `pgdocker/pg-ext-retest.sh --coverage` after adding tests and append a
 row.

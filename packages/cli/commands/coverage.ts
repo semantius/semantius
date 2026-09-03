@@ -476,12 +476,13 @@ export class CoverageCollector {
       };
     }
 
-    const ext = await this.rows<{ extname: string }>(
-      `SELECT extname FROM pg_catalog.pg_extension WHERE extname = 'pg_semantius'`,
-    );
-    this.caps.universe = ext.length > 0
-      ? { mode: "extension", extension: "pg_semantius" }
-      : { mode: "schemas", schemas: CORE_SCHEMAS };
+    // Always the schema universe. It used to switch to extension membership
+    // when pg_semantius was installed, but the extension is now a THIN
+    // INSTALLER: its only members are the `semantius` schema and a handful of
+    // installer functions, so the membership universe would report ~4 objects
+    // and miss every core function the suite actually exercises. Both install
+    // layouts produce the same ordinary objects in the same five schemas.
+    this.caps.universe = { mode: "schemas", schemas: CORE_SCHEMAS };
 
     const parts: string[] = [];
     parts.push(

@@ -319,7 +319,8 @@ deno task extension          # writes ../extension/{pg_semantius.control, pg_sem
 
 The extension variant uses a separate compose file
 ([docker-compose.ext.yml](docker-compose.ext.yml)) and Dockerfile
-([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION pg_semantius CASCADE`
+([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION pg_semantius`
+followed by `SELECT semantius.migrate()` (no `CASCADE`)
 via [init-ext/20-extension.sql](init-ext/20-extension.sql). It has the **same full
 set of lifecycle scripts** as the CLI stack, under the `pg-ext-*` prefix
 (`pg-ext-start`, `pg-ext-stop`, `pg-ext-status`, `pg-ext-test`, `pg-ext-delete`) —
@@ -384,33 +385,43 @@ install itself (`_core/0050` attaches an RLS policy to `_versions`).
 `migrate --apps nwind,test` + `test` steps stays green (migrate reports
 `test`/`nwind` already applied and the tests roll back cleanly).
 
-### Backup and restore round trip
+### Extension lifecycle: install, backup, restore, drop, uninstall
 
-`pg-ext-dump-restore.sh` (no `.cmd` variant) proves that a `pg_dump` of the
-extension-installed database restores without loss, the way the extension
-README documents it. It runs against the container `pg-ext-retest` leaves
-behind (extension plus `nwind,test` as the sample data): it snapshots the row
-count of every member table registered for `pg_dump`, the state of every
-registered sequence and the row counts of all dictionary tables and user
-queues, takes a custom-format dump, restores it into a second database on the
-same cluster in the documented three passes (`--section=pre-data`,
-`--data-only --disable-triggers`, `--section=post-data`, each with
-`PGOPTIONS='-c pg_semantius.skip_audit=on'`) and diffs the two snapshots.
+`pg-ext-lifecycle.sh` (no `.cmd` variant) proves the properties the pgTAP
+suite cannot see from inside one database. It runs against the container
+`pg-ext-create.sh` leaves behind and uses scratch databases of its own, so it
+does not disturb `appdb`:
+
+| Step | Proves |
+|---|---|
+| 0 | the control file (`schema = public`, `encoding = 'UTF8'`, no `requires`) and a generated script with no `skip_audit` |
+| 1 | two-statement install with no CASCADE; members are only the schema and its functions; all 52 core relations are non-members; `extconfig IS NULL` |
+| 1b | a second database on the same cluster, with the roles already present (B11) |
+| 1c | two concurrent `migrate()` callers serialise on the advisory lock |
+| 1d | `psql -1` installs; a rolled-back `migrate()` leaves nothing behind |
+| 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity (B16) |
+| 2b | the same dump through `-Fp \| psql`, `-j 4` and `-1` |
+| 4 | `DROP EXTENSION` is inert, with and without CASCADE |
+| 4b | the documented uninstall recipe leaves no leftovers |
+| 6 | schema pinning: a non-`public` search_path installs, `SCHEMA other` is refused (B2) |
+| 6b | hostile `PGOPTIONS` produce a byte-identical install |
+| 7 | refusals: a real `pgmq`, a misplaced `pgcrypto`, `migrate()` inside an extension script |
+| 8 | privileges: a request role cannot reach `migrate()`, and a granted non-superuser still hits the superuser gate (B15) |
+| 8b | a squatted `semantius_owner` is refused |
+| 9 | LATIN1 and SQL_ASCII databases are refused (B9) |
 
 ```bash
-./pg-ext-retest.sh                  # first: fresh extension stack with the sample data
-./pg-ext-dump-restore.sh            # dump, three-pass restore, exact comparison
-./pg-ext-dump-restore.sh --suite    # also run the pgTAP suite against the restored database
-./pg-ext-dump-restore.sh --keep     # keep appdb_restore for inspection
+./pg-ext-create.sh                  # first: an extension stack to run against
+./pg-ext-lifecycle.sh               # the whole lifecycle; exits 1 on any failure
+./pg-ext-lifecycle.sh --keep        # keep the scratch databases for triage
 ```
 
-Any restore error or difference exits 1. The registry of dumped tables and
-their seed filters lives in `packages/cli/commands/extension-dump.ts`. The
-generated install script refuses to install when a member table is neither
-registered nor listed as transient, or when a registered filter still selects
-a row the install seeds (right after the install the tables hold nothing else,
-so every filter must select zero rows); `apps/test/tests/0440_test_config_dump.sql`
-pins the same rules on the suite's data.
+It replaced `pg-ext-dump-restore.sh`, which existed only to drive the old
+three-pass restore. That procedure is gone: because `migrate()` creates the
+core schema as ordinary objects rather than extension members, a plain
+`pg_dump` and a single `pg_restore` round-trip everything, and
+`apps/test/tests/0440_test_extension_membership.sql` pins the membership
+invariants the round trip depends on.
 
 ### Just deploy a module (no reset, no tests)
 

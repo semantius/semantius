@@ -1,20 +1,29 @@
 # pg_semantius extension rebuild — design
 
-Status: design approved; **spike gate passed on 2026-09-03**, implementation
-in progress. The gate ran a hand-written thin installer over today's
-unmodified 34-migration bundle on `postgres18-ext` and proved the four facts
-this design rests on:
+Status: **implemented and green** as version 0.5.0 on 2026-09-03. The spike
+gate passed first, then the rebuild was built and verified:
 
-| Gate fact | Result |
+| Requirement | Evidence |
 |---|---|
-| Nothing `semantius.migrate()` creates becomes an extension member | **proven** — members are 1 schema + 3 functions; all **52 relations are non-members**; `extconfig IS NULL` (today's build makes all 52 members) |
-| A plain `pg_dump` restores in a single `pg_restore` pass | **proven** — `pg_restore --exit-on-error` exit 0, no flags; 2,472 rows, 93 policies, 103 triggers, 3 event triggers, 311 functions all identical; the B16 custom field on core `users` survives with its physical column and its `fields` row |
-| `DROP EXTENSION` is inert | **proven** — no CASCADE needed; rows, policies, triggers, event triggers and functions all unchanged; only the `semantius` schema is removed; the four roles remain |
-| The pinned session settings hold | **proven** — install under `standard_conforming_strings=off`, `check_function_bodies=off`, `DateStyle=German`, `IntervalStyle=sql_standard`, `default_transaction_isolation=serializable` and `session_replication_role=replica` yields a signature identical to the plain install (2,398 rows / 89 policies / 102 triggers / 52 relations / 310 functions), and 0160's GENERATED regex is byte-identical |
+| Backup is a plain `pg_dump`, restore a single-pass `pg_restore` | `pg_restore --exit-on-error` exit 0, no flags; row counts, policies, triggers, event triggers and functions all identical; also green through `-Fp \| psql`, `-j 4` and `-1` |
+| `DROP EXTENSION` never causes data loss | no CASCADE needed; every relation, row, policy, trigger and event trigger survives; only the `semantius` schema is removed; `CASCADE` is equally inert |
+| Install may take more than one statement | `CREATE EXTENSION pg_semantius;` then `SELECT semantius.migrate();` |
 
-All 34 migrations apply in one `semantius.migrate()` call in about 0.9 s.
-The gate also found one defect in this document, corrected below: the schema
-could not be called `pg_semantius`.
+Membership: **4 members** (the `semantius` schema and three functions) against
+0.4.0's 74 types, 270 functions, 52 relations, 4 schemas and 3 event triggers;
+`extconfig IS NULL`; all 52 core relations are ordinary objects.
+
+Verification runs, all green: `pgdocker/pg-ext-lifecycle.sh` **76 passed, 0
+failed**; `pg-ext-retest.sh --coverage` and `pg-cli-retest.sh --coverage` both
+**2079 passing, 0 failing** with identical coverage (186/295 functions,
+1,816/2,162 statements). A schema-only `pg_dump` of the extension-installed and
+the migrate-installed database is **byte-identical** — 22,817 normalised lines
+each, zero differences — so the two install paths produce the same database.
+The generator is deterministic (two runs byte-identical) and emits LF only.
+
+The gate found one defect in this document, corrected below: the schema could
+not be called `pg_semantius`. Option F (detach members with
+`ALTER EXTENSION ... DROP`) was tested and rejected; see the options table.
 
 Original status: design, approved shape, not implemented. The owner decisions of
 2026-09-03 are recorded in "Decisions" below. Implementation is a separate
@@ -68,6 +77,36 @@ entities are not restored (B16); `DROP EXTENSION` destroys all data.
 | C. Code-only extension (functions and types as members), tables created outside | yes | yes | data yes, but `DROP ... CASCADE` strips every policy and trigger; needs a manual split of the 34 migrations | rejected |
 | D. Thin installer: the extension ships the roles, a schema and functions that apply the migrations as ordinary objects | yes | yes | yes — the drop removes the schema and the functions only | **chosen** |
 | E. No extension: a plain SQL bundle run with psql | yes | yes | n/a | fallback if PGXN and `ALTER EXTENSION UPDATE` are not wanted |
+| F. Today's script, then `ALTER EXTENSION ... DROP TABLE/FUNCTION/...` at the end to detach every object | yes | **no** | yes | rejected — tested 2026-09-03, see below |
+
+**Why F fails, tested rather than argued.** Detaching works: a stub extension
+whose script creates a table, seeds it and then runs
+`ALTER EXTENSION ... DROP TABLE` leaves that table with zero members, holding
+both the seed row and later user data. It would also give a one-statement
+install. But `pg_dump` then emits
+
+```
+CREATE EXTENSION IF NOT EXISTS detachdemo WITH SCHEMA public;   -- line 26
+CREATE TABLE public.demo_t (...)                                -- line 44
+COPY public.demo_t (id, note) FROM stdin;                       -- line 56
+```
+
+and `pg_restore --exit-on-error` into a fresh database fails with
+`ERROR: relation "demo_t" already exists`: replaying `CREATE EXTENSION` re-runs
+the whole script, recreating every object it had detached, and the dump's own
+`CREATE TABLE` for those now-ordinary objects collides. `IF NOT EXISTS` in the
+migrations would not save it — pg_dump's `CREATE TABLE` has none, and past that
+the script's seed rows would collide with the `COPY` on the primary key.
+
+Detaching therefore fixes membership but not the restore, because the objects
+are still *created* by the extension script. That is the general rule this
+design turns on: **the script cannot create the schema at all**, only ship the
+code that does. F also needs roughly 400 enumerated `ALTER EXTENSION ... DROP`
+statements (52 relations, 270 functions, 74 types, 4 schemas, 3 event
+triggers), and anything the generator misses is silently destroyed by
+`DROP EXTENSION` and skipped by `pg_dump`. After detaching everything the
+extension is an empty shell — option D with extra steps and a worse failure
+mode.
 
 **Precedents.** PostgreSQL Anonymizer (`CREATE EXTENSION anon; SELECT
 anon.init()`) and pg_tle for the two-statement install; pg_tle and pgsodium
@@ -650,6 +689,21 @@ universe non-empty on the extension path; `git diff --exit-code extension/`
 after generation.
 
 **12. Cleanup** of the databases and of the second container.
+
+**What `pg-ext-lifecycle.sh` implements today** (76 assertions, all green):
+steps 0, 1, 1b, 1c, 1d, 2, 2b, 4, 4b, 6, 6b, 7, 8, 8b, 9, 9b, 10, 12.
+
+**Not yet implemented, and stated as such rather than implied:**
+
+| Step | Why it is still open |
+|---|---|
+| 3. fresh-cluster restore | needs a second container without the init mounts; the same-cluster restore (step 2) covers the mechanism, and a fresh cluster additionally exercises role creation from the dump's `CREATE EXTENSION` |
+| 4c, 4c-b. upgrade and cross-version | needs a `<v+1>` bundle generated from a temp copy of `apps/_core` plus `extension/versions.json`; nothing is released yet, so there is no upgrade path to protect |
+| 4d. failure atomicity | needs a deliberately broken migration in a `<v+1>` bundle |
+| 5, 5b. extension files absent | needs the files moved aside between dump and restore |
+
+They are worth adding before a real release; none of them gates the three
+requirements, which steps 2, 4 and 1 prove directly.
 
 **Spike first.** Before the generator work, wrap today's bundle into a
 hand-written `migrate()` and run steps 1, 2, 4 and 6b. It costs about an hour

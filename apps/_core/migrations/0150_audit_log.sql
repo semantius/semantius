@@ -221,17 +221,6 @@ COMMENT ON FUNCTION audit.current_user_id IS
 -- =====================================================
 -- STEP 5: DML audit trigger functions
 -- =====================================================
--- pg_semantius.skip_audit: when this setting is 'on' in a SUPERUSER session,
--- the three audit trigger functions below (rows, truncate, DDL) return
--- without logging. The generated extension script sets it for the duration
--- of CREATE EXTENSION / ALTER EXTENSION UPDATE, and the documented restore
--- procedure sets it for pg_restore (PGOPTIONS): the install's own
--- dictionary bookkeeping and the restore's own DDL are not user activity,
--- and their rows would take the ids that the audit rows copied back from a
--- dump need (both audit tables are registered with
--- pg_extension_config_dump). The superuser check is what stops a request
--- role from switching its own auditing off: session_user is the login role,
--- unaffected by SET ROLE, and never a superuser for application sessions.
 
 CREATE OR REPLACE FUNCTION audit.insert_update_delete_trigger()
     RETURNS TRIGGER
@@ -248,13 +237,6 @@ DECLARE
     v_record_pk TEXT;
     v_user_id INTEGER;
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN COALESCE(NEW, OLD);
-        END IF;
-    END IF;
-
     -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
@@ -298,13 +280,6 @@ CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN COALESCE(OLD, NEW);
-        END IF;
-    END IF;
-
     INSERT INTO public.audit_record_logs(
         op,
         user_id,
@@ -411,13 +386,6 @@ DECLARE
     obj RECORD;
     v_user_id INTEGER;
 BEGIN
-    -- Install / restore time (see the note above STEP 5).
-    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
-        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
-            RETURN;
-        END IF;
-    END IF;
-
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)

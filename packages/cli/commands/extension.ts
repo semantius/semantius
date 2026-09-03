@@ -6,8 +6,8 @@
  * the `migrate` deploy used for Neon/Supabase. It does not replace anything.
  *
  * It generates, into the output directory (default ./extension):
- *   - <name>.control            extension metadata (default_version, requires, ...)
- *   - <name>--<version>.sql      current full install (concatenated migrations)
+ *   - <name>.control            extension metadata (default_version, schema, ...)
+ *   - <name>--<version>.sql      current full install (thin installer)
  *   - <name>--<prev>--<version>.sql  upgrade script (migrations added since prev)
  *   - versions.json             manifest of each version's migration set + hashes
  *   - META.json                 PGXN distribution manifest
@@ -20,34 +20,56 @@
  * automatically — the upgrade script is just the migrations added since the prior
  * version (per versions.json); editing a released migration is detected and warned.
  *
- * The transformation from migrations to SQL is intentionally small: the migration
- * files are already pure SQL executable as a single query (that is how
- * `executeMigrations` runs them), so we concatenate them in filename order and
- * only:
- *   - lift `CREATE EXTENSION ... <dep>` statements into the control `requires`
- *     list (you cannot nest CREATE EXTENSION inside an extension script), and
- *   - prepend the `_versions` tracking table and seed its run-once guard rows
- *     (the one piece of migrate-runner scaffolding the `_core` migrations
- *     actually depend on — `_core/0050` attaches an RLS policy to `_versions`,
- *     and seeding the rows lets a later `migrate` skip the already-applied
- *     `_core` migrations instead of re-running them),
- *   - silence the audit triggers for the duration of the script
- *     (`SET LOCAL pg_semantius.skip_audit = on`, honoured by `_core/0150` in
- *     superuser sessions) so the install's own dictionary bookkeeping does not
- *     land in `audit_record_logs`/`audit_ddl_logs`, where it would take the
- *     ids of the rows a restore copies back in, and
- *   - append the `pg_extension_config_dump` registration (extension-dump.ts)
- *     so pg_dump includes the member tables' rows,
- *   but add NO `NOTIFY pgrst` or BEGIN/COMMIT wrapping (CREATE EXTENSION runs
- *   in one transaction and pg_extension tracks the version).
+ * SHAPE: a THIN INSTALLER, not a concatenation of the migrations.
+ *
+ * The script creates only the cluster roles, the `semantius` schema and that
+ * schema's functions. Everything else — 52 relations, their triggers, policies
+ * and seed rows — is created later by `semantius.migrate()`, which runs OUTSIDE
+ * any extension script, so none of it becomes an extension member. That single
+ * property is what makes a plain `pg_dump`/single-pass `pg_restore` work and
+ * `DROP EXTENSION` harmless; see plans/pg_semantius-extension-rebuild.md.
+ *
+ * Install is therefore two statements:
+ *   CREATE EXTENSION pg_semantius;
+ *   SELECT semantius.migrate();
+ *
+ * The migration text is embedded VERBATIM in dollar-quoted EXECUTE blocks: no
+ * rewriting, no lifting of CREATE EXTENSION (0010 creates pgcrypto itself,
+ * inside migrate(), under a pinned `search_path = public`), no audit silencer,
+ * no `pg_extension_config_dump` (there are no member tables to register).
+ *
+ * The schema is `semantius`, not `pg_semantius`: PostgreSQL reserves the `pg_`
+ * prefix for system schemas. The extension keeps the `pg_semantius` name.
  */
 
 import { getVersionsTableSql } from "@semantius/core";
-import { renderConfigDump } from "./extension-dump.ts";
 
 interface MigrationFile {
   name: string;
   content: string;
+}
+
+/**
+ * The schema the installer owns. NOT `pg_semantius`: PostgreSQL refuses
+ * `CREATE SCHEMA pg_semantius` with `unacceptable schema name / The prefix
+ * "pg_" is reserved for system schemas`. Extension names and custom GUC
+ * classes may use the prefix; schema names may not.
+ */
+const INSTALLER_SCHEMA = "semantius";
+
+/** Schemas the migrations create, checked for stray extension membership. */
+const CORE_SCHEMAS = ["public", "common", "rbac", "audit", "pgmq"];
+
+/** Extensions allowed to own objects in those schemas after migrate(). */
+const MEMBERSHIP_ALLOWLIST = ["pgcrypto", "plpgsql_check"];
+
+/** Dollar tag wrapping the migrate() body. */
+const OUTER_TAG = "$pgsem_migrate_body$";
+
+/** LF-normalises text (B13): local CRLF checkouts and CI's LF blobs must hash
+ * and embed identically, or the release guard fails on line endings alone. */
+function toLf(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 /**
@@ -64,6 +86,8 @@ interface ExtensionOptions {
   version: string;
   name: string;
   outputDir: string;
+  /** Fail instead of warn when a released migration was edited or removed. */
+  strict?: boolean;
 }
 
 export async function extensionCommand(
@@ -100,7 +124,8 @@ export async function extensionCommand(
     }}/migrations`,
     `-- DO NOT EDIT MANUALLY - regenerate after changing migrations.`,
     `--`,
-    `-- Install:  CREATE EXTENSION ${name} CASCADE;`,
+    `-- Install:  CREATE EXTENSION ${name};`,
+    `--           SELECT ${INSTALLER_SCHEMA}.migrate();`,
     ``,
     ``,
   ].join("\n");
@@ -111,6 +136,8 @@ export async function extensionCommand(
     name: string;
     content: string;
     processed: string;
+    /** SHA-256 of the LF-normalised source, written into `_versions`. */
+    checksum: string;
   }[] = [];
 
   for (const app of appList) {
@@ -143,26 +170,29 @@ export async function extensionCommand(
         console.warn(`  Warning: Migration file ${migration.name} is empty`);
         continue;
       }
-      const processed = liftExtensionDependencies(
-        migration.content,
-        requires,
-        name,
-      );
+      // Verbatim, only LF-normalised. Nothing is lifted or rewritten: the
+      // migrations run inside migrate(), not inside an extension script, so
+      // 0010's own `CREATE EXTENSION pgcrypto` is legal there.
+      const content = toLf(migration.content);
+      lintMigration(`${app}/${migration.name}`, content);
       migs.push({
         app,
         name: migration.name,
-        content: migration.content,
-        processed,
+        content,
+        processed: content,
+        checksum: await sha256hex(content),
       });
     }
   }
 
-  const fullBody = renderBody(migs);
-
-  if (fullBody.trim() === "") {
+  if (migs.length === 0) {
     console.error("No migration SQL was bundled; nothing to generate.");
     Deno.exit(1);
   }
+
+  // Every dollar tag the installer emits must be absent from every body, or
+  // an embedded migration would terminate its own EXECUTE early.
+  assertNoTagCollisions(migs);
 
   // Ensure output directory exists.
   await Deno.mkdir(outputDir, { recursive: true });
@@ -179,6 +209,9 @@ export async function extensionCommand(
   }
 
   const prev = highestVersionBelow(version, manifest);
+  // Members dropped from the bundle since `prev`. An upgrade script must DROP
+  // them explicitly or they linger as members of the upgraded extension.
+  const removedMembers: string[] = [];
   if (prev) {
     const prevFiles = manifest.versions[prev].files;
     const added = migs.filter((m) => !(`${m.app}/${m.name}` in prevFiles));
@@ -188,22 +221,34 @@ export async function extensionCommand(
     });
     const removed = Object.keys(prevFiles).filter((k) => !(k in currentFiles));
 
+    const strict = options.strict === true;
+    const complain = (msg: string) =>
+      strict ? console.error(msg) : console.warn(msg);
+    const label = strict ? "Error" : "Warning";
+
     if (edited.length > 0) {
-      console.warn(
-        `Warning: ${edited.length} migration(s) released in ${prev} were edited in place:`,
+      complain(
+        `${label}: ${edited.length} migration(s) released in ${prev} were ` +
+          `edited in place:`,
       );
-      for (const m of edited) console.warn(`  - ${m.app}/${m.name}`);
-      console.warn(
+      for (const m of edited) complain(`  - ${m.app}/${m.name}`);
+      complain(
         `These edits are NOT captured by the ${prev} -> ${version} upgrade. Add a ` +
           `new migration for the change rather than editing a released one.`,
       );
     }
     if (removed.length > 0) {
-      console.warn(
-        `Warning: ${removed.length} migration(s) from ${prev} no longer exist; the ` +
-          `upgrade script cannot undo them:`,
+      complain(
+        `${label}: ${removed.length} migration(s) from ${prev} no longer ` +
+          `exist; the upgrade script cannot undo them:`,
       );
-      for (const k of removed) console.warn(`  - ${k}`);
+      for (const k of removed) complain(`  - ${k}`);
+    }
+    if (strict && (edited.length > 0 || removed.length > 0)) {
+      console.error(
+        "--strict: refusing to generate over an edited or removed released migration.",
+      );
+      Deno.exit(1);
     }
 
     const upgradeHeader = [
@@ -213,22 +258,22 @@ export async function extensionCommand(
       ``,
       ``,
     ].join("\n");
-    const upgradeBody = added.length > 0
-      ? renderBody(added)
-      : `-- No new migrations since ${prev}; version bump only.\n`;
-    // `CREATE TABLE IF NOT EXISTS _versions` for idempotent safety (it already
-    // exists from the original install), then seed only the delta migrations'
-    // run-once guards so `_versions` stays consistent across ALTER EXTENSION
-    // ... UPDATE. The pg_dump registration is appended to every upgrade too:
-    // re-registering is idempotent, and a table the delta adds must be
-    // registered (the guard inside the section fails the upgrade otherwise).
+    // An upgrade is the SAME installer, minus `CREATE SCHEMA` (the schema
+    // already exists) and with CREATE OR REPLACE for the functions - replacing
+    // a member of the same extension inside its own script is allowed. The
+    // whole bundle is embedded, not just the delta: migrate() is idempotent
+    // per migration via `_versions`, so one code path serves install, upgrade
+    // and re-run.
     await Deno.writeTextFile(
       `${outputDir}/${name}--${prev}--${version}.sql`,
-      upgradeHeader + renderSkipAudit() + renderVersionsTable() + upgradeBody +
-        renderVersionsSeed(added) + renderConfigDump(name, { freshInstall: false }),
+      toLf(
+        upgradeHeader +
+          renderInstaller(name, migs, { upgrade: true, removedMembers }),
+      ),
     );
     console.info(
-      `Wrote upgrade ${name}--${prev}--${version}.sql (${added.length} migration(s))`,
+      `Wrote upgrade ${name}--${prev}--${version}.sql ` +
+        `(${added.length} new migration(s), full bundle)`,
     );
   }
 
@@ -246,20 +291,22 @@ export async function extensionCommand(
 
   await Deno.writeTextFile(
     controlPath,
-    buildControlFile(name, version, requires),
+    toLf(buildControlFile(name, version, requires)),
   );
-  // Full install = header + audit silencer + _versions table (so _core/0050's
-  // RLS policy can attach) + migration bodies + seeded run-once guards (so a
-  // later `migrate` skips the already-applied migrations) + pg_dump
-  // registration of the member tables.
-  const installSql = header + renderSkipAudit() + renderVersionsTable() +
-    fullBody + renderVersionsSeed(migs) +
-    renderConfigDump(name, { freshInstall: true });
-  await Deno.writeTextFile(sqlPath, installSql);
-  await Deno.writeTextFile(makefilePath, buildMakefile(name));
-  await Deno.writeTextFile(readmePath, buildReadme(name, version, requires));
+  // Full install = header + the thin installer. No audit silencer, no seeded
+  // `_versions` rows, no pg_dump registration: nothing here creates a table.
+  const installSql = header + renderInstaller(name, migs, { upgrade: false });
+  await Deno.writeTextFile(sqlPath, toLf(installSql));
+  await Deno.writeTextFile(makefilePath, toLf(buildMakefile(name)));
+  await Deno.writeTextFile(
+    readmePath,
+    toLf(buildReadme(name, version, requires)),
+  );
   // META.json is the PGXN distribution manifest (https://pgxn.org/meta/spec.txt).
-  await Deno.writeTextFile(metaPath, buildMetaJson(name, version, requires));
+  await Deno.writeTextFile(
+    metaPath,
+    toLf(buildMetaJson(name, version, requires)),
+  );
 
   const sqlBytes = new TextEncoder().encode(installSql).length;
 
@@ -281,119 +328,13 @@ export async function extensionCommand(
     console.log(`  requires: ${[...requires].sort().join(", ")}`);
   }
   console.log("");
+  console.log(`Install:  CREATE EXTENSION ${name};`);
+  console.log(`          SELECT ${INSTALLER_SCHEMA}.migrate();`);
   if (prev) {
-    console.log(`Fresh install:  CREATE EXTENSION ${name} CASCADE;`);
-    console.log(
-      `Upgrade:        ALTER EXTENSION ${name} UPDATE TO '${version}';`,
-    );
-  } else {
-    console.log(
-      `Install:  make install  &&  CREATE EXTENSION ${name} CASCADE;`,
-    );
+    console.log(`Upgrade:  ALTER EXTENSION ${name} UPDATE TO '${version}';`);
+    console.log(`          SELECT ${INSTALLER_SCHEMA}.migrate();`);
   }
   console.log("Extension generation completed!");
-}
-
-/** Renders migrations into a SQL body with a banner before each. */
-function renderBody(
-  migs: { app: string; name: string; processed: string }[],
-): string {
-  let body = "";
-  for (const m of migs) {
-    body += `-- =====================================================\n`;
-    body += `-- ${m.app}/${m.name}\n`;
-    body += `-- =====================================================\n`;
-    body += m.processed;
-    if (!m.processed.endsWith("\n")) body += "\n";
-    body += "\n";
-  }
-  return body;
-}
-
-/**
- * `SET LOCAL pg_semantius.skip_audit = on`, the first statement of every
- * generated script. After `_core/0150` has attached the audit triggers, the
- * rest of the install inserts a few hundred dictionary rows (core entities and
- * fields) and every DDL statement is caught by the DDL event trigger. Those
- * rows are bookkeeping, not user activity, and on a restore they would take
- * the ids that the audit rows copied back from the dump carry (both audit
- * tables are registered for pg_dump). 0150's trigger functions honour the
- * setting in superuser sessions only; the restore procedure in the README sets
- * it through PGOPTIONS. SET LOCAL is scoped to the CREATE EXTENSION / ALTER
- * EXTENSION transaction (PostgreSQL also reverts GUC changes an extension
- * script makes once the script ends), so nothing leaks into the session.
- */
-function renderSkipAudit(): string {
-  return `-- =====================================================
--- Silence the audit triggers for the install (_core/0150)
--- =====================================================
-SET LOCAL pg_semantius.skip_audit = on;
-
-`;
-}
-
-/**
- * The `_versions` tracking table section, emitted at the TOP of the script
- * (before the migration bodies). The migrate runner creates this table via
- * `ensureVersionsTable()` before any migration runs; `CREATE EXTENSION` has no
- * such step, so the extension must emit it itself — otherwise `_core/0050`'s
- * `CREATE POLICY ... ON _versions` has no table to attach to and the whole
- * install fails ("relation _versions does not exist").
- *
- * Uses the shared `getVersionsTableSql()` (CREATE TABLE IF NOT EXISTS + unique
- * index + ENABLE RLS) verbatim, so the table is byte-identical to a migrate
- * deploy. It is intentionally unqualified: the bare `CREATE TABLE _versions`
- * lands in `public` because the installing superuser's search_path resolves
- * there (relocatable = false, no schema param) — the same assumption the rest of
- * the generated script already relies on (`_settings`, the RBAC tables, ... are
- * all created unqualified too). The RLS policy is NOT created here; `_core/0050`
- * owns it (re-creating it would error).
- */
-function renderVersionsTable(): string {
-  return `-- =====================================================
--- _versions tracking table (run-once migration guard)
--- =====================================================
--- Created before the migration bodies so _core/0050's
--- \`CREATE POLICY ... ON _versions\` can attach. The migrate
--- runner creates this via ensureVersionsTable(); CREATE
--- EXTENSION must emit it itself.
-${getVersionsTableSql()}
-
-`;
-}
-
-/**
- * Seeds the run-once guard rows into `_versions` — one row per bundled
- * migration, named exactly as the migrate runner records them (`${app}.${name}`,
- * matching migrate.ts) — so a later `deno task migrate` against an
- * extension-installed database finds every bundled migration already recorded
- * and SKIPS re-running it. Re-running `_core` is unsafe (e.g. 0010's bare
- * `CREATE TABLE _settings` has no IF NOT EXISTS and would error), so this is what
- * makes the extension-installed DB safely CLI-manageable.
- *
- * Qualified `public._versions` to match the migrate runner's own write
- * (migrate.ts). `ON CONFLICT DO NOTHING` keeps it idempotent. Names are derived
- * from the collected migrations, never hand-typed, so they cannot drift from
- * what `migrate` computes. Emits nothing for an empty set (version-bump-only
- * upgrades).
- */
-function renderVersionsSeed(
-  migs: { app: string; name: string }[],
-): string {
-  if (migs.length === 0) return "";
-  const values = migs
-    .map((m) => `  ('${escapeSqlLiteral(`${m.app}.${m.name}`)}')`)
-    .join(",\n");
-  return `-- =====================================================
--- Seed _versions run-once guards (one row per migration)
--- =====================================================
--- So a subsequent \`deno task migrate\` skips these
--- already-applied migrations instead of re-running them.
-INSERT INTO public._versions (name) VALUES
-${values}
-ON CONFLICT DO NOTHING;
-
-`;
 }
 
 /** Escapes single quotes for safe embedding in a SQL string literal. */
@@ -488,41 +429,6 @@ async function pruneOldFullInstalls(
   return removed;
 }
 
-/**
- * Rewrites `CREATE EXTENSION [IF NOT EXISTS] <dep> ...;` statements out of the
- * SQL body and records <dep> in the requires set. Nested CREATE EXTENSION is not
- * permitted inside an extension script; dependencies belong in the control file.
- * Only single-line statements (the form used in this codebase) are matched.
- */
-function liftExtensionDependencies(
-  content: string,
-  requires: Set<string>,
-  name: string,
-): string {
-  const lines = content.split("\n");
-  const out: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    // Skip comment lines so a commented-out CREATE EXTENSION is left untouched.
-    if (!trimmed.startsWith("--")) {
-      const match = trimmed.match(
-        /^CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([A-Za-z0-9_]+)["']?[^;]*;?\s*$/i,
-      );
-      if (match) {
-        requires.add(match[1].toLowerCase());
-        out.push(
-          `-- [extension] dependency declared in ${name}.control \`requires\`: ${trimmed}`,
-        );
-        continue;
-      }
-    }
-    out.push(line);
-  }
-
-  return out.join("\n");
-}
-
 /** Builds the .control file contents. */
 function buildControlFile(
   name: string,
@@ -531,19 +437,31 @@ function buildControlFile(
 ): string {
   const lines = [
     `# ${name} extension control file`,
-    `# Generated by \`deno task extension\` - do not edit manually.`,
+    "# Generated by `deno task extension` - do not edit manually.",
     `comment = 'Semantius core: RBAC, RLS, data dictionary, and message queue'`,
     `default_version = '${version}'`,
-    // Multi-schema (public, common, rbac, audit, pgmq) so it cannot be relocated.
+    // Pins the extension to `public`: PostgreSQL then ignores the caller's
+    // search_path for it and refuses `CREATE EXTENSION ... SCHEMA other` with
+    // `extension "<name>" must be installed in schema "public"` (B2). `public`
+    // always exists, so nothing is auto-created, and pg_dump emits
+    // `WITH SCHEMA public`, which matches on restore.
+    `schema = public`,
     `relocatable = false`,
-    // The script creates roles, event triggers and ALTER DEFAULT PRIVILEGES,
-    // all of which require a superuser to install.
+    // The script creates cluster roles: superuser only.
     `superuser = true`,
+    // 16 migrations carry UTF-8 text. This rejects a LATIN1 database; the
+    // script's own pg_encoding_to_char check additionally rejects SQL_ASCII,
+    // which would silently accept raw bytes (B9).
+    `encoding = 'UTF8'`,
   ];
 
-  if (requires.size > 0) {
-    lines.push(`requires = '${[...requires].sort().join(", ")}'`);
-  }
+  // Deliberately NO `requires`. `CREATE EXTENSION ... CASCADE` would install
+  // pgcrypto into the CALLER's default creation schema, and 0110 calls
+  // gen_random_bytes/crypt/gen_salt unqualified under `search_path = public`,
+  // so API keys would break in exactly B2's scenario. 0010 creates pgcrypto
+  // itself, from inside migrate(), under the pinned search_path; META keeps it
+  // as a runtime prereq and migrate()'s pre-flight refuses a misplaced one.
+  void requires;
 
   return lines.join("\n") + "\n";
 }
@@ -575,7 +493,13 @@ function buildMetaJson(
   version: string,
   requires: Set<string>,
 ): string {
-  const prereqRequires: Record<string, string> = { PostgreSQL: "18.0.0" };
+  // pgcrypto is a RUNTIME prerequisite but deliberately not a control-file
+  // `requires`: CASCADE would install it into the caller's default creation
+  // schema. migrate() creates it in `public` itself.
+  const prereqRequires: Record<string, string> = {
+    PostgreSQL: "18.0.0",
+    pgcrypto: "0",
+  };
 
   const meta = {
     name,
@@ -586,8 +510,11 @@ function buildMetaJson(
       "control, row-level security, a semantic data dictionary, and a message " +
       "queue. An alternative to deploying the migrations with the Semantius CLI.",
     version,
-    maintainer: ["adenin TECHNOLOGIES"],
+    maintainer: ["adenin TECHNOLOGIES <support@adenin.com>"],
     license: "mit",
+    // "testing" until a version is actually released; PGXN readers use
+    // this to decide whether a build is meant for production (B10).
+    release_status: "testing",
     provides: {
       [name]: {
         abstract:
@@ -608,12 +535,16 @@ function buildMetaJson(
         web: "https://github.com/semantius/semantius/issues",
       },
       repository: {
-        url: "git://github.com/semantius/semantius.git",
+        url: "https://github.com/semantius/semantius.git",
         web: "https://github.com/semantius/semantius",
         type: "git",
       },
     },
     generated_by: "deno task extension",
+    // PGXN reads this from the archive; the file is hand-maintained in
+    // extension/CHANGES.md and copied into the archive by the release job. It
+    // carries no build date, so the release guard's diff stays stable.
+    no_index: { file: ["CHANGES.md"] },
     "meta-spec": {
       version: "1.0.0",
       url: "https://pgxn.org/meta/spec.txt",
@@ -636,129 +567,189 @@ function buildMetaJson(
   return JSON.stringify(meta, null, 2) + "\n";
 }
 
-/** Builds the README with install instructions. */
+/**
+ * Builds the CONSUMER README shipped inside the PGXN archive (B8).
+ *
+ * Consumer-only: it documents installing, upgrading, backing up, restoring and
+ * uninstalling a released build. Repo paths, deno tasks and harness scripts
+ * belong in the repository README, not here - a reader of the archive has
+ * none of them.
+ */
 function buildReadme(
   name: string,
   version: string,
   requires: Set<string>,
 ): string {
-  const reqList = requires.size > 0
-    ? [...requires].sort().join(", ")
-    : "(none)";
-  return `# ${name} PostgreSQL extension
+  const S = INSTALLER_SCHEMA;
+  void requires; // dependencies are documented inline, not via control `requires`
+  return `# ${name} ${version}
 
-Generated by \`deno task extension\` from \`apps/_core/migrations\`.
-**Do not edit by hand** - regenerate after changing migrations.
-
-This packages Semantius core (RBAC, RLS, data dictionary, message queue) as a
-PostgreSQL extension. It is an **additional** distribution channel for
-self-hosted PostgreSQL 18 (see \`../pgdocker\`), alongside the \`deno task migrate\`
-deploy used for Neon/Supabase. It replaces nothing.
-
-Current version: \`${version}\`
-Requires: ${reqList}
+Semantius core for PostgreSQL: role-based access control, row-level security,
+a semantic data dictionary, and a message queue.
 
 ## Install
 
-Requires **PostgreSQL 18** and a **superuser** connection (the extension creates
-roles and event triggers). \`CASCADE\` auto-installs the required extensions
-(${reqList}); the extension creates its own \`authenticated\` and \`semantius_user\`
-roles, so on a vanilla server there is nothing to set up first.
-
-**From PGXN:**
-
-\`\`\`sh
-pgxn install ${name}
-\`\`\`
-
-**From a release download (or this folder):**
-
-\`\`\`sh
-make install            # uses pg_config to find $(SHAREDIR)/extension; may need sudo
-# or copy the files manually:
-cp ${name}.control ${name}--*.sql "$(pg_config --sharedir)/extension/"
-\`\`\`
-
-**Then, in the target database:**
+Two statements, as a superuser, in a UTF8 database:
 
 \`\`\`sql
-CREATE EXTENSION ${name} CASCADE;        -- fresh install of the current version
+CREATE EXTENSION ${name};
+SELECT ${S}.migrate();
 \`\`\`
 
-**Upgrade** an existing install to a newer version (walks the bundled
-\`${name}--<old>--<new>.sql\` chain):
+Do **not** use \`CASCADE\`. \`CREATE EXTENSION\` creates only the cluster roles,
+the \`${S}\` schema and its functions. \`${S}.migrate()\` then installs the
+core schema - tables, functions, triggers, policies and seed rows - as
+**ordinary objects**. They are deliberately *not* extension members, which is
+what makes a plain backup, a single-pass restore and a harmless
+\`DROP EXTENSION\` possible.
+
+\`pgcrypto\` is a runtime prerequisite. \`${S}.migrate()\` creates it in
+\`public\`, where the API-key code needs it; if it is already installed in
+another schema the install refuses with a hint.
+
+## Upgrade
 
 \`\`\`sql
-ALTER EXTENSION ${name} UPDATE;          -- or UPDATE TO '<version>'
+ALTER EXTENSION ${name} UPDATE;
+SELECT ${S}.migrate();
 \`\`\`
 
-## Build a new version
+\`ALTER EXTENSION ... UPDATE\` replaces the installer functions; \`migrate()\`
+applies whatever is new. Both are safe to re-run: \`migrate()\` is idempotent
+per migration. \`SELECT * FROM ${S}.pending()\` lists what a \`migrate()\`
+would apply; \`SELECT * FROM ${S}.status()\` reports drift.
 
-Run from the repo root. Writes the current full install \`${name}--<version>.sql\`,
-an upgrade script \`${name}--<prev>--<version>.sql\` containing the migrations added
-since the previous version, bumps \`default_version\` in \`${name}.control\`, records
-the version in \`versions.json\`, and refreshes \`META.json\`/\`Makefile\`/README:
+## Functions
 
-\`\`\`sh
-deno task extension <version>          # e.g. deno task extension 0.2.0
-\`\`\`
+| Function | Purpose |
+|---|---|
+| \`${S}.migrate()\` | Applies the bundled migrations. Superuser only, idempotent, one transaction. |
+| \`${S}.pending()\` | Bundled migrations not yet applied. Works before the first migrate(). |
+| \`${S}.version()\` | Version of the installed bundle. |
+| \`${S}.status()\` | Applied/pending counts, unknown or changed migrations, ownership and default-ACL drift. |
 
-Once a version is released its migrations are **frozen** — make later changes in
-*new* migration files, not by editing released ones (the generator warns if a
-released migration's content changed, since that edit can't land in an upgrade
-script).
+\`\\dx\` shows the *installer's* version, which is not necessarily the state of
+the installed schema; \`${S}.status()\` is the authority.
 
 ## Backup and restore
 
-Every table the install script creates is a member of the extension, and
-\`pg_dump\` skips member tables unless the extension registers them. ${name}
-registers its data tables and sequences with \`pg_extension_config_dump\` (the
-list lives in \`packages/cli/commands/extension-dump.ts\` of the generator), so
-a normal \`pg_dump\` of the database contains your modules, entities, fields,
-users, roles, permissions, API keys, dashboards, bookmarks, webhooks,
-processes, queues, RACI data and both audit logs. Rows the install seeds
-itself (the \`_core\` module, the built-in permissions and roles, the core
-entities and their fields, the \`db_version\` setting, the \`_core\` migration
-guards, the \`raci_notify\` queue) are left out on purpose: \`CREATE EXTENSION\`
-re-creates them on the restore side.
-
-Not in the dump: the unlogged per-request cache and notification throttle
-table, and the in-flight \`raci_notify\` queue. Changes made to the core
-entities and their fields after the install (relabelled core fields, extra
-fields added to \`users\`, ...) are not dumped either and have to be
-re-applied after a restore.
-
-Back up with the custom format:
+Backup is a plain dump and restore is a single pass. No flags, no environment
+variables, no ordering rules:
 
 \`\`\`sh
-pg_dump -Fc -d appdb -f appdb.dump
+pg_dump -Fc -d appdb -f appdb.dump          # as a superuser or a BYPASSRLS role
+createdb -T template0 newdb
+pg_restore -d newdb appdb.dump              # one pass, same cluster or a fresh one
 \`\`\`
 
-Restore into an empty database on a server that has the same ${name}
-version installed, in three passes and with the audit triggers silenced. A
-single \`pg_restore\` fails: the member tables carry foreign-key cycles
-(\`modules\` <-> \`permissions\`/\`roles\`) and data-dictionary triggers that
-must not fire while rows are copied, and \`--disable-triggers\` only applies to
-a data-only pass. \`pg_semantius.skip_audit\` keeps the restore's own DDL and
-the extension install out of the audit logs, whose rows come from the dump
-instead; it is honoured in superuser sessions only (which
-\`--disable-triggers\` needs anyway).
+\`-Fp\` piped to psql, \`-j\` and \`-1\` all work too. Facts worth knowing:
 
-\`\`\`sh
-export PGOPTIONS='-c pg_semantius.skip_audit=on'
-createdb appdb_restored
-pg_restore -d appdb_restored --exit-on-error --section=pre-data appdb.dump
-pg_restore -d appdb_restored --exit-on-error --data-only --disable-triggers appdb.dump
-pg_restore -d appdb_restored --exit-on-error --section=post-data appdb.dump
+- Restore into an **empty** database. Do not run \`migrate()\` first: the dump's
+  own \`CREATE EXTENSION\` recreates the roles and functions.
+- Restore as a superuser **named like the installing one** (\`postgres\` in the
+  shipped images) and **not** with \`--no-owner\`. A differently named superuser
+  still gets working data, but the schemas and event triggers stay owned by the
+  restorer and the installer's default-privilege entries are lost, so functions
+  created by hand later would be PUBLIC-executable. \`${S}.status()\` reports
+  this.
+- On a **fresh cluster** the four roles are recreated by the dump's
+  \`CREATE EXTENSION\`, but they are NOLOGIN and without passwords: rerun your
+  deployment's login step.
+- If the extension files are **absent** on the target server, the dump's
+  \`CREATE EXTENSION\` and \`COMMENT ON EXTENSION\` fail and everything else
+  restores, so the database still works. On a fresh cluster the four roles are
+  then missing too: create them first (\`pg_dumpall --globals-only\`).
+- A dump taken **after** \`DROP EXTENSION\` carries no \`CREATE EXTENSION\`, so
+  the same rule applies.
+- UTF8 databases only. LATIN1 and SQL_ASCII are refused at install time.
+
+## Uninstall
+
+\`DROP EXTENSION ${name}\` removes the \`${S}\` schema and its functions and
+**nothing else** - never CASCADE, never any data. To remove Semantius
+completely, in this order (step 3 **deletes all data**):
+
+\`\`\`sql
+DROP EXTENSION ${name};
+DROP EVENT TRIGGER track_ddl_changes, pgrst_ddl_watch, pgrst_drop_watch;
+DROP OWNED BY semantius_owner CASCADE;      -- deletes all Semantius data
+DROP SCHEMA IF EXISTS common, rbac, audit, pgmq CASCADE;
+DROP TABLE IF EXISTS public._versions;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
+-- only if no other database in this cluster uses them:
+DROP ROLE semantius_user, authenticated, semantius_authenticator, semantius_owner;
 \`\`\`
 
-The extension's roles (\`authenticated\`, \`semantius_user\`,
-\`semantius_authenticator\`, \`semantius_owner\`) are cluster-wide and not part
-of a database dump; \`CREATE EXTENSION\` creates any that are missing, but the
-\`semantius_authenticator\` login password is per environment and has to be
-set again on a new server. \`DROP EXTENSION ${name}\` drops the member tables
-**with their contents**; back up first. The repository checks the round trip
-with \`pgdocker/pg-ext-dump-restore.sh\`.
+The event triggers go first because they fire on every drop below them.
+
+The last statement leaves one \`pg_default_acl\` row behind
+(\`public | FUNCTIONS | {=X/postgres}\`). That is the built-in default written
+out explicitly rather than a leftover privilege: a function created afterwards
+gets the default ACL and PUBLIC can execute it, exactly as in a database that
+never had ${name} installed.
+
+## Roles
+
+Created by \`CREATE EXTENSION\` (cluster-wide, never dropped with it). All four
+are NOLOGIN and passwordless; grant LOGIN and a password per environment.
+
+| Role | Purpose |
+|---|---|
+| \`semantius_owner\` | Owns the core objects; the identity the SECURITY DEFINER dictionary code runs as. NOLOGIN NOSUPERUSER NOINHERIT BYPASSRLS. |
+| \`semantius_user\` | The request role. Subject to RLS. |
+| \`authenticated\` | Holds \`semantius_user\`; what an authenticated session acts as. |
+| \`semantius_authenticator\` | Session-mode login role; NOINHERIT, can only \`SET ROLE authenticated\`. |
+
+An existing role is verified rather than adopted: if one of these already
+exists with unexpected attributes, or \`semantius_owner\` already has members,
+the install refuses.
+
+## Session settings the caller controls
+
+\`migrate()\` pins \`search_path\`, \`standard_conforming_strings\` and
+\`check_function_bodies\`, and forces \`session_replication_role = origin\`, so
+an unusual session cannot change what gets installed. It still fails, by
+design, under \`default_transaction_read_only\`, a \`statement_timeout\` or
+\`lock_timeout\` shorter than the install, or an isolation level above read
+committed.
+
+## Runtime configuration
+
+The code reads these settings from the session:
+
+| Setting | Set by |
+|---|---|
+| \`request.jwt.claims\` | PostgREST or your app tier, per request |
+| \`request.jwt.claim.sub\`, \`request.jwt.claim.email\`, \`request.jwt.claim.role\`, \`request.jwt.claim.name\`, \`request.jwt.claim.given_name\`, \`request.jwt.claim.family_name\`, \`request.jwt.claim.aud\` | the same, one GUC per claim (Neon/Supabase style) |
+| \`app.current_user_id\`, \`app.user_permissions\`, \`app.oauth_scopes\`, \`app.current_external_id\`, \`app.context_initialized\`, \`app.bumping_module_version\`, \`app.bearer_cache_notice\` | the RBAC code itself, per transaction |
+| \`dd.table_rename\` | the data dictionary, during a table rename |
+
+DDL emits \`NOTIFY pgrst, 'reload schema'\` so PostgREST reloads its cache, and
+the audit event trigger records DDL in \`public.audit_ddl_logs\`.
+
+## Errors
+
+| SQLSTATE | Message |
+|---|---|
+| - | \`permission denied to create extension "${name}"\` / \`Must be superuser to create this extension\` |
+| - | \`extension "${name}" must be installed in schema "public"\` |
+| 42501 | \`permission denied for schema ${S}\` |
+| 42501 | \`${S}.migrate() must be run by a superuser (current_user is ...)\` |
+| 55000 | \`${name} requires a UTF8 database\` |
+| 55000 | \`the pgmq extension is installed; ${name} vendors its own pgmq schema\` |
+| 55000 | \`pgcrypto must be installed in schema public\` |
+| 55000 | \`existing role semantius_owner has unexpected attributes\` |
+| 55000 | \`${S}.migrate() cannot run inside a CREATE/ALTER EXTENSION script\` |
+
+## Requirements
+
+PostgreSQL 18 (the only tested version), a UTF8 database, and superuser rights
+to install. Security model and reporting: see \`SECURITY.md\` in this archive.
 `;
 }
 
@@ -809,4 +800,512 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Splits SQL into top-level statements, ignoring semicolons inside comments,
+ * single-quoted literals and dollar-quoted bodies (removed spans become a
+ * space, so statement boundaries survive).
+ *
+ * A naive scan cannot tell a standalone `SET search_path = ...` from the
+ * identically spelled ATTRIBUTE CLAUSE of a CREATE FUNCTION, which these
+ * migrations write at column 0 (0060, 0145, 0170, ...).
+ */
+function topLevelStatements(sql: string): string[] {
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const two = sql.slice(i, i + 2);
+    if (two === "--") {
+      const nl = sql.indexOf("\n", i);
+      i = nl === -1 ? sql.length : nl;
+      out += " ";
+      continue;
+    }
+    if (two === "/*") {
+      let depth = 1;
+      let j = i + 2;
+      while (j < sql.length && depth > 0) {
+        if (sql.slice(j, j + 2) === "/*") {
+          depth++;
+          j += 2;
+        } else if (sql.slice(j, j + 2) === "*/") {
+          depth--;
+          j += 2;
+        } else j++;
+      }
+      i = j;
+      out += " ";
+      continue;
+    }
+    if (sql[i] === "'") {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") j += 2;
+        else if (sql[j] === "'") {
+          j++;
+          break;
+        } else j++;
+      }
+      i = j;
+      out += " ";
+      continue;
+    }
+    const dollar = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+    if (dollar) {
+      const tag = dollar[0];
+      const end = sql.indexOf(tag, i + tag.length);
+      i = end === -1 ? sql.length : end + tag.length;
+      out += " ";
+      continue;
+    }
+    out += sql[i];
+    i++;
+  }
+  return out.split(";").map((x) => x.trim()).filter((x) => x.length > 0);
+}
+
+/**
+ * Refuses constructs that are safe in the CLI's per-file transactions but not
+ * in migrate(), which runs all 34 migrations in ONE transaction:
+ *   - a top-level SET/RESET would leak into every later migration;
+ *   - transaction control would break the all-or-nothing install;
+ *   - CREATE INDEX CONCURRENTLY and COPY ... FROM STDIN cannot run there.
+ * None of these exist today; the lint keeps it that way.
+ */
+function lintMigration(label: string, content: string): void {
+  const banned =
+    /^(SET\s+(?!LOCAL\b)|RESET\b|BEGIN\b|COMMIT\b|ROLLBACK\b|START\s+TRANSACTION|SAVEPOINT\b|CREATE\s+INDEX\s+CONCURRENTLY|COPY\b[\s\S]*\bFROM\s+STDIN)/i;
+  for (const statement of topLevelStatements(content)) {
+    if (banned.test(statement)) {
+      console.error(
+        `Migration lint failed in ${label}: ${
+          statement.replace(/\s+/g, " ").slice(0, 80)
+        }`,
+      );
+      console.error(
+        "migrate() applies every migration in one transaction, so this would " +
+          "affect the migrations that follow it.",
+      );
+      Deno.exit(1);
+    }
+  }
+}
+
+/** The dollar tag wrapping one embedded migration. */
+function migrationTag(m: { app: string; name: string }): string {
+  return `$pgsem_${m.app.replace(/[^A-Za-z0-9_]/g, "_")}_${
+    m.name.replace(/[^A-Za-z0-9_]/g, "_")
+  }$`;
+}
+
+/**
+ * Every dollar tag the installer emits must be absent from every migration
+ * body, or an embedded migration would terminate its own EXECUTE early and the
+ * script would fail in a way that is very hard to read.
+ */
+function assertNoTagCollisions(
+  migs: { app: string; name: string; content: string }[],
+): void {
+  const tags = [OUTER_TAG, ...migs.map(migrationTag)];
+  for (const m of migs) {
+    for (const tag of tags) {
+      if (m.content.includes(tag)) {
+        console.error(
+          `Dollar tag ${tag} occurs inside ${m.app}/${m.name}; it cannot be ` +
+            "used to quote the embedded migration.",
+        );
+        Deno.exit(1);
+      }
+    }
+  }
+}
+
+/**
+ * Renders the whole extension script: roles, schema, and the functions.
+ *
+ * `upgrade` omits `CREATE SCHEMA` (it already exists) and uses CREATE OR
+ * REPLACE, which is allowed for a member of the same extension inside its own
+ * script. `removedMembers` are dropped so they do not linger as members.
+ */
+function renderInstaller(
+  name: string,
+  migs: {
+    app: string;
+    name: string;
+    content: string;
+    checksum: string;
+  }[],
+  opts: { upgrade: boolean; removedMembers?: string[] },
+): string {
+  const S = INSTALLER_SCHEMA;
+  const orReplace = opts.upgrade ? "CREATE OR REPLACE" : "CREATE";
+  const names = migs.map((m) => `${m.app}.${m.name}`);
+
+  const steps = migs.map((m) => {
+    const tag = migrationTag(m);
+    const versionName = `${m.app}.${m.name}`;
+    return `
+  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '${
+      escapeSqlLiteral(versionName)
+    }') THEN
+    RAISE NOTICE '${name}: applying ${escapeSqlLiteral(versionName)}';
+    BEGIN
+      EXECUTE ${tag}${m.content}${tag};
+    EXCEPTION WHEN OTHERS THEN
+      -- Without this the whole embedded migration is reported as CONTEXT.
+      GET STACKED DIAGNOSTICS
+        v_state  = RETURNED_SQLSTATE,
+        v_msg    = MESSAGE_TEXT,
+        v_detail = PG_EXCEPTION_DETAIL,
+        v_hint   = PG_EXCEPTION_HINT,
+        v_ctx    = PG_EXCEPTION_CONTEXT;
+      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
+            '${escapeSqlLiteral(versionName)}', v_msg, v_state
+        USING DETAIL = coalesce(v_detail, ''),
+              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
+                       split_part(coalesce(v_ctx, ''), E'\\n', 1));
+    END;
+    INSERT INTO public._versions (name, checksum)
+      VALUES ('${escapeSqlLiteral(versionName)}', '${m.checksum}');
+    v_applied := v_applied + 1;
+  ELSE
+    v_skipped := v_skipped + 1;
+  END IF;
+`;
+  }).join("");
+
+  const drops = (opts.removedMembers ?? [])
+    .map((sig) => `DROP FUNCTION IF EXISTS ${sig};\n`)
+    .join("");
+
+  return `-- =====================================================
+-- Thin installer. This script creates ONLY cluster roles, the ${S} schema
+-- and its functions. The 52 core relations, their triggers, policies and seed
+-- rows are created by ${S}.migrate(), which runs OUTSIDE any extension
+-- script, so none of them becomes an extension member. That is what makes a
+-- plain pg_dump / single-pass pg_restore work and DROP EXTENSION harmless.
+-- =====================================================
+
+-- 1. Database encoding. The control file's encoding = 'UTF8' rejects LATIN1,
+--    but a SQL_ASCII database would accept raw bytes, so check explicitly.
+DO $pgsem_encoding$
+BEGIN
+  IF (SELECT pg_catalog.pg_encoding_to_char(encoding)
+        FROM pg_catalog.pg_database WHERE datname = current_database())
+     <> 'UTF8' THEN
+    RAISE EXCEPTION '${name} requires a UTF8 database (this one is %)',
+      (SELECT pg_catalog.pg_encoding_to_char(encoding)
+         FROM pg_catalog.pg_database WHERE datname = current_database())
+      USING ERRCODE = '55000',
+            HINT = 'createdb -T template0 -E UTF8';
+  END IF;
+END
+$pgsem_encoding$;
+
+-- 2. Cluster roles. Roles are shared objects: never extension members, never
+--    dropped by DROP EXTENSION. They are created here so that the
+--    CREATE EXTENSION inside a RESTORED DUMP provisions them before the dump's
+--    own GRANT / CREATE POLICY / OWNER TO statements run.
+--
+--    An existing role is VERIFIED, not adopted: otherwise a CREATEROLE user
+--    could pre-create semantius_owner with itself as a member and would own
+--    every core table after a restore.
+DO $pgsem_roles$
+DECLARE
+  r pg_catalog.pg_roles%ROWTYPE;
+BEGIN
+  SELECT * INTO r FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner';
+  IF NOT FOUND THEN
+    CREATE ROLE semantius_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+      NOREPLICATION NOINHERIT BYPASSRLS;
+    COMMENT ON ROLE semantius_owner IS
+      'Owner of the Semantius core objects and the role its SECURITY DEFINER dictionary code runs as.';
+  ELSE
+    IF r.rolsuper OR r.rolcanlogin OR r.rolcreaterole OR r.rolcreatedb
+       OR r.rolreplication OR r.rolinherit OR NOT r.rolbypassrls THEN
+      RAISE EXCEPTION 'existing role semantius_owner has unexpected attributes'
+        USING ERRCODE = '55000',
+              DETAIL = 'expected NOSUPERUSER NOLOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOINHERIT BYPASSRLS',
+              HINT = 'DROP ROLE semantius_owner, or fix it with ALTER ROLE, then retry';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
+                WHERE m.roleid = r.oid) THEN
+      RAISE EXCEPTION 'existing role semantius_owner already has members'
+        USING ERRCODE = '55000',
+              DETAIL = 'a member of semantius_owner would own every Semantius object after a restore',
+              HINT = 'REVOKE semantius_owner FROM the listed roles, then retry';
+    END IF;
+  END IF;
+
+  -- The other three may legitimately have LOGIN (pgdocker/init/10-roles.sql
+  -- relies on it), but never superuser or BYPASSRLS.
+  FOREACH r.rolname IN ARRAY ARRAY['authenticated', 'semantius_user', 'semantius_authenticator']
+  LOOP
+    SELECT * INTO r FROM pg_catalog.pg_roles WHERE rolname = r.rolname;
+    IF FOUND AND (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole
+                  OR r.rolcreatedb OR r.rolreplication) THEN
+      RAISE EXCEPTION 'existing role % has unexpected attributes', r.rolname
+        USING ERRCODE = '55000',
+              DETAIL = 'expected NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION';
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_user') THEN
+    CREATE ROLE semantius_user INHERIT NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
+                  JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+                  JOIN pg_catalog.pg_roles n ON n.oid = m.member
+                 WHERE g.rolname = 'semantius_user' AND n.rolname = 'authenticated') THEN
+    GRANT semantius_user TO authenticated;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_authenticator') THEN
+    CREATE ROLE semantius_authenticator NOLOGIN NOSUPERUSER NOINHERIT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
+                  JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+                  JOIN pg_catalog.pg_roles n ON n.oid = m.member
+                 WHERE g.rolname = 'authenticated' AND n.rolname = 'semantius_authenticator') THEN
+    GRANT authenticated TO semantius_authenticator WITH INHERIT FALSE, SET TRUE;
+  END IF;
+END
+$pgsem_roles$;
+${
+    opts.upgrade ? "" : `
+-- 3. The one schema this extension owns: a member, dropped with the extension.
+--    NOT via the control file's \`schema\` parameter, which would create a
+--    NON-member schema that survives DROP EXTENSION. No GRANT USAGE: only
+--    superusers call these functions.
+CREATE SCHEMA ${S};
+COMMENT ON SCHEMA ${S} IS
+  'Installer for the ${name} extension. Holds migrate()/pending()/version()/status(); no data.';
+`
+  }
+${drops}
+-- 4. The installer. Not SECURITY DEFINER: current_user, session_user and the
+--    superuser check must be the CALLER's, which 0010, 0050 and 0290 rely on.
+--    The SET clauses pin the settings the migrations assume, so a hostile or
+--    merely unusual session cannot change what gets installed.
+${orReplace} FUNCTION ${S}.migrate() RETURNS text
+LANGUAGE plpgsql
+SET search_path = public
+SET standard_conforming_strings = on
+SET check_function_bodies = on
+AS ${OUTER_TAG}
+DECLARE
+  v_applied int := 0;
+  v_skipped int := 0;
+  v_start   timestamptz := clock_timestamp();
+  v_state text; v_msg text; v_detail text; v_hint text; v_ctx text;
+  v_bad   text;
+BEGIN
+  IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
+    RAISE EXCEPTION '${S}.migrate() must be run by a superuser (current_user is %)', current_user
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- A superuser session left in 'replica' would silently disable every
+  -- dictionary trigger while the seed rows are written.
+  PERFORM set_config('session_replication_role', 'origin', true);
+
+  IF (SELECT pg_catalog.pg_encoding_to_char(encoding)
+        FROM pg_catalog.pg_database WHERE datname = current_database()) <> 'UTF8' THEN
+    RAISE EXCEPTION '${name} requires a UTF8 database' USING ERRCODE = '55000';
+  END IF;
+
+  -- The CLI runner's key (packages/cli/commands/migrate.ts), so two installers
+  -- queue and an installer and the CLI conflict correctly.
+  PERFORM pg_advisory_xact_lock(hashtext('migrate'));
+
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
+    RAISE EXCEPTION 'the pgmq extension is installed; ${name} vendors its own pgmq schema and would overwrite it'
+      USING ERRCODE = '55000',
+            HINT = 'DROP EXTENSION pgmq, or install into a different database';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_extension e
+               JOIN pg_namespace n ON n.oid = e.extnamespace
+              WHERE e.extname = 'pgcrypto' AND n.nspname <> 'public') THEN
+    RAISE EXCEPTION 'pgcrypto must be installed in schema public'
+      USING ERRCODE = '55000',
+            HINT = 'ALTER EXTENSION pgcrypto SET SCHEMA public';
+  END IF;
+
+  -- Refuse to run inside an extension script: everything created below would
+  -- become a member of whatever extension is being created, which is exactly
+  -- what this design exists to avoid.
+  --
+  -- The probe distinguishes the two cases by which error it raises. OUTSIDE a
+  -- script pg_extension_config_dump() raises feature_not_supported (0A000).
+  -- INSIDE one it gets far enough to complain that pg_class is not a member of
+  -- the extension being created - a different, PostgreSQL-worded error. Catch
+  -- both and decide from the flag, so the caller always sees this function's
+  -- own message rather than a confusing one about pg_class.
+  DECLARE
+    v_in_extension_script boolean := true;
+  BEGIN
+    BEGIN
+      PERFORM pg_catalog.pg_extension_config_dump('pg_catalog.pg_class'::regclass, '');
+    EXCEPTION
+      WHEN feature_not_supported THEN v_in_extension_script := false;
+      WHEN OTHERS THEN v_in_extension_script := true;
+    END;
+    IF v_in_extension_script THEN
+      RAISE EXCEPTION '${S}.migrate() cannot run inside a CREATE/ALTER EXTENSION script'
+        USING ERRCODE = '55000',
+              DETAIL = 'everything it creates would become a member of that extension',
+              HINT = 'Run it as its own statement after CREATE EXTENSION';
+    END IF;
+  END;
+
+  -- Same ledger the CLI runner uses, so either path recognises the other's work.
+${
+    getVersionsTableSql().split("\n").map((l) => (l ? "  " + l : l)).join("\n")
+  }
+${steps}
+  -- Nothing the migrations created may belong to an extension.
+  SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
+    FROM pg_depend d
+    JOIN pg_extension e ON e.oid = d.refobjid
+    JOIN pg_class c ON c.oid = d.objid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE d.refclassid = 'pg_extension'::regclass
+     AND d.deptype = 'e'
+     AND n.nspname IN (${CORE_SCHEMAS.map((x) => `'${x}'`).join(", ")})
+     AND e.extname NOT IN (${
+    MEMBERSHIP_ALLOWLIST.map((x) => `'${x}'`).join(", ")
+  });
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'core objects became members of extension(s): %', v_bad
+      USING ERRCODE = '55000',
+            DETAIL = 'they would be dropped with that extension and skipped by pg_dump';
+  END IF;
+
+  NOTIFY pgrst, 'reload schema';
+
+  RAISE NOTICE '${name}: % applied, % skipped in %',
+    v_applied, v_skipped, clock_timestamp() - v_start;
+  RETURN format('%s applied, %s skipped in %s',
+                v_applied, v_skipped, clock_timestamp() - v_start);
+END
+${OUTER_TAG};
+
+REVOKE EXECUTE ON FUNCTION ${S}.migrate() FROM PUBLIC;
+COMMENT ON FUNCTION ${S}.migrate() IS
+  'Applies the bundled core migrations as ordinary objects. Superuser only. Idempotent.';
+
+-- 5. Read-only companions.
+${orReplace} FUNCTION ${S}.pending() RETURNS SETOF text
+LANGUAGE plpgsql STABLE
+SET search_path = public
+AS $pgsem_pending$
+DECLARE
+  v_all text[] := ARRAY[${names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")}];
+BEGIN
+  -- Works before _versions exists (i.e. before the first migrate()).
+  IF to_regclass('public._versions') IS NULL THEN
+    RETURN QUERY SELECT unnest(v_all);
+  ELSE
+    RETURN QUERY SELECT x FROM unnest(v_all) AS x
+      WHERE NOT EXISTS (SELECT 1 FROM public._versions v WHERE v.name = x);
+  END IF;
+END
+$pgsem_pending$;
+REVOKE EXECUTE ON FUNCTION ${S}.pending() FROM PUBLIC;
+COMMENT ON FUNCTION ${S}.pending() IS
+  'Bundled migrations not yet applied to this database.';
+
+${orReplace} FUNCTION ${S}.version() RETURNS text
+LANGUAGE sql STABLE
+SET search_path = public
+AS $pgsem_version$
+  SELECT extversion FROM pg_extension WHERE extname = '${
+    escapeSqlLiteral(name)
+  }'
+$pgsem_version$;
+REVOKE EXECUTE ON FUNCTION ${S}.version() FROM PUBLIC;
+COMMENT ON FUNCTION ${S}.version() IS
+  'Version of the installed bundle (the installer, not the installed schema).';
+
+${orReplace} FUNCTION ${S}.status()
+RETURNS TABLE (
+  extversion        text,
+  db_version        text,
+  applied           int,
+  pending           int,
+  unknown_versions  text[],
+  changed_versions  text[],
+  unowned_objects   int,
+  default_acls_ok   boolean
+)
+LANGUAGE plpgsql STABLE
+SET search_path = public
+AS $pgsem_status$
+DECLARE
+  v_all text[] := ARRAY[${names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")}];
+  v_sums jsonb := '${
+    JSON.stringify(
+      Object.fromEntries(migs.map((m) => [`${m.app}.${m.name}`, m.checksum])),
+    ).replace(/'/g, "''")
+  }'::jsonb;
+BEGIN
+  extversion := ${S}.version();
+  db_version := NULL;
+  applied := 0; pending := 0;
+  unknown_versions := ARRAY[]::text[];
+  changed_versions := ARRAY[]::text[];
+
+  IF to_regclass('public._settings') IS NOT NULL THEN
+    BEGIN
+      SELECT s.value INTO db_version FROM public._settings s WHERE s.key = 'db_version';
+    EXCEPTION WHEN OTHERS THEN
+      db_version := NULL;  -- shape differs or RLS denies: not fatal for status
+    END;
+  END IF;
+
+  IF to_regclass('public._versions') IS NOT NULL THEN
+    SELECT count(*)::int INTO applied
+      FROM public._versions WHERE name = ANY(v_all);
+    -- Rows this bundle does not know: a dump from a NEWER bundle restored onto
+    -- an older installer.
+    SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
+      INTO unknown_versions
+      FROM public._versions v
+     WHERE v.name LIKE '%.%' AND NOT (v.name = ANY(v_all));
+    -- Applied rows whose source text has changed since (Flyway's validate).
+    SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
+      INTO changed_versions
+      FROM public._versions v
+     WHERE v.name = ANY(v_all)
+       AND v.checksum IS NOT NULL
+       AND v.checksum IS DISTINCT FROM (v_sums ->> v.name);
+  END IF;
+  pending := array_length(v_all, 1) - applied;
+
+  SELECT count(*)::int INTO unowned_objects
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname IN (${CORE_SCHEMAS.map((x) => `'${x}'`).join(", ")})
+     AND c.relkind IN ('r', 'p', 'S', 'v')
+     AND c.relowner <> COALESCE(
+           (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner'),
+           c.relowner);
+
+  -- The installer's ALTER DEFAULT PRIVILEGES bind to the INSTALLING role, so a
+  -- restore by a differently named superuser loses them.
+  default_acls_ok := EXISTS (
+    SELECT 1 FROM pg_default_acl a
+      JOIN pg_catalog.pg_roles r ON r.oid = a.defaclrole
+     WHERE r.rolname = current_user);
+
+  RETURN NEXT;
+END
+$pgsem_status$;
+REVOKE EXECUTE ON FUNCTION ${S}.status() FROM PUBLIC;
+COMMENT ON FUNCTION ${S}.status() IS
+  'Install health: version drift, unknown or changed migrations, ownership and default-ACL drift after a restore.';
+`;
 }
