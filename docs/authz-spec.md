@@ -163,7 +163,10 @@ core of the remediation — today it is not):
   non-BYPASSRLS. Views are `security_invoker = true`.
 - **I-perm · Permission resolution** — correct across all A7 paths; consistent at transaction
   boundaries (cache is tx-scoped; revoke/disable propagate on the next transaction, never
-  mid-transaction; first-touch must seed the cache).
+  mid-transaction; first-touch must seed the cache). In OAuth bearer sessions
+  (`rbac.is_bearer_session()`) the cache is bypassed and the context re-derived on every
+  call, because the request role can write the `app.*` GUCs there; readers that need the
+  user id outside a permission check go through `rbac.user_id_or_null()`, never the raw GUC.
 - **I-jsonlogic · Evaluator/operators** — each operator correct in isolation; record-reading
   operators (`set_record`/`get_record_by_id`) enforce `access(row)`, not just `view_permission`
   (read bypass closed at the helper — b1). `evaluate_json_logic` stays callable by the request

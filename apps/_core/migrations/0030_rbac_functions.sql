@@ -304,10 +304,29 @@ COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 -- REQUEST CONTEXT - LAZY INITIALIZATION
 -- =====================================================
 
+-- Bearer-session detection (PostgreSQL 18 SASL OAUTHBEARER). PostgreSQL pins
+-- the verified identity in system_user as 'oauth:<sub>' for such sessions.
+-- SCRAM logins (the session-mode authenticator, PostgREST, the CLI) carry
+-- 'scram-sha-256:<role>' or NULL and are never bearer sessions.
+CREATE OR REPLACE FUNCTION rbac.is_bearer_session()
+RETURNS BOOLEAN AS $$
+    SELECT system_user LIKE 'oauth:%';
+$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.is_bearer_session IS
+'True when the session authenticated with a PostgreSQL 18 OAuth bearer token (system_user = oauth:<sub>). Such clients run SQL directly as the request role, so the app.* context cache is not trusted for them.';
+
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
 -- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
+--
+-- Trust model of the cache: the app.* settings are ordinary GUCs that the
+-- request role can overwrite. Behind PostgREST or an app server that is
+-- harmless (the client never runs SQL), but a bearer session hands the client
+-- SQL as the request role, so a cached context could be forged there (release
+-- review S2). For bearer sessions the shortcut below is skipped and the
+-- context is re-derived on every call until the cache is hardened.
 CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
@@ -318,13 +337,21 @@ DECLARE
 BEGIN
     PERFORM rbac.uid();
 
-    -- Check if already initialized in this transaction
-    v_initialized := current_setting('app.context_initialized', true);
+    IF rbac.is_bearer_session() THEN
+        -- Permission cache disabled: say so once per session (server log and client).
+        IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
+            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check until the cache is hardened for bearer auth (release review S2).';
+            PERFORM set_config('app.bearer_cache_notice', 'sent', false);
+        END IF;
+    ELSE
+        -- Check if already initialized in this transaction
+        v_initialized := current_setting('app.context_initialized', true);
 
-    IF v_initialized = 'true' THEN
-        RETURN; -- Already initialized, skip
+        IF v_initialized = 'true' THEN
+            RETURN; -- Already initialized, skip
+        END IF;
     END IF;
-    
+
     -- Get current user from JWT
     v_external_id := rbac.uid();
     
@@ -355,8 +382,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
-'Lazy initialization of request context. Called automatically on first permission check.';
+COMMENT ON FUNCTION rbac.ensure_context_initialized IS
+'Lazy initialization of request context. Called automatically on first permission check. In OAuth bearer sessions the cached context is not trusted and is re-derived on every call.';
 
 -- Manual context initialization with OAuth scopes
 -- Use this for OAuth/API requests where scopes need to be validated
@@ -831,8 +858,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.user_id IS 
+COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Auto-initializes if needed.';
+
+-- Same as rbac.user_id(), but NULL instead of an error when there is no
+-- authenticated user (migrations, seed scripts, anonymous sessions) or the
+-- user has no row yet. For trigger and audit code that must work in every
+-- context. Goes through ensure_context_initialized(), so the value is
+-- derived, never read raw from the client-writable app.current_user_id setting.
+CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN rbac.user_id();
+EXCEPTION
+    WHEN insufficient_privilege OR invalid_authorization_specification THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.user_id_or_null IS
+'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
 
 -- =====================================================
 -- DEBUGGING AND INTROSPECTION
@@ -870,11 +915,17 @@ BEGIN
     v_initialized := current_setting('app.context_initialized', true);
     
     -- Return initialization status
-    RETURN QUERY SELECT 
+    RETURN QUERY SELECT
         'status'::TEXT,
         'context_initialized'::TEXT,
         COALESCE(v_initialized, 'false')::TEXT;
-    
+
+    -- Whether the cached context is trusted in this session (not in bearer sessions)
+    RETURN QUERY SELECT
+        'status'::TEXT,
+        'permission_cache'::TEXT,
+        CASE WHEN rbac.is_bearer_session() THEN 'disabled (bearer session)' ELSE 'enabled' END::TEXT;
+
     -- Return app context variables
     RETURN QUERY SELECT 
         'app'::TEXT,

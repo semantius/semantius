@@ -2,12 +2,14 @@ FROM postgres:18
 
 # ---------------------------------------------------------------------------
 # PostgreSQL 18 ships native OAuth (SASL OAUTHBEARER) but NO built-in token
-# validator. We compile Percona's experimental pg_oidc_validator, which
-# verifies a JWT's signature against the issuer's published JWKS keys and
-# maps the chosen claim (default: "sub") to a Postgres role.
+# validator. We compile Percona's pg_oidc_validator, which verifies a JWT's
+# signature against the issuer's published JWKS keys and maps the chosen
+# claim (default: "sub") to a Postgres role.
 #
 #   Repo:   https://github.com/percona/pg_oidc_validator
-#   Status: EXPERIMENTAL - not intended for production use.
+#   Status: release 1.1.0 (upstream calls 1.0.0 its first stable release).
+#           Semantius bearer mode itself is still experimental: the app.*
+#           permission cache is bypassed in bearer sessions (see the README).
 #
 # The base image is multi-arch (linux/amd64 + linux/arm64) and we compile the
 # validator from source inside the build, so the same Dockerfile produces a
@@ -15,9 +17,9 @@ FROM postgres:18
 # ---------------------------------------------------------------------------
 USER root
 
-# Pin the validator to a known-good commit for reproducible builds. Override at
-# build time with: --build-arg OIDC_VALIDATOR_REF=<sha-or-branch>
-ARG OIDC_VALIDATOR_REF=72a35e90e4297221142e1d6b1dd3bcf5fabbe3fc
+# Pin the validator to a release tag for reproducible builds. Override at
+# build time with: --build-arg OIDC_VALIDATOR_REF=<tag-sha-or-branch>
+ARG OIDC_VALIDATOR_REF=1.1.0
 
 # Local patches applied on top of the pinned commit (see patches/ for rationale).
 COPY patches/ /tmp/patches/

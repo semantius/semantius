@@ -204,15 +204,11 @@ CREATE OR REPLACE FUNCTION audit.current_user_id()
     LANGUAGE plpgsql
     SET search_path = public
 AS $$
-DECLARE
-    v_user_id INTEGER;
 BEGIN
-    -- Try to get the user_id from the app context (set by rbac.ensure_context_initialized)
-    v_user_id := current_setting('app.current_user_id', true)::INTEGER;
-    IF v_user_id IS NOT NULL THEN
-        RETURN v_user_id;
-    END IF;
-    RETURN 0;
+    -- Derived through rbac (lazy context initialization), never read raw from
+    -- the client-writable app.current_user_id setting. NULL (no authenticated
+    -- user, e.g. during migrations) becomes 0.
+    RETURN COALESCE(rbac.user_id_or_null(), 0);
 EXCEPTION
     WHEN OTHERS THEN
         RETURN 0;

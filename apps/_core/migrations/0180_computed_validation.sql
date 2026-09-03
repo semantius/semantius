@@ -169,7 +169,9 @@ DECLARE
     v_result jsonb;
     v_uid_text text;
 BEGIN
-    v_uid_text := current_setting('app.current_user_id', true);
+    -- Derived through rbac (lazy context initialization), never read raw from the
+    -- client-writable app.current_user_id setting; NULL when unauthenticated.
+    v_uid_text := rbac.user_id_or_null()::text;
     -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
     v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
