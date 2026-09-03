@@ -57,6 +57,55 @@ jobs:
       - name: Generate extension
         run: deno task extension "${{ steps.ver.outputs.version }}"
 
+      # The step above REGENERATES extension/ on the runner. Without this guard
+      # the release would publish whatever the runner produced, which is not
+      # necessarily the build that was tested locally (`pg-cli-retest.sh`,
+      # `pg-ext-retest.sh`, `pg-ext-lifecycle.sh`). Failing here means the
+      # committed extension/ is stale or was generated for a different version:
+      # regenerate it locally with `deno task extension <version>`, re-run the
+      # harnesses, commit the result, and move the tag.
+      # `git status --porcelain`, not `git diff`: the generator also WRITES new
+      # upgrade scripts and PRUNES superseded full installs, and a plain diff
+      # sees neither an untracked file nor a deletion that was never committed.
+      - name: Committed build must equal the regenerated one
+        run: |
+          if [ -n "$(git status --porcelain -- extension/)" ]; then
+            git status --porcelain -- extension/
+            git diff -- extension/ || true
+            echo '::error::extension/ differs from the regenerated build; run `deno task extension ${{ steps.ver.outputs.version }}` locally, re-run the harnesses, commit, and move the tag'
+            exit 1
+          fi
+          echo "extension/ matches the regenerated build"
+
+      # The suite runs here, against the tag, not in a separate workflow and not
+      # on a pull request: a tag is a commit by definition, so this is the first
+      # moment the artifact about to be published actually exists. Both harnesses
+      # are non-interactive and self-provisioning (pg-ext-create.sh copies
+      # .env.example to .env), and both start with `down -v`, so a runner needs
+      # no setup beyond Docker and Deno.
+      #
+      # Path B is the gate: it installs the extension that is about to ship.
+      # Path A is what Path B is compared against — if they diverge, the
+      # "extension-installed _core == migrate-installed _core" promise is broken
+      # and the release must not go out.
+      #
+      # Cost: the base image compiles pg_oidc_validator from GitHub, so a
+      # release depends on that repo and on apt.postgresql.org being reachable.
+      # If the suite fails, no release and no image are published; fix, and move
+      # the tag.
+      # Checked out from a Windows repo, the harness scripts arrive as mode
+      # 100644 and will not run. `bash <script>` at the top level would not be
+      # enough either: pg-ext-retest.sh invokes ./pg-ext-create.sh itself.
+      # Harmless if the modes are ever fixed in git.
+      - name: Make the harness scripts executable
+        run: chmod +x pgdocker/*.sh
+
+      - name: Suite on the extension install (Path B)
+        run: ./pgdocker/pg-ext-retest.sh
+
+      - name: Suite on the migrate install (Path A)
+        run: ./pgdocker/pg-cli-retest.sh
+
       - name: Package PGXN-style archive
         run: |
           V="${{ steps.ver.outputs.version }}"

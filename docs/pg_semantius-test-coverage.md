@@ -165,6 +165,7 @@ Still never called after these: 37 pgmq functions
 | 2026-09-02 | 182/292 (62.3%) | 1,797/2,152 (83.5%) | 2,007 | after the S1/S13 fixes, `0290_owner_hardening` and tests 0425/0430 |
 | 2026-09-03 | 183/294 (62.2%) | not measured (plpgsql_check absent from the extension image on this run) | 2,018 | after the S2 bearer-session cache bypass and test 0435 (two new functions in the universe) |
 | 2026-09-03 | 186/295 (63.1%) | not measured (plpgsql_check absent from the extension image) | 2,083 | after the P1 InitPlan policy form and test 0445; also includes 0440 and the 0415 additions made since the previous row |
+| 2026-09-03 | 186/295 (63.1%) | 1,823/2,171 (84.0%) | 2,083 | same suite, statements measurable again: `postgresql-18-plpgsql-check` added to `pgdocker/Dockerfile` (R5), so both pgdocker stacks report statement data without a throwaway container |
 
 Re-run `pgdocker/pg-ext-retest.sh --coverage` after adding tests and append a
 row.

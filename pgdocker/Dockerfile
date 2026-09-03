@@ -29,10 +29,20 @@ RUN set -eux; \
     # Runtime deps (kept in the final image). The validator fetches JWKS over
     # HTTPS via libcurl; libpq-oauth is the client-side OAuth flow module (lets
     # psql inside the container do the OAuth flow too).
+    #
+    # postgresql-18-plpgsql-check is DEV-ONLY and deliberately absent from the
+    # shipped image (docker-postgres/Dockerfile): `deno task test --coverage`
+    # uses its profiler for statement-level coverage and degrades to
+    # function-level data without it. The PGDG package is built against a
+    # specific 18.x, so `postgresql-18` is listed alongside it: apt then
+    # resolves the pair together instead of the server being left behind the
+    # extension (build with --pull to keep the base image current).
     apt-get install -y --no-install-recommends \
         ca-certificates \
         libcurl4 \
-        libpq-oauth; \
+        libpq-oauth \
+        postgresql-18 \
+        postgresql-18-plpgsql-check; \
     # Build-only deps (purged afterwards). g++ in trixie is >= 14 (C++23 capable).
     apt-get install -y --no-install-recommends \
         git \

@@ -352,8 +352,10 @@ extension-`_core` ≡ migrate-`_core`.
 
 # Same runs with a coverage report (extra arguments are forwarded to the CLI):
 # which core functions, PL/pgSQL statements and tables the suite executed.
-# Statement-level data needs the plpgsql_check extension in the image; without
-# it the report is function-level only. Output: ../coverage/{summary.json,uncovered.md,lcov.info}
+# Statement-level data needs the plpgsql_check extension in the image; the dev
+# images ship it (postgresql-18-plpgsql-check in ./Dockerfile), the published
+# image does not, and there the report is function-level only.
+# Output: ../coverage/{summary.json,uncovered.md,lcov.info}
 ./pg-cli-retest.sh --coverage
 ./pg-ext-retest.sh --coverage
 ```
