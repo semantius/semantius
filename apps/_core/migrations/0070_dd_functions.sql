@@ -332,12 +332,15 @@ BEGIN
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
+    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
+    -- it once per statement (InitPlan) instead of once per row (P1, 1.7 s vs 10 ms on 100k rows).
+    -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
         'CREATE POLICY %I_select_policy ON %I
             FOR SELECT
             TO semantius_user
-            USING (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.view_permission
@@ -349,7 +352,7 @@ BEGIN
         'CREATE POLICY %I_insert_policy ON %I
             FOR INSERT
             TO semantius_user
-            WITH CHECK (rbac.has_permission(%L))',
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission
@@ -361,8 +364,8 @@ BEGIN
         'CREATE POLICY %I_update_policy ON %I
             FOR UPDATE
             TO semantius_user
-            USING (rbac.has_permission(%L))
-            WITH CHECK (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission,
@@ -375,7 +378,7 @@ BEGIN
         'CREATE POLICY %I_delete_policy ON %I
             FOR DELETE
             TO semantius_user
-            USING (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission
@@ -1228,11 +1231,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Sub-select form: see the note in create_dd_table (P1).
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         NEW.table_name || '_insert_policy', NEW.table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
+        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the

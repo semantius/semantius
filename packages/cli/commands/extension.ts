@@ -30,12 +30,20 @@
  *     (the one piece of migrate-runner scaffolding the `_core` migrations
  *     actually depend on — `_core/0050` attaches an RLS policy to `_versions`,
  *     and seeding the rows lets a later `migrate` skip the already-applied
- *     `_core` migrations instead of re-running them), but add NO `NOTIFY pgrst`
- *     or BEGIN/COMMIT wrapping (CREATE EXTENSION runs in one transaction and
- *     pg_extension tracks the version).
+ *     `_core` migrations instead of re-running them),
+ *   - silence the audit triggers for the duration of the script
+ *     (`SET LOCAL pg_semantius.skip_audit = on`, honoured by `_core/0150` in
+ *     superuser sessions) so the install's own dictionary bookkeeping does not
+ *     land in `audit_record_logs`/`audit_ddl_logs`, where it would take the
+ *     ids of the rows a restore copies back in, and
+ *   - append the `pg_extension_config_dump` registration (extension-dump.ts)
+ *     so pg_dump includes the member tables' rows,
+ *   but add NO `NOTIFY pgrst` or BEGIN/COMMIT wrapping (CREATE EXTENSION runs
+ *   in one transaction and pg_extension tracks the version).
  */
 
 import { getVersionsTableSql } from "@semantius/core";
+import { renderConfigDump } from "./extension-dump.ts";
 
 interface MigrationFile {
   name: string;
@@ -211,11 +219,13 @@ export async function extensionCommand(
     // `CREATE TABLE IF NOT EXISTS _versions` for idempotent safety (it already
     // exists from the original install), then seed only the delta migrations'
     // run-once guards so `_versions` stays consistent across ALTER EXTENSION
-    // ... UPDATE.
+    // ... UPDATE. The pg_dump registration is appended to every upgrade too:
+    // re-registering is idempotent, and a table the delta adds must be
+    // registered (the guard inside the section fails the upgrade otherwise).
     await Deno.writeTextFile(
       `${outputDir}/${name}--${prev}--${version}.sql`,
-      upgradeHeader + renderVersionsTable() + upgradeBody +
-        renderVersionsSeed(added),
+      upgradeHeader + renderSkipAudit() + renderVersionsTable() + upgradeBody +
+        renderVersionsSeed(added) + renderConfigDump(name, { freshInstall: false }),
     );
     console.info(
       `Wrote upgrade ${name}--${prev}--${version}.sql (${added.length} migration(s))`,
@@ -238,11 +248,13 @@ export async function extensionCommand(
     controlPath,
     buildControlFile(name, version, requires),
   );
-  // Full install = header + _versions table (so _core/0050's RLS policy can
-  // attach) + migration bodies + seeded run-once guards (so a later `migrate`
-  // skips the already-applied migrations).
-  const installSql = header + renderVersionsTable() + fullBody +
-    renderVersionsSeed(migs);
+  // Full install = header + audit silencer + _versions table (so _core/0050's
+  // RLS policy can attach) + migration bodies + seeded run-once guards (so a
+  // later `migrate` skips the already-applied migrations) + pg_dump
+  // registration of the member tables.
+  const installSql = header + renderSkipAudit() + renderVersionsTable() +
+    fullBody + renderVersionsSeed(migs) +
+    renderConfigDump(name, { freshInstall: true });
   await Deno.writeTextFile(sqlPath, installSql);
   await Deno.writeTextFile(makefilePath, buildMakefile(name));
   await Deno.writeTextFile(readmePath, buildReadme(name, version, requires));
@@ -296,6 +308,28 @@ function renderBody(
     body += "\n";
   }
   return body;
+}
+
+/**
+ * `SET LOCAL pg_semantius.skip_audit = on`, the first statement of every
+ * generated script. After `_core/0150` has attached the audit triggers, the
+ * rest of the install inserts a few hundred dictionary rows (core entities and
+ * fields) and every DDL statement is caught by the DDL event trigger. Those
+ * rows are bookkeeping, not user activity, and on a restore they would take
+ * the ids that the audit rows copied back from the dump carry (both audit
+ * tables are registered for pg_dump). 0150's trigger functions honour the
+ * setting in superuser sessions only; the restore procedure in the README sets
+ * it through PGOPTIONS. SET LOCAL is scoped to the CREATE EXTENSION / ALTER
+ * EXTENSION transaction (PostgreSQL also reverts GUC changes an extension
+ * script makes once the script ends), so nothing leaks into the session.
+ */
+function renderSkipAudit(): string {
+  return `-- =====================================================
+-- Silence the audit triggers for the install (_core/0150)
+-- =====================================================
+SET LOCAL pg_semantius.skip_audit = on;
+
+`;
 }
 
 /**
@@ -674,12 +708,57 @@ Once a version is released its migrations are **frozen** — make later changes 
 released migration's content changed, since that edit can't land in an upgrade
 script).
 
-## Caveat
+## Backup and restore
 
-Every table the install script creates becomes a member of the extension, so
-\`DROP EXTENSION ${name}\` will drop the data-dictionary tables **and their
-contents**. Back up first. (A follow-up can mark seed/config tables with
-\`pg_extension_config_dump()\` so \`pg_dump\` captures their rows.)
+Every table the install script creates is a member of the extension, and
+\`pg_dump\` skips member tables unless the extension registers them. ${name}
+registers its data tables and sequences with \`pg_extension_config_dump\` (the
+list lives in \`packages/cli/commands/extension-dump.ts\` of the generator), so
+a normal \`pg_dump\` of the database contains your modules, entities, fields,
+users, roles, permissions, API keys, dashboards, bookmarks, webhooks,
+processes, queues, RACI data and both audit logs. Rows the install seeds
+itself (the \`_core\` module, the built-in permissions and roles, the core
+entities and their fields, the \`db_version\` setting, the \`_core\` migration
+guards, the \`raci_notify\` queue) are left out on purpose: \`CREATE EXTENSION\`
+re-creates them on the restore side.
+
+Not in the dump: the unlogged per-request cache and notification throttle
+table, and the in-flight \`raci_notify\` queue. Changes made to the core
+entities and their fields after the install (relabelled core fields, extra
+fields added to \`users\`, ...) are not dumped either and have to be
+re-applied after a restore.
+
+Back up with the custom format:
+
+\`\`\`sh
+pg_dump -Fc -d appdb -f appdb.dump
+\`\`\`
+
+Restore into an empty database on a server that has the same ${name}
+version installed, in three passes and with the audit triggers silenced. A
+single \`pg_restore\` fails: the member tables carry foreign-key cycles
+(\`modules\` <-> \`permissions\`/\`roles\`) and data-dictionary triggers that
+must not fire while rows are copied, and \`--disable-triggers\` only applies to
+a data-only pass. \`pg_semantius.skip_audit\` keeps the restore's own DDL and
+the extension install out of the audit logs, whose rows come from the dump
+instead; it is honoured in superuser sessions only (which
+\`--disable-triggers\` needs anyway).
+
+\`\`\`sh
+export PGOPTIONS='-c pg_semantius.skip_audit=on'
+createdb appdb_restored
+pg_restore -d appdb_restored --exit-on-error --section=pre-data appdb.dump
+pg_restore -d appdb_restored --exit-on-error --data-only --disable-triggers appdb.dump
+pg_restore -d appdb_restored --exit-on-error --section=post-data appdb.dump
+\`\`\`
+
+The extension's roles (\`authenticated\`, \`semantius_user\`,
+\`semantius_authenticator\`, \`semantius_owner\`) are cluster-wide and not part
+of a database dump; \`CREATE EXTENSION\` creates any that are missing, but the
+\`semantius_authenticator\` login password is per environment and has to be
+set again on a new server. \`DROP EXTENSION ${name}\` drops the member tables
+**with their contents**; back up first. The repository checks the round trip
+with \`pgdocker/pg-ext-dump-restore.sh\`.
 `;
 }
 

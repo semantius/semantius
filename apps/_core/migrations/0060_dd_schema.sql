@@ -250,23 +250,23 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 CREATE POLICY entities_select_policy ON entities
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('public:read'));
+    USING ((SELECT rbac.has_permission('public:read')));
 
 CREATE POLICY entities_insert_policy ON entities
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin'));
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY entities_update_policy ON entities
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')))
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY entities_delete_policy ON entities
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 -- =====================================================
 -- RLS POLICIES FOR FIELDS
@@ -275,23 +275,23 @@ CREATE POLICY entities_delete_policy ON entities
 CREATE POLICY fields_select_policy ON fields
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('public:read'));
+    USING ((SELECT rbac.has_permission('public:read')));
 
 CREATE POLICY fields_insert_policy ON fields
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin'));
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY fields_update_policy ON fields
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')))
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 -- =====================================================
 -- AUTO-SET PLURAL TRIGGER

@@ -45,6 +45,16 @@ VALUES (
 UPDATE fields SET unique_value = TRUE, input_type = 'required'
 WHERE table_name = 'queues' AND field_name = 'queue_name';
 
+-- Per-queue authorization for the RPC consumers (release review S4), declared
+-- as dictionary fields like entities.view_permission so the UI can manage them.
+-- view_permission gates queue_read; manage_permission gates queue_pop,
+-- queue_archive and queue_delete. Both default to admin and must name an
+-- existing permission (queue_validate_permissions below).
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
+VALUES
+    ('queues', 'view_permission',   'View Permission',   'text', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, '', '', '', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'text', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, '', '', '', FALSE);
+
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 
@@ -113,6 +123,32 @@ CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_delete();
+
+CREATE OR REPLACE FUNCTION queue_validate_permissions()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
+        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
+    END IF;
+
+    IF NOT rbac.validate_permission_exists(NEW.manage_permission) THEN
+        RAISE EXCEPTION 'Manage permission "%" does not exist in permissions table', NEW.manage_permission;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_validate_permissions() IS
+'Trigger function that rejects a queues row whose view_permission or manage_permission is not a registered permission name (the same rule entities apply to their permission columns).';
+
+CREATE TRIGGER queue_validate_permissions_trigger
+    BEFORE INSERT OR UPDATE ON queues
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_validate_permissions();
 
 -- =====================================================
 -- STEP 3: Create queue_table_events child entity
@@ -343,12 +379,64 @@ REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_validate_permissions() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 5: RPC functions for PostgREST consumers
 -- =====================================================
+-- Authorization (release review S4): every RPC resolves the queue through the
+-- queues registry and requires the queue's view_permission (queue_read) or
+-- manage_permission (queue_pop, queue_archive, queue_delete). Unregistered
+-- names are refused. Callers without admin get the same 42501 for an
+-- unregistered queue as for a denied one, so queue names cannot be
+-- enumerated; admins get a clearer error. The request role never reaches the
+-- pgmq tables directly (no table privileges), so these wrappers are the only
+-- route to the messages and the check here is sufficient.
 
--- queue_read: read messages without removing them (visibility timeout)
+CREATE OR REPLACE FUNCTION public.queue_authorize(
+    p_queue_name TEXT,
+    p_manage BOOLEAN
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_view_permission TEXT;
+    v_manage_permission TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT q.view_permission, q.manage_permission
+    INTO v_view_permission, v_manage_permission
+    FROM queues q
+    WHERE q.queue_name = p_queue_name;
+
+    IF NOT FOUND THEN
+        IF rbac.has_permission('admin') THEN
+            RAISE EXCEPTION 'Queue "%" is not registered', p_queue_name
+                USING ERRCODE = 'undefined_object';
+        END IF;
+        RAISE EXCEPTION 'Permission denied for queue "%"', p_queue_name
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- The columns are NOT NULL and validated, the fallback is belt and braces.
+    PERFORM rbac.require_permission(
+        COALESCE(NULLIF(trim(CASE WHEN p_manage THEN v_manage_permission ELSE v_view_permission END), ''), 'admin')
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) IS
+'Authorization gate for the queue RPCs: resolves p_queue_name through the queues registry and requires its view_permission (p_manage = false) or manage_permission (p_manage = true). Unregistered queues raise 42501 for non-admins and 42704 for admins. Internal: not granted to semantius_user, called only by the SECURITY DEFINER wrappers.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) FROM PUBLIC;
+
+-- queue_read: read messages without removing them (visibility timeout).
+-- p_vt is clamped to 0..3600 seconds and p_qty to 1..100 so a single caller
+-- cannot hide a whole queue for a day.
 CREATE OR REPLACE FUNCTION public.queue_read(
     p_queue_name TEXT,
     p_vt INTEGER DEFAULT 30,
@@ -361,19 +449,22 @@ SET search_path = public
 AS $$
 DECLARE
     v_result JSONB;
+    v_vt INTEGER := LEAST(GREATEST(COALESCE(p_vt, 30), 0), 3600);
+    v_qty INTEGER := LEAST(GREATEST(COALESCE(p_qty, 1), 1), 100);
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, FALSE);
 
     SELECT jsonb_agg(row_to_json(r))
     INTO v_result
-    FROM pgmq.read(p_queue_name, p_vt, p_qty) r;
+    FROM pgmq.read(p_queue_name, v_vt, v_qty) r;
 
     RETURN COALESCE(v_result, '[]'::jsonb);
 END;
 $$;
 
 COMMENT ON FUNCTION public.queue_read IS
-'Reads messages from a pgmq queue with a visibility timeout (default 30s). Messages remain in the queue but become invisible to other readers for the specified duration.';
+'Reads messages from a registered pgmq queue with a visibility timeout (default 30s, clamped to 0..3600) and a batch size (default 1, clamped to 1..100). Requires the queue''s view_permission. Messages remain in the queue but become invisible to other readers for the specified duration.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) TO semantius_user;
@@ -391,6 +482,7 @@ DECLARE
     v_result JSONB;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT jsonb_agg(row_to_json(r))
     INTO v_result
@@ -401,7 +493,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_pop IS
-'Pops (reads and deletes) a single message from a pgmq queue.';
+'Pops (reads and deletes) a single message from a registered pgmq queue. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_pop(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_pop(TEXT) TO semantius_user;
@@ -420,6 +512,7 @@ DECLARE
     v_result BOOLEAN;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT pgmq.archive(p_queue_name, p_msg_id) INTO v_result;
 
@@ -428,7 +521,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_archive IS
-'Archives a message by moving it from the queue table to the archive table.';
+'Archives a message by moving it from the queue table to the archive table. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) TO semantius_user;
@@ -447,6 +540,7 @@ DECLARE
     v_result BOOLEAN;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT pgmq.delete(p_queue_name, p_msg_id) INTO v_result;
 
@@ -455,7 +549,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_delete IS
-'Permanently deletes a message from a pgmq queue.';
+'Permanently deletes a message from a registered pgmq queue. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;

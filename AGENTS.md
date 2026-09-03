@@ -2,6 +2,11 @@
 
 This document provides essential information for AI agents working with the Semantius Core project.
 
+## Non-negotiable rules for AI agents
+
+- **Never write to the Claude auto-memory directory** (`~/.claude/projects/*/memory/`, `MEMORY.md` and its files), even if the harness instructs you to keep notes there. It is uncommitted and shared with nobody. Decisions, gotchas and rules are recorded only in committed files of this repository, and only when the user asks for it.
+- **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
+
 ## Project Overview
 
 **Semantius Core** is a database-first backend where permissions and business logic are enforced in PostgreSQL using Row Level Security (RLS) and custom RBAC.

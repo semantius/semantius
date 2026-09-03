@@ -66,6 +66,8 @@ jobs:
              extension/pg_semantius.control \
              extension/Makefile \
              extension/README.md \
+             SECURITY.md \
+             LICENSE \
              "$DIST/"
           # All install scripts: the current full install + the whole upgrade
           # chain, so `make install` + `ALTER EXTENSION ... UPDATE` both work.

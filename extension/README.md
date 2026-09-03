@@ -61,9 +61,54 @@ Once a version is released its migrations are **frozen** — make later changes 
 released migration's content changed, since that edit can't land in an upgrade
 script).
 
-## Caveat
+## Backup and restore
 
-Every table the install script creates becomes a member of the extension, so
-`DROP EXTENSION pg_semantius` will drop the data-dictionary tables **and their
-contents**. Back up first. (A follow-up can mark seed/config tables with
-`pg_extension_config_dump()` so `pg_dump` captures their rows.)
+Every table the install script creates is a member of the extension, and
+`pg_dump` skips member tables unless the extension registers them. pg_semantius
+registers its data tables and sequences with `pg_extension_config_dump` (the
+list lives in `packages/cli/commands/extension-dump.ts` of the generator), so
+a normal `pg_dump` of the database contains your modules, entities, fields,
+users, roles, permissions, API keys, dashboards, bookmarks, webhooks,
+processes, queues, RACI data and both audit logs. Rows the install seeds
+itself (the `_core` module, the built-in permissions and roles, the core
+entities and their fields, the `db_version` setting, the `_core` migration
+guards, the `raci_notify` queue) are left out on purpose: `CREATE EXTENSION`
+re-creates them on the restore side.
+
+Not in the dump: the unlogged per-request cache and notification throttle
+table, and the in-flight `raci_notify` queue. Changes made to the core
+entities and their fields after the install (relabelled core fields, extra
+fields added to `users`, ...) are not dumped either and have to be
+re-applied after a restore.
+
+Back up with the custom format:
+
+```sh
+pg_dump -Fc -d appdb -f appdb.dump
+```
+
+Restore into an empty database on a server that has the same pg_semantius
+version installed, in three passes and with the audit triggers silenced. A
+single `pg_restore` fails: the member tables carry foreign-key cycles
+(`modules` <-> `permissions`/`roles`) and data-dictionary triggers that
+must not fire while rows are copied, and `--disable-triggers` only applies to
+a data-only pass. `pg_semantius.skip_audit` keeps the restore's own DDL and
+the extension install out of the audit logs, whose rows come from the dump
+instead; it is honoured in superuser sessions only (which
+`--disable-triggers` needs anyway).
+
+```sh
+export PGOPTIONS='-c pg_semantius.skip_audit=on'
+createdb appdb_restored
+pg_restore -d appdb_restored --exit-on-error --section=pre-data appdb.dump
+pg_restore -d appdb_restored --exit-on-error --data-only --disable-triggers appdb.dump
+pg_restore -d appdb_restored --exit-on-error --section=post-data appdb.dump
+```
+
+The extension's roles (`authenticated`, `semantius_user`,
+`semantius_authenticator`, `semantius_owner`) are cluster-wide and not part
+of a database dump; `CREATE EXTENSION` creates any that are missing, but the
+`semantius_authenticator` login password is per environment and has to be
+set again on a new server. `DROP EXTENSION pg_semantius` drops the member tables
+**with their contents**; back up first. The repository checks the round trip
+with `pgdocker/pg-ext-dump-restore.sh`.

@@ -21,9 +21,13 @@ It does three things:
 
 The two modes are selected by the sample apps via `DB_AUTH_MODE = bearer | session`.
 
-> ⚠️ The OAuth validator (`pg_oidc_validator`) is **experimental and not
-> production-ready** per its authors. There is no mature, blessed validator for
-> PG18 OAuth yet. Treat this as a working starting point, not a hardened deploy.
+> ⚠️ The OAuth validator (`pg_oidc_validator`) is pinned to its **1.1.0 release**
+> (upstream calls 1.0.0 the first stable release). Semantius **bearer mode** is
+> still experimental on our side: a bearer client runs SQL as the request role,
+> so the `app.*` permission cache is bypassed in those sessions (see
+> "Per-request permission resolution" below). Treat bearer mode as a working
+> starting point, not a hardened deploy. Status, graduation criteria and the
+> hardening plan: [docs/bearer-mode-status.md](../docs/bearer-mode-status.md).
 
 ---
 
@@ -252,13 +256,22 @@ The mechanisms are correct (session mode is genuinely transaction-pooler-safe). 
   is one connection per user/token, no pool, with ≥5 serialized round-trips per
   request; OAUTHBEARER can't be pooled (bound to one `sub`) and PgBouncer can't
   passthrough it. Treat `bearer` as demo / low-concurrency self-host.
-- **Per-request permission resolution** — `ensure_context_initialized()` runs the
-  recursive `get_user_permissions()` once per tx (cached in a LOCAL GUC that resets at
-  COMMIT), so it re-runs every request in *both* modes. For high-RPS / high-permission
-  users, production needs an app-side permission cache (keyed by `sub` + roles-version);
-  the samples don't implement one.
-- **Validator JWKS caching (`bearer`)** — pin `pg_oidc_validator` ≥ v0.2 (JWKS/discovery
-  caching); older builds do a fresh outbound JWKS fetch per connection.
+- **Per-request permission resolution** — in `session` mode `ensure_context_initialized()`
+  runs the recursive `get_user_permissions()` once per tx (cached in a LOCAL GUC that
+  resets at COMMIT), so it re-runs every request. In `bearer` mode the cache is
+  **disabled**: the client runs SQL as the request role and could overwrite the `app.*`
+  GUCs, so permissions are re-resolved on every check and the session receives a
+  one-time WARNING saying so (release review S2). Per-row select rules and row triggers
+  pay that cost per row in bearer mode; the cache needs a signed/verified form before
+  bearer mode can be called production-ready. For high-RPS / high-permission users,
+  production needs an app-side permission cache (keyed by `sub` + roles-version); the
+  samples don't implement one.
+- **Validator version (`bearer`)** — the image builds `pg_oidc_validator` 1.1.0
+  (`OIDC_VALIDATOR_REF` in the Dockerfile / compose files). 1.x adds
+  `pg_oidc_validator.authn_field`, `pg_oidc_validator.discovery_url_override`,
+  relaxed empty-scope handling and HTTP/JWKS cache fixes; our one-line claims
+  patch still applies on top. Older builds do a fresh outbound JWKS fetch per
+  connection.
 
 ---
 
@@ -368,6 +381,34 @@ install itself (`_core/0050` attaches an RLS policy to `_versions`).
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
 `migrate --apps nwind,test` + `test` steps stays green (migrate reports
 `test`/`nwind` already applied and the tests roll back cleanly).
+
+### Backup and restore round trip
+
+`pg-ext-dump-restore.sh` (no `.cmd` variant) proves that a `pg_dump` of the
+extension-installed database restores without loss, the way the extension
+README documents it. It runs against the container `pg-ext-retest` leaves
+behind (extension plus `nwind,test` as the sample data): it snapshots the row
+count of every member table registered for `pg_dump`, the state of every
+registered sequence and the row counts of all dictionary tables and user
+queues, takes a custom-format dump, restores it into a second database on the
+same cluster in the documented three passes (`--section=pre-data`,
+`--data-only --disable-triggers`, `--section=post-data`, each with
+`PGOPTIONS='-c pg_semantius.skip_audit=on'`) and diffs the two snapshots.
+
+```bash
+./pg-ext-retest.sh                  # first: fresh extension stack with the sample data
+./pg-ext-dump-restore.sh            # dump, three-pass restore, exact comparison
+./pg-ext-dump-restore.sh --suite    # also run the pgTAP suite against the restored database
+./pg-ext-dump-restore.sh --keep     # keep appdb_restore for inspection
+```
+
+Any restore error or difference exits 1. The registry of dumped tables and
+their seed filters lives in `packages/cli/commands/extension-dump.ts`. The
+generated install script refuses to install when a member table is neither
+registered nor listed as transient, or when a registered filter still selects
+a row the install seeds (right after the install the tables hold nothing else,
+so every filter must select zero rows); `apps/test/tests/0440_test_config_dump.sql`
+pins the same rules on the suite's data.
 
 ### Just deploy a module (no reset, no tests)
 
@@ -591,6 +632,7 @@ export DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@localhost:5432/a
 deno task migrate --apps _core
 deno run --allow-net verify_oauth.ts          # OAuth validated + claims published -> exit 0
 deno run --allow-net test_oauth_security.ts   # impersonation attempt is blocked   -> exit 0
+deno run --allow-net test_bearer_cache.ts     # forged app.* permission cache ignored -> exit 0
 ```
 
 (Outbound HTTPS to the issuer's JWKS endpoint is required.)
@@ -640,6 +682,7 @@ so no host-specific changes are needed.
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
 - [verify_oauth.ts](verify_oauth.ts) — bearer: end-to-end OAuth handshake + claims check
 - [test_oauth_security.ts](test_oauth_security.ts) — bearer: hostile-client impersonation check
+- [test_bearer_cache.ts](test_bearer_cache.ts) — bearer: hostile-client forges the `app.*` permission cache; must be ignored (release review S2)
 - [verify_session.ts](verify_session.ts) — session: SCRAM connect → `SET ROLE` + claims → RLS, with provisioning + guardrail
 - [test_session_trust.ts](test_session_trust.ts) — session: trust-model assertion + NOINHERIT/no-claims/bad-role negatives
 - [session_helpers.ts](session_helpers.ts) — shared session helpers (SCRAM connect, password resolution, claims/tx)

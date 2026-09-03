@@ -6,6 +6,11 @@
 -- Install:  CREATE EXTENSION pg_semantius CASCADE;
 
 -- =====================================================
+-- Silence the audit triggers for the install (_core/0150)
+-- =====================================================
+SET LOCAL pg_semantius.skip_audit = on;
+
+-- =====================================================
 -- _versions tracking table (run-once migration guard)
 -- =====================================================
 -- Created before the migration bodies so _core/0050's
@@ -1695,10 +1700,29 @@ COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 -- REQUEST CONTEXT - LAZY INITIALIZATION
 -- =====================================================
 
+-- Bearer-session detection (PostgreSQL 18 SASL OAUTHBEARER). PostgreSQL pins
+-- the verified identity in system_user as 'oauth:<sub>' for such sessions.
+-- SCRAM logins (the session-mode authenticator, PostgREST, the CLI) carry
+-- 'scram-sha-256:<role>' or NULL and are never bearer sessions.
+CREATE OR REPLACE FUNCTION rbac.is_bearer_session()
+RETURNS BOOLEAN AS $$
+    SELECT system_user LIKE 'oauth:%';
+$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.is_bearer_session IS
+'True when the session authenticated with a PostgreSQL 18 OAuth bearer token (system_user = oauth:<sub>). Such clients run SQL directly as the request role, so the app.* context cache is not trusted for them.';
+
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
 -- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
+--
+-- Trust model of the cache: the app.* settings are ordinary GUCs that the
+-- request role can overwrite. Behind PostgREST or an app server that is
+-- harmless (the client never runs SQL), but a bearer session hands the client
+-- SQL as the request role, so a cached context could be forged there (release
+-- review S2). For bearer sessions the shortcut below is skipped and the
+-- context is re-derived on every call until the cache is hardened.
 CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
@@ -1709,13 +1733,21 @@ DECLARE
 BEGIN
     PERFORM rbac.uid();
 
-    -- Check if already initialized in this transaction
-    v_initialized := current_setting('app.context_initialized', true);
+    IF rbac.is_bearer_session() THEN
+        -- Permission cache disabled: say so once per session (server log and client).
+        IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
+            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check until the cache is hardened for bearer auth (release review S2).';
+            PERFORM set_config('app.bearer_cache_notice', 'sent', false);
+        END IF;
+    ELSE
+        -- Check if already initialized in this transaction
+        v_initialized := current_setting('app.context_initialized', true);
 
-    IF v_initialized = 'true' THEN
-        RETURN; -- Already initialized, skip
+        IF v_initialized = 'true' THEN
+            RETURN; -- Already initialized, skip
+        END IF;
     END IF;
-    
+
     -- Get current user from JWT
     v_external_id := rbac.uid();
     
@@ -1746,60 +1778,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.ensure_context_initialized IS 
-'Lazy initialization of request context. Called automatically on first permission check.';
-
--- Manual context initialization with OAuth scopes
--- Use this for OAuth/API requests where scopes need to be validated
-CREATE OR REPLACE FUNCTION rbac.set_request_context(
-    p_external_id TEXT DEFAULT NULL,
-    p_email TEXT DEFAULT NULL,
-    p_oauth_scopes TEXT DEFAULT NULL
-)
-RETURNS void AS $$
-DECLARE
-    v_external_id TEXT;
-    v_user_id INTEGER;
-    v_permissions TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    -- Use provided external_id or detect from JWT
-    v_external_id := COALESCE(p_external_id, rbac.uid());
-    
-    -- Validate external_id is not empty
-    IF v_external_id IS NULL OR trim(v_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
-    END IF;
-    
-    -- Ensure user exists and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(
-        v_external_id, 
-        COALESCE(p_email, current_setting('request.jwt.claim.email', true))
-    );
-    
-    -- OPTIMIZATION: Load all user permissions once as comma-separated string
-    SELECT string_agg(permission_name, ',' ORDER BY permission_name)
-    INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
-    
-    -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
-    -- Using true (LOCAL) ensures these are automatically cleared when the transaction ends,
-    -- preventing stale permissions from leaking across requests on pooled connections
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
-    PERFORM set_config('app.current_external_id', v_external_id, true);
-    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), true);
-    PERFORM set_config('app.context_initialized', 'true', true);
-
-    -- Store OAuth2 scopes if present (for API requests)
-    IF p_oauth_scopes IS NOT NULL THEN
-        PERFORM set_config('app.oauth_scopes', p_oauth_scopes, true);
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION rbac.set_request_context IS 
-'Manually sets request context. Optional - context auto-initializes if not called. Use for OAuth scope validation.';
+COMMENT ON FUNCTION rbac.ensure_context_initialized IS
+'Lazy initialization of request context. Called automatically on first permission check. In OAuth bearer sessions the cached context is not trusted and is re-derived on every call.';
 
 -- =====================================================
 -- PERMISSION CHECKING
@@ -2222,8 +2202,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.user_id IS 
+COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Auto-initializes if needed.';
+
+-- Same as rbac.user_id(), but NULL instead of an error when there is no
+-- authenticated user (migrations, seed scripts, anonymous sessions) or the
+-- user has no row yet. For trigger and audit code that must work in every
+-- context. Goes through ensure_context_initialized(), so the value is
+-- derived, never read raw from the client-writable app.current_user_id setting.
+CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN rbac.user_id();
+EXCEPTION
+    WHEN insufficient_privilege OR invalid_authorization_specification THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.user_id_or_null IS
+'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
 
 -- =====================================================
 -- DEBUGGING AND INTROSPECTION
@@ -2261,11 +2259,17 @@ BEGIN
     v_initialized := current_setting('app.context_initialized', true);
     
     -- Return initialization status
-    RETURN QUERY SELECT 
+    RETURN QUERY SELECT
         'status'::TEXT,
         'context_initialized'::TEXT,
         COALESCE(v_initialized, 'false')::TEXT;
-    
+
+    -- Whether the cached context is trusted in this session (not in bearer sessions)
+    RETURN QUERY SELECT
+        'status'::TEXT,
+        'permission_cache'::TEXT,
+        CASE WHEN rbac.is_bearer_session() THEN 'disabled (bearer session)' ELSE 'enabled' END::TEXT;
+
     -- Return app context variables
     RETURN QUERY SELECT 
         'app'::TEXT,
@@ -3122,23 +3126,23 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 CREATE POLICY entities_select_policy ON entities
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('public:read'));
+    USING ((SELECT rbac.has_permission('public:read')));
 
 CREATE POLICY entities_insert_policy ON entities
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin'));
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY entities_update_policy ON entities
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')))
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY entities_delete_policy ON entities
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 -- =====================================================
 -- RLS POLICIES FOR FIELDS
@@ -3147,23 +3151,23 @@ CREATE POLICY entities_delete_policy ON entities
 CREATE POLICY fields_select_policy ON fields
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('public:read'));
+    USING ((SELECT rbac.has_permission('public:read')));
 
 CREATE POLICY fields_insert_policy ON fields
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('admin'));
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY fields_update_policy ON fields
     FOR UPDATE
     TO semantius_user
-    USING (rbac.has_permission('admin'))
-    WITH CHECK (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')))
+    WITH CHECK ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 -- =====================================================
 -- AUTO-SET PLURAL TRIGGER
@@ -3902,12 +3906,15 @@ BEGIN
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
+    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
+    -- it once per statement (InitPlan) instead of once per row (P1, 1.7 s vs 10 ms on 100k rows).
+    -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
         'CREATE POLICY %I_select_policy ON %I
             FOR SELECT
             TO semantius_user
-            USING (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.view_permission
@@ -3919,7 +3926,7 @@ BEGIN
         'CREATE POLICY %I_insert_policy ON %I
             FOR INSERT
             TO semantius_user
-            WITH CHECK (rbac.has_permission(%L))',
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission
@@ -3931,8 +3938,8 @@ BEGIN
         'CREATE POLICY %I_update_policy ON %I
             FOR UPDATE
             TO semantius_user
-            USING (rbac.has_permission(%L))
-            WITH CHECK (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission,
@@ -3945,7 +3952,7 @@ BEGIN
         'CREATE POLICY %I_delete_policy ON %I
             FOR DELETE
             TO semantius_user
-            USING (rbac.has_permission(%L))',
+            USING ((SELECT rbac.has_permission(%L)))',
         NEW.table_name,
         NEW.table_name,
         NEW.edit_permission
@@ -4798,11 +4805,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Sub-select form: see the note in create_dd_table (P1).
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         NEW.table_name || '_insert_policy', NEW.table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
+        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
@@ -7699,32 +7707,33 @@ BEGIN
             NEW.table_name, NEW.table_name
         );
 
-        -- Row Level Security
+        -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
+        -- see the note in create_dd_table (P1); test 0445 fails on the bare per-row form.
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
             'CREATE POLICY %I_select_policy ON %I
                 FOR SELECT TO semantius_user
-                USING (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.view_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_insert_policy ON %I
                 FOR INSERT TO semantius_user
-                WITH CHECK (rbac.has_permission(%L))',
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_update_policy ON %I
                 FOR UPDATE TO semantius_user
-                USING (rbac.has_permission(%L))
-                WITH CHECK (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_delete_policy ON %I
                 FOR DELETE TO semantius_user
-                USING (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission
         );
 
@@ -8784,15 +8793,11 @@ CREATE OR REPLACE FUNCTION audit.current_user_id()
     LANGUAGE plpgsql
     SET search_path = public
 AS $$
-DECLARE
-    v_user_id INTEGER;
 BEGIN
-    -- Try to get the user_id from the app context (set by rbac.ensure_context_initialized)
-    v_user_id := current_setting('app.current_user_id', true)::INTEGER;
-    IF v_user_id IS NOT NULL THEN
-        RETURN v_user_id;
-    END IF;
-    RETURN 0;
+    -- Derived through rbac (lazy context initialization), never read raw from
+    -- the client-writable app.current_user_id setting. NULL (no authenticated
+    -- user, e.g. during migrations) becomes 0.
+    RETURN COALESCE(rbac.user_id_or_null(), 0);
 EXCEPTION
     WHEN OTHERS THEN
         RETURN 0;
@@ -8805,6 +8810,17 @@ COMMENT ON FUNCTION audit.current_user_id IS
 -- =====================================================
 -- STEP 5: DML audit trigger functions
 -- =====================================================
+-- pg_semantius.skip_audit: when this setting is 'on' in a SUPERUSER session,
+-- the three audit trigger functions below (rows, truncate, DDL) return
+-- without logging. The generated extension script sets it for the duration
+-- of CREATE EXTENSION / ALTER EXTENSION UPDATE, and the documented restore
+-- procedure sets it for pg_restore (PGOPTIONS): the install's own
+-- dictionary bookkeeping and the restore's own DDL are not user activity,
+-- and their rows would take the ids that the audit rows copied back from a
+-- dump need (both audit tables are registered with
+-- pg_extension_config_dump). The superuser check is what stops a request
+-- role from switching its own auditing off: session_user is the login role,
+-- unaffected by SET ROLE, and never a superuser for application sessions.
 
 CREATE OR REPLACE FUNCTION audit.insert_update_delete_trigger()
     RETURNS TRIGGER
@@ -8821,6 +8837,13 @@ DECLARE
     v_record_pk TEXT;
     v_user_id INTEGER;
 BEGIN
+    -- Install / restore time (see the note above STEP 5).
+    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
+        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
+            RETURN COALESCE(NEW, OLD);
+        END IF;
+    END IF;
+
     -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
@@ -8864,6 +8887,13 @@ CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Install / restore time (see the note above STEP 5).
+    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
+        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
+            RETURN COALESCE(OLD, NEW);
+        END IF;
+    END IF;
+
     INSERT INTO public.audit_record_logs(
         op,
         user_id,
@@ -8970,6 +9000,13 @@ DECLARE
     obj RECORD;
     v_user_id INTEGER;
 BEGIN
+    -- Install / restore time (see the note above STEP 5).
+    IF current_setting('pg_semantius.skip_audit', true) = 'on' THEN
+        IF (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = session_user) THEN
+            RETURN;
+        END IF;
+    END IF;
+
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
@@ -9162,7 +9199,7 @@ ALTER TABLE public.audit_ddl_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY audit_record_logs_select ON public.audit_record_logs
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY audit_record_logs_insert ON public.audit_record_logs
     FOR INSERT
@@ -9172,12 +9209,12 @@ CREATE POLICY audit_record_logs_insert ON public.audit_record_logs
 CREATE POLICY audit_record_logs_delete ON public.audit_record_logs
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY audit_ddl_logs_select ON public.audit_ddl_logs
     FOR SELECT
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 CREATE POLICY audit_ddl_logs_insert ON public.audit_ddl_logs
     FOR INSERT
@@ -9187,7 +9224,7 @@ CREATE POLICY audit_ddl_logs_insert ON public.audit_ddl_logs
 CREATE POLICY audit_ddl_logs_delete ON public.audit_ddl_logs
     FOR DELETE
     TO semantius_user
-    USING (rbac.has_permission('admin'));
+    USING ((SELECT rbac.has_permission('admin')));
 
 -- Grant necessary table permissions to semantius_user
 GRANT SELECT, INSERT, DELETE ON public.audit_record_logs TO semantius_user;
@@ -9289,17 +9326,10 @@ CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
 -- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
 CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
 
--- Allow the following `pgmq` tables to be dumped by `pg_dump` when pgmq is installed as an extension
-DO
-$$
-BEGIN
-    IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.meta', '');
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.notify_insert_throttle', '');
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.topic_bindings', '');
-    END IF;
-END
-$$;
+-- pg_dump registration of pgmq.meta and pgmq.topic_bindings (upstream's
+-- pg_extension_config_dump block) lives in the generated pg_semantius
+-- extension script, see packages/cli/commands/extension-dump.ts. The
+-- migrate path needs none: its tables are not extension members.
 
 -- This type has the shape of a message in a queue, and is often returned by
 -- pgmq functions that return messages
@@ -11392,6 +11422,16 @@ VALUES (
 UPDATE fields SET unique_value = TRUE, input_type = 'required'
 WHERE table_name = 'queues' AND field_name = 'queue_name';
 
+-- Per-queue authorization for the RPC consumers (release review S4), declared
+-- as dictionary fields like entities.view_permission so the UI can manage them.
+-- view_permission gates queue_read; manage_permission gates queue_pop,
+-- queue_archive and queue_delete. Both default to admin and must name an
+-- existing permission (queue_validate_permissions below).
+INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
+VALUES
+    ('queues', 'view_permission',   'View Permission',   'text', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, '', '', '', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'text', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, '', '', '', FALSE);
+
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 
@@ -11460,6 +11500,32 @@ CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_delete();
+
+CREATE OR REPLACE FUNCTION queue_validate_permissions()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
+        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
+    END IF;
+
+    IF NOT rbac.validate_permission_exists(NEW.manage_permission) THEN
+        RAISE EXCEPTION 'Manage permission "%" does not exist in permissions table', NEW.manage_permission;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_validate_permissions() IS
+'Trigger function that rejects a queues row whose view_permission or manage_permission is not a registered permission name (the same rule entities apply to their permission columns).';
+
+CREATE TRIGGER queue_validate_permissions_trigger
+    BEFORE INSERT OR UPDATE ON queues
+    FOR EACH ROW
+    EXECUTE FUNCTION queue_validate_permissions();
 
 -- =====================================================
 -- STEP 3: Create queue_table_events child entity
@@ -11690,12 +11756,64 @@ REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_validate_permissions() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 5: RPC functions for PostgREST consumers
 -- =====================================================
+-- Authorization (release review S4): every RPC resolves the queue through the
+-- queues registry and requires the queue's view_permission (queue_read) or
+-- manage_permission (queue_pop, queue_archive, queue_delete). Unregistered
+-- names are refused. Callers without admin get the same 42501 for an
+-- unregistered queue as for a denied one, so queue names cannot be
+-- enumerated; admins get a clearer error. The request role never reaches the
+-- pgmq tables directly (no table privileges), so these wrappers are the only
+-- route to the messages and the check here is sufficient.
 
--- queue_read: read messages without removing them (visibility timeout)
+CREATE OR REPLACE FUNCTION public.queue_authorize(
+    p_queue_name TEXT,
+    p_manage BOOLEAN
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_view_permission TEXT;
+    v_manage_permission TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT q.view_permission, q.manage_permission
+    INTO v_view_permission, v_manage_permission
+    FROM queues q
+    WHERE q.queue_name = p_queue_name;
+
+    IF NOT FOUND THEN
+        IF rbac.has_permission('admin') THEN
+            RAISE EXCEPTION 'Queue "%" is not registered', p_queue_name
+                USING ERRCODE = 'undefined_object';
+        END IF;
+        RAISE EXCEPTION 'Permission denied for queue "%"', p_queue_name
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- The columns are NOT NULL and validated, the fallback is belt and braces.
+    PERFORM rbac.require_permission(
+        COALESCE(NULLIF(trim(CASE WHEN p_manage THEN v_manage_permission ELSE v_view_permission END), ''), 'admin')
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) IS
+'Authorization gate for the queue RPCs: resolves p_queue_name through the queues registry and requires its view_permission (p_manage = false) or manage_permission (p_manage = true). Unregistered queues raise 42501 for non-admins and 42704 for admins. Internal: not granted to semantius_user, called only by the SECURITY DEFINER wrappers.';
+
+REVOKE EXECUTE ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) FROM PUBLIC;
+
+-- queue_read: read messages without removing them (visibility timeout).
+-- p_vt is clamped to 0..3600 seconds and p_qty to 1..100 so a single caller
+-- cannot hide a whole queue for a day.
 CREATE OR REPLACE FUNCTION public.queue_read(
     p_queue_name TEXT,
     p_vt INTEGER DEFAULT 30,
@@ -11708,19 +11826,22 @@ SET search_path = public
 AS $$
 DECLARE
     v_result JSONB;
+    v_vt INTEGER := LEAST(GREATEST(COALESCE(p_vt, 30), 0), 3600);
+    v_qty INTEGER := LEAST(GREATEST(COALESCE(p_qty, 1), 1), 100);
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, FALSE);
 
     SELECT jsonb_agg(row_to_json(r))
     INTO v_result
-    FROM pgmq.read(p_queue_name, p_vt, p_qty) r;
+    FROM pgmq.read(p_queue_name, v_vt, v_qty) r;
 
     RETURN COALESCE(v_result, '[]'::jsonb);
 END;
 $$;
 
 COMMENT ON FUNCTION public.queue_read IS
-'Reads messages from a pgmq queue with a visibility timeout (default 30s). Messages remain in the queue but become invisible to other readers for the specified duration.';
+'Reads messages from a registered pgmq queue with a visibility timeout (default 30s, clamped to 0..3600) and a batch size (default 1, clamped to 1..100). Requires the queue''s view_permission. Messages remain in the queue but become invisible to other readers for the specified duration.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_read(TEXT, INTEGER, INTEGER) TO semantius_user;
@@ -11738,6 +11859,7 @@ DECLARE
     v_result JSONB;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT jsonb_agg(row_to_json(r))
     INTO v_result
@@ -11748,7 +11870,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_pop IS
-'Pops (reads and deletes) a single message from a pgmq queue.';
+'Pops (reads and deletes) a single message from a registered pgmq queue. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_pop(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_pop(TEXT) TO semantius_user;
@@ -11767,6 +11889,7 @@ DECLARE
     v_result BOOLEAN;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT pgmq.archive(p_queue_name, p_msg_id) INTO v_result;
 
@@ -11775,7 +11898,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_archive IS
-'Archives a message by moving it from the queue table to the archive table.';
+'Archives a message by moving it from the queue table to the archive table. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_archive(TEXT, BIGINT) TO semantius_user;
@@ -11794,6 +11917,7 @@ DECLARE
     v_result BOOLEAN;
 BEGIN
     PERFORM rbac.uid();
+    PERFORM public.queue_authorize(p_queue_name, TRUE);
 
     SELECT pgmq.delete(p_queue_name, p_msg_id) INTO v_result;
 
@@ -11802,7 +11926,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_delete IS
-'Permanently deletes a message from a pgmq queue.';
+'Permanently deletes a message from a registered pgmq queue. Requires the queue''s manage_permission.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
@@ -11981,7 +12105,9 @@ DECLARE
     v_result jsonb;
     v_uid_text text;
 BEGIN
-    v_uid_text := current_setting('app.current_user_id', true);
+    -- Derived through rbac (lazy context initialization), never read raw from the
+    -- client-writable app.current_user_id setting; NULL when unauthenticated.
+    v_uid_text := rbac.user_id_or_null()::text;
     -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
     v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
@@ -12118,19 +12244,21 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
 
+    -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
+    -- statement (InitPlan), not per row; see the note in create_dd_table (P1). Test 0445 pins it.
     -- If select_rule is empty, restore the default permission-only policies (read = view
     -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (rbac.has_permission(%L))',
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
             v_policy_name, p_table_name, v_entity.view_permission);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L)) WITH CHECK (rbac.has_permission(%L))',
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
             p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L))',
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
             p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
         RETURN;
     END IF;
@@ -12193,10 +12321,10 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*)) WITH CHECK (rbac.has_permission(%L))',
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*)) WITH CHECK ((SELECT rbac.has_permission(%L)))',
         p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (rbac.has_permission(%L) AND public.%I(%I.*))',
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*))',
         p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -12458,60 +12586,6 @@ COMMENT ON FUNCTION public.get_userinfo IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
-
--- =====================================================
--- Update set_request_context to pass first_name/last_name
--- =====================================================
-CREATE OR REPLACE FUNCTION rbac.set_request_context(
-    p_external_id TEXT DEFAULT NULL,
-    p_email TEXT DEFAULT NULL,
-    p_oauth_scopes TEXT DEFAULT NULL
-)
-RETURNS void AS $$
-DECLARE
-    v_external_id TEXT;
-    v_user_id INTEGER;
-    v_permissions TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    -- Use provided external_id or detect from JWT
-    v_external_id := COALESCE(p_external_id, rbac.uid());
-    
-    -- Validate external_id is not empty
-    IF v_external_id IS NULL OR trim(v_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
-    END IF;
-    
-    -- Ensure user exists and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(
-        v_external_id, 
-        COALESCE(p_email, current_setting('request.jwt.claim.email', true)),
-        current_setting('request.jwt.claim.name', true),
-        current_setting('request.jwt.claim.given_name', true),
-        current_setting('request.jwt.claim.family_name', true)
-    );
-    
-    -- OPTIMIZATION: Load all user permissions once as comma-separated string
-    SELECT string_agg(permission_name, ',' ORDER BY permission_name)
-    INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
-    
-    -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
-    PERFORM set_config('app.current_external_id', v_external_id, true);
-    PERFORM set_config('app.user_permissions', COALESCE(v_permissions, ''), true);
-    PERFORM set_config('app.context_initialized', 'true', true);
-
-    -- Store OAuth2 scopes if present (for API requests)
-    IF p_oauth_scopes IS NOT NULL THEN
-        PERFORM set_config('app.oauth_scopes', p_oauth_scopes, true);
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION rbac.set_request_context IS 
-'Manually sets request context. Optional - context auto-initializes if not called. Use for OAuth scope validation.';
 
 -- =====================================================
 -- _core/0200_module_slug_validation
@@ -14382,7 +14456,7 @@ DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;
 CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('user:read') AND user_id = rbac.user_id());
+    WITH CHECK ((SELECT rbac.has_permission('user:read')) AND user_id = rbac.user_id());
 
 -- =====================================================
 -- STEP 5: Enable drag-and-drop row ordering
@@ -14976,4 +15050,129 @@ INSERT INTO public._versions (name) VALUES
   ('_core.0284_module_slug_provision'),
   ('_core.0290_owner_hardening')
 ON CONFLICT DO NOTHING;
+
+-- =====================================================
+-- pg_dump registration (pg_extension_config_dump)
+-- =====================================================
+-- Member tables of an extension are not dumped by pg_dump unless
+-- the extension registers them here. Each condition selects the
+-- rows to dump and leaves out what the install script seeds
+-- itself (CREATE EXTENSION re-creates those on the restore
+-- side). pg_dump evaluates the conditions with
+-- search_path = pg_catalog, so references are schema-qualified.
+-- A single-pass pg_restore fails on the FK cycles and the
+-- data-dictionary triggers; restore in three passes, see
+-- README.md "Backup and restore".
+-- Source of truth: packages/cli/commands/extension-dump.ts.
+-- Left out on purpose:
+--   common._cache: unlogged per-request cache
+--   common._cache_id_seq: belongs to common._cache
+--   pgmq.notify_insert_throttle: unlogged notification throttle state
+--   pgmq.q_raci_notify: in-flight RACI notifications; the queue is re-created by the install
+--   pgmq.q_raci_notify_msg_id_seq: belongs to pgmq.q_raci_notify
+--   pgmq.a_raci_notify: archive of the transient RACI queue
+DO $config_dump$
+DECLARE
+    v_rel record;
+    v_unregistered text;
+    v_count bigint;
+    v_leaking text[];
+BEGIN
+    FOR v_rel IN
+        SELECT * FROM (VALUES
+            ('public.modules', 'WHERE id >= 1000'),
+            ('public.permissions', 'WHERE id >= 10000'),
+            ('public.roles', 'WHERE id >= 10000'),
+            ('public.permission_hierarchy', 'WHERE including_permission_id >= 10000 OR included_permission_id >= 10000'),
+            ('public.role_permissions', 'WHERE role_id >= 10000 OR permission_id >= 10000'),
+            ('public.entities', 'WHERE module_id >= 1000'),
+            ('public.fields', 'WHERE table_name IN (SELECT table_name FROM public.entities WHERE module_id >= 1000)'),
+            ('public._settings', 'WHERE name <> ''db_version'''),
+            ('public._versions', 'WHERE split_part(name, ''.'', 1) <> ''_core'''),
+            ('pgmq.meta', 'WHERE queue_name <> ''raci_notify'''),
+            ('public.queues', 'WHERE queue_name <> ''raci_notify'''),
+            ('public.queue_table_events', 'WHERE NOT (table_name = ''raci_events'' AND queue_id IN (SELECT id FROM public.queues WHERE queue_name = ''raci_notify''))'),
+            ('public.users', ''),
+            ('public.user_roles', ''),
+            ('public.user_permissions', ''),
+            ('public._apikeys', ''),
+            ('public.dashboards', ''),
+            ('public.user_bookmarks', ''),
+            ('public.webhook_receivers', ''),
+            ('public.webhook_receiver_logs', ''),
+            ('public.processes', ''),
+            ('public.process_gates', ''),
+            ('public.raci_assignments', ''),
+            ('public.raci_events', ''),
+            ('public.audit_record_logs', ''),
+            ('public.audit_ddl_logs', ''),
+            ('pgmq.topic_bindings', ''),
+            ('public.modules_id_seq', ''),
+            ('public.permissions_id_seq', ''),
+            ('public.roles_id_seq', ''),
+            ('public.users_id_seq', ''),
+            ('public._apikeys_id_seq', ''),
+            ('public.dashboards_id_seq', ''),
+            ('public.user_bookmarks_id_seq', ''),
+            ('public.webhook_receivers_id_seq', ''),
+            ('public.webhook_receiver_logs_id_seq', ''),
+            ('public.processes_id_seq', ''),
+            ('public.process_gates_id_seq', ''),
+            ('public.queues_id_seq', ''),
+            ('public.queue_table_events_id_seq', ''),
+            ('public.raci_assignments_id_seq', ''),
+            ('public.raci_events_id_seq', ''),
+            ('public.audit_record_logs_id_seq', ''),
+            ('public.audit_ddl_logs_id_seq', '')
+        ) AS t(rel, condition)
+    LOOP
+        PERFORM pg_catalog.pg_extension_config_dump(v_rel.rel::regclass, v_rel.condition);
+    END LOOP;
+
+    -- Guard: every member table and sequence is either registered
+    -- above or a documented transient. A new dictionary table that is
+    -- neither fails the install here (and test 0440), so it cannot
+    -- ship silently missing from backups.
+    SELECT string_agg(n.nspname || '.' || c.relname, ', ' ORDER BY n.nspname, c.relname)
+      INTO v_unregistered
+      FROM pg_catalog.pg_depend d
+      JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
+      JOIN pg_catalog.pg_class c ON c.oid = d.objid
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE d.classid = 'pg_catalog.pg_class'::regclass
+       AND d.refclassid = 'pg_catalog.pg_extension'::regclass
+       AND d.deptype = 'e'
+       AND e.extname = 'pg_semantius'
+       AND c.relkind IN ('r', 'p', 'S')
+       AND NOT (c.oid = ANY (COALESCE(e.extconfig, '{}')))
+       AND n.nspname || '.' || c.relname NOT IN ('common._cache', 'common._cache_id_seq', 'pgmq.notify_insert_throttle', 'pgmq.q_raci_notify', 'pgmq.q_raci_notify_msg_id_seq', 'pgmq.a_raci_notify');
+    IF v_unregistered IS NOT NULL THEN
+        RAISE EXCEPTION 'pg_semantius: member relations not registered with pg_extension_config_dump: %', v_unregistered
+            USING HINT = 'Add them to CONFIG_DUMP_TABLES, CONFIG_DUMP_SEQUENCES or CONFIG_DUMP_EXCLUDED in packages/cli/commands/extension-dump.ts and regenerate the extension.';
+    END IF;
+
+    -- Guard (fresh install only): the tables hold nothing but the seeded
+    -- rows at this point, so every registered condition must select zero
+    -- rows. A seeded row that a condition still selects would be dumped
+    -- and collide with the re-seeded row on restore.
+    FOR v_rel IN
+        SELECT n.nspname AS nsp, c.relname AS rel, cfg.condition
+          FROM pg_catalog.pg_extension e
+          CROSS JOIN LATERAL unnest(e.extconfig, e.extcondition) AS cfg(relid, condition)
+          JOIN pg_catalog.pg_class c ON c.oid = cfg.relid
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE e.extname = 'pg_semantius' AND c.relkind IN ('r', 'p')
+    LOOP
+        EXECUTE format('SELECT count(*) FROM %I.%I %s', v_rel.nsp, v_rel.rel, v_rel.condition)
+           INTO v_count;
+        IF v_count > 0 THEN
+            v_leaking := array_append(v_leaking, v_rel.nsp || '.' || v_rel.rel || ' (' || v_count || ')');
+        END IF;
+    END LOOP;
+    IF v_leaking IS NOT NULL THEN
+        RAISE EXCEPTION 'pg_semantius: seeded rows that pg_dump would dump: %', array_to_string(v_leaking, ', ')
+            USING HINT = 'Narrow the condition in CONFIG_DUMP_TABLES (packages/cli/commands/extension-dump.ts) so the rows the install seeds are left out, and regenerate the extension.';
+    END IF;
+END
+$config_dump$;
 

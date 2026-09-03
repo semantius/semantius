@@ -106,7 +106,7 @@ DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;
 CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
     FOR INSERT
     TO semantius_user
-    WITH CHECK (rbac.has_permission('user:read') AND user_id = rbac.user_id());
+    WITH CHECK ((SELECT rbac.has_permission('user:read')) AND user_id = rbac.user_id());
 
 -- =====================================================
 -- STEP 5: Enable drag-and-drop row ordering

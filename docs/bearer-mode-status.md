@@ -70,7 +70,9 @@ mode an attacker with SQL access can already rewrite the `sub` claim (release
 review S14), so the cache adds nothing for them. In a bearer session the
 client does run SQL while the identity is pinned, so the cache was the one
 remaining way to escalate: a correctly identified user1 could write `admin`
-into `app.user_permissions`. This is release review finding S2.
+into `app.user_permissions`. This is release review finding S2. For regular
+configurations, PostgREST and app-server sessions, S2 is solved: the cache is
+unreachable there. What remains is bearer-only and is tracked in this file.
 
 What changed on 2026-09-03:
 
@@ -156,7 +158,8 @@ ON CONFLICT (name) DO NOTHING;
 ```
 
 `_settings` is deny-all for `semantius_user` and read only through SECURITY
-DEFINER code. Register it with `pg_extension_config_dump` (release review B1)
+DEFINER code. It is registered with `pg_extension_config_dump` (every row
+except `db_version` is dumped, see `packages/cli/commands/extension-dump.ts`),
 so the secret survives dump and restore. Rotating the row invalidates every
 in-flight cache, which only forces a rebuild. If the row is missing, the
 signer returns NULL and the cache is never trusted, so a broken install
@@ -223,9 +226,9 @@ REVOKE EXECUTE ON FUNCTION rbac.write_context(TEXT, INTEGER, TEXT, TEXT)
     FROM PUBLIC, semantius_user;
 ```
 
-Replace the three hand-rolled writers with a call to it: the tail of
-`ensure_context_initialized` in `0030`, `set_request_context` in `0190`, and
-the two `get_userinfo` bodies in `0080` and `0190` (they pre-fill the cache
+Replace the hand-rolled writers with a call to it: the tail of
+`ensure_context_initialized` in `0030` and the two `get_userinfo` bodies in
+`0080` and `0190` (they pre-fill the cache
 because a just-created user is not yet visible to the STABLE checkers in the
 same statement).
 
@@ -281,17 +284,20 @@ the WARNING goes away: bearer sessions use the cache like everyone else.
 ### 5. Scopes inside the signature (release review S12)
 
 Scopes are part of the signed payload, comma-delimited everywhere. Change the
-space-delimited lookup in `user_has_permission` to a comma. In
-`set_request_context`, normalise `p_oauth_scopes` (split on comma or space,
-trim, sort, join with comma) and apply a narrow-only rule: if the current
+space-delimited lookup in `user_has_permission` to a comma. `set_request_context`
+was removed on 2026-09-03 (release review S3), so scopes need a new definer
+entry point, say `rbac.set_request_scopes(p_oauth_scopes)`, that takes no
+identity parameter: normalise the list (split on comma or space, trim, sort,
+join with comma) and apply a narrow-only rule: if the current
 context is `valid` and already carries scopes, the new set is the
 intersection, never a replacement. A scoped session can then neither clear
 nor widen its confinement.
 
 ### 6. Identity binding (release review S3)
 
-In the same rewrite of `set_request_context`, honour `p_external_id` only for
-callers that hold `admin`; everyone else gets `rbac.uid()`.
+Done on 2026-09-03 by removal: `set_request_context` no longer exists in
+`0030` or `0190` (nothing called it). The scope entry point of step 5 must
+not grow an identity parameter; the subject is always `rbac.uid()`.
 
 ### 7. Readers stay as they are
 
@@ -315,17 +321,11 @@ Extend `0435`:
 - a genuine checksum with a tampered permission list: state `invalid`, the next check raises 42501;
 - a checksum captured in one transaction and replayed in the next: `invalid`;
 - the secret row deleted: state `absent` on every call, results still correct;
-- a scoped session calling `set_request_context` with an empty or wider list: scopes unchanged.
+- a scoped session calling the scope entry point with an empty or wider list: scopes unchanged.
 
 Move the scope groups of `0405_test_rbac_helpers.sql` from `set_config` to
-`set_request_context`. `pgdocker/test_bearer_cache.ts` must stay green minus
+the scope entry point. `pgdocker/test_bearer_cache.ts` must stay green minus
 its WARNING assertion, which flips to "no WARNING".
-
-### 10. Release
-
-Ship it as a new migration and `deno task extension 0.5.0`. The published
-0.4.0 full-install script and the 0.3.0 to 0.4.0 upgrade script must not be
-edited again; the generator warns about that already.
 
 ## B. The alternative: our own guard extension
 
@@ -414,8 +414,6 @@ Ecosystem items that change the status above:
 
 ## Related
 
-- Release review: `plans/pg_semantius-release-review.md`, findings S2, S3,
-  S12, S14, S15, P3, B1.
 - Authorization spec: [authz-spec.md](authz-spec.md), invariant I-perm.
 - pgdocker: [README.md](../pgdocker/README.md), sections "Identity comes from
   the validated session" and "Scalability & production caveats".

@@ -7,12 +7,14 @@
 -- administrator on a queue registered through the queues entity.
 --
 -- The queue is created through the entity as the owner (as 0310 does) and the
--- messages are sent with pgmq.send; the RPCs are then called as user3. Note
--- that the RPCs only require an authenticated caller today (see the release
--- review); this file deliberately pins the admin path only.
+-- messages are sent with pgmq.send; the RPCs are then called as user3. The
+-- second half pins the per-queue authorization added for release review S4:
+-- queues.view_permission gates queue_read, queues.manage_permission gates the
+-- three mutators, unregistered names are refused, and the read arguments are
+-- clamped.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(36);
 
 INSERT INTO queues (queue_name) VALUES ('rpc_q');
 SELECT pgmq.send('rpc_q', '{"n":1}');
@@ -65,6 +67,84 @@ SELECT is((SELECT count(*)::int FROM pgmq.a_rpc_q), 1,
 SELECT is((SELECT message->>'n' FROM pgmq.a_rpc_q), '2',
     'queue_archive: the archived payload is intact');
 
+-- =====================================================
+-- Per-queue authorization (release review S4)
+-- =====================================================
+-- Still the owner here (RESET ROLE above). Both permission fields default to
+-- admin and must name an existing permission.
+SELECT is((SELECT view_permission FROM queues WHERE queue_name = 'raci_notify'), 'admin',
+    'queues.view_permission: defaults to admin');
+SELECT is((SELECT manage_permission FROM queues WHERE queue_name = 'raci_notify'), 'admin',
+    'queues.manage_permission: defaults to admin');
+SELECT throws_ok($$UPDATE queues SET view_permission = 'no:such' WHERE queue_name = 'rpc_q'$$,
+    NULL, 'View permission "no:such" does not exist in permissions table',
+    'queues.view_permission: an unknown permission name is rejected');
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('rpcq:view',   'Read the rpc_q queue',    1),
+    ('rpcq:manage', 'Consume the rpc_q queue', 1);
+UPDATE queues SET view_permission = 'rpcq:view', manage_permission = 'rpcq:manage'
+WHERE queue_name = 'rpc_q';
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.slug = 'northwind_sales' AND p.permission_name = 'rpcq:view';
+SELECT pgmq.send('rpc_q', '{"n":4}');
+SELECT pgmq.send('rpc_q', '{"n":5}');
+
+-- user1 (User role) holds neither permission
+SELECT authenticate_as('user1');
+SELECT throws_ok($$SELECT public.queue_read('rpc_q', 0, 1)$$, '42501', NULL,
+    'queue_read: denied without the view permission');
+SELECT throws_ok($$SELECT public.queue_pop('rpc_q')$$, '42501', NULL,
+    'queue_pop: denied without the manage permission');
+SELECT throws_ok($$SELECT public.queue_archive('rpc_q', 1)$$, '42501', NULL,
+    'queue_archive: denied without the manage permission');
+SELECT throws_ok($$SELECT public.queue_delete('rpc_q', 1)$$, '42501', NULL,
+    'queue_delete: denied without the manage permission');
+SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, '42501', NULL,
+    'queue_read: an unregistered queue looks like a denied one to non-admins');
+SELECT throws_ok($$SELECT public.queue_read('raci_notify', 0, 1)$$, '42501', NULL,
+    'queue_read: a queue with default permissions is admin only');
+
+-- user2 (Northwind Sales) holds rpcq:view only
+SELECT authenticate_as('user2');
+SELECT is(jsonb_array_length(public.queue_read('rpc_q', 0, 10)), 2,
+    'queue_read: allowed with the view permission');
+SELECT throws_ok($$SELECT public.queue_pop('rpc_q')$$, '42501', NULL,
+    'queue_pop: the view permission does not allow consuming');
+SELECT throws_ok($$SELECT public.queue_archive('rpc_q', 1)$$, '42501', NULL,
+    'queue_archive: the view permission does not allow consuming');
+SELECT throws_ok($$SELECT public.queue_delete('rpc_q', 1)$$, '42501', NULL,
+    'queue_delete: the view permission does not allow consuming');
+
+-- grant rpcq:manage to the same role; authenticate_as clears the cache
+RESET ROLE;
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.slug = 'northwind_sales' AND p.permission_name = 'rpcq:manage';
+SELECT authenticate_as('user2');
+SELECT is(public.queue_pop('rpc_q')->0->'message'->>'n', '4',
+    'queue_pop: allowed with the manage permission');
+SELECT ok(public.queue_delete('rpc_q', (public.queue_read('rpc_q', 0, 1)->0->>'msg_id')::bigint),
+    'queue_delete: allowed with the manage permission');
+
+-- clamps (user3, admin): the queue is empty again
+RESET ROLE;
+SELECT pgmq.send('rpc_q', '{"n":6}');
+SELECT pgmq.send('rpc_q', '{"n":7}');
+SELECT authenticate_as('user3');
+SELECT is(jsonb_array_length(public.queue_read('rpc_q', 0, 0)), 1,
+    'queue_read: a quantity below 1 is clamped to 1');
+SELECT is(jsonb_array_length(public.queue_read('rpc_q', -5, 10)), 2,
+    'queue_read: a negative visibility timeout is clamped to 0');
+SELECT ok((public.queue_read('rpc_q', 99999, 1)->0->>'vt')::timestamptz <= clock_timestamp() + interval '3601 seconds',
+    'queue_read: the visibility timeout is clamped to one hour');
+SELECT is(jsonb_array_length(public.queue_read('rpc_q', 0, 10)), 1,
+    'queue_read: the clamped read still leased exactly one message');
+SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, '42704', NULL,
+    'queue_read: an admin is told the queue is not registered');
+
+RESET ROLE;
 DELETE FROM queues WHERE queue_name = 'rpc_q';
 
 SELECT * FROM finish();

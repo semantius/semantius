@@ -242,32 +242,33 @@ BEGIN
             NEW.table_name, NEW.table_name
         );
 
-        -- Row Level Security
+        -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
+        -- see the note in create_dd_table (P1); test 0445 fails on the bare per-row form.
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
             'CREATE POLICY %I_select_policy ON %I
                 FOR SELECT TO semantius_user
-                USING (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.view_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_insert_policy ON %I
                 FOR INSERT TO semantius_user
-                WITH CHECK (rbac.has_permission(%L))',
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_update_policy ON %I
                 FOR UPDATE TO semantius_user
-                USING (rbac.has_permission(%L))
-                WITH CHECK (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
         );
         EXECUTE format(
             'CREATE POLICY %I_delete_policy ON %I
                 FOR DELETE TO semantius_user
-                USING (rbac.has_permission(%L))',
+                USING ((SELECT rbac.has_permission(%L)))',
             NEW.table_name, NEW.table_name, NEW.edit_permission
         );
 

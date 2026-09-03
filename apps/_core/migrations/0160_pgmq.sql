@@ -75,17 +75,10 @@ CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
 -- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
 CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
 
--- Allow the following `pgmq` tables to be dumped by `pg_dump` when pgmq is installed as an extension
-DO
-$$
-BEGIN
-    IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.meta', '');
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.notify_insert_throttle', '');
-        PERFORM pg_catalog.pg_extension_config_dump('pgmq.topic_bindings', '');
-    END IF;
-END
-$$;
+-- pg_dump registration of pgmq.meta and pgmq.topic_bindings (upstream's
+-- pg_extension_config_dump block) lives in the generated pg_semantius
+-- extension script, see packages/cli/commands/extension-dump.ts. The
+-- migrate path needs none: its tables are not extension members.
 
 -- This type has the shape of a message in a queue, and is often returned by
 -- pgmq functions that return messages
