@@ -1,6 +1,6 @@
 {
   "versions": {
-    "0.5.0": {
+    "0.5.0-beta1": {
       "files": {
         "_core/0010_create_core": "2f8a0c722eace1f246a79349b903e5e5448fd9ebf521171f71be5e1ef827188d",
         "_core/0011_session_authenticator": "38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef",
@@ -11,8 +11,8 @@
         "_core/0040_rbac_seed": "1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620",
         "_core/0050_rbac_rls": "d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0",
         "_core/0060_dd_schema": "122f30b0b451c2d894867952ada520f545087a9b45b3279c101cf6fcbe2b1458",
-        "_core/0070_dd_functions": "b576bcbbb21d392795e4dc690e3fcb5bea712e2634db561bc0e1c86d25f2df95",
-        "_core/0072_apply_core_fts": "aa7080c839c38ec443a04e8ca88b762c41baf3128e6607a45d5c375d2f50ce67",
+        "_core/0070_dd_functions": "72eef0e6d6cc420420994676309840919a4e5c7101601cc234898a39fdd9c745",
+        "_core/0072_apply_core_fts": "09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34",
         "_core/0080_public_functions": "8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a",
         "_core/0090_notify_triggers": "626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710",
         "_core/0110_apikeys": "fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0",
@@ -35,7 +35,7 @@
         "_core/0280_user_bookmarks": "5fa33717c64ea9eac6f9de9d6dea562def195e2bb0ef0e8c6f4b0010553e6468",
         "_core/0282_module_version": "a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1",
         "_core/0284_module_slug_provision": "a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28",
-        "_core/0290_owner_hardening": "64064b873d41637c8a0fd92d02b0d8524da0afc9e311862d23e5ce2d860c6c48"
+        "_core/0290_owner_hardening": "ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"
       }
     }
   }

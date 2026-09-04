@@ -1,4 +1,4 @@
-# pg_semantius 0.5.0
+# pg_semantius 0.5.0-beta1
 
 Semantius core for PostgreSQL: role-based access control, row-level security,
 a semantic data dictionary, and a message queue.
@@ -34,6 +34,15 @@ SELECT semantius.migrate();
 applies whatever is new. Both are safe to re-run: `migrate()` is idempotent
 per migration. `SELECT * FROM semantius.pending()` lists what a `migrate()`
 would apply; `SELECT * FROM semantius.status()` reports drift.
+
+**A re-released build of the same version does not reach an existing install.**
+`migrate()` records each migration by name and skips any name it has already
+applied, so a build that changed an existing migration rather than adding a new
+one is not re-applied: the database keeps the SQL it installed, and
+`semantius.status()` lists that migration in `changed_versions` until the
+database is rebuilt from the new build. Compare
+`semantius.status().changed_versions` against the build you expect before assuming
+a re-download changed anything.
 
 ## Functions
 
