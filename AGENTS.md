@@ -296,11 +296,12 @@ The system supports automatic foreign key creation and management:
 - **tables.searchable is TRUE** when ANY related field has searchable=TRUE
 - **tables.searchable is FALSE** when NO related fields have searchable=TRUE
 - Automatic triggers maintain this:
-  - `handle_field_searchable_change_trigger`: Updates tables.searchable when fields are added/updated/deleted
+  - `handle_field_searchable_insert_trigger` / `_update_trigger` / `_delete_trigger`: statement-level triggers that update tables.searchable and rebuild `search_vector` when fields are added/updated/deleted
   - `enforce_table_searchable_consistency_trigger`: Prevents manual overrides, always recomputes from fields
 - When inserting into the `tables` table, **NEVER include the searchable column** - it will be computed automatically
 - The searchable column in fields controls whether individual fields are included in full-text search
 - System automatically creates/drops `search_vector` column and GIN index based on searchable fields
+- **Rebuilding `search_vector` locks the table.** It is `ADD COLUMN ... GENERATED ... STORED`: a full heap rewrite under ACCESS EXCLUSIVE that blocks readers as well as writers and rebuilds every index on the table, about 650 ms per 100k rows and linear. Rebuilds are coalesced to one per table per statement and skipped when the generated expression is unchanged (fingerprint in the `search_vector` column comment), but any real change to the searchable field set of a large table belongs in a maintenance window
 - Full-text search works on both managed (entity) tables and core DD tables (modules, roles, permissions, users, entities, fields)
 - Core tables get FTS applied through the 0072_apply_core_fts.sql migration
 - Only text-based fields (format_to_json_type = 'string') can be searchable

@@ -23,11 +23,13 @@ Last updated: 2026-09-04.
   history (`extension/versions.json`, the 0.3.0 to 0.4.0 upgrade script) was
   discarded on 2026-09-03 and the manifest now holds only the current build.
   Fixes go into the original migrations; there are no upgrade scripts.
-- The rows closed by that rebuild were moved to `plans/ext-solved-items.md`,
-  which carries their original text, what changed, and the results of an
-  independent audit of those claims. Read it before assuming an item is shut:
-  B6, B10 and B11 came back **partial** and R2 is scope-changed rather than
-  solved. R1 was also partial and was closed on 2026-09-04.
+- **Every row deleted from this list is recorded in
+  `plans/ext-solved-items.md`**, with its original text, what changed and what
+  proves it. Deleting a row without adding it there is not allowed. For the
+  0.5.0 rebuild batch that file also carries an independent audit of the
+  claims: read it before assuming an item is shut, because B6, B10 and B11 came
+  back **partial** and R2 is scope-changed rather than solved. R1 was also
+  partial and was closed on 2026-09-04.
 - The extension was rebuilt from scratch on 2026-09-03 as version 0.5.0 and
   is now a **thin installer**: `CREATE EXTENSION pg_semantius` creates only the
   cluster roles, the `semantius` schema and its functions, and
@@ -46,6 +48,14 @@ Last updated: 2026-09-04.
   the NOTIFY probe the pgTAP suite cannot run). What the change cannot reach is
   tracked as **S18**. Fresh installs only: `migrate()` never re-applies an
   applied migration, so an existing database keeps the old trigger.
+- **P11 closed 2026-09-04.** `fields.searchable` toggles no longer rewrite the
+  table when the generated expression is unchanged, and no longer rewrite it
+  once per changed field row: the searchable triggers are statement-level with
+  transition tables, and `update_search_vector_column` compares a fingerprint
+  stamped into the `search_vector` column comment. A rewrite that is really
+  needed still takes ACCESS EXCLUSIVE for the whole heap, now documented in
+  `AGENTS.md`. Detail and evidence in `plans/ext-solved-items.md`; the residue
+  it exposed is **S19**.
 - Every fix lands with its pinning test in the same change. The suite must
   stay green on both install layouts: `pgdocker/pg-cli-retest.sh` (migrate
   path) and `pgdocker/pg-ext-retest.sh` (`CREATE EXTENSION` path); add
@@ -99,8 +109,8 @@ file or shipped README, `tooling` to the harnesses and CI.
 | S16 | Low | migration | `entities.view_permission`/`edit_permission`, `modules.view_permission`, `queues.view_permission`/`manage_permission` | Permission names are stored as text, validated on save only, no foreign key. Deleting a permission that is still named leaves a dangling name that fails `has_permission` for everyone, admins included (fails closed). The UI renders these as plain text boxes because it keys on format, not on field name; `dashboards.view_permission` and `modules.manage_permission_id`/`admin_permission_id` are references and get the picker. Decision 2026-09-03: keep text for now; converting all of them touches the policy generators and the schema RPCs and needs its own plan. | Interim: a before-delete trigger on `permissions` that refuses to remove a name still used by an entity, module or queue. Later: convert to references. | Deleting a permission named by an entity raises. |
 | S17 | Low | migration | `0050_rbac_rls.sql` (default privileges) | Default privileges grant `semantius_user` SELECT/INSERT/UPDATE/DELETE on every future table in `public`: any table created outside the data dictionary is fully writable by the request role unless it gets RLS. Documented as a behavior in `SECURITY.md` since 2026-09-03; dictionary tables always get RLS. | Decide: keep, or narrow the default and grant explicitly from `create_dd_table`. | A table created by hand in `public` is not writable by user1 (if narrowed), or the decision to keep is recorded here and the row deleted. |
 | S18 | Low | migration | `0150_audit_log.sql` (`audit.log_ddl_event`, `track_ddl_changes`) | What the 2026-09-04 scoped audit cannot see. (a) `GRANT`/`REVOKE` events arrive from `pg_event_trigger_ddl_commands()` with NULL `classid`, `objid`, `schema_name` **and** `object_identity` (verified live), so they can be neither scoped to a schema nor recognised as generated-label churn: 766 of the 2156 rows a full migrate leaves, 36%, identify no object. They were kept rather than dropped, because dropping them would discard the privilege history the table exists for - but on the extension path their `query_text` is only `SELECT semantius.migrate()`, so there they carry nothing at all. (b) `WHEN TAG IN (...)` is an allowlist on an evidence table: a DDL kind nobody enumerated (`CREATE STATISTICS`, `ALTER ROUTINE`, text-search configurations, `IMPORT FOREIGN SCHEMA`) is silently unaudited, and nothing tests that the list is still complete. None is emitted by any migration today. (c) `CREATE SCHEMA` reports a NULL `schema_name`, so creating a schema is always logged and always fires `NOTIFY pgrst`, foreign schemas included. | (a) accept and document, or record the grant target from the DDL text; (b) decide between the allowlist and auditing every tag, and if it stays, a test that fails when a new tag appears in the migrations without being listed; (c) accept. | Each of the three is either fixed or recorded here as a deliberate limitation, and the row deleted. |
+| S19 | Low | migration | `0290_owner_hardening.sql` (the `pg_proc` ownership loop) | The loop that runs `ALTER FUNCTION ... OWNER TO semantius_owner` has no `ORDER BY`, and the DDL audit event trigger fires on every statement it issues. `audit.log_ddl_event()` is SECURITY DEFINER and calls `audit.current_user_id()`, which 0150 revokes from PUBLIC: the moment `log_ddl_event` changes owner it starts running as `semantius_owner`, and if `current_user_id` has not moved yet the migration dies on `log_ddl_event`'s own ALTER with `permission denied for function current_user_id`. Which of the two moves first is `pg_proc` heap order, so adding or removing any function anywhere in the codebase can flip it - it flipped on 2026-09-04 when P11 added three, and a clean tree migrated fine minutes earlier. Fixed by granting EXECUTE on `audit.current_user_id()` to `semantius_owner` before the loop, which grants nothing the end state lacks since that role owns the function seconds later. | Residue: the loop is still order-dependent for any future SECURITY DEFINER function that calls a PUBLIC-revoked helper during DDL, and nothing detects it until an install fails. Either order the loop explicitly, or remove the event trigger's dependency on a revoked function. | A new SECURITY DEFINER function calling a PUBLIC-revoked helper cannot break 0290, by test or by construction. |
 | T2 | Low | tooling | plpgsql_check upstream | The profiler bug in Appendix A is worked around in `0145` but not reported. | File the report. | Issue link recorded here, then delete the row. |
-| P11 | Info | migration | `0070_dd_functions.sql` (`searchable` toggle) | Toggling `searchable` drops and re-adds a GENERATED STORED tsvector column plus GIN index: a full rewrite under ACCESS EXCLUSIVE, 652 ms per 100k rows, linear. | Document the lock; optionally defer to statement end so several toggles rewrite once. | Documented, or one rewrite per statement. |
 | S14 | Info | migration | `0030_rbac_functions.sql` (`rbac.uid`) | In session mode the request role controls `request.jwt.claim.*`; `system_user` pins the identity only for PG18 `oauth:` sessions; without a `jwt_aud` row in `_settings` the audience is not enforced. This is the trust model, documented in `SECURITY.md` (2026-09-03). | Require `jwt_aud`; link the policy from the consumer README (B8). | A missing `jwt_aud` row refuses `uid()` (today only a mismatched `aud` raises, tests 0250 and 0410). |
 
 Linter context for the Q rows: plpgsql_check reported 122 warnings on 63

@@ -396,7 +396,7 @@ BEGIN
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
-    -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
+    -- Note: The handle_field_searchable_insert_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
     -- we need to ensure the searchable flag gets set correctly after this trigger completes.
     -- The solution is to update it directly here since the label field is always searchable.
@@ -1281,6 +1281,12 @@ DECLARE
     v_searchable_fields TEXT[];
     v_search_expr TEXT;
     v_table_exists BOOLEAN;
+    v_relid REGCLASS;
+    v_attnum SMALLINT;
+    v_current_fingerprint TEXT;
+    v_new_fingerprint TEXT;
+    v_index_name TEXT;
+    v_index_exists BOOLEAN;
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
@@ -1298,7 +1304,21 @@ BEGIN
 
         RETURN;
     END IF;
-    
+
+    v_relid := format('public.%I', p_table_name)::regclass;
+    v_index_name := p_table_name || '_search_vector_idx';
+
+    -- What is installed right now: the generated column, if any, and the
+    -- fingerprint we stamped into its comment the last time we built it. Both
+    -- come back NULL when there is nothing to compare against.
+    SELECT a.attnum, col_description(v_relid, a.attnum::int)
+    INTO v_attnum, v_current_fingerprint
+    FROM pg_attribute a
+    WHERE a.attrelid = v_relid
+      AND a.attname = 'search_vector'
+      AND a.attgenerated = 's'
+      AND NOT a.attisdropped;
+
     -- Get all searchable text-based fields for this table that actually exist as columns
     SELECT ARRAY_AGG(field_name ORDER BY field_order)
     INTO v_searchable_fields
@@ -1315,10 +1335,17 @@ BEGIN
     
     -- If no searchable fields, drop the search_vector column and index if they exist
     IF v_searchable_fields IS NULL OR array_length(v_searchable_fields, 1) IS NULL THEN
+        -- Nothing installed and nothing wanted: skip the DDL. ALTER TABLE takes
+        -- ACCESS EXCLUSIVE before it evaluates IF EXISTS, so even a drop that
+        -- matches nothing blocks the table for the rest of the transaction.
+        IF v_attnum IS NULL THEN
+            RETURN;
+        END IF;
+
         -- Drop the GIN index first
         EXECUTE format(
             'DROP INDEX IF EXISTS %I',
-            p_table_name || '_search_vector_idx'
+            v_index_name
         );
         
         -- Drop the search_vector column
@@ -1359,6 +1386,32 @@ BEGIN
           )
     );
     
+    -- Everything below is one full table rewrite: ADD COLUMN ... GENERATED ...
+    -- STORED has to materialise the tsvector for every existing row, so it holds
+    -- ACCESS EXCLUSIVE (blocking readers, not just writers) for the whole
+    -- rewrite and rebuilds every index on the table -- about 650 ms per 100k
+    -- rows, linear. Skip it when the installed column was generated from exactly
+    -- this expression and its index is still in place.
+    --
+    -- The comparison is against a fingerprint of the text we generate, not
+    -- against pg_get_expr(): PostgreSQL deparses the stored expression with
+    -- casts of its own ('simple'::regconfig, 'A'::"char"), so the deparsed form
+    -- never matches what is built above and the guard would never fire.
+    v_new_fingerprint := 'fts:' || md5(v_search_expr);
+
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_class i
+        JOIN pg_namespace n ON n.oid = i.relnamespace
+        WHERE n.nspname = 'public'
+          AND i.relname = v_index_name
+          AND i.relkind = 'i'
+    ) INTO v_index_exists;
+
+    IF v_index_exists AND v_current_fingerprint IS NOT DISTINCT FROM v_new_fingerprint THEN
+        RETURN;
+    END IF;
+
     -- Drop existing search_vector column if it exists
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
@@ -1375,21 +1428,28 @@ BEGIN
     -- Drop existing GIN index if it exists
     EXECUTE format(
         'DROP INDEX IF EXISTS %I',
-        p_table_name || '_search_vector_idx'
+        v_index_name
     );
     
     -- Create GIN index on the search_vector column
     EXECUTE format(
         'CREATE INDEX %I ON %I USING GIN (search_vector)',
-        p_table_name || '_search_vector_idx',
+        v_index_name,
         p_table_name
+    );
+
+    -- Stamp the fingerprint so the next call can tell whether anything changed.
+    EXECUTE format(
+        'COMMENT ON COLUMN %I.search_vector IS %L',
+        p_table_name,
+        v_new_fingerprint
     );
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_search_vector_column IS 
-'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists.';
+'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists. Rebuilding is a full table rewrite under ACCESS EXCLUSIVE (~650 ms per 100k rows) that also rebuilds every index on the table, so it is skipped when the generated expression is unchanged; the check is a fingerprint stored in the column comment.';
 
 -- =====================================================
 -- HELPER FUNCTION: Update entities.searchable flag
@@ -1423,57 +1483,150 @@ COMMENT ON FUNCTION update_table_searchable_flag IS
 'Auto-maintains the searchable flag on entities table based on whether any related fields are searchable.';
 
 -- =====================================================
--- TRIGGER FUNCTION: Handle field searchable changes
+-- HELPER FUNCTION: Apply the searchable changes of one statement
 -- =====================================================
--- Detects when searchable field list changes and updates search_vector accordingly
+-- Shared by the three statement-level triggers below.
 
-CREATE OR REPLACE FUNCTION handle_field_searchable_change()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION apply_field_searchable_change(
+    p_rebuild TEXT[],
+    p_touched TEXT[]
+)
+RETURNS VOID AS $$
 DECLARE
-    v_searchable_changed BOOLEAN := FALSE;
-    v_table_name_to_update TEXT;
+    v_table_name TEXT;
 BEGIN
-    -- Determine which table needs updating and if searchable changed
-    IF TG_OP = 'INSERT' THEN
-        v_table_name_to_update := NEW.table_name;
-        v_searchable_changed := (NEW.searchable = TRUE);
-    ELSIF TG_OP = 'UPDATE' THEN
-        v_table_name_to_update := NEW.table_name;
-        v_searchable_changed := (OLD.searchable IS DISTINCT FROM NEW.searchable);
-    ELSIF TG_OP = 'DELETE' THEN
-        v_table_name_to_update := OLD.table_name;
-        v_searchable_changed := (OLD.searchable = TRUE);
-    END IF;
-    
-    -- Update search vector if searchable fields changed
-    -- The add_field_trigger runs alphabetically before this trigger, so the column already exists
-    IF v_searchable_changed THEN
-        PERFORM update_search_vector_column(v_table_name_to_update);
-    END IF;
-    
-    -- Always update the table searchable flag when fields change
-    PERFORM update_table_searchable_flag(v_table_name_to_update);
-    
-    -- Return appropriate value based on operation
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
-    ELSE
-        RETURN NEW;
-    END IF;
+    -- Note: no rbac.uid() here — this function is called by triggers
+    -- during migrations when there is no JWT context.
+
+    -- One rebuild per table per statement, never one per changed field row:
+    -- a rebuild is a full table rewrite under ACCESS EXCLUSIVE.
+    FOREACH v_table_name IN ARRAY coalesce(p_rebuild, ARRAY[]::TEXT[]) LOOP
+        PERFORM update_search_vector_column(v_table_name);
+    END LOOP;
+
+    FOREACH v_table_name IN ARRAY coalesce(p_touched, ARRAY[]::TEXT[]) LOOP
+        PERFORM update_table_searchable_flag(v_table_name);
+    END LOOP;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION handle_field_searchable_change IS 
-'Trigger function that updates search_vector column and GIN index when searchable fields are created, updated, or deleted. The add_field_trigger executes before this trigger (alphabetically), ensuring the physical column exists before we update the search_vector.';
+COMMENT ON FUNCTION apply_field_searchable_change IS
+'Rebuilds search_vector for every table in p_rebuild and recomputes entities.searchable for every table in p_touched. Called once per statement by the handle_field_searchable_* triggers.';
 
--- Apply trigger AFTER INSERT/UPDATE/DELETE on fields
-CREATE TRIGGER handle_field_searchable_change_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION handle_field_searchable_change();
+-- =====================================================
+-- TRIGGER FUNCTIONS: Handle field searchable changes
+-- =====================================================
+-- Statement-level, one function per event, because a trigger that uses
+-- transition tables may only be defined for a single event. Statement level
+-- rather than row level for two reasons:
+--   * a statement that changes N fields of a table rebuilds that table once
+--     instead of N times, and every rebuild is a full table rewrite;
+--   * AFTER STATEMENT triggers run after all AFTER ROW triggers, so the physical
+--     DDL from add_field_trigger and update_field_trigger has always been
+--     applied by the time the tsvector expression is built. The row-level
+--     version depended on trigger name ordering for that and only got it right
+--     for add_field_trigger: update_field_trigger sorts after handle_field_*,
+--     so an UPDATE changing both format and searchable used to build the
+--     expression against the pre-ALTER column.
 
-COMMENT ON TRIGGER handle_field_searchable_change_trigger ON fields IS
+CREATE OR REPLACE FUNCTION handle_field_searchable_insert()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rebuild TEXT[];
+    v_touched TEXT[];
+BEGIN
+    SELECT array_agg(DISTINCT table_name) FILTER (WHERE searchable),
+           array_agg(DISTINCT table_name)
+    INTO v_rebuild, v_touched
+    FROM new_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION handle_field_searchable_update()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rebuild TEXT[];
+    v_touched TEXT[];
+BEGIN
+    -- Compare the set of searchable field names per table across the whole
+    -- statement instead of pairing old rows with new ones: this catches one
+    -- field being switched off while another is switched on, and needs no join
+    -- key (fields.id is generated from table_name || field_name, so it moves
+    -- when a field is renamed).
+    SELECT array_agg(coalesce(n.table_name, o.table_name))
+    INTO v_rebuild
+    FROM (
+        SELECT table_name,
+               array_agg(field_name ORDER BY field_name) FILTER (WHERE searchable) AS searchable_names
+        FROM new_fields
+        GROUP BY table_name
+    ) n
+    FULL JOIN (
+        SELECT table_name,
+               array_agg(field_name ORDER BY field_name) FILTER (WHERE searchable) AS searchable_names
+        FROM old_fields
+        GROUP BY table_name
+    ) o ON o.table_name = n.table_name
+    WHERE n.searchable_names IS DISTINCT FROM o.searchable_names;
+
+    SELECT array_agg(DISTINCT table_name) INTO v_touched FROM new_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION handle_field_searchable_delete()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rebuild TEXT[];
+    v_touched TEXT[];
+BEGIN
+    SELECT array_agg(DISTINCT table_name) FILTER (WHERE searchable),
+           array_agg(DISTINCT table_name)
+    INTO v_rebuild, v_touched
+    FROM old_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION handle_field_searchable_insert IS
+'Statement-level trigger function: rebuilds search_vector once per table for the fields inserted by one statement.';
+COMMENT ON FUNCTION handle_field_searchable_update IS
+'Statement-level trigger function: rebuilds search_vector once per table whose set of searchable fields changed in one statement.';
+COMMENT ON FUNCTION handle_field_searchable_delete IS
+'Statement-level trigger function: rebuilds search_vector once per table for the fields deleted by one statement.';
+
+-- One trigger per event: transition tables cannot be shared across events.
+CREATE TRIGGER handle_field_searchable_insert_trigger
+    AFTER INSERT ON fields
+    REFERENCING NEW TABLE AS new_fields
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION handle_field_searchable_insert();
+
+CREATE TRIGGER handle_field_searchable_update_trigger
+    AFTER UPDATE ON fields
+    REFERENCING OLD TABLE AS old_fields NEW TABLE AS new_fields
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION handle_field_searchable_update();
+
+CREATE TRIGGER handle_field_searchable_delete_trigger
+    AFTER DELETE ON fields
+    REFERENCING OLD TABLE AS old_fields
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION handle_field_searchable_delete();
+
+COMMENT ON TRIGGER handle_field_searchable_insert_trigger ON fields IS
+'Automatically updates search_vector column and index when searchable fields are inserted';
+COMMENT ON TRIGGER handle_field_searchable_update_trigger ON fields IS
 'Automatically updates search_vector column and index when field searchable status changes';
+COMMENT ON TRIGGER handle_field_searchable_delete_trigger ON fields IS
+'Automatically updates search_vector column and index when searchable fields are deleted';
 
 -- =====================================================
 -- TRIGGER FUNCTION: Recompute entities.searchable on direct update
@@ -1715,7 +1868,10 @@ REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION delete_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_search_vector_column(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_table_searchable_flag(TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION handle_field_searchable_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION apply_field_searchable_change(TEXT[], TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION handle_field_searchable_insert() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION handle_field_searchable_update() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION handle_field_searchable_delete() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enforce_table_searchable_consistency() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_table_is_child_flag(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_parent_format_change() FROM PUBLIC;

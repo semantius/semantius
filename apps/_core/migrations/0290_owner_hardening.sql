@@ -87,6 +87,16 @@ BEGIN
             r.nspname, r.relname);
     END LOOP;
 
+    -- The DDL audit event trigger fires on every ALTER below. audit.log_ddl_event()
+    -- is SECURITY DEFINER and calls audit.current_user_id(), which 0150 revokes
+    -- from PUBLIC, so the moment log_ddl_event changes owner it starts running as
+    -- semantius_owner -- and fails on its own ALTER unless current_user_id() has
+    -- moved first. The loop below has no ORDER BY, so which one moves first is
+    -- pg_proc heap order: adding or removing any function anywhere can flip it.
+    -- Grant explicitly instead of relying on that order. semantius_owner ends up
+    -- owning the function anyway, so this grants nothing the end state lacks.
+    GRANT EXECUTE ON FUNCTION audit.current_user_id() TO semantius_owner;
+
     -- Functions and procedures (this is what makes SECURITY DEFINER code run as semantius_owner).
     FOR r IN
         SELECT p.oid::regprocedure AS signature, p.prokind

@@ -1,13 +1,20 @@
-# pg_semantius extension: items claimed solved
+# Semantius: solved items
 
-Rows moved out of `plans/pg_semantius-open-items.md` when the extension was
-rebuilt as 0.5.0 on 2026-09-03. Each row below is the item **as it was
-originally written** (recovered from commit `b2caa66`, the last one before the
-rebuild), followed by what was changed and which test proves it.
+The closed half of `plans/pg_semantius-open-items.md`. **Every row deleted from
+that list is recorded here**, as the item was originally written, followed by
+what was changed and what proves it. Deleting a row from the open items without
+adding it here is not allowed: IDs are never reused, so a gap in one file has to
+be explained by the other.
 
-**Audited on 2026-09-03 by a separate agent instructed to be skeptical.** The
-audit's verdicts are in the last section, and the corrections it forced are
-folded in below. Two rows did not survive it:
+The first batch is the 0.5.0 extension rebuild of 2026-09-03, which closed
+sixteen rows at once; it is documented in the four sections below, together with
+an independent audit of those claims, and its rows were recovered from commit
+`b2caa66`, the last one before the rebuild. Every closure after it gets its own
+dated section, oldest first.
+
+**The rebuild batch was audited on 2026-09-03 by a separate agent instructed to
+be skeptical.** The verdicts are in "Audit results", and the corrections it
+forced are folded in below. Two of its rows did not survive:
 
 - **B7** is *not* closed and was never removed from the open items; it is
   listed here only because its workflow half is done.
@@ -17,7 +24,7 @@ folded in below. Two rows did not survive it:
 
 Last updated: 2026-09-04.
 
-## Where every extension-related item stands
+## The 0.5.0 rebuild (2026-09-03): where every item stands
 
 Derived from the item list as it was at commit `b2caa66`. Anything not in this
 table was never in the rebuild's scope.
@@ -44,7 +51,7 @@ table was never in the rebuild's scope.
 **Not closed: B11** — plus the gaps noted inside B4, B10 and B13, and the new limits of the scoped audit (**S18**). Those are tracked in
 `plans/pg_semantius-open-items.md`, with the verification gaps collected under **R7**.
 
-## Original rows
+## The 0.5.0 rebuild: original rows
 
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
@@ -62,7 +69,7 @@ table was never in the rebuild's scope.
 | R2 | Medium | tooling | CI | No test workflow. | Add `.github/workflows/test.yml` (plain and coverage jobs on the extension install) and gate `extension-release.yml` on it (B7). | Both jobs green on a pull request. |
 | R5 | Low | tooling | `pgdocker/Dockerfile` | Without `plpgsql_check` in the dev image, `--coverage` on the pgdocker stacks degrades to function-level data. | Add `postgresql-18-plpgsql-check` to the runtime apt line (dev images only). The PGDG 2.10.4 build needs a current 18.x server: list `postgresql-18` in the same install line or build with `--pull`. | The coverage report has statement data on the pgdocker stacks. |
 
-## What was changed, and what is claimed to prove it
+## The 0.5.0 rebuild: what was changed, and what is claimed to prove it
 
 | ID | What was changed | Verified by (claimed) |
 |---|---|---|
@@ -80,7 +87,7 @@ table was never in the rebuild's scope.
 | R2 | Folded into B7 by owner decision (no PRs, no separate test workflow): the suites run in the release job on the tag. | same as B7 |
 | R5 | `postgresql-18-plpgsql-check` added to `pgdocker/Dockerfile` (dev images only). | `pg-ext-retest.sh --coverage` and `pg-cli-retest.sh --coverage` both report statement data |
 
-## Audit results (independent, 2026-09-03)
+## The 0.5.0 rebuild: audit results (independent, 2026-09-03)
 
 | ID | Verdict | Note |
 |---|---|---|
@@ -146,3 +153,46 @@ the run under `set -e` on a failing DDL; and a comment claiming `CREATE SCHEMA`
 reports no object identity, which it does. What the review could not make
 work - filtering the `GRANT`/`REVOKE` half of the label churn - is **S18**.
 
+## P11 (2026-09-04): `searchable` toggles stopped rewriting the whole table
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P11 | Info | migration | `0070_dd_functions.sql` (`searchable` toggle) | Toggling `searchable` drops and re-adds a GENERATED STORED tsvector column plus GIN index: a full rewrite under ACCESS EXCLUSIVE, 652 ms per 100k rows, linear. | Document the lock; optionally defer to statement end so several toggles rewrite once. | Documented, or one rewrite per statement. |
+
+Scope chosen by the owner on 2026-09-04: skip the unnecessary rewrites, coalesce
+the necessary ones to one per statement, and document the lock. The
+non-blocking route was offered and deliberately not taken.
+
+| What changed | Where | Verified by |
+|---|---|---|
+| `update_search_vector_column` returns without any DDL when the expression it would generate matches the one already installed and the GIN index is still present. The comparison is an md5 fingerprint of the generated text, stamped into the `search_vector` column comment. It cannot be made against `pg_get_expr()`: PostgreSQL deparses the stored expression with casts of its own (`'simple'::regconfig`, `'A'::"char"`), so the deparsed form never matches what the function builds and the guard would never fire. | `0070_dd_functions.sql` | `0150` "toggling searchable on a non-text field should not rebuild search_vector" |
+| The no-searchable-fields path also returns early when there is no column to drop. `ALTER TABLE` takes ACCESS EXCLUSIVE before it evaluates `IF EXISTS`, so a drop that matches nothing still blocked the table for the rest of the transaction. | `0070_dd_functions.sql` | not separately pinned: the reachable cases are unmanaged tables and core tables with no searchable fields, where `0150` only asserts the absence of the column either way |
+| The row-level `handle_field_searchable_change_trigger` became three statement-level triggers (`_insert_`, `_update_`, `_delete_`) over one shared `apply_field_searchable_change(TEXT[], TEXT[])`. One trigger per event because a trigger with transition tables may only be defined for a single event. A statement now rebuilds a table once however many of its fields it touches. | `0070_dd_functions.sql` | `0150` "two searchable fields added in one statement should rebuild search_vector once" and "both fields added in the coalesced statement should be searchable" |
+| The update path compares the *set* of searchable field names per table across the whole statement rather than pairing old rows with new ones. That catches one field being switched off while another is switched on, and needs no join key: `fields.id` is generated from `table_name` and `field_name`, so it moves when a field is renamed. | `0070_dd_functions.sql` | the existing `0150` multi-row `UPDATE fields SET searchable = FALSE` assertions |
+| A latent ordering bug went with it. AFTER STATEMENT triggers run after all AFTER ROW triggers, so the tsvector expression is now always built after `add_field_trigger` and `update_field_trigger` have applied their DDL. The row-level version relied on trigger name ordering and only got it right for `add_field_trigger`: `update_field_trigger` sorts after `handle_field_*`, so an UPDATE changing both `format` and `searchable` built the expression against the pre-`ALTER` column. | `0070_dd_functions.sql` | by construction |
+| The ACCESS EXCLUSIVE lock written down, with the per-row cost and the fact that a rewrite also rebuilds every index on the table. | `AGENTS.md` | n/a |
+
+Measured on `pgdocker/pg-cli-retest.sh`: 2,094 assertions green, against 2,091
+on a clean tree at the same commit minutes earlier - the delta is exactly the
+three new ones. The three assertions count dropped-attribute placeholders in
+`pg_attribute`, which is a direct count of full table rewrites: a rebuild drops
+and re-adds `search_vector` and leaves one behind, a skipped rebuild leaves
+none.
+
+**Not done, deliberately.** A rebuild that really is needed is still
+`ADD COLUMN ... GENERATED ... STORED`: a full heap rewrite under ACCESS
+EXCLUSIVE, about 650 ms per 100k rows and linear, that also rebuilds every
+index on the table. Removing that needs a plain `tsvector` column with a
+maintenance trigger, a batched backfill outside the `fields` trigger
+transaction, and `CREATE INDEX CONCURRENTLY` from a job - which makes
+`search_vector` writable and leaves full-text search eventually consistent
+after a schema edit. That route stays unbuilt.
+
+**Residue.** The three new functions shifted `pg_proc` heap order and broke
+`0290_owner_hardening.sql`, whose ownership loop has no `ORDER BY` and whose
+`ALTER`s are observed by the DDL audit event trigger. Fixed in the same change
+by granting EXECUTE on `audit.current_user_id()` to `semantius_owner` before
+the loop; the loop is still order-dependent in principle and is open item
+**S19**.

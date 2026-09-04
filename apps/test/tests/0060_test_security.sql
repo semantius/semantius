@@ -89,6 +89,7 @@ SELECT is(
         AND p.proname NOT IN (
             'update_search_vector_column',
             'update_table_searchable_flag',
+            'apply_field_searchable_change',
             'update_table_is_child_flag',
             'validate_permission_exists',
             'validate_api_key',

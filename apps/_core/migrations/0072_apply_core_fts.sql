@@ -3,7 +3,7 @@
 -- =====================================================
 -- Core tables (entities, fields, users, modules, roles, permissions)
 -- are created in 0060_dd_schema.sql before the DD trigger system (0070),
--- so their field metadata inserts don't fire handle_field_searchable_change_trigger.
+-- so their field metadata inserts don't fire handle_field_searchable_insert_trigger.
 -- We apply search_vector columns explicitly here.
 -- Tables created later via the DD system (e.g. webhook_receivers in 0100)
 -- get FTS automatically through the trigger.
