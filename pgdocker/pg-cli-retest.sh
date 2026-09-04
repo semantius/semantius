@@ -6,7 +6,7 @@
 # Fully non-interactive. Steps:
 #   1. pg-cli-create  fresh plain PG18 container on 5432 (no extension).
 #   2. readiness gate poll until the DBA login accepts connections.
-#   3. retest --confirm --env pgdocker-cli
+#   3. retest --confirm --database-url (built from pgdocker/.env)
 #                     dropall -> migrate _core,nwind,test -> test.
 #
 # `retest`/`reset` are deliberately unchanged; this only wraps them and forwards
@@ -24,8 +24,20 @@ CONTAINER="postgres18-cli"
 echo "== [1/3] Creating a fresh CLI-testing container =="
 ./pg-cli-create.sh
 
+# Derive the DBA connection from the LIVE .env, the same way pg-ext-retest.sh
+# does. NOT `--env pgdocker-cli`: that profile hardcodes `devpassword`, while a
+# .env bootstrapped from .env.example carries `postgres` (deliberately - it
+# matches .devcontainer/docker-compose.yml). The two agree on a developer
+# machine whose .env predates that, and disagree on every fresh checkout,
+# where it surfaces as an "Authentication failed" from dropall AFTER the
+# container has already come up healthy.
 # `|| true` so a missing key (grep exits 1) does not trip `set -o pipefail`.
-DB="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true)"; DB="${DB:-appdb}"
+read_env() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
+PW="$(read_env POSTGRES_PASSWORD)"
+DB="$(read_env POSTGRES_DB)"; DB="${DB:-appdb}"
+PORT="$(read_env POSTGRES_PORT)"; PORT="${PORT:-5432}"
+[ -n "$PW" ] || { echo "No POSTGRES_PASSWORD in pgdocker/.env - cannot build the DBA URL." >&2; exit 1; }
+CLI_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
 echo "== [2/3] Waiting for the DBA login to accept connections =="
 # The healthcheck can pass before 10-roles.sql finishes; poll pg_isready.
@@ -41,7 +53,7 @@ done
 echo "PostgreSQL ready."
 
 echo "== [3/3] retest (dropall -> migrate _core,nwind,test -> test) =="
-( cd "$REPO_ROOT" && deno task retest --confirm --env pgdocker-cli "$@" )
+( cd "$REPO_ROOT" && deno task retest --confirm --database-url "$CLI_URL" "$@" )
 
 echo
 echo "Path A complete. If all tests are green, the migrate path is good."
