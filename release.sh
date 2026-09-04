@@ -222,10 +222,21 @@ else
   bad "working tree is dirty; commit your source changes first"
 fi
 
-if grep -q "^## $TARGET\$" "$EXT_DIR/CHANGES.md" 2>/dev/null; then
-  ok "CHANGES.md has a ## $TARGET section"
+# A pre-release ships the notes of the release it is a pre-release OF: the
+# 0.5.0 section covers 0.5.0-beta1, 0.5.0-rc1 and 0.5.0, refined as it goes.
+# Requiring a heading per pre-release would mean renaming it on every cut.
+CHANGES_HEADING="$TARGET"
+if ! grep -q "^## $TARGET\$" "$EXT_DIR/CHANGES.md" 2>/dev/null    && [ "${TARGET%%-*}" != "$TARGET" ]    && grep -q "^## ${TARGET%%-*}\$" "$EXT_DIR/CHANGES.md" 2>/dev/null; then
+  CHANGES_HEADING="${TARGET%%-*}"
+fi
+if grep -q "^## $CHANGES_HEADING\$" "$EXT_DIR/CHANGES.md" 2>/dev/null; then
+  ok "CHANGES.md has a ## $CHANGES_HEADING section"
 else
-  bad "$EXT_DIR/CHANGES.md has no '## $TARGET' section; the release notes ship in the archive"
+  if [ "${TARGET%%-*}" != "$TARGET" ]; then
+    bad "$EXT_DIR/CHANGES.md has neither a '## $TARGET' nor a '## ${TARGET%%-*}' section; the release notes ship in the archive"
+  else
+    bad "$EXT_DIR/CHANGES.md has no '## $TARGET' section; the release notes ship in the archive"
+  fi
 fi
 
 if deno task check >/dev/null 2>&1; then

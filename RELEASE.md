@@ -155,6 +155,12 @@ once a higher version is in the manifest" rule does the rest. The upgrade chain
 follows too - cutting `0.6.0` after `0.6.0-rc1` writes
 `pg_semantius--0.6.0-rc1--0.6.0.sql`.
 
+Release notes follow the same shape: `extension/CHANGES.md` needs a `## 0.6.0`
+section, and that one section covers `0.6.0-beta1`, `0.6.0-rc.1` and `0.6.0`.
+You refine it as the line progresses instead of renaming the heading on every
+cut. A `## 0.6.0-rc.1` heading is accepted too if you want notes specific to one
+pre-release.
+
 Two traps this avoids, both real:
 
 - **`sort -V` is not semver.** GNU version sort puts `0.6.0` *before* `0.6.0-beta`,
