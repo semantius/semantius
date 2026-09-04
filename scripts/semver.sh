@@ -117,6 +117,23 @@ semver_cmp() {
   echo 0
 }
 
+# True when the version carries a pre-release suffix.
+semver_is_prerelease() {
+  local v; v="$(_semver_clean "$1")"
+  case "$v" in *-*) return 0 ;; *) return 1 ;; esac
+}
+
+# Filter stdin down to final releases (drops pre-releases).
+semver_finals() {
+  local line
+  while IFS= read -r line; do
+    line="$(_semver_clean "$line")"
+    [ -n "$line" ] || continue
+    semver_is_prerelease "$line" && continue
+    printf '%s\n' "$line"
+  done
+}
+
 semver_max() {
   [ "$(semver_cmp "$1" "$2")" = "-1" ] && printf '%s\n' "$2" || printf '%s\n' "$1"
 }

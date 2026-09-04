@@ -1,8 +1,8 @@
 # Plan: native predicates for select_rule — and whether to build them at all
 
 Written 2026-09-04. One of three plans that replaced a single oversized one.
-Siblings: `plans/perf-hot-paths.md` (land first) and
-`plans/perf-statement-triggers.md`.
+Siblings: `plans/perf-hot-paths.md` and
+`plans/perf-per-statement.md`, both of which land first.
 
 **This plan starts with a go/no-go, not with work.** Everything below the
 decision section is the design as it stood after six review rounds, preserved so
@@ -19,14 +19,14 @@ split on 2026-09-04.
 
 | Row | Effect of this plan |
 |---|---|
-| **P2** | **This is the row this plan exists to close**, either way it goes. On a GO: satisfy part (b) of the done-when — "100k-row scan under a compilable rule at about 20 ms, rule columns indexable" — noting that only shape 1 *variant 1* becomes indexable; variant 2 is fast but not. On a NO-GO: close it as **scope-changed**, recording the measured post-`perf-hot-paths` baseline, that the general "compile JsonLogic" fix was rejected, and the accepted limit that entities with a `select_rule` do not scale to full scans. Part (a) was already satisfied by `plans/perf-hot-paths.md`. |
+| **P2** | **This is the row this plan exists to close**, either way it goes. On a GO: satisfy part (b) of the done-when — "100k-row scan under a compilable rule at about 20 ms, rule columns indexable" — noting that only shape 1 *variant 1* becomes indexable; variant 2 is fast but not. On a NO-GO: close it as **scope-changed**, recording the measured post-`perf-per-statement` baseline, that the general "compile JsonLogic" fix was rejected, and the accepted limit that entities with a `select_rule` do not scale to full scans. Part (a) was already satisfied by `plans/perf-per-statement.md` (P11). |
 
 **Touches without owning.**
 
 | Row | Effect here | Owner |
 |---|---|---|
 | **P5** | on a GO, adds about ten DDL events per field on rule-bearing entities | unowned |
-| **P7** | untouched; `jl_request_context` was already added to that row by `plans/perf-hot-paths.md`, and the recognisers are neither SECURITY DEFINER nor write settings | unowned |
+| **P7** | untouched; `jl_request_context` was already added to that row by `plans/perf-per-statement.md`, and the recognisers are neither SECURITY DEFINER nor write settings | unowned |
 | **B13** | referenced only, for the tripwire's CRLF normalisation | closed |
 
 P2 is the only High row this plan owns, and it closes in one of two quite
@@ -36,8 +36,8 @@ different ways. Decide first.
 
 ## The decision
 
-`plans/perf-hot-paths.md` takes a 100k-row scan of a rule-bearing table from
-about 5 s to about 2.5–3 s, by making the existing interpreter cheaper. This
+The two sibling plans take a 100k-row scan of a rule-bearing table from about
+5 s to about 2.5–3 s, by making the existing interpreter cheaper. This
 plan would take it to about **20 ms**, and make rule columns **indexable**, by
 emitting a native SQL predicate into the RLS policy for rules matching a known
 shape.
@@ -62,7 +62,7 @@ shape.
 `0280_user_bookmarks.sql:45`) and four test entities. The value is in future rule-bearing entities,
 not current ones.
 
-**Decide against a measured number.** After `perf-hot-paths.md` lands, measure a
+**Decide against a measured number.** After the two sibling plans land, measure a
 100k-row scan under `{"==":[{"var":"col"},{"var":"$user_id"}]}`. "Is 20 ms worth
 the coupling above" is a different question at 2.5 s than it was at 5 s, and the
 5 s figure comes from the 2026-09-02 review, before any of this work.
@@ -76,9 +76,10 @@ PostgREST every query is paginated, so the pathological case is a full scan or a
 
 ## Prerequisites, if it is built
 
-`plans/perf-hot-paths.md` must have landed. This plan uses
+`plans/perf-per-statement.md` must have landed. This plan uses
 `public.jl_request_context()` and the two-argument
-`select_rule_<t>(p_row, p_ctx jsonb)` that it introduces.
+`select_rule_<t>(p_row, p_ctx jsonb)` that its Step 1 introduces.
+`plans/perf-hot-paths.md` lands before that, so both are in place.
 
 ---
 

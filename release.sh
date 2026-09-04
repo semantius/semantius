@@ -105,38 +105,81 @@ command -v jq >/dev/null 2>&1 || die "jq is required (it reads $MANIFEST)"
 
 # jq, not grep: the per-migration keys inside `files` sit at the same nesting
 # depth as the version keys and a pattern match would pick them up too.
-CURRENT="$(jq -r '.versions | keys_unsorted[]' "$MANIFEST" | semver_max_of)"
-[ -n "$CURRENT" ] || die "$MANIFEST holds no versions"
+# What has been RELEASED is the floor. `extension/versions.json` records what has
+# been BUILT, which is a different thing: `deno task extension 0.9.0` run once by
+# hand puts 0.9.0 in there with no tag, no GitHub Release and nothing depending
+# on it. Using the manifest as the floor would then block every version below -
+# including the pre-release you would normally cut first.
+RELEASED="$(git tag -l 'v*' | semver_max_of)"
+BUILT="$(jq -r '.versions | keys_unsorted[]' "$MANIFEST" 2>/dev/null | semver_max_of)"
 
-case "$(semver_cmp "$TARGET" "$CURRENT")" in
-  0) MODE=refresh ;;
-  1) MODE=new ;;
-  *)
-  cat >&2 <<EOF
-release.sh: $TARGET is lower than the current build $CURRENT.
-
-  A superseded version is frozen. Regenerating it would delete the $CURRENT full
-  install, orphan its upgrade script and move default_version backwards, and the
-  generator refuses it for the same reason.
-
-  To re-release the current build:  ./release.sh $CURRENT
-  To cut a new one:                 ./release.sh <higher version>
-EOF
-    exit 1 ;;
-esac
-
-# The manifest knows what was BUILT; the tags record what was PUBLISHED. A tag
-# above the manifest means a published version the manifest cannot see, which
-# blinds the frozen-version guard - refuse rather than guess.
-git fetch --tags --force --quiet 2>/dev/null || true
-TOP_TAG="$(git tag -l 'v*' | semver_max_of)"
-if [ -n "$TOP_TAG" ] && [ "$(semver_cmp "$TOP_TAG" "$CURRENT")" = "1" ]; then
-  die "tag v$TOP_TAG is above the newest build $CURRENT in $MANIFEST.
-  Something was published that the manifest does not know about, so the
-  frozen-version guard cannot protect it. Reconcile before releasing."
+# Manifest entries that sort at or above the target but were never released.
+# They are stale build artefacts, not history: no tag points at them, no upgrade
+# script leads to them, nothing was published from them. They have to go, or the
+# generator's frozen-version guard refuses the target.
+UNRELEASED_AHEAD=""
+if [ -n "$BUILT" ]; then
+  for v in $(jq -r '.versions | keys_unsorted[]' "$MANIFEST" 2>/dev/null | tr -d '\r'); do
+    [ "$(semver_cmp "$v" "$TARGET")" = "-1" ] && continue
+    git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1 && continue
+    UNRELEASED_AHEAD="$UNRELEASED_AHEAD $v"
+  done
+  UNRELEASED_AHEAD="${UNRELEASED_AHEAD# }"
 fi
 
-echo "== release.sh: $TARGET ($MODE; current build $CURRENT, highest tag ${TOP_TAG:-none}) =="
+TAG_EXISTS=0
+git rev-parse -q --verify "refs/tags/v$TARGET" >/dev/null 2>&1 && TAG_EXISTS=1
+
+if [ "$TAG_EXISTS" = "1" ]; then
+  # Already released. Re-releasing is allowed only while nothing higher is out.
+  if [ -n "$RELEASED" ] && [ "$(semver_cmp "$TARGET" "$RELEASED")" = "-1" ]; then
+    cat >&2 <<EOF
+release.sh: v$TARGET is released, but v$RELEASED is newer.
+
+  A released version is frozen once a higher one is out: its artifacts are
+  published, its upgrade chain is depended on, and regenerating it would move
+  default_version backwards.
+
+  To re-release the newest:  ./release.sh v$RELEASED
+  To cut a new one:          ./release.sh v<higher than $RELEASED>
+EOF
+    exit 1
+  fi
+  MODE=refresh
+elif [ -n "$RELEASED" ] && [ "$(semver_cmp "$TARGET" "$RELEASED")" != "1" ]; then
+  # Not released, and not above what is released: it is in the past.
+  target_core="${TARGET%%-*}"
+  target_pre=""
+  case "$TARGET" in *-*) target_pre="${TARGET#*-}" ;; esac
+  cat >&2 <<EOF
+release.sh: $TARGET is not above the newest released version $RELEASED.
+
+  Nothing was ever released as v$TARGET, and it does not sort above v$RELEASED,
+  so there is nothing to refresh and nothing to cut.
+EOF
+  if [ -n "$target_pre" ] && [ "$(semver_cmp "$target_core" "$RELEASED")" != "1" ]; then
+    cat >&2 <<EOF
+
+  Note that $TARGET is a PRE-RELEASE of $target_core and therefore sorts BEFORE
+  it: $TARGET < $target_core. A pre-release only helps on a core that is still
+  ahead of what is released.
+EOF
+  fi
+  echo >&2
+  echo "  Released so far: $(git tag -l 'v*' | tr '\n' ' ')" >&2
+  exit 1
+else
+  MODE=new
+fi
+
+echo "== release.sh: $TARGET ($MODE; released ${RELEASED:-none}, built ${BUILT:-none}) =="
+
+if [ -n "$UNRELEASED_AHEAD" ]; then
+  echo
+  echo "Note: $MANIFEST holds unreleased build(s) at or above $TARGET:$UNRELEASED_AHEAD"
+  echo "      No tag points at them, so nothing depends on them. They will be"
+  echo "      dropped from the manifest so $TARGET can be built."
+fi
 
 # ==========================================================================
 # Phase 1 - read-only preflight. Accumulate, so one dry run shows every
@@ -285,6 +328,21 @@ fi
 # ==========================================================================
 # Phase 2 - generate
 # ==========================================================================
+if [ -n "$UNRELEASED_AHEAD" ]; then
+  echo
+  echo "== Dropping unreleased build(s) from the manifest:$UNRELEASED_AHEAD =="
+  # Nothing points at these: no tag, no GitHub Release, no upgrade script leading
+  # to them. Left in place, the generator's frozen-version guard would refuse the
+  # target. The generator rewrites versions.json wholesale straight after, so this
+  # only has to be valid JSON.
+  for v in $UNRELEASED_AHEAD; do
+    jq --arg v "$v" 'del(.versions[$v])' "$MANIFEST" > "$MANIFEST.tmp" \
+      || die "could not rewrite $MANIFEST"
+    mv "$MANIFEST.tmp" "$MANIFEST"
+    echo "  dropped $v"
+  done
+fi
+
 echo
 echo "== [2/8] Regenerating $EXT_DIR/ at $TARGET =="
 if [ "$ALLOW_EDITED" = "1" ]; then

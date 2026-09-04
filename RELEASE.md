@@ -106,21 +106,30 @@ The two escape hatches, in the order they become relevant:
 
 ## What the version argument selects
 
-| `./release.sh a.b.c` vs the newest build in `extension/versions.json` | |
+**The floor is what has been released, not what has been built.** `git tag -l 'v*'`
+is the record of releases; `extension/versions.json` records builds, and a build
+happens whenever anyone runs `deno task extension`. A stray local build must not
+block the versions below it.
+
+| `./release.sh v<a.b.c>` | |
 |---|---|
-| **lower** | rejected before any work: a superseded version is frozen, and regenerating it would delete the newer full install, orphan its upgrade script and move `default_version` backwards |
-| **equal** | refresh the artifacts — a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
-| **higher** | a new version: an upgrade script `<prev>--<new>.sql` is written, the previous full install is pruned, `default_version` bumps |
+| **a tag `v<a.b.c>` exists and it is the newest released** | refresh - a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
+| **a tag exists but something higher is released** | rejected: published, superseded, frozen |
+| **no tag, and it sorts above the newest released** | a new release |
+| **no tag, and it does not sort above the newest released** | rejected: it is in the past |
 
-From the moment a higher version exists in the manifest, the lower one is frozen:
-the generator refuses to target it, and **only migrations added in the newer
-version may be edited**. Editing one an earlier version already shipped fails the
-build, because the upgrade script carries only migrations *added* since the
-previous version — so such an edit could never reach an existing installation.
+If `versions.json` holds builds at or above the target that have **no tag**,
+`release.sh` names them and drops them from the manifest before generating.
+Nothing points at an unreleased build - no tag, no GitHub Release, no upgrade
+script leading to it - so it is a stale artifact rather than history, and left in
+place it would make the generator refuse the target.
+
+From the moment a higher version is in the manifest, the lower one is frozen for
+the generator too, and **only migrations added in the newer version may be
+edited**. Editing one an earlier version already shipped fails the build, because
+the upgrade script carries only migrations *added* since the previous version -
+so such an edit could never reach an existing installation.
 `--allow-edited-migrations` waives it for a deliberate hot-patch.
-
-That is also why 0.5.0 currently allows editing every migration: it is the only
-version in the manifest, so nothing is inherited.
 
 ## Pre-releases
 
@@ -179,7 +188,10 @@ which resolves the version from the tag name and publishes:
 | GHCR | `postgres:<ver>-pg<major>`, `postgres:latest-pg<major>`, `postgres:latest` |
 
 `<major>` is parsed from `docker-postgres/Dockerfile`'s `FROM` line, so a base
-bump moves the tag suffix with it. There is deliberately no bare `:<version>`
+bump moves the tag suffix with it. **A pre-release never moves `:latest` or
+`:latest-pg<major>`** - those mean the current stable build, so `v0.5.0-beta1`
+publishes only `:0.5.0-beta1-pg18` and a pre-release is consumed by asking for it
+by name. There is deliberately no bare `:<version>`
 image tag: a version tag that silently changed PostgreSQL major later is the
 exact ambiguity the suffix removes.
 

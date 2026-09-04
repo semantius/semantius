@@ -225,14 +225,19 @@ jobs:
         run: |
           . scripts/semver.sh
           git fetch --tags --force --quiet
-          TOP="$(git tag -l 'v*' | semver_max_of)"
-          # ">= the highest tag", matching docker-postgres/{build,publish}.sh.
-          # semver, not sort -V: a pre-release ranks BELOW its release, so
-          # cutting 0.6.0 after 0.6.0-rc1 must move :latest, not refuse to.
-          if [ -z "$TOP" ] || [ "$(semver_cmp "$V" "$TOP")" != "-1" ]; then
+          # A pre-release never moves :latest - :latest means the current stable
+          # build. Otherwise ">= the highest FINAL tag". semver, not sort -V, so
+          # cutting 0.6.0 after 0.6.0-rc1 does move it. Matches
+          # docker-postgres/{build,publish}.sh.
+          TOP="$(git tag -l 'v*' | semver_finals | semver_max_of)"
+          if semver_is_prerelease "$V"; then
+            HIGHEST=0
+            WHY="$V is a pre-release"
+          elif [ -z "$TOP" ] || [ "$(semver_cmp "$V" "$TOP")" != "-1" ]; then
             HIGHEST=1
           else
             HIGHEST=0
+            WHY="$TOP is newer"
           fi
           {
             echo "tags<<TAGS_EOF"
@@ -246,7 +251,7 @@ jobs:
           if [ "$HIGHEST" = "1" ]; then
             echo "$V is the highest released version; :latest will move"
           else
-            echo "::warning::$V is superseded by $TOP - publishing the version-pinned image only, :latest stays where it is"
+            echo "::notice::publishing the version-pinned image only ($WHY); :latest stays where it is"
           fi
 
       - name: Build and push DB image
