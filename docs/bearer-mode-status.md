@@ -77,7 +77,7 @@ unreachable there. What remains is bearer-only and is tracked in this file.
 What changed on 2026-09-03:
 
 - `rbac.is_bearer_session()` returns true when `system_user LIKE 'oauth:%'`.
-- `rbac.ensure_context_initialized()` skips its "already initialised" shortcut
+- `rbac.ensure_context_initialized()` skips its "already initialized" shortcut
   in bearer sessions and re-derives the context on every call. It raises one
   WARNING per session:
   `pg_semantius: OAuth bearer session detected; the transaction-scoped
@@ -288,7 +288,7 @@ Scopes are part of the signed payload, comma-delimited everywhere. Change the
 space-delimited lookup in `user_has_permission` to a comma. `set_request_context`
 was removed on 2026-09-03 (release review S3), so scopes need a new definer
 entry point, say `rbac.set_request_scopes(p_oauth_scopes)`, that takes no
-identity parameter: normalise the list (split on comma or space, trim, sort,
+identity parameter: normalize the list (split on comma or space, trim, sort,
 join with comma) and apply a narrow-only rule: if the current
 context is `valid` and already carries scopes, the new set is the
 intersection, never a replacement. A scoped session can then neither clear
@@ -373,7 +373,7 @@ the prefix is reserved. Cost per check: one setting read.
 
 Trade-offs against A:
 
-- Needs `postgresql.conf` access and a compiled artefact per PostgreSQL major.
+- Needs `postgresql.conf` access and a compiled artifact per PostgreSQL major.
   That is the same constraint bearer mode already has, so for a self-hosted
   appliance it is the better design.
 - Impossible on Neon and Supabase, where S2 is unreachable anyway because

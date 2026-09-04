@@ -167,7 +167,7 @@ SELECT throws_ok(
     '23514', NULL,
     'F1: field name starting with "_" is rejected');
 
--- The "_label" SUFFIX is NOT reserved: denormalised display columns like customer_label are common.
+-- The "_label" SUFFIX is NOT reserved: denormalized display columns like customer_label are common.
 SELECT lives_ok(
     $$INSERT INTO fields (table_name, field_name, title, format) VALUES ('lt_scorecards', 'customer_label', 'X', 'text')$$,
     'F2: a field name ending in "_label" is allowed (suffix is not reserved)');

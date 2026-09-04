@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 read -r -p "This DELETES the database volume and the built image. Continue? [y/N] " ans
 case "$ans" in
   y|Y) ;;
-  *) echo "Cancelled."; exit 0 ;;
+  *) echo "Canceled."; exit 0 ;;
 esac
 
 docker compose down -v --rmi local

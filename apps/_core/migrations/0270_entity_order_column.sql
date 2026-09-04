@@ -24,7 +24,7 @@
 -- created_at/updated_at audit columns at 999998/999999 — never inflate the
 -- running max), or 10 for the first record.
 --
--- This generalises (and replaces) the old fields-only auto_set_field_order()
+-- This generalizes (and replaces) the old fields-only auto_set_field_order()
 -- trigger: the `fields` entity simply declares order_column = 'field_order'.
 
 -- =====================================================

@@ -11,7 +11,7 @@
 // verify.ts) — it is the SOLE trust boundary; the DB does not verify the
 // signature in this mode.
 //
-// MANDATORY security requirements honoured here (foundation contract):
+// MANDATORY security requirements honored here (foundation contract):
 //   1. Verify before inject, fail closed   -> done upstream (verify.ts); only
 //      verified claims ever reach this adapter.
 //   2. Inject the EXACT verified payload    -> JSON.stringify(ctx.claims); role is

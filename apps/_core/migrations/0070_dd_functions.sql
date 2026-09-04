@@ -104,7 +104,7 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
--- Centralised handling of enum default behavior:
+-- Centralized handling of enum default behavior:
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
@@ -186,7 +186,7 @@ BEGIN
         RETURN 'NULL';
     END IF;
 
-    -- Boolean constants for boolean columns (t/f are normalised to keywords)
+    -- Boolean constants for boolean columns (t/f are normalized to keywords)
     IF p_data_type = 'BOOLEAN' AND v_upper IN ('TRUE', 'FALSE', 'T', 'F') THEN
         RETURN CASE WHEN v_upper IN ('TRUE', 'T') THEN 'TRUE' ELSE 'FALSE' END;
     END IF;
@@ -220,7 +220,7 @@ COMMENT ON FUNCTION quote_default_value IS
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
 -- =====================================================
--- Centralised construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
+-- Centralized construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
 -- applied by the DDL triggers, so the create and update paths stay identical.
 --   • dd_table_comment  -- "<plural_label>" then a blank line + description (when set)
 --   • dd_field_comment  -- "<title> (<format>)" then description, plus enum value list
@@ -1387,7 +1387,7 @@ BEGIN
     );
     
     -- Everything below is one full table rewrite: ADD COLUMN ... GENERATED ...
-    -- STORED has to materialise the tsvector for every existing row, so it holds
+    -- STORED has to materialize the tsvector for every existing row, so it holds
     -- ACCESS EXCLUSIVE (blocking readers, not just writers) for the whole
     -- rewrite and rebuilds every index on the table -- about 650 ms per 100k
     -- rows, linear. Skip it when the installed column was generated from exactly

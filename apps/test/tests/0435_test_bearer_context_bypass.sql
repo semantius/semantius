@@ -14,7 +14,7 @@
 --   * rbac.user_id_or_null() is NULL without a JWT and the user's id with one,
 --   * the two readers that used to take app.current_user_id raw
 --     (audit.current_user_id and the generated compute/validate trigger) go
---     through rbac now: they resolve the user even when nothing initialised
+--     through rbac now: they resolve the user even when nothing initialized
 --     the context before the write, and a hand-written app.current_user_id
 --     does not reach them.
 BEGIN;
@@ -56,14 +56,14 @@ VALUES ('bearer_probe', 'bearer_probe', 'Probe', 'Probes', 'S2 user-id probe',
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('bearer_probe', 'writer_id', 'Writer Id', 'integer', 10);
 
--- Nothing initialised the context before this write: the trigger has to derive it.
+-- Nothing initialized the context before this write: the trigger has to derive it.
 SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_user_id', '', true);
 INSERT INTO bearer_probe (label) VALUES ('first statement');
 SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'first statement'), 1003,
-    '$user_id: derived on the first statement of an uninitialised context');
+    '$user_id: derived on the first statement of an uninitialized context');
 
--- A hand-written app.current_user_id without an initialised context is ignored.
+-- A hand-written app.current_user_id without an initialized context is ignored.
 SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_user_id', '1002', true);
 INSERT INTO bearer_probe (label) VALUES ('forged setting');

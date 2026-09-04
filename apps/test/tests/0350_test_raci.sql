@@ -554,7 +554,7 @@ SELECT is(
 );
 
 -- =====================================================
--- GROUP 11: Emit trigger (runtime behaviour)
+-- GROUP 11: Emit trigger (runtime behavior)
 -- =====================================================
 -- raci_probe already has the declared `status` column (enum, default 'draft').
 -- Enable emit for the gate; the installer puts raci_emit_on_raci_probe on the

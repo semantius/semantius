@@ -1,5 +1,5 @@
 -- =====================================================
--- rbac.uid() claim-normalisation paths (0410)
+-- rbac.uid() claim-normalization paths (0410)
 -- =====================================================
 -- authenticate_as() always sets Neon-style request.jwt.claim.* settings, so
 -- the suite never exercised the Supabase-style single JSON blob path of
@@ -27,7 +27,7 @@ CREATE FUNCTION pg_temp.blank_neon_claims() RETURNS void LANGUAGE sql AS $$
 $$;
 
 -- =====================================================
--- GROUP 1: a valid Supabase-style blob is accepted and normalised
+-- GROUP 1: a valid Supabase-style blob is accepted and normalized
 -- =====================================================
 SELECT pg_temp.blank_neon_claims();
 SELECT set_config('request.jwt.claims',
@@ -42,7 +42,7 @@ SELECT is(current_setting('request.jwt.claim.email', true), 'sales@test.com',
     'uid: other blob claims are fanned out too');
 SELECT is(current_setting('request.jwt.claim.iss', true), 'https://issuer.example',
     'uid: arbitrary blob claims become request.jwt.claim.<key> settings');
-SELECT is(rbac.uid(), 'user2', 'uid: the normalised Neon-style settings are used on the next call');
+SELECT is(rbac.uid(), 'user2', 'uid: the normalized Neon-style settings are used on the next call');
 
 -- =====================================================
 -- GROUP 2: invalid blobs are rejected with insufficient_privilege

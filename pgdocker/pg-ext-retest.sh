@@ -35,6 +35,16 @@ COMPOSE_FILE="docker-compose.ext.yml"
 PROJECT="semantius-ext"
 CONTAINER="postgres18-ext"
 
+# .env must exist BEFORE the first compose call, not just before the container
+# is created: docker compose interpolates ${POSTGRES_PASSWORD} for every
+# subcommand including `down`, and fails hard when it is unset. pg-ext-create.sh
+# does this bootstrap too, but it runs in step 2 - one step too late on any
+# machine without a .env, which is every CI runner.
+if [ ! -f .env ]; then
+  cp .env.example .env
+  echo "Created .env from .env.example."
+fi
+
 echo "== [1/5] Resetting the extension stack (down -v) =="
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v
 

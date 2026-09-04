@@ -201,7 +201,7 @@ if [ "$CONFIRM" != "1" ]; then
   printf 'Type the version to publish it permanently (or anything else to cancel): ' >&2
   read -r answer
   if [ "$answer" != "$VERSION" ]; then
-    echo "Cancelled. Nothing was uploaded." >&2
+    echo "Canceled. Nothing was uploaded." >&2
     exit 0
   fi
 fi

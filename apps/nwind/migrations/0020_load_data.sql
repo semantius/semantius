@@ -3413,15 +3413,15 @@ VALUES ('Northwind Overview',
         (SELECT id FROM modules WHERE module_slug = 'nwind'),
         (SELECT id FROM permissions WHERE permission_name = 'nwind:view'));
 
--- RACI registry: the order fulfilment process with a transition gate on orders.status.
+-- RACI registry: the order fulfillment process with a transition gate on orders.status.
 -- Registry only (no raci_assignments / validation_rules), so writes are not gated.
 INSERT INTO processes (name, process_key, description, ordering, module_id)
-VALUES ('Fulfil Order', 'fulfil_order', 'Ship a pending order', 10,
+VALUES ('Fulfill Order', 'fulfill_order', 'Ship a pending order', 10,
         (SELECT id FROM modules WHERE module_slug = 'nwind'));
 
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
 SELECT p.id, 'orders', 'transition', 'shipped', 'status', FALSE
-FROM processes p WHERE p.process_key = 'fulfil_order';
+FROM processes p WHERE p.process_key = 'fulfill_order';
 
 -- Queue mapping: every new order enqueues an entity_event on the 'events' queue.
 -- Created after the data load so the import itself does not enqueue 830 messages.

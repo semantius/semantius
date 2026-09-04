@@ -398,7 +398,7 @@ does not disturb `appdb`:
 | 0 | the control file (`schema = public`, `encoding = 'UTF8'`, no `requires`) and a generated script with no `skip_audit` |
 | 1 | two-statement install with no CASCADE; members are only the schema and its functions; all 52 core relations are non-members; `extconfig IS NULL` |
 | 1b | a second database on the same cluster, with the roles already present (B11) |
-| 1c | two concurrent `migrate()` callers serialise on the advisory lock |
+| 1c | two concurrent `migrate()` callers serialize on the advisory lock |
 | 1d | `psql -1` installs; a rolled-back `migrate()` leaves nothing behind |
 | 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity (B16) |
 | 2b | the same dump through `-Fp \| psql`, `-j 4` and `-1` |

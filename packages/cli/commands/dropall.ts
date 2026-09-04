@@ -33,7 +33,7 @@ export async function dropallCommand(databaseUrl: string, confirm: boolean = fal
     const confirmation = prompt("Type 'Y' to confirm you want to delete all data: ");
     
     if (confirmation !== 'Y') {
-      console.log("❌ Operation cancelled - confirmation not received");
+      console.log("❌ Operation canceled - confirmation not received");
       return;
     }
   } else {

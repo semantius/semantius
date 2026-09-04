@@ -5,7 +5,7 @@
 -- rbac helpers were never executed by the suite: has_any_permission,
 -- require_any_permission, user_has_permission, get_current_user_permissions,
 -- validate_oauth_scopes, whoami, the OAuth-scope branches of has_permission,
--- and public.ping. This file pins their current behaviour.
+-- and public.ping. This file pins their current behavior.
 --
 -- Fixtures are the seeded identities only: user1 (User role, no module
 -- permissions), user2 (Northwind Sales: nwind:view + nwind:manage), user3
@@ -64,7 +64,7 @@ SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'app' AND key = 
 SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'status' AND key = 'context_initialized'),
     'true', 'whoami: the request context is initialized');
 SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'jwt' AND key = 'role'),
-    'authenticated', 'whoami: the normalised role claim is reported');
+    'authenticated', 'whoami: the normalized role claim is reported');
 SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'jwt' AND key = 'email'),
     'sales@test.com', 'whoami: the email claim is reported');
 SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'jwt_raw' AND key = 'request.jwt.claim.sub'),

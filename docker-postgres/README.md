@@ -38,7 +38,7 @@ major later is the ambiguity the suffix removes.
 
 | Var | Default | Effect (first init only) |
 |---|---|---|
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | postgres / — / postgres | stock `postgres` image behaviour (DB created from `POSTGRES_DB`) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | postgres / — / postgres | stock `postgres` image behavior (DB created from `POSTGRES_DB`) |
 | `SEMANTIUS_AUTHENTICATOR_PASSWORD` | `devpassword` | password for the `semantius_authenticator` LOGIN role |
 | `NWIND` | *(unset)* | set to **any** non-empty value (e.g. `TRUE`) to load the Northwind demo module |
 
@@ -65,7 +65,7 @@ already deployed.
 | `./publish.sh [version]` | Pushes those tags to GHCR (login required; CI does this on tag). |
 
 Both infer the version from the `./extension` build when no argument is given, and
-honour an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
+honor an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
 
 > **Changed migrations?** Regenerate the extension first. The version is
 > required — `deno task extension` refuses without one, because the old fallback

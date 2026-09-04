@@ -106,7 +106,7 @@ done
 [ -n "$TARGET" ] || die "a version is required, e.g. ./release.sh v0.5.0"
 
 # The tag is `v<version>`; the extension is versioned without the v. Accept
-# either spelling and canonicalise to the bare version, which is what the
+# either spelling and canonicalize to the bare version, which is what the
 # generator, the manifest and every filename use.
 TARGET="${TARGET#v}"
 TAG="v$TARGET"
@@ -137,7 +137,7 @@ RELEASED="$(git tag -l 'v*' | semver_max_of)"
 BUILT="$(jq -r '.versions | keys_unsorted[]' "$MANIFEST" 2>/dev/null | semver_max_of)"
 
 # Manifest entries that sort at or above the target but were never released.
-# They are stale build artefacts, not history: no tag points at them, no upgrade
+# They are stale build artifacts, not history: no tag points at them, no upgrade
 # script leads to them, nothing was published from them. They have to go, or the
 # generator's frozen-version guard refuses the target.
 UNRELEASED_AHEAD=""
@@ -362,7 +362,7 @@ if [ "$CONFIRM" != "1" ]; then
   read -r answer
   case "$answer" in
     y|Y|yes|YES) ;;
-    *) echo "Cancelled. Nothing was changed." >&2; exit 0 ;;
+    *) echo "Canceled. Nothing was changed." >&2; exit 0 ;;
   esac
 fi
 
@@ -395,7 +395,7 @@ fi
 
 echo
 echo "== [3/8] Regenerating the migrations bundles =="
-# Build output, not artefacts: untracked, and the header carries a generation
+# Build output, not artifacts: untracked, and the header carries a generation
 # timestamp so the result is not reproducible. Run here only to prove they still
 # generate against the current migrations.
 deno task bundle-sql

@@ -26,7 +26,7 @@ export interface DatabaseClient {
 
 /** Returns the SQL to create the _versions tracking table. */
 export function getVersionsTableSql(): string {
-  // `checksum` is the SHA-256 of the applied migration's LF-normalised text.
+  // `checksum` is the SHA-256 of the applied migration's LF-normalized text.
   // Both install paths write it (this runner and the extension's
   // semantius.migrate()), so semantius.status() can report a migration whose
   // source changed after it was applied. ADD COLUMN IF NOT EXISTS keeps the
@@ -43,12 +43,12 @@ ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
 ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;`;
 }
 
-/** SHA-256 of the LF-normalised text, as written into `_versions.checksum`. */
+/** SHA-256 of the LF-normalized text, as written into `_versions.checksum`. */
 export async function migrationChecksum(content: string): Promise<string> {
-  const normalised = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(normalised),
+    new TextEncoder().encode(normalized),
   );
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))

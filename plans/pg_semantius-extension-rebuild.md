@@ -17,7 +17,7 @@ Verification runs, all green: `pgdocker/pg-ext-lifecycle.sh` **76 passed, 0
 failed**; `pg-ext-retest.sh --coverage` and `pg-cli-retest.sh --coverage` both
 **2079 passing, 0 failing** with identical coverage (186/295 functions,
 1,816/2,162 statements). A schema-only `pg_dump` of the extension-installed and
-the migrate-installed database is **byte-identical** — 22,817 normalised lines
+the migrate-installed database is **byte-identical** — 22,817 normalized lines
 each, zero differences — so the two install paths produce the same database.
 The generator is deterministic (two runs byte-identical) and emits LF only.
 
@@ -232,7 +232,7 @@ Pinned session settings in the function definition:
 - `SET standard_conforming_strings = on` — `0160_pgmq.sql:65` stores a
   `regexp_replace` with `'\\\1'` in a GENERATED expression; under `off` it
   would be silently corrupted.
-- `SET check_function_bodies = on` — the CLI path's behaviour.
+- `SET check_function_bodies = on` — the CLI path's behavior.
 
 Body, generated:
 
@@ -284,7 +284,7 @@ Body, generated:
 
    The text is embedded **verbatim**: no rewriting, no lifting. The generator
    asserts that neither the per-migration dollar tag nor the outer
-   function-body tag occurs anywhere in the bundle, normalises line endings
+   function-body tag occurs anywhere in the bundle, normalizes line endings
    to LF before embedding and before hashing (closes B13), and **lints** each
    migration: no top-level `SET`, `RESET`, `SET ROLE`, `COPY ... FROM STDIN`,
    `CREATE INDEX CONCURRENTLY`, no transaction control. None exist today; a
@@ -454,16 +454,16 @@ this design touches.
 |---|---|---|
 | B2 schema pinning | `schema = public` in the control file: the caller's search_path is ignored for the extension and `SCHEMA other` is refused with PostgreSQL's own message. `migrate()` runs the migrations under its own pinned `search_path = public`; pgcrypto is created by `0010` inside `migrate()`, in `public`, never by `CASCADE`; the pre-flight refuses a pgcrypto that lives elsewhere. | §7 step 6 |
 | B6 drop leftovers, CASCADE | `DROP EXTENSION` removes the schema and the functions; it never needs CASCADE and never touches data or policies. The ordered uninstall recipe (§4.8) covers every leftover the row lists: roles and memberships, the two default-ACL entries, the `public` schema ACL, pgcrypto. The `GRANT semantius_user TO current_user` in `0010:35` that leaves `postgres` a member is fixed in the migration (B11). | §7 steps 4, 4b |
-| B7 release workflow | No separate workflow and no pull request (owner, 2026-09-03): the whole gate lives in `extension-release.yml`, on the tag. It runs `deno task extension <version>`, then fails on any `git status --porcelain -- extension/` difference (not `git diff`, which misses the generator's new upgrade scripts and pruned full installs), then `pg-ext-retest.sh` and `pg-cli-retest.sh` — all before packaging, releasing or pushing the image. The guard and both suites are in place since 2026-09-03; this rebuild adds `pg-ext-lifecycle.sh` to the same job and the `pgxn_meta` validation. Generator `--strict` (a new flag in `packages/cli/cli.ts`) fails on edited or removed released migrations, for use once a version is real. `versions.json` hashes are computed on LF-normalised text so a local build and the runner's agree. | §7 step 11 |
+| B7 release workflow | No separate workflow and no pull request (owner, 2026-09-03): the whole gate lives in `extension-release.yml`, on the tag. It runs `deno task extension <version>`, then fails on any `git status --porcelain -- extension/` difference (not `git diff`, which misses the generator's new upgrade scripts and pruned full installs), then `pg-ext-retest.sh` and `pg-cli-retest.sh` — all before packaging, releasing or pushing the image. The guard and both suites are in place since 2026-09-03; this rebuild adds `pg-ext-lifecycle.sh` to the same job and the `pgxn_meta` validation. Generator `--strict` (a new flag in `packages/cli/cli.ts`) fails on edited or removed released migrations, for use once a version is real. `versions.json` hashes are computed on LF-normalized text so a local build and the runner's agree. | §7 step 11 |
 | B8 consumer README | `buildReadme` emits a consumer README only: install (two statements, no CASCADE), upgrade (two statements, `pending()`, `status()`), plain backup and restore with §4.6's documented facts, the uninstall recipe, the four roles with their attributes and the NOLOGIN note, the GUC contract (`request.jwt.*`, `app.*` including `app.bearer_cache_notice`, `dd.table_rename`), the pinned and the fail-closed session settings, the `pgrst` NOTIFY channel, event-trigger side effects, default privileges binding to the installing role and the same-named superuser rule, UTF8 only, pgcrypto in `public`, the PostgreSQL floor (18 — the only tested version, `SECURITY.md:94`; META `prereqs` say the same; a 16 matrix leg in `test.yml` may lower it later), every error text with its SQLSTATE (B15), and a link to `SECURITY.md`. Maintainer notes move to the repo README. No repo-only paths. | A grep of the README against every GUC the migrations read finds each one |
 | B9 encoding | `encoding = 'UTF8'` in the control file **plus** the explicit `pg_encoding_to_char` check in the script and in `migrate()` (`55000`): LATIN1 and SQL_ASCII both refuse. | §7 steps 9, 9b |
 | B10 META | `https://github.com/semantius/semantius.git`, maintainer with email, `release_status: 'testing'` until the first real release, a `Changes` file generated from a hand-maintained `extension/CHANGES.md` (no build date, so the B7 diff holds), META validated with `pgxn_meta validate` in `test.yml`; the release notes read `CREATE EXTENSION pg_semantius; SELECT semantius.migrate();`. | §7 step 11 |
-| B13 line endings | The generator normalises every embedded migration and every emitted file to LF, and hashes the normalised text. | B7's diff |
+| B13 line endings | The generator normalizes every embedded migration and every emitted file to LF, and hashes the normalized text. | B7's diff |
 | B15 non-superuser | `superuser = true` stays (the script creates roles). `SET ROLE authenticated; SELECT semantius.migrate()` fails with `42501 permission denied for schema semantius`; a role granted USAGE and EXECUTE hits the `rolsuper` check and gets the fixed `42501` message. The README quotes all three texts: PostgreSQL's `Must be superuser to create this extension`, the schema text, and the custom message. | §7 step 8 |
-| B16 core-entity customisations | Ordinary tables: custom columns and their `fields` rows are plain data. | §7 step 2 |
+| B16 core-entity customizations | Ordinary tables: custom columns and their `fields` rows are plain data. | §7 step 2 |
 | B4 real pgmq present | Fail-fast in `migrate()`'s pre-flight and, for the CLI path, at the top of `0160`, both `55000`; delete the dead `extname = 'pgmq'` schema guard (`0160:10-17`) and the stale comment (`0160:78-81`). | §7 step 7 |
 | B5 event-trigger noise | Mechanism unchanged. Its Problem text is corrected: the extension install logs its DDL again, with `query_text` matching `semantius.migrate()`; R1's old "empty audit log" check is replaced. Stays a migration item. | §7 step 1 |
-| B11 test artefacts | Fixed in the migrations: skip `GRANT semantius_user TO current_user` (`0010:35`) and `GRANT USAGE ON SCHEMA common TO CURRENT_USER` (`0012:100`) when the current user is a superuser; `RAISE EXCEPTION` instead of the BYPASSRLS `ASSERT` (`0050:14-20`). Done when, after a superuser install, `pg_auth_members` has no `postgres` → `semantius_user` row and `common` has no ACL entry for the installer, and the BYPASSRLS check is independent of `plpgsql.check_asserts`. | tests 0430 and 0060 green; §7 step 1b |
+| B11 test artifacts | Fixed in the migrations: skip `GRANT semantius_user TO current_user` (`0010:35`) and `GRANT USAGE ON SCHEMA common TO CURRENT_USER` (`0012:100`) when the current user is a superuser; `RAISE EXCEPTION` instead of the BYPASSRLS `ASSERT` (`0050:14-20`). Done when, after a superuser install, `pg_auth_members` has no `postgres` → `semantius_user` row and `common` has no ACL entry for the installer, and the BYPASSRLS check is independent of `plpgsql.check_asserts`. | tests 0430 and 0060 green; §7 step 1b |
 | R1 lifecycle script | `pgdocker/pg-ext-lifecycle.sh`, the steps of §7. | Green on the rebuilt extension |
 | R2 CI | Folded into B7: the suite runs in the release job on the tag, development testing stays local and uncommitted. | A tagged release refuses to publish when either suite fails |
 | P6 | Confined to the CLI path; the row's text is updated. | none here |
@@ -493,7 +493,7 @@ this design touches.
 - `packages/cli/commands/extension.ts`: emit the installer script instead of
   the concatenation; delete `renderSkipAudit`, `renderVersionsSeed`,
   `renderVersionsTable`, `liftExtensionDependencies` and the config-dump
-  call; hash normalised text; the migration lint; the per-function
+  call; hash normalized text; the migration lint; the per-function
   `REVOKE`/`COMMENT` invariants; the removed-member `DROP`; `--strict`. Keep
   the manifest, control-file, Makefile, META and README generation.
 - `packages/cli/commands/extension-dump.ts`: delete. Any surviving
@@ -725,7 +725,7 @@ settings hold.
   not objects the rule covers.
 - **Logical replication** subscribers never see the dictionary's physical
   tables (DML triggers do not fire there): pre-existing, out of scope, noted.
-- **`pg_upgrade`** behaviour is reasoned, not tested; stated as such until a
+- **`pg_upgrade`** behavior is reasoned, not tested; stated as such until a
   verification step exists.
 
 ## 9. Decisions

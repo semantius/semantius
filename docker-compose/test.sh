@@ -114,7 +114,7 @@ if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" 
   read -r -p "This DESTROYS the running PostgREST stack and WIPES its data volume ('${DB}', all data), then rebuilds. Continue? [y/N] " ans
   case "$ans" in
     y|Y) ;;
-    *) echo "Cancelled."; exit 0 ;;
+    *) echo "Canceled."; exit 0 ;;
   esac
 fi
 

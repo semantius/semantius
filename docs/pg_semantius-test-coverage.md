@@ -67,7 +67,7 @@ inside RLS/trigger paths) and Semantius-authored:
 
 | Function | File:line | Why it matters |
 |---|---|---|
-| `rbac.whoami()` | 0030:842 | dumps GUCs, claims and permissions; behaviour untested |
+| `rbac.whoami()` | 0030:842 | dumps GUCs, claims and permissions; behavior untested |
 | `rbac.require_any_permission(VARIADIC text[])` | 0030:665 | authorization helper, both branches untested |
 | `rbac.user_has_permission(text, text)` | 0030:422 | cross-user permission check incl. OAuth scopes |
 | `rbac.validate_oauth_scopes(text, text)` | 0030:762 | scope intersection logic |
@@ -81,7 +81,7 @@ Vendored pgmq (`0160_pgmq.sql`): 65 of 75 functions never run, including
 `pop`, `archive`, `set_vt`, `purge_queue`, `metrics`, `list_queues`,
 `read_with_poll`, `send_batch`, all `send_topic`/`bind_topic` routing and all
 partitioning helpers. They are executable by every database role (see review
-finding S-02), so their behaviour is part of the extension's exposed surface.
+finding S-02), so their behavior is part of the extension's exposed surface.
 
 DD-generated label functions: 14 of 86 executed. `_label(rec <table>)` and
 `<fk>_label(rec <table>)` are only exercised for a handful of entities

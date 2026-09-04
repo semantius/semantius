@@ -70,7 +70,7 @@ and uploads it to PGXN.
   downgrade. Both comparators are tested against the canonical semver chain.
 - Pre-releases needed no rule of their own. `0.6.0-rc1` freezes the moment
   `0.6.0` enters the manifest, purely because the comparator ranks it lower -
-  the owner said either behaviour was acceptable, so the free one was taken.
+  the owner said either behavior was acceptable, so the free one was taken.
 - Build metadata (`+sha`), `--` and a trailing `-` are refused: the first has no
   precedence under semver (two keys would compare equal), the second is the
   upgrade-script filename separator, the third PostgreSQL rejects.

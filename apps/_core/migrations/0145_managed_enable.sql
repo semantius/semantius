@@ -689,8 +689,8 @@ COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
 'TRUE when a field format denotes a foreign-key relationship (''reference'' or ''parent'').';
 
 -- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
--- fallback heuristic recognises a pure pairing table — ≥2 parent legs and every non-leg field is an
--- id/label/audit column (recognised audit names + ctype='audit'). A status/rating/note payload
+-- fallback heuristic recognizes a pure pairing table — ≥2 parent legs and every non-leg field is an
+-- id/label/audit column (recognized audit names + ctype='audit'). A status/rating/note payload
 -- field disqualifies it (so an interview scorecard is NOT a junction).
 CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
 RETURNS BOOLEAN
@@ -891,7 +891,7 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
         CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
-        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalized
         -- display column), it wins — skip the companion so the column is never shadowed by a function.
         CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
@@ -922,7 +922,7 @@ functions are SECURITY INVOKER so composed labels respect each caller''s row-lev
 -- =====================================================
 -- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
 -- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
--- denormalised customer_label, or even a deliberate <fk>_label) are common and allowed. A real
+-- denormalized customer_label, or even a deliberate <fk>_label) are common and allowed. A real
 -- column always wins over a generated <fk>_label companion — the generator and get_schema are
 -- collision-aware and skip a companion whose name is already a real column (so nothing is shadowed
 -- silently). Privileged DD/migration code (BYPASSRLS) is exempt.

@@ -5,7 +5,7 @@
 --           (check constraint reference_table_requires_reference_format, 23514)
 --   Rule 2: format 'reference' or 'parent' => reference_table must be non-empty
 --           (check constraint reference_requires_table, 23514)
--- plus enum_values defaulting/normalisation. All entities here are managed=FALSE
+-- plus enum_values defaulting/normalization. All entities here are managed=FALSE
 -- (no DDL is executed; the checks live on the fields table itself).
 
 BEGIN;

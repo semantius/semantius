@@ -14,7 +14,7 @@ database is reached (PostgREST, an app server in session mode, a direct
 connection), the role and permissions of the caller, and what an attacker
 gets. A proof of concept is welcome and never required.
 
-You will get an acknowledgement within three working days and an assessment
+You will get an acknowledgment within three working days and an assessment
 within ten. If we disagree that something is a vulnerability, you will get the
 reasoning rather than silence.
 

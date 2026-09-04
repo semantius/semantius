@@ -60,7 +60,7 @@ SELECT is(
 );
 
 -- =====================================================
--- Custom precision (4) is honoured
+-- Custom precision (4) is honored
 -- =====================================================
 
 INSERT INTO fields (table_name, field_name, title, format, default_value, "precision")

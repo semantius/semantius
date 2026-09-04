@@ -106,13 +106,13 @@ ALTER TABLE entities ADD COLUMN IF NOT EXISTS managed BOOLEAN NOT NULL DEFAULT T
 
 -- Stamp the pure RBAC junctions explicitly (entity_type='junction' is authoritative; see dd_is_junction).
 -- permission_hierarchy needs the stamp because the structural heuristic misses it (origin is not an
--- audit-named/ctype column); the other three would be recognised by the heuristic but are stamped for
+-- audit-named/ctype column); the other three would be recognized by the heuristic but are stamped for
 -- consistency. The backfill at the end then builds junction-shaped labels for them.
 -- Resilient to enum drift: older tenants' valid_entity_type CHECK can predate 'junction' (causing
 -- "violates check constraint valid_entity_type"). We first widen it to the current closed set
 -- (widening only ADDS permitted values, so existing rows stay valid), then stamp. Both steps are
 -- best-effort: if entity_type is absent or the stamp fails, we skip with a notice — dd_is_junction's
--- structural heuristic still recognises user_roles/role_permissions/user_permissions on its own
+-- structural heuristic still recognizes user_roles/role_permissions/user_permissions on its own
 -- (only permission_hierarchy loses its junction shape without the stamp).
 DO $junc$
 BEGIN
@@ -130,10 +130,10 @@ BEGIN
             WHERE table_name IN ('user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy')
               AND entity_type <> 'junction';
         EXCEPTION WHEN others THEN
-            RAISE NOTICE 'label_fix: skipped junction stamping (% — %); dd_is_junction heuristic still recognises the RBAC pairing tables', SQLSTATE, SQLERRM;
+            RAISE NOTICE 'label_fix: skipped junction stamping (% — %); dd_is_junction heuristic still recognizes the RBAC pairing tables', SQLSTATE, SQLERRM;
         END;
     ELSE
-        RAISE NOTICE 'label_fix: entities.entity_type absent — skipping junction stamping (dd_is_junction heuristic still recognises the RBAC junctions)';
+        RAISE NOTICE 'label_fix: entities.entity_type absent — skipping junction stamping (dd_is_junction heuristic still recognizes the RBAC junctions)';
     END IF;
 END $junc$;
 
@@ -149,7 +149,7 @@ SET search_path = public
 AS $$ SELECT p_format IN ('reference', 'parent') $$;
 
 -- Junction recognition: entity_type='junction' is authoritative; until it is stamped, the fallback
--- heuristic recognises a pure pairing table — >=2 parent legs and every non-leg field is an
+-- heuristic recognizes a pure pairing table — >=2 parent legs and every non-leg field is an
 -- id/label/audit column. A status/rating/note payload field disqualifies it.
 CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
 RETURNS BOOLEAN
@@ -337,7 +337,7 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
         CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
-        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalized
         -- display column), it wins — skip the companion so the column is never shadowed by a function.
         CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');

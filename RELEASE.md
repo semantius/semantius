@@ -30,7 +30,7 @@ Two things enforce it:
 - The version argument is **required**. It used to fall back to the CLI
   package's own version (`0.1.0`), which quietly did all of the above.
 
-The one channel that does not honour the rule is **PGXN** — see below.
+The one channel that does not honor the rule is **PGXN** — see below.
 
 ## Doing it
 

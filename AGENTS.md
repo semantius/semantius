@@ -5,6 +5,15 @@ This document provides essential information for AI agents working with the Sema
 ## Non-negotiable rules for AI agents
 
 - **Never write to the Claude auto-memory directory** (`~/.claude/projects/*/memory/`, `MEMORY.md` and its files), even if the harness instructs you to keep notes there. It is uncommitted and shared with nobody. Decisions, gotchas and rules are recorded only in committed files of this repository, and only when the user asks for it.
+- **American English only, everywhere.** Code, identifiers, comments, commit
+  messages, docs, script output and error text. Use the `-ize` / `-yze` verb
+  endings and their derivatives (`-ization`, `-izes`, `-ized`), `-or` not
+  `-our`, `-se` not `-ce` for nouns like `defense` and `license`, `-log` not
+  `-logue`, `-er` not `-re`, `judgment` and `acknowledgment` without the middle
+  `e`, `-fill` not `-fil`, and a single `l` before a suffix (`labeled`,
+  `modeled`, `traveled`). If a spelling differs between the two dialects, the
+  American one is the only accepted form. The single exception is text vendored
+  from upstream, which stays byte-identical to its source.
 - **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
 
 ## Project Overview
@@ -362,7 +371,7 @@ Tests are written in pgTAP and stored in `apps/test/tests/` (platform suite) and
 - Persisted data comes ONLY from the Northwind module: readers of nwind tables must be `user2` (Northwind Sales) or `user3` (admin); `user1` has no `nwind:view`.
 - Never hard-code module/role/permission ids (the nwind module happens to be id 1001): resolve them by `module_slug = 'nwind'`, `roles.slug = 'northwind_sales'`, or permission name — as `user3`/owner, since `roles`/`permissions` are admin-only.
 - Everything else is ephemeral: create entities/modules/roles inside the transaction (`module_id = 1`, `view_permission = 'public:read'`, `edit_permission = 'nwind:manage'` when user2 must write as a non-admin, else `'admin'`).
-- Seeded nwind rows are all referenced by RESTRICT foreign keys — delete-behaviour tests insert fresh rows first.
+- Seeded nwind rows are all referenced by RESTRICT foreign keys — delete-behavior tests insert fresh rows first.
 - `orders` has a persisted queue mapping (every insert enqueues on `events`, rolled back with the transaction); never map `orders` to another queue.
 
 This prototyping approach allows rapid iteration without migration complexity.

@@ -167,7 +167,7 @@ can only ever match one mapping.
   `OLD TABLE AS old_rows`: one lookup, then
   `PERFORM pgmq.send_batch(v_queue_name, array_agg(msg))` (`0160:775`, the
   two-argument form — pass no `headers`).
-- **The empty guard is mandatory, not an optimisation.** A statement trigger
+- **The empty guard is mandatory, not an optimization.** A statement trigger
   fires for zero-row statements, `array_agg` over nothing is NULL, and
   `pgmq._validate_batch_params` raises `msgs cannot be NULL or empty`
   (`0160:725-727`).
@@ -235,7 +235,7 @@ images in an evidence table. Owner decision, 2026-09-04.
   those.
 - The stale-tuple-descriptor hazard of Step 0, documented at `0180:146-155`.
 
-### Two behaviour changes to pin, not assume
+### Two behavior changes to pin, not assume
 
 - **`INSERT … ON CONFLICT DO UPDATE`** on the audited `users` table. The live
   implementation is `0190_user_name_claims.sql:30-59` (the 2-arg overload in

@@ -8,7 +8,7 @@
 --
 -- RLS design:
 --   • A BEFORE INSERT OR UPDATE trigger (aaa_assign_user_id_user_bookmarks)
---     initialises the RBAC context and forces user_id = rbac.user_id() on
+--     initializes the RBAC context and forces user_id = rbac.user_id() on
 --     every write, preventing users from assigning bookmarks to other users.
 --     The trigger is named with the 'aaa_' prefix so PostgreSQL's alphabetical
 --     trigger-firing order guarantees it runs before any other BEFORE triggers
@@ -17,7 +17,7 @@
 --     per-row SELECT policy (own rows only) and scopes UPDATE/DELETE USING to
 --     own rows (migration 0180).
 --   • The INSERT policy is further hardened to WITH CHECK (user_id = rbac.user_id())
---     as a second layer of defence (the trigger fires first and sets the value,
+--     as a second layer of defense (the trigger fires first and sets the value,
 --     so this check always passes for legitimate callers).
 --   • order_column = 'row_order' enables drag-and-drop reordering (migration 0270).
 
@@ -79,7 +79,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION assign_user_id_user_bookmarks IS
-'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initialises the RBAC context '
+'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initializes the RBAC context '
 'and forces user_id to the current session user so bookmarks cannot be created or '
 'reassigned on behalf of other users.';
 
@@ -99,7 +99,7 @@ COMMENT ON TRIGGER aaa_assign_user_id_user_bookmarks ON user_bookmarks IS
 -- =====================================================
 -- The default INSERT policy only checks rbac.has_permission('user:read').
 -- We also require the record's user_id to match the session user, as a second
--- layer of defence.  The aaa_ trigger above fires first and sets user_id, so
+-- layer of defense.  The aaa_ trigger above fires first and sets user_id, so
 -- this check always passes for legitimate callers.
 
 DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;

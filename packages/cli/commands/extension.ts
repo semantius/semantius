@@ -66,7 +66,7 @@ const MEMBERSHIP_ALLOWLIST = ["pgcrypto", "plpgsql_check"];
 /** Dollar tag wrapping the migrate() body. */
 const OUTER_TAG = "$pgsem_migrate_body$";
 
-/** LF-normalises text (B13): local CRLF checkouts and CI's LF blobs must hash
+/** LF-normalizes text (B13): local CRLF checkouts and CI's LF blobs must hash
  * and embed identically, or the release guard fails on line endings alone. */
 function toLf(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -159,7 +159,7 @@ export async function extensionCommand(
     name: string;
     content: string;
     processed: string;
-    /** SHA-256 of the LF-normalised source, written into `_versions`. */
+    /** SHA-256 of the LF-normalized source, written into `_versions`. */
     checksum: string;
   }[] = [];
 
@@ -193,7 +193,7 @@ export async function extensionCommand(
         console.warn(`  Warning: Migration file ${migration.name} is empty`);
         continue;
       }
-      // Verbatim, only LF-normalised. Nothing is lifted or rewritten: the
+      // Verbatim, only LF-normalized. Nothing is lifted or rewritten: the
       // migrations run inside migrate(), not inside an extension script, so
       // 0010's own `CREATE EXTENSION pgcrypto` is legal there.
       const content = toLf(migration.content);
@@ -1293,7 +1293,7 @@ BEGIN
     END IF;
   END;
 
-  -- Same ledger the CLI runner uses, so either path recognises the other's work.
+  -- Same ledger the CLI runner uses, so either path recognizes the other's work.
 ${
     getVersionsTableSql().split("\n").map((l) => (l ? "  " + l : l)).join("\n")
   }

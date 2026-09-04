@@ -2794,7 +2794,7 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
         CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
-        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalized
         -- display column), it wins — skip the companion so the column is never shadowed by a function.
         CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
@@ -2821,7 +2821,7 @@ functions are SECURITY INVOKER so composed labels respect each caller''s row-lev
 -- =====================================================
 -- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
 -- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
--- denormalised customer_label, or even a deliberate <fk>_label) are common and allowed. A real
+-- denormalized customer_label, or even a deliberate <fk>_label) are common and allowed. A real
 -- column always wins over a generated <fk>_label companion — the generator and get_schema are
 -- collision-aware and skip a companion whose name is already a real column (so nothing is shadowed
 -- silently). Privileged DD/migration code (BYPASSRLS) is exempt.

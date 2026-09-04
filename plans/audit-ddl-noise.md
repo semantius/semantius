@@ -26,7 +26,7 @@ END;
   generated label-function churn).
 - **S15** is the same function failing outright for the request role.
 - **R1** has a lifecycle-script step blocked on B5, because it would pin
-  behaviour this change alters.
+  behavior this change alters.
 
 Fixing them separately means touching the same function four times and
 rewriting the same test three times.
@@ -99,7 +99,7 @@ do not duplicate them.
 
 ### 4. `pgdocker/pg-ext-lifecycle.sh` — the R1 step
 
-Add an event-trigger-noise step asserting the new behaviour: DDL in a foreign
+Add an event-trigger-noise step asserting the new behavior: DDL in a foreign
 schema and on a temp table produces neither an audit row nor a NOTIFY, while
 DDL in `public` still produces both.
 
@@ -140,7 +140,7 @@ string: absent for a foreign schema, present for `public`.
 | B5 | DDL in an unrelated schema or on a temp table produces neither an audit row nor a NOTIFY | the new test, plus the lifecycle step |
 | S15 | user1 can create a temp table | the new test, running as `semantius_user` |
 | P6 | `audit_ddl_logs` about 85% smaller after a full migration run | **measure it** — see below |
-| R1 | the script asserts the new noise behaviour (the pgTAP clause was dropped, see below) | the new lifecycle step |
+| R1 | the script asserts the new noise behavior (the pgTAP clause was dropped, see below) | the new lifecycle step |
 
 **P6 must be measured, not asserted.** Record
 `pg_total_relation_size('audit_ddl_logs')` and `count(*)` after a full

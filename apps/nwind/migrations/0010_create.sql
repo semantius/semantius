@@ -410,7 +410,7 @@ VALUES
     ('order_details', 'quantity',   'Quantity',   'int32', 40, 'default', 'default', 'Number of units ordered',                     '0',   FALSE, '', 'measure'),
     ('order_details', 'discount',   'Discount',   'number', 50, 'default', 'default', 'Discount rate applied to this line item',     '0.0', FALSE, '', 'auto');
 
--- Composed label: an order line is labelled by its order (local label is empty)
+-- Composed label: an order line is labeled by its order (local label is empty)
 UPDATE entities SET label_parent = 'order_id' WHERE table_name = 'order_details';
 
 

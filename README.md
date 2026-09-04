@@ -81,7 +81,7 @@ deno task [COMMAND] [OPTIONS]
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialise a new project |
+| `init` | Initialize a new project |
 | `build` | Compile the CLI to a native binary |
 | `connect` | Test the database connection |
 | `test` | Run pgTAP tests |
@@ -256,7 +256,7 @@ a re-release does not do, and what a release produces.
 
 ## Apps (`apps/`)
 
-Migrations and tests are organised into **apps**:
+Migrations and tests are organized into **apps**:
 
 ```
 apps/

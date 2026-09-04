@@ -16,7 +16,7 @@
 # module/entities into the dictionary (triggers auto-create the physical tables);
 # 0020 loads the sample rows. Neither redeclares _core — that comes from the
 # extension. The build also appends _versions guards so a later `deno task
-# migrate --apps nwind` recognises the module as already deployed.
+# migrate --apps nwind` recognizes the module as already deployed.
 # -----------------------------------------------------------------------------
 set -euo pipefail
 

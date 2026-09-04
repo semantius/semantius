@@ -9,7 +9,7 @@
 #   0.  preflight: control file and generated script
 #   1.  fresh install, two statements, no CASCADE
 #   1b. a second database on the same cluster (roles already exist)
-#   1c. concurrency: two migrate() callers serialise on the advisory lock
+#   1c. concurrency: two migrate() callers serialize on the advisory lock
 #   1d. transaction shape: psql -1, and BEGIN/ROLLBACK leaves nothing
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)
 #   2b. restore variants: -Fp | psql, -j 4, -1
@@ -149,14 +149,14 @@ check "no postgres -> semantius_user membership (B11)" "0" \
   "$(psqlq life1b "SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles n ON n.oid=m.member WHERE g.rolname='semantius_user' AND n.rolname='postgres'")"
 # `common` must look exactly like `rbac`, which never carried 0012's
 # `GRANT USAGE ... TO CURRENT_USER`. Testing for a `postgres=` entry directly
-# would be wrong: 0290's GRANT to semantius_owner materialises the owner's own
-# entry in every one of these schemas, artefact or not.
+# would be wrong: 0290's GRANT to semantius_owner materializes the owner's own
+# entry in every one of these schemas, artifact or not.
 check "schema common has no extra installer grant (B11)" \
   "$(psqlq life1b "SELECT array_to_string(nspacl,',') FROM pg_namespace WHERE nspname='rbac'")" \
   "$(psqlq life1b "SELECT array_to_string(nspacl,',') FROM pg_namespace WHERE nspname='common'")"
 
 # ------------------------------------------------------------ 1c concurrency
-step "[1c] Concurrency: two migrate() callers serialise on the advisory lock"
+step "[1c] Concurrency: two migrate() callers serialize on the advisory lock"
 newdb life1c
 psqlrun life1c "CREATE EXTENSION pg_semantius" >/dev/null
 # Session A holds the lock inside an open transaction; B must wait, not fail.

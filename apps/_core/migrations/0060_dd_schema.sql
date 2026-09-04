@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS fields (
     -- A default is a value (or one of the argument-less SQL expressions
     -- quote_default_value() allow-lists), never a statement: the dictionary
     -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
-    -- comment markers are rejected outright as a second line of defence.
+    -- comment markers are rejected outright as a second line of defense.
     default_value TEXT DEFAULT ''
         CONSTRAINT valid_default_value CHECK (
             length(default_value) <= 200

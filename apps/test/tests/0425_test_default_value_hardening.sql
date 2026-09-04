@@ -56,7 +56,7 @@ SELECT is(quote_default_value('', 'TEXT'), '',
     'quote_default_value: an empty value is returned as-is');
 
 -- =====================================================
--- GROUP 2: the fields.default_value CHECK (second line of defence)
+-- GROUP 2: the fields.default_value CHECK (second line of defense)
 -- =====================================================
 SELECT authenticate_as('user3');
 

@@ -33,7 +33,7 @@ BEGIN
 
             -- Grant semantius_user to the installing role, but never to a
             -- superuser: it already bypasses every check, and the membership
-            -- is a test artefact that survives DROP EXTENSION (B11).
+            -- is a test artifact that survives DROP EXTENSION (B11).
             IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
                 EXECUTE format('GRANT semantius_user TO %I', current_user);
             END IF;

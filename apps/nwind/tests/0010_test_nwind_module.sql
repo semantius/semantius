@@ -245,13 +245,13 @@ SELECT ok(
 -- RACI REGISTRY: process + transition gate
 -- =====================================================
 
--- Test 26: fulfil_order process in the nwind module
+-- Test 26: fulfill_order process in the nwind module
 SELECT is(
     (SELECT COUNT(*)::integer FROM processes
-     WHERE process_key = 'fulfil_order'
+     WHERE process_key = 'fulfill_order'
        AND module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')),
     1,
-    'Process fulfil_order should exist in the Northwind module'
+    'Process fulfill_order should exist in the Northwind module'
 );
 
 -- Test 27: its gate is a transition on orders.status -> shipped
@@ -259,18 +259,18 @@ SELECT set_eq(
     $$SELECT g.entity || '|' || g.gate_kind || '|' || g.to_state || '|' || g.state_column
       FROM process_gates g
       JOIN processes p ON p.id = g.process_id
-      WHERE p.process_key = 'fulfil_order'$$,
+      WHERE p.process_key = 'fulfill_order'$$,
     ARRAY['orders|transition|shipped|status'],
-    'fulfil_order should have exactly one transition gate on orders.status -> shipped'
+    'fulfill_order should have exactly one transition gate on orders.status -> shipped'
 );
 
 -- Test 28: the gate does not emit events (registry only)
 SELECT is(
     (SELECT g.emits_events FROM process_gates g
      JOIN processes p ON p.id = g.process_id
-     WHERE p.process_key = 'fulfil_order'),
+     WHERE p.process_key = 'fulfill_order'),
     FALSE,
-    'fulfil_order gate should have emits_events = FALSE'
+    'fulfill_order gate should have emits_events = FALSE'
 );
 
 -- =====================================================

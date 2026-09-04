@@ -26,8 +26,8 @@ split on 2026-09-04.
 | Row | Effect here | Owner |
 |---|---|---|
 | **P5** | on a GO, adds about ten DDL events per field on rule-bearing entities | unowned |
-| **P7** | untouched; `jl_request_context` was already added to that row by `plans/perf-per-statement.md`, and the recognisers are neither SECURITY DEFINER nor write settings | unowned |
-| **B13** | referenced only, for the tripwire's CRLF normalisation | closed |
+| **P7** | untouched; `jl_request_context` was already added to that row by `plans/perf-per-statement.md`, and the recognizers are neither SECURITY DEFINER nor write settings | unowned |
+| **B13** | referenced only, for the tripwire's CRLF normalization | closed |
 
 P2 is the only High row this plan owns, and it closes in one of two quite
 different ways. Decide first.
@@ -100,21 +100,21 @@ draft. Verified divergences of the obvious mapping, for the record:
 
 `<`/`<=` also have a three-argument between form (`0210:726-747`).
 
-Instead: a **registry of recognisers**, each matching one literal rule shape
-exactly. Anything unrecognised is left exactly as it is today.
+Instead: a **registry of recognizers**, each matching one literal rule shape
+exactly. Anything unrecognized is left exactly as it is today.
 
 ---
 
 ## Structure
 
 - `public.jl_shape_sql(p_rule jsonb, p_table_name text) RETURNS text` — tries
-  each recogniser in order, returns SQL text or NULL.
-- One recogniser per shape: `jl_shape_owner_scoped(p_rule, p_table_name)`, etc.
+  each recognizer in order, returns SQL text or NULL.
+- One recognizer per shape: `jl_shape_owner_scoped(p_rule, p_table_name)`, etc.
 - **Every one of these needs `REVOKE EXECUTE … FROM PUBLIC`, a COMMENT and a
   pinned `search_path`.** `0060_test_security.sql` Test 2.2 is a **blanket
   sweep** for any function in `public`/`rbac` executable by PUBLIC, not a
   definer-only check; 0240 requires the `search_path` and COMMENT. No `GRANT` is
-  needed — the recognisers run only inside `build_select_rule_policy` (SECURITY
+  needed — the recognizers run only inside `build_select_rule_policy` (SECURITY
   DEFINER, `0180:394`); what `semantius_user` evaluates is the *emitted text*,
   which names `jl_request_context()` and `rbac.has_permission()`, both already
   granted.
@@ -137,7 +137,7 @@ one line" reading — still far cheaper than a compiler.
 
 ---
 
-## Rules every recogniser obeys
+## Rules every recognizer obeys
 
 1. **Exact structural match, or NULL.** Implement as **jsonb template
    equality**: pull the variable parts out with `#>>`, rebuild the template with
@@ -157,7 +157,7 @@ one line" reading — still far cheaper than a compiler.
    gate fires on the first tuple the scan filters, or *before* the first tuple
    when the predicate becomes an index condition (runtime index keys are
    evaluated in `ExecReScanIndexScan`, even on an empty table). On any plan that
-   yields zero tuples neither fires — that is exactly today's behaviour, where
+   yields zero tuples neither fires — that is exactly today's behavior, where
    `select_rule_<t>()` is also never called. Consequence to accept and write
    down: the same query on the same data can answer 42501 or zero rows depending
    on the plan chosen, which is why the gate test *must* insert a row first.
@@ -253,7 +253,7 @@ for. Modelled on `dd_label_fn_sync_field` / `zzz_label_fn_field_*`
 `WHEN` clause cannot query `entities`.
 
 - **AFTER INSERT** — fields arrive after the entity row, so a rule that could not
-  be recognised at entity-insert must be retried once its column exists. Must
+  be recognized at entity-insert must be retried once its column exists. Must
   sort after `add_field_trigger` (`0070:794-797`), which runs the
   `ALTER TABLE … ADD COLUMN`; a `zzz_` prefix guarantees that.
 - **AFTER DELETE — mandatory.** `delete_dd_field` runs `DROP COLUMN … CASCADE`
@@ -282,7 +282,7 @@ policies.
 `entities.select_rule` on a field rename — the only `SET select_rule` in `0140`
 (`:322-326`) is gated on `LIKE '%set_record%'` and concerns entity names. So
 after a rename the rule still names the old column, rule 3's catalog lookup
-fails, the recogniser returns NULL, and the interpreted helper resolves
+fails, the recognizer returns NULL, and the interpreted helper resolves
 `{"var":"old_name"}` to jsonb `null`.
 
 **For variant 1 that hides every row; for variant 2 it does not** — `or`
@@ -292,7 +292,7 @@ Four of the five in-tree fixtures are variant 2 (`0330:22`, `0331:34`,
 `0332:35`, `0338:23`); only the shipped `0280_user_bookmarks.sql:45` is variant
 1. So **pin the rename assertion to a variant-1 fixture, or to a non-admin
 caller** — an unscoped "all rows hidden" fails by construction. Assert the
-accepted behaviour (*renaming a column named in `select_rule` disables the
+accepted behavior (*renaming a column named in `select_rule` disables the
 comparison arm, fail-closed*) and **do not** add an "owner still sees their own
 row" control: it would fail by design.
 
@@ -313,7 +313,7 @@ in open item **P5**'s row.
 - **The fields hook, all three arms**, each failing-capable: add a field whose
   column the rule names → the policy becomes native; **delete** it → all three
   policies still exist (this one fails silently and catastrophically without the
-  hook); **rename** it → the fail-closed behaviour above.
+  hook); **rename** it → the fail-closed behavior above.
 - **Three-way differential** — two oracles are not enough, because the policy is
   native while `get_record_by_id` stays interpreted. Over the **agreeing**
   fixtures (NULL owner, own row, another's row, admin and non-admin caller):
@@ -328,9 +328,9 @@ in open item **P5**'s row.
   `app.context_initialized` and `app.current_external_id` intact so the
   revalidation still takes the shortcut). Assert the three values individually:
   policy → hidden, interpreter → visible, `get_record_by_id` → returns the row.
-  Characterise it in the comment as a **bounded I1 canonical-predicate
+  Characterize it in the comment as a **bounded I1 canonical-predicate
   divergence**, reachable only through a forged partial cache.
-- **Recognised / not recognised**, the control that stops the rest passing
+- **Recognized / not recognized**, the control that stops the rest passing
   vacuously. **Sweep all three policies by name** — `<t>_select_policy`,
   `<t>_update_policy`, `<t>_delete_policy` — asserting each qual contains the
   bare column and none contains `select_rule_`; near-miss variations (operands
@@ -358,7 +358,7 @@ in open item **P5**'s row.
   `jl_to_number` and `jl_truthy` (whole body — short and high-signal) plus the
   `==` and `var` branches of `evaluate_json_logic`, against a recorded baseline,
   with the failure message saying *re-derive every `jl_shape_*` equivalence proof
-  before re-baselining*. Normalise line endings — `prosrc` is the migration
+  before re-baselining*. Normalize line endings — `prosrc` is the migration
   file's literal text, and `prosrc` carries CRLF on the migrate path and LF on
   the `CREATE EXTENSION` path (B13 is closed in `plans/ext-solved-items.md`; the
   residue is tracked under R7). **Cut the
@@ -373,7 +373,7 @@ in open item **P5**'s row.
   `has_permission` (`0210:915-921`) branches to the hashed set** — variant 2's
   equivalence proof rests on both, each is under ten lines, and both are
   banner-anchored like the others.
-- **The helper still exists for recognised shapes** — a direct call and a
+- **The helper still exists for recognized shapes** — a direct call and a
   `get_record_by_id` call both succeed.
 
 ### Existing tests this change updates

@@ -155,7 +155,7 @@ packages/triggerdev/
 ├── src/
 │   ├── index.ts           # Library exports (migrationTask, migrate, etc.)
 │   ├── migrate.ts         # Core migration logic using bundled SQL
-│   └── migrations-bundle.ts  # Auto-generated SQL bundle (build artefact)
+│   └── migrations-bundle.ts  # Auto-generated SQL bundle (build artifact)
 └── package.json
 ```
 
@@ -167,7 +167,7 @@ deploys it together with all its dependencies.
 
 ## Custom task (advanced)
 
-If you need to customise the task, copy `trigger/migration.ts` to your own
+If you need to customize the task, copy `trigger/migration.ts` to your own
 TriggerDev project and modify it:
 
 ```typescript

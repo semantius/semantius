@@ -150,7 +150,7 @@ SET ROLE semantius_user;
 SELECT set_config('request.jwt.claim.sub', 'nonexistent_user_12345', true);
 SELECT set_config('request.jwt.claim.email', 'nonexistent@test.com', true);
 
--- Clear the cached context so the next access re-initialises it for the new sub
+-- Clear the cached context so the next access re-initializes it for the new sub
 SELECT set_config('app.current_user_id', NULL, false);
 SELECT set_config('app.current_external_id', NULL, false);
 SELECT set_config('app.user_permissions', NULL, false);
