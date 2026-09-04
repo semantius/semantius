@@ -313,7 +313,8 @@ and port), so both can run at once. The extension variant must have the extensio
 generated first, from the repo root:
 
 ```bash
-deno task extension          # writes ../extension/{pg_semantius.control, pg_semantius--<ver>.sql}
+deno task extension 0.5.0    # writes ../extension/{pg_semantius.control, pg_semantius--<ver>.sql}
+                             # (for a release use ../release.sh instead)
 ./pg-ext-create.sh           # builds the base image, then the extension image, and starts it
 ```
 

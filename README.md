@@ -112,8 +112,8 @@ deno task migrate --apps nwind --database-url "postgresql://..."
 deno task migrate --apps _core --script
 
 # Generate the PostgreSQL extension (control + versioned SQL) into ./extension/
-deno task extension
-deno task extension 0.3.0    # explicit version
+# For a release use ./release.sh instead - it also tests, commits and tags.
+deno task extension 0.5.0
 
 # Drop all database objects (requires confirmation)
 deno task dropall --confirm
@@ -216,59 +216,37 @@ extension baked in — see `pg-ext-create` in
 
 ### Build & release (maintainers)
 
-**One version for the whole repo.** Every artifact in this repo (the extension, and
-later the CLI) shares a single version, so releases are tagged with an unprefixed
-`v<version>` (e.g. `v0.1.0`) — not a per-artifact prefix. The tag is the source of
-truth: the release workflow derives the version from it.
+```bash
+./release.sh <version>              # dry run: decide, preflight, explain, stop
+./release.sh <version> --confirm    # regenerate, test, build, commit, tag, push
+```
+
+One script builds a version: it regenerates `extension/`, runs the full suite on
+both install paths plus the lifecycle proof, builds the DB image locally, commits
+the build, proves the generator is deterministic, then tags and pushes. Pushing
+the tag starts the release workflow, which rebuilds from a clean checkout and
+publishes the GitHub Release and the GHCR image — locally to prove it is green,
+in CI to prove it is reproducible.
+
+**One version for the whole repo.** Every artifact shares a single version, so
+releases are tagged `v<version>` (e.g. `v0.5.0`), not per-artifact. The tag is
+what CI builds *from*; `extension/versions.json` is what may be built — the
+newest version there is mutable and can be re-released, and is frozen once a
+higher one exists.
 
 Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)
 model: **one current full install plus an accumulated chain of upgrade scripts.**
 Because the `_core` migrations are append-only ordered deltas, both are derived
-automatically. An upgrade script is the same installer with
-`CREATE OR REPLACE` for the functions; `migrate()` is idempotent per migration,
-so one code path serves install, upgrade and re-run. Add `--strict` to fail
-instead of warn when a migration that a released version contained was edited
-or removed.
+automatically. An upgrade script is the same installer with `CREATE OR REPLACE`
+for the functions; `migrate()` is idempotent per migration, so one code path
+serves install, upgrade and re-run.
 
-```bash
-deno task extension              # rebuild the current version (from the CLI package)
-deno task extension 0.4.0        # cut a new version
-```
+PGXN is the exception: a release there is permanent, so it is never automated.
+`./scripts/pgxn-release.sh <version> --confirm` uploads the archive the GitHub
+Release already published, after verifying it.
 
-`deno task extension 0.4.0` (with `0.3.0` already released):
-- writes the current full install `pg_semantius--0.4.0.sql` and **removes the prior
-  `pg_semantius--0.3.0.sql`** (keep one full install, like pgTAP);
-- writes the upgrade script `pg_semantius--0.3.0--0.4.0.sql` — just the migrations
-  added since 0.3.0 — so `ALTER EXTENSION pg_semantius UPDATE` walks the chain;
-- bumps `default_version`, records the version in `versions.json`, and refreshes
-  `META.json`/`Makefile`/README.
-
-Once a version is released its migrations are **frozen** — make later changes in
-*new* migration files. The generator hashes each migration in `versions.json` and
-**warns** if a released one was edited (that change can't land in an upgrade script).
-
-**Release flow:** generate → test → commit `extension/` (incl. `versions.json`) →
-tag → push. The [Release extension](.github/workflows/extension-release.yml) workflow
-fires on the `v*` tag, regenerates at the tag's version, zips the full install **+ the
-whole upgrade chain** into `pg_semantius-<ver>.zip`, and attaches it to a GitHub Release:
-
-```bash
-deno task extension 0.3.0                              # 1. regenerate at the new version
-deno task reset --confirm                              # 2. test (dropall + migrate + pgTAP)
-git add extension && git commit -m "release v0.3.0"    # 3. commit the generated files
-git tag v0.3.0 && git push origin main v0.3.0          # 4. tag + push → workflow publishes
-```
-
-If a version is **already generated and committed** but never tagged (as `0.1.0`
-was), just publish it — no regenerate, no commit needed, only the tag:
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-That same `pg_semantius-<ver>.zip` is the PGXN archive — publish it (needs a pgxn.org
-account) with `pgxn release pg_semantius-0.3.0.zip` (or upload at manager.pgxn.org).
-Details in [extension/README.md](extension/README.md).
+**[RELEASE.md](RELEASE.md) is the maintainer guide** — the mutability rule, what
+a re-release does not do, and what a release produces.
 
 ---
 

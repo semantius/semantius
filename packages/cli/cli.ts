@@ -43,8 +43,10 @@ interface CliArgs {
   script?: boolean;
   failfast?: boolean;
   coverage?: boolean;
-  /** `extension --strict`: fail instead of warn on edited/removed released migrations. */
+  /** Deprecated no-op: the released-migration check is always on now. */
   strict?: boolean;
+  /** `extension --allow-edited-migrations`: waive the released-migration check. */
+  "allow-edited-migrations"?: boolean;
   "coverage-min"?: string;
   env?: string;
   "database-url"?: string;
@@ -168,10 +170,16 @@ COMMANDS:
     lint             Run linter
     format           Format code
     migrate          Process and validate app folders (requires --apps parameter)
-    extension        Generate the PostgreSQL extension (control + SQL) into ./extension
-    extension <VER>  Generate the extension with an explicit version (e.g. 0.5.0)
-                     --strict fails (instead of warning) when a migration that
-                     a released version contained was edited or removed
+    extension <VER>  Generate the PostgreSQL extension (control + SQL) into
+                     ./extension at an explicit version (e.g. 0.5.0). The version
+                     is required. Regenerating the newest version in place is
+                     supported; a version is frozen once a higher one is in
+                     versions.json. See RELEASE.md.
+                     Only migrations ADDED in <VER> may be edited; editing one an
+                     earlier version shipped fails the build. Waive with
+                     --allow-edited-migrations. (--strict is now the default and
+                     is accepted but ignored.)
+                     Prefer ./release.sh <VER>, which also tests and tags.
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
     reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
     retest           ⚠️ Drop all, migrate --apps nwind,test, and run tests (requires --confirm)
@@ -195,10 +203,9 @@ EXAMPLES:
     deno task migrate --apps nwind,_ddtest
     deno task migrate --apps nwind --script
     deno task migrate --apps nwind --database-url postgresql://user:pass@host:5432/db
-    deno task extension
     deno task extension 0.5.0
     deno task extension 0.5.0 --strict
-    deno task extension --output ./extension
+    deno task extension 0.5.0 --output ./extension
     deno task dropall --verbose
     deno task dropall --confirm
     deno task dropall --script
@@ -295,6 +302,7 @@ async function main(): Promise<void> {
       "failfast",
       "coverage",
       "strict",
+      "allow-edited-migrations",
     ],
     // "_" keeps positional args as strings; without it @std/flags coerces
     // numeric-looking positionals to numbers and drops leading zeros, which
@@ -385,13 +393,36 @@ async function main(): Promise<void> {
     }
 
     case "extension": {
-      const version = args._.length > 1 ? String(args._[1]) : VERSION;
+      // The version is required. The old fallback to the CLI package's own
+      // version wrote a full install at THAT version, pruned the current build
+      // and moved default_version backwards. See RELEASE.md.
+      if (args._.length <= 1) {
+        console.error(
+          "extension: a version is required, e.g. `deno task extension 0.5.0`.",
+        );
+        console.error(
+          "Regenerating the newest version in place is supported; see RELEASE.md.",
+        );
+        Deno.exit(1);
+      }
+      const version = String(args._[1]);
+      // --strict is kept parseable on purpose: it appears in committed workflows
+      // and in muscle memory, and a hard "unknown flag" failure mid-release is a
+      // worse outcome than a warning. It is NOT an alias for the new flag - that
+      // would invert its meaning.
+      if (args.strict) {
+        console.warn(
+          "extension: --strict is now the default and is ignored. The " +
+            "released-migration check is always on; use " +
+            "--allow-edited-migrations to waive it.",
+        );
+      }
       await extensionCommand({
         apps: args.apps || "_core",
         version,
         name: "pg_semantius",
         outputDir: args.output || "./extension",
-        strict: args.strict === true,
+        allowEditedMigrations: args["allow-edited-migrations"] === true,
       });
       break;
     }

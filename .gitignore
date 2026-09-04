@@ -145,10 +145,17 @@ migrate.sql
 dropall.sql
 
 # Generated SQL bundles (regenerate with: deno task bundle-sql)
-# The placeholder src/migrations-bundle.ts files are committed; the generated versions are not.
+# Build output, not artefacts: the header carries a generation timestamp, so a
+# committed copy puts churn in every release commit and goes stale the moment a
+# migration changes. None of the three is tracked (open item B18).
 packages/triggerdev/src/migrations-bundle.ts
 packages/provisioning/src/migrations-bundle.ts
 packages/neon-provisioner/src/migrations-bundle.ts
+
+# PGXN distribution archive, built by scripts/pgxn-release.sh in the repo root.
+# Left behind, it would fail release.sh's clean-tree gate on the next run.
+/pg_semantius-*.zip
+/pg_semantius-*/
 
 # TriggerDev build output
 packages/triggerdev/dist/

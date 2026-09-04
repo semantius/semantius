@@ -3,7 +3,7 @@
 Builds and publishes the self-contained database image:
 
 ```
-ghcr.io/semantius/postgres:<version>-pg<major>   # canonical, immutable
+ghcr.io/semantius/postgres:<version>-pg<major>   # canonical; moves while newest
 ghcr.io/semantius/postgres:latest-pg<major>      # moving, major pinned
 ghcr.io/semantius/postgres:latest                # moving, default major
 ```
@@ -67,12 +67,14 @@ already deployed.
 Both infer the version from the `./extension` build when no argument is given, and
 honour an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
 
-> **Changed migrations?** Regenerate the extension first, with an **explicit**
-> version — a bare `deno task extension` falls back to the CLI's own `0.1.0` and
-> downgrades the build:
+> **Changed migrations?** Regenerate the extension first. The version is
+> required — `deno task extension` refuses without one, because the old fallback
+> to the CLI's own `0.1.0` silently downgraded the build:
 > ```bash
-> deno task extension 0.3.0
+> deno task extension 0.5.0
 > ```
+> A version may be regenerated while it is the newest build, and is frozen once a
+> higher one is committed; see [RELEASE.md](../RELEASE.md).
 
 ## Build context
 
@@ -105,13 +107,19 @@ Automatic: push a `v<version>` tag (e.g. `v0.3.0`). The
 generates the extension, cuts the GitHub Release, and pushes the image to GHCR —
 one tag, both artifacts, versions in lockstep.
 
-Manual:
+Releases go through [`./release.sh <version> --confirm`](../RELEASE.md), which
+builds the image locally as a check and lets the workflow publish it. These two
+scripts are for building or pushing an image **outside** a release:
 
 ```bash
+./docker-postgres/build.sh 0.5.0
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u <user> --password-stdin
-./docker-postgres/build.sh 0.3.0
-./docker-postgres/publish.sh 0.3.0
+./docker-postgres/publish.sh 0.5.0
 ```
+
+Both apply the moving `:latest*` tags only when the version is the highest `v*`
+tag in the repo, so building or pushing an older version cannot drag `:latest`
+backwards.
 
 ## Consuming it
 

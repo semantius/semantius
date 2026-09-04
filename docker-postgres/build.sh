@@ -7,16 +7,20 @@
 #   ./build.sh 0.3.0        # explicit version tag
 #
 # Builds + tags (one image, three names):
-#     ghcr.io/semantius/postgres:<version>-pg<major>   canonical, immutable
+#     ghcr.io/semantius/postgres:<version>-pg<major>   canonical; moves while
+#                                                      that version is newest
 #     ghcr.io/semantius/postgres:latest-pg<major>      moving, major pinned
 #     ghcr.io/semantius/postgres:latest                moving, default major
+#
+# The two :latest* tags are only applied when <version> is the highest v* tag in
+# the repo, so building an older version cannot shadow a newer local image.
 # There is deliberately NO bare :<version> tag — a version tag that silently
 # changed Postgres major later is exactly the ambiguity the suffix removes.
 #
 # This does NOT regenerate the extension — it packages whatever is in ./extension.
-# If you changed migrations, regenerate first with an EXPLICIT version (bare
-# `deno task extension` falls back to the CLI's own 0.1.0 and downgrades the build):
-#     deno task extension 0.3.0
+# If you changed migrations, regenerate first; the version is required:
+#     deno task extension 0.5.0
+# See RELEASE.md for when a version may be regenerated and when it is frozen.
 #
 # The :latest tag means a consumer stack can run THIS freshly-built image — but
 # only if it does not pull over it, so use the semantius-self-hosted stack's
@@ -48,17 +52,45 @@ version="${1:-$(ls extension/pg_semantius--*.sql 2>/dev/null \
   | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)}"
 [ -n "$version" ] || { echo "could not resolve version — pass it explicitly: build.sh <version>" >&2; exit 1; }
 
-echo "Building ${IMAGE}:${version}-pg${pg_major} (+ :latest-pg${pg_major}, :latest) ..."
-docker build \
-  -f docker-postgres/Dockerfile \
-  -t "${IMAGE}:${version}-pg${pg_major}" \
-  -t "${IMAGE}:latest-pg${pg_major}" \
-  -t "${IMAGE}:latest" \
-  .
+
+# The moving :latest* tags may only follow the HIGHEST released version. Without
+# this, re-releasing an older version drags :latest backwards - silently, and for
+# everyone who pulls it. The version-pinned tag is always produced: that is what
+# makes a re-release replace its own image. Mirrors the same decision in
+# .github/workflows/extension-release.yml.
+git fetch --tags --force --quiet 2>/dev/null || true
+top_version="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+# ">= the highest tag", not "== it": during a local release the tag for the
+# version being built does not exist yet, and a fresh clone may have no tags.
+if [ -z "$top_version" ] ||    [ "$(printf '%s
+%s
+' "$top_version" "$version" | sort -V | tail -1)" = "$version" ]; then
+  is_highest=1
+else
+  is_highest=0
+fi
+
+if [ "$is_highest" = "1" ]; then
+  echo "Building ${IMAGE}:${version}-pg${pg_major} (+ :latest-pg${pg_major}, :latest) ..."
+  docker build \
+    -f docker-postgres/Dockerfile \
+    -t "${IMAGE}:${version}-pg${pg_major}" \
+    -t "${IMAGE}:latest-pg${pg_major}" \
+    -t "${IMAGE}:latest" \
+    .
+else
+  echo "Building ${IMAGE}:${version}-pg${pg_major} only (${top_version} is newer; :latest stays where it is) ..."
+  docker build \
+    -f docker-postgres/Dockerfile \
+    -t "${IMAGE}:${version}-pg${pg_major}" \
+    .
+fi
 
 echo
 echo "Built:"
 echo "  ${IMAGE}:${version}-pg${pg_major}"
-echo "  ${IMAGE}:latest-pg${pg_major}"
-echo "  ${IMAGE}:latest"
+if [ "$is_highest" = "1" ]; then
+  echo "  ${IMAGE}:latest-pg${pg_major}"
+  echo "  ${IMAGE}:latest"
+fi
 echo "Publish with:  IMAGE=${IMAGE} docker-postgres/publish.sh ${version}"

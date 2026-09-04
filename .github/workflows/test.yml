@@ -50,15 +50,13 @@ jobs:
           echo "Testing pg_semantius $V"
 
       - name: Regenerate the extension
-        run: deno task extension "${{ steps.ver.outputs.version }}" --strict
-        # --strict refuses to build when a migration that a PREVIOUS
-        # released version contained was edited in place or deleted:
-        # such a change is invisible to the upgrade script, so an
-        # existing installation would never receive it. It is inert
-        # while versions.json holds a single build (the check sits
-        # inside `if (prev)`), and becomes protective automatically at
-        # the second release. To hot-patch a released migration on
-        # purpose, drop the flag for that one pull request.
+        run: deno task extension "${{ steps.ver.outputs.version }}"
+        # No --strict: the released-migration check is on by default now. A
+        # migration a PREVIOUS version shipped may not be edited in place or
+        # deleted - such a change is invisible to the upgrade script, so an
+        # existing installation would never receive it. Only migrations ADDED
+        # in this version are editable. To hot-patch an inherited one on
+        # purpose, add --allow-edited-migrations for that one release.
 
       # Same guard as the release job: a PR that edits a migration without
       # regenerating extension/ would otherwise pass its tests and then break
@@ -95,38 +93,12 @@ jobs:
       - name: Extension lifecycle
         run: ./pgdocker/pg-ext-lifecycle.sh
 
+      # One definition of the checks, shared with release.sh and
+      # scripts/pgxn-release.sh, so CI and the local scripts cannot drift.
       - name: Validate the PGXN manifest
         run: |
-          if gem install --no-document pgxn_utils >/dev/null 2>&1 \
-             && command -v pgxn_meta >/dev/null 2>&1; then
-            pgxn_meta validate extension/META.json
-          else
-            echo "::warning::pgxn_meta unavailable; running the B10 checks only"
-          fi
-          python3 - <<'PY'
-          import json, sys, os
-          m = json.load(open("extension/META.json"))
-          errors = []
-          for k in ("name", "version", "abstract", "maintainer", "license",
-                    "provides", "meta-spec"):
-              if k not in m:
-                  errors.append(f"missing required key: {k}")
-          url = m.get("resources", {}).get("repository", {}).get("url", "")
-          if url.startswith("git://"):
-              errors.append(f"repository url still uses git://: {url}")
-          if not any("@" in str(x) for x in m.get("maintainer", [])):
-              errors.append(f"no maintainer carries an email: {m.get('maintainer')}")
-          if "release_status" not in m:
-              errors.append("release_status is not set")
-          elif m["release_status"] not in ("stable", "testing", "unstable"):
-              errors.append(f"invalid release_status: {m['release_status']}")
-          if not os.path.exists("extension/CHANGES.md"):
-              errors.append("extension/CHANGES.md is missing from the archive inputs")
-          if errors:
-              sys.exit("META.json failed the B10 checks:\n  - " + "\n  - ".join(errors))
-          print(f"META.json passes: url={url}, release_status={m['release_status']}, "
-                f"maintainer={m['maintainer']}, CHANGES.md present")
-          PY
+          gem install --no-document pgxn_utils >/dev/null 2>&1 || true
+          bash scripts/check-pgxn-meta.sh extension/META.json
 
       - name: Upload the coverage report
         if: always()

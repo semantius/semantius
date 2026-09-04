@@ -21,5 +21,10 @@ installs the core schema as ordinary objects.
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.
 
-Earlier 0.3.0 and 0.4.0 builds were development snapshots and were never
-released; there is no upgrade path from them.
+0.5.0 is a fresh start. The earlier 0.1.0, 0.3.0 and 0.4.0 builds were
+published as GitHub Releases but are treated as development snapshots: their
+version history was discarded, so **there is no upgrade path from them**. An
+installation on 0.3.0 or 0.4.0 cannot `ALTER EXTENSION ... UPDATE` to 0.5.0 and
+cannot `DROP EXTENSION` without `CASCADE` (in those builds the core tables were
+extension members). Moving to 0.5.0 means: dump the data, install 0.5.0 into a
+new database, `SELECT semantius.migrate()`, reload.

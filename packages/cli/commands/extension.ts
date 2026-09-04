@@ -86,8 +86,17 @@ interface ExtensionOptions {
   version: string;
   name: string;
   outputDir: string;
-  /** Fail instead of warn when a released migration was edited or removed. */
-  strict?: boolean;
+  /**
+   * Waive the released-migration check. OFF by default: a migration an earlier
+   * version already shipped may not be edited or removed, because the
+   * prev -> version upgrade script carries only migrations ADDED since prev, so
+   * the change can never reach an existing installation. Only migrations added
+   * IN THIS version are editable, which falls out of two things that must not be
+   * "fixed": highestVersionBelow()'s strict `< 0` filter (a version is never its
+   * own prev, so regenerating the newest version skips the check entirely) and
+   * the `k in prevFiles` test in the edit detection below.
+   */
+  allowEditedMigrations?: boolean;
 }
 
 export async function extensionCommand(
@@ -97,6 +106,19 @@ export async function extensionCommand(
   const apps = !options.apps || options.apps.trim() === ""
     ? "_core"
     : options.apps;
+
+  // compareVersions() parses dotted numbers only. A pre-release suffix makes
+  // Number() return NaN, and both `NaN > 0` and `NaN < 0` are false - so the
+  // frozen-version guard and the upgrade-chain lookup would BOTH go blind while
+  // pruneOldFullInstalls still deleted the current full install.
+  if (!/^\d+(\.\d+)*$/.test(version)) {
+    console.error(
+      `Error: invalid version "${version}". Versions are dotted numbers ` +
+        `(1.2.3); a suffix such as -rc1 is invisible to the version comparison ` +
+        `and would silently disable the frozen-version guard.`,
+    );
+    Deno.exit(1);
+  }
 
   console.log(`Generating "${name}" extension v${version}...`);
 
@@ -203,11 +225,50 @@ export async function extensionCommand(
   const manifestPath = `${outputDir}/versions.json`;
   const manifest = await loadManifest(manifestPath);
 
+  // Every protection below lives inside `if (prev)`, and loadManifest returns an
+  // empty manifest both for a missing file and for valid JSON of the wrong
+  // shape. Deleting or truncating versions.json therefore disables the whole
+  // released-migration check - so say so rather than proceeding silently.
+  if (Object.keys(manifest.versions).length === 0) {
+    console.warn(
+      `No version history in ${manifestPath}: treating ${version} as a first ` +
+        `build, so every migration is editable and no released-migration check ` +
+        `runs. If that is unexpected, restore the manifest before generating.`,
+    );
+  }
+
+  // A version stays mutable only while it is the newest build in the manifest:
+  // it may be regenerated, re-tagged and re-released until a higher version is
+  // committed, after which it is frozen. Without this check, regenerating a
+  // superseded version silently corrupts the output directory - `prev` is
+  // undefined (nothing sorts BELOW it), so no edit detection runs,
+  // pruneOldFullInstalls deletes the NEWER full install, the newer upgrade
+  // script is left pointing at a version that no longer has one, and
+  // default_version moves backwards. See RELEASE.md.
+  const superseded = Object.keys(manifest.versions)
+    .filter((v) => compareVersions(v, version) > 0)
+    .sort(compareVersions);
+  if (superseded.length > 0) {
+    console.error(
+      `Error: version ${version} is frozen - ${manifestPath} already holds ` +
+        `${superseded.join(", ")}. Regenerating it would delete the newer full ` +
+        `install and move default_version backwards. Generate ` +
+        `${superseded[superseded.length - 1]} or a higher version instead.`,
+    );
+    Deno.exit(1);
+  }
+
   const currentFiles: Record<string, string> = {};
   for (const m of migs) {
     currentFiles[`${m.app}/${m.name}`] = await sha256hex(m.content);
   }
 
+  // `prev` is the highest version STRICTLY below the target, so a version is
+  // never its own prev: regenerating the newest build skips this whole block and
+  // every one of its migrations stays editable. That is the first half of the
+  // rule ("0.5.0 allows changing all existing migrations"); the second half is
+  // the `k in prevFiles` test below, which exempts migrations added in THIS
+  // version. Do not relax either without reading RELEASE.md.
   const prev = highestVersionBelow(version, manifest);
   // Members dropped from the bundle since `prev`. An upgrade script must DROP
   // them explicitly or they linger as members of the upgraded extension.
@@ -221,20 +282,22 @@ export async function extensionCommand(
     });
     const removed = Object.keys(prevFiles).filter((k) => !(k in currentFiles));
 
-    const strict = options.strict === true;
+    const enforce = options.allowEditedMigrations !== true;
     const complain = (msg: string) =>
-      strict ? console.error(msg) : console.warn(msg);
-    const label = strict ? "Error" : "Warning";
+      enforce ? console.error(msg) : console.warn(msg);
+    const label = enforce ? "Error" : "Warning";
 
     if (edited.length > 0) {
       complain(
-        `${label}: ${edited.length} migration(s) released in ${prev} were ` +
-          `edited in place:`,
+        `${label}: ${edited.length} migration(s) that ${prev} already shipped ` +
+          `were edited in place:`,
       );
       for (const m of edited) complain(`  - ${m.app}/${m.name}`);
       complain(
-        `These edits are NOT captured by the ${prev} -> ${version} upgrade. Add a ` +
-          `new migration for the change rather than editing a released one.`,
+        `Only migrations ADDED in ${version} may be edited. The ` +
+          `${prev} -> ${version} upgrade carries only migrations added since ` +
+          `${prev}, so an edit to an inherited one can never reach an existing ` +
+          `installation. Add a new migration instead.`,
       );
     }
     if (removed.length > 0) {
@@ -244,9 +307,10 @@ export async function extensionCommand(
       );
       for (const k of removed) complain(`  - ${k}`);
     }
-    if (strict && (edited.length > 0 || removed.length > 0)) {
+    if (enforce && (edited.length > 0 || removed.length > 0)) {
       console.error(
-        "--strict: refusing to generate over an edited or removed released migration.",
+        "Refusing to generate over a migration an earlier version shipped. " +
+          "Pass --allow-edited-migrations to hot-patch one on purpose.",
       );
       Deno.exit(1);
     }
@@ -618,6 +682,15 @@ SELECT ${S}.migrate();
 applies whatever is new. Both are safe to re-run: \`migrate()\` is idempotent
 per migration. \`SELECT * FROM ${S}.pending()\` lists what a \`migrate()\`
 would apply; \`SELECT * FROM ${S}.status()\` reports drift.
+
+**A re-released build of the same version does not reach an existing install.**
+\`migrate()\` records each migration by name and skips any name it has already
+applied, so a build that changed an existing migration rather than adding a new
+one is not re-applied: the database keeps the SQL it installed, and
+\`${S}.status()\` lists that migration in \`changed_versions\` until the
+database is rebuilt from the new build. Compare
+\`${S}.status().changed_versions\` against the build you expect before assuming
+a re-download changed anything.
 
 ## Functions
 

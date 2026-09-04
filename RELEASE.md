@@ -1,0 +1,170 @@
+# Releasing
+
+Maintainer document. Consumers do not need it — installing is covered by
+[README.md](README.md#postgresql-extension-alternative-distribution) and by the
+generated `extension/README.md` that ships inside every archive.
+
+Everything here is about **one artifact set**: the `pg_semantius` extension
+build in `extension/`, the GitHub Release that carries its archive, and the
+GHCR database image built from it. They always move together at one version.
+
+## The rule: newest is mutable, everything before it is frozen
+
+A version stays **mutable while it is the newest build**. It may be regenerated,
+re-tagged and re-released as often as needed. It becomes **frozen the moment a
+higher version is committed** to `extension/versions.json`.
+
+This is deliberate. `0.5.0` is a fresh start: the 0.1.0/0.3.0/0.4.0 lineage was
+cut off on 2026-09-03 and its version history discarded from the manifest, so
+there is no upgrade chain into 0.5.0 and no `pg_semantius--0.4.0--0.5.0.sql`.
+Until 0.5.0 is declared final it is developed in place rather than accreting
+patch versions for changes nobody has consumed yet.
+
+Two things enforce it:
+
+- `deno task extension <ver>` **refuses** when `versions.json` already holds a
+  higher version. Without that guard the run would leave a broken `extension/`:
+  the edit detection is skipped (it only looks at versions *below* the target,
+  and a superseded version has none), the newer full install is pruned away, the
+  newer upgrade script is orphaned, and `default_version` moves backwards.
+- The version argument is **required**. It used to fall back to the CLI
+  package's own version (`0.1.0`), which quietly did all of the above.
+
+The one channel that does not honour the rule is **PGXN** — see below.
+
+## Doing it
+
+```bash
+./release.sh <version>              # dry run: decide, preflight, explain, stop
+./release.sh <version> --confirm    # regenerate, test, build, commit, tag, push
+```
+
+One script, and the version argument selects the outcome. It regenerates
+`extension/`, runs all three harnesses in the order they depend on, builds the
+image locally, commits the build, proves the generator is deterministic by
+regenerating a second time, then tags and pushes. Pushing the tag is what starts
+[the workflow](.github/workflows/extension-release.yml), which rebuilds from a
+clean checkout and publishes the GitHub Release and the GHCR image.
+
+The duplication is the design. The harnesses run locally to prove the current
+working tree is green; CI re-runs them to prove the result is **reproducible**
+rather than green only on one machine. `./release.sh --help` lists the flags;
+`--skip-tests` deliberately cannot tag.
+
+PGXN is separate and manual — see below.
+
+## What a re-release does not do
+
+**It does not reach a database that already ran this version.** `migrate()`
+records each migration by name in `public._versions` and skips any name it has
+already applied:
+
+```sql
+IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0070_dd_functions') THEN
+  ...
+ELSE
+  v_skipped := v_skipped + 1;
+END IF;
+```
+
+There is no checksum comparison and no re-apply, and there is no 0.5.0 -> 0.5.0
+update path, so `ALTER EXTENSION pg_semantius UPDATE` is a no-op as well. A
+database that installed 0.5.0 before the re-release keeps the old SQL, and
+`semantius.status()` lists the changed migration in `changed_versions` from then
+on - the drift is detected, it just has no remedy.
+
+**This is accepted, not a defect.** A re-release reaches fresh installs and
+fresh containers; an existing database is rebuilt or left behind. That is the
+price of developing 0.5.0 in place instead of accreting patch versions nobody
+has consumed. `changed_versions` is the intended signal that a database predates
+the current build.
+
+The two escape hatches, in the order they become relevant:
+
+- **When a live database first has to be updated in place**, add an opt-in
+  `semantius.reapply('<app>.<migration>')` that re-runs one named migration and
+  updates its checksum. Only the migrations a re-release actually touched need
+  to be re-runnable, and they are known - so make them re-runnable as part of
+  the edit. Blanket re-apply is not an option: across the 34 `_core` migrations
+  there are 66 `CREATE TRIGGER` against 13 `DROP TRIGGER IF EXISTS`, 36
+  `CREATE INDEX` without `IF NOT EXISTS`, 76 seed `INSERT`s and 28
+  `ALTER TABLE ... ADD COLUMN`, so re-running an arbitrary migration fails or
+  duplicates data.
+- **Once 0.5.0 is final**, stop editing migrations at all: a fix becomes a new
+  migration file. `migrate()` then picks it up by name on every install, old and
+  new, with no new machinery - and it is the only form a `0.5.0 -> 0.5.1`
+  upgrade script can carry, because upgrade scripts contain migrations *added*
+  since the previous version.
+
+## What the version argument selects
+
+| `./release.sh a.b.c` vs the newest build in `extension/versions.json` | |
+|---|---|
+| **lower** | rejected before any work: a superseded version is frozen, and regenerating it would delete the newer full install, orphan its upgrade script and move `default_version` backwards |
+| **equal** | refresh the artifacts — a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
+| **higher** | a new version: an upgrade script `<prev>--<new>.sql` is written, the previous full install is pruned, `default_version` bumps |
+
+From the moment a higher version exists in the manifest, the lower one is frozen:
+the generator refuses to target it, and **only migrations added in the newer
+version may be edited**. Editing one an earlier version already shipped fails the
+build, because the upgrade script carries only migrations *added* since the
+previous version — so such an edit could never reach an existing installation.
+`--allow-edited-migrations` waives it for a deliberate hot-patch.
+
+That is also why 0.5.0 currently allows editing every migration: it is the only
+version in the manifest, so nothing is inherited.
+
+## What a release actually produces
+
+Pushing the tag runs
+[.github/workflows/extension-release.yml](.github/workflows/extension-release.yml),
+which resolves the version from the tag name and publishes:
+
+| Artifact | |
+|---|---|
+| git history | the `v<ver>` tag |
+| GitHub Release | `pg_semantius-<ver>.zip` — the full install **plus the whole upgrade chain**, `META.json`, `.control`, `Makefile`, `README.md`, `CHANGES.md`, `SECURITY.md`, `LICENSE` — and the loose `.sql` and `.control` alongside it |
+| GHCR | `postgres:<ver>-pg<major>`, `postgres:latest-pg<major>`, `postgres:latest` |
+
+`<major>` is parsed from `docker-postgres/Dockerfile`'s `FROM` line, so a base
+bump moves the tag suffix with it. There is deliberately no bare `:<version>`
+image tag: a version tag that silently changed PostgreSQL major later is the
+exact ambiguity the suffix removes.
+
+The gates, in order: `deno task extension <ver> --strict` → committed build must
+equal the regenerated one → Path B → Path A → lifecycle → PGXN manifest checks →
+package → release → image. If anything fails, nothing is published; fix it and
+move the tag.
+
+Building an image locally is [docker-postgres/build.sh](docker-postgres/build.sh)
+and [publish.sh](docker-postgres/publish.sh). Neither regenerates the extension —
+they package whatever is already in `extension/`.
+
+## PGXN is not automated, and must not be
+
+Nothing publishes to PGXN. Both workflows only *validate* `extension/META.json`
+(`pgxn_meta validate` plus explicit checks for the four defects open item B10
+named); neither uploads anything.
+
+That is on purpose, because **PGXN is the one channel this project cannot take
+back**. A GitHub Release is deleted and recreated on every re-release and a GHCR
+tag is overwritten, which is what makes the newest version mutable. A PGXN
+release is permanent: a version can never be replaced or withdrawn, only
+superseded by a higher one. Publishing `0.5.0` there while it is still moving
+would freeze a build that is going to change.
+
+So it is a separate, manual, guarded step:
+
+```bash
+./scripts/pgxn-release.sh 0.5.0 --confirm
+```
+
+[scripts/pgxn-release.sh](scripts/pgxn-release.sh) refuses unless the build on
+disk is that version (full install, `META.json` and `default_version` all agree),
+the working tree is clean, the tag `v<ver>` exists, and `HEAD` is the commit that
+tag points at. It warns when `release_status` is not `stable`, requires
+`--confirm`, then builds the same archive the workflow builds and hands it to
+`pgxn release` (or tells you to upload it at manager.pgxn.org).
+
+**Publish to PGXN only when the version is final.** Afterwards, stop re-tagging
+it: cut the next version for any further change.

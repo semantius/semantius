@@ -16,7 +16,7 @@ fi
 # The extension must be generated first (repo root -> ../extension).
 if ! ls ../extension/pg_semantius--*.sql >/dev/null 2>&1; then
   echo "No extension build found in ../extension." >&2
-  echo "Generate it first, from the repo root:  deno task extension" >&2
+  echo "Generate it first, from the repo root:  deno task extension <version>" >&2
   exit 1
 fi
 
