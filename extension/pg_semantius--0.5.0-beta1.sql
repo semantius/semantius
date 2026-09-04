@@ -187,7 +187,7 @@ BEGIN
     END IF;
   END;
 
-  -- Same ledger the CLI runner uses, so either path recognises the other's work.
+  -- Same ledger the CLI runner uses, so either path recognizes the other's work.
   CREATE TABLE IF NOT EXISTS _versions (
     name TEXT PRIMARY KEY,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -237,7 +237,7 @@ BEGIN
 
             -- Grant semantius_user to the installing role, but never to a
             -- superuser: it already bypasses every check, and the membership
-            -- is a test artefact that survives DROP EXTENSION (B11).
+            -- is a test artifact that survives DROP EXTENSION (B11).
             IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
                 EXECUTE format('GRANT semantius_user TO %I', current_user);
             END IF;
@@ -313,7 +313,7 @@ $pgsem__core_0010_create_core$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0010_create_core', '2f8a0c722eace1f246a79349b903e5e5448fd9ebf521171f71be5e1ef827188d');
+      VALUES ('_core.0010_create_core', 'ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -524,7 +524,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
 
 -- Grant schema usage to the installing role (database owner) for testing.
 -- Skipped for a superuser: it needs no grant and the ACL entry is a test
--- artefact that outlives the extension (B11).
+-- artifact that outlives the extension (B11).
 DO $$
 BEGIN
     IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
@@ -563,7 +563,7 @@ COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including tota
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0012_create_cache', '1f05f055db5a055de3fe5327e76e13600afd8e3d1b5bff4099de455ae2298649');
+      VALUES ('_core.0012_create_cache', 'eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3339,7 +3339,7 @@ CREATE TABLE IF NOT EXISTS fields (
     -- A default is a value (or one of the argument-less SQL expressions
     -- quote_default_value() allow-lists), never a statement: the dictionary
     -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
-    -- comment markers are rejected outright as a second line of defence.
+    -- comment markers are rejected outright as a second line of defense.
     default_value TEXT DEFAULT ''
         CONSTRAINT valid_default_value CHECK (
             length(default_value) <= 200
@@ -3936,7 +3936,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '122f30b0b451c2d894867952ada520f545087a9b45b3279c101cf6fcbe2b1458');
+      VALUES ('_core.0060_dd_schema', '2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4051,7 +4051,7 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
--- Centralised handling of enum default behavior:
+-- Centralized handling of enum default behavior:
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
@@ -4133,7 +4133,7 @@ BEGIN
         RETURN 'NULL';
     END IF;
 
-    -- Boolean constants for boolean columns (t/f are normalised to keywords)
+    -- Boolean constants for boolean columns (t/f are normalized to keywords)
     IF p_data_type = 'BOOLEAN' AND v_upper IN ('TRUE', 'FALSE', 'T', 'F') THEN
         RETURN CASE WHEN v_upper IN ('TRUE', 'T') THEN 'TRUE' ELSE 'FALSE' END;
     END IF;
@@ -4167,7 +4167,7 @@ COMMENT ON FUNCTION quote_default_value IS
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
 -- =====================================================
--- Centralised construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
+-- Centralized construction of the COMMENT ON TABLE / COMMENT ON COLUMN bodies
 -- applied by the DDL triggers, so the create and update paths stay identical.
 --   • dd_table_comment  -- "<plural_label>" then a blank line + description (when set)
 --   • dd_field_comment  -- "<title> (<format>)" then description, plus enum value list
@@ -5334,7 +5334,7 @@ BEGIN
     );
     
     -- Everything below is one full table rewrite: ADD COLUMN ... GENERATED ...
-    -- STORED has to materialise the tsvector for every existing row, so it holds
+    -- STORED has to materialize the tsvector for every existing row, so it holds
     -- ACCESS EXCLUSIVE (blocking readers, not just writers) for the whole
     -- rewrite and rebuilds every index on the table -- about 650 ms per 100k
     -- rows, linear. Skip it when the installed column was generated from exactly
@@ -5840,7 +5840,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '72eef0e6d6cc420420994676309840919a4e5c7101601cc234898a39fdd9c745');
+      VALUES ('_core.0070_dd_functions', 'c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8841,8 +8841,8 @@ COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
 'TRUE when a field format denotes a foreign-key relationship (''reference'' or ''parent'').';
 
 -- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
--- fallback heuristic recognises a pure pairing table — ≥2 parent legs and every non-leg field is an
--- id/label/audit column (recognised audit names + ctype='audit'). A status/rating/note payload
+-- fallback heuristic recognizes a pure pairing table — ≥2 parent legs and every non-leg field is an
+-- id/label/audit column (recognized audit names + ctype='audit'). A status/rating/note payload
 -- field disqualifies it (so an interview scorecard is NOT a junction).
 CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
 RETURNS BOOLEAN
@@ -9043,7 +9043,7 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name=r.field_name);
         CONTINUE WHEN NOT EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=r.reference_table AND column_name=v_parent_id);
-        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalised
+        -- Collision-aware: if a REAL column already owns the <fk>_label name (e.g. a denormalized
         -- display column), it wins — skip the companion so the column is never shadowed by a function.
         CONTINUE WHEN EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
@@ -9074,7 +9074,7 @@ functions are SECURITY INVOKER so composed labels respect each caller''s row-lev
 -- =====================================================
 -- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
 -- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
--- denormalised customer_label, or even a deliberate <fk>_label) are common and allowed. A real
+-- denormalized customer_label, or even a deliberate <fk>_label) are common and allowed. A real
 -- column always wins over a generated <fk>_label companion — the generator and get_schema are
 -- collision-aware and skip a companion whose name is already a real column (so nothing is shadowed
 -- silently). Privileged DD/migration code (BYPASSRLS) is exempt.
@@ -9286,7 +9286,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '48beff686cff4817d45d30c42d001064a93d4dff56783ede5dd9825d2040f197');
+      VALUES ('_core.0145_managed_enable', 'b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15169,7 +15169,7 @@ $pgsem__core_0260_dashboard$;
 -- created_at/updated_at audit columns at 999998/999999 — never inflate the
 -- running max), or 10 for the first record.
 --
--- This generalises (and replaces) the old fields-only auto_set_field_order()
+-- This generalizes (and replaces) the old fields-only auto_set_field_order()
 -- trigger: the `fields` entity simply declares order_column = 'field_order'.
 
 -- =====================================================
@@ -15358,7 +15358,7 @@ $pgsem__core_0270_entity_order_column$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0270_entity_order_column', 'cca529ede2964a409112694adcc0bed862153749bd2a59739fef34a3af616cc2');
+      VALUES ('_core.0270_entity_order_column', 'fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15377,7 +15377,7 @@ $pgsem__core_0270_entity_order_column$;
 --
 -- RLS design:
 --   • A BEFORE INSERT OR UPDATE trigger (aaa_assign_user_id_user_bookmarks)
---     initialises the RBAC context and forces user_id = rbac.user_id() on
+--     initializes the RBAC context and forces user_id = rbac.user_id() on
 --     every write, preventing users from assigning bookmarks to other users.
 --     The trigger is named with the 'aaa_' prefix so PostgreSQL's alphabetical
 --     trigger-firing order guarantees it runs before any other BEFORE triggers
@@ -15386,7 +15386,7 @@ $pgsem__core_0270_entity_order_column$;
 --     per-row SELECT policy (own rows only) and scopes UPDATE/DELETE USING to
 --     own rows (migration 0180).
 --   • The INSERT policy is further hardened to WITH CHECK (user_id = rbac.user_id())
---     as a second layer of defence (the trigger fires first and sets the value,
+--     as a second layer of defense (the trigger fires first and sets the value,
 --     so this check always passes for legitimate callers).
 --   • order_column = 'row_order' enables drag-and-drop reordering (migration 0270).
 
@@ -15448,7 +15448,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION assign_user_id_user_bookmarks IS
-'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initialises the RBAC context '
+'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initializes the RBAC context '
 'and forces user_id to the current session user so bookmarks cannot be created or '
 'reassigned on behalf of other users.';
 
@@ -15468,7 +15468,7 @@ COMMENT ON TRIGGER aaa_assign_user_id_user_bookmarks ON user_bookmarks IS
 -- =====================================================
 -- The default INSERT policy only checks rbac.has_permission('user:read').
 -- We also require the record's user_id to match the session user, as a second
--- layer of defence.  The aaa_ trigger above fires first and sets user_id, so
+-- layer of defense.  The aaa_ trigger above fires first and sets user_id, so
 -- this check always passes for legitimate callers.
 
 DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;
@@ -15502,7 +15502,7 @@ $pgsem__core_0280_user_bookmarks$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0280_user_bookmarks', '5fa33717c64ea9eac6f9de9d6dea562def195e2bb0ef0e8c6f4b0010553e6468');
+      VALUES ('_core.0280_user_bookmarks', '8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16202,7 +16202,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"2f8a0c722eace1f246a79349b903e5e5448fd9ebf521171f71be5e1ef827188d","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"1f05f055db5a055de3fe5327e76e13600afd8e3d1b5bff4099de455ae2298649","_core.0015_jsonlogic":"6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"122f30b0b451c2d894867952ada520f545087a9b45b3279c101cf6fcbe2b1458","_core.0070_dd_functions":"72eef0e6d6cc420420994676309840919a4e5c7101601cc234898a39fdd9c745","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"48beff686cff4817d45d30c42d001064a93d4dff56783ede5dd9825d2040f197","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"cca529ede2964a409112694adcc0bed862153749bd2a59739fef34a3af616cc2","_core.0280_user_bookmarks":"5fa33717c64ea9eac6f9de9d6dea562def195e2bb0ef0e8c6f4b0010553e6468","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
