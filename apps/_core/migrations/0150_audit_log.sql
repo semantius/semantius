@@ -378,8 +378,38 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- STEP 7: DDL event trigger function and event trigger
 -- =====================================================
 
+-- Scoped DDL audit. SECURITY DEFINER because the function calls
+-- audit.current_user_id(), which is revoked from PUBLIC: without it the
+-- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
+-- other two audit triggers in this file are already definers.
+--
+-- Three filters, in the order they are applied:
+--   1. in_extension - objects an extension script created belong to that
+--      extension, not to this database's schema history.
+--   2. schema scope - only the schemas Semantius owns are evidence. DDL in a
+--      foreign schema, and temp objects (reported as schema 'pg_temp' here,
+--      'pg_temp_N' in the catalog), are not ours to record. A NULL
+--      schema_name is deliberately NOT filtered: GRANT, REVOKE and ALTER
+--      DEFAULT PRIVILEGES report no schema, no classid, no objid and no object
+--      identity - there is nothing to scope them by - and dropping them would
+--      throw away the privilege history this table exists to keep. CREATE
+--      SCHEMA also reports no schema (its identity is the new schema's name),
+--      so creating a schema is always logged, foreign ones included.
+--   3. generated label companions - rebuild_entity_label_functions (0145)
+--      drops and recreates the whole set of <name>_label(rowtype) functions on
+--      any field edit, so these events are churn, not history. This reaches
+--      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
+--      and REVOKE events carry a NULL object_identity, so roughly half the
+--      churn is unfilterable by any predicate this function can see.
+--      Conversely the pattern is a suffix match, so a hand-written function
+--      named <something>_label in one of the five schemas is not audited
+--      either, and an entity whose name needs quoting is (the quote sits
+--      between _label and the paren). Neither occurs today.
+-- query_text is bounded: current_query() is the entire migration script for
+-- script-driven DDL, stored once per event.
 CREATE OR REPLACE FUNCTION audit.log_ddl_event()
 RETURNS event_trigger
+SECURITY DEFINER
 SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -388,8 +418,18 @@ DECLARE
 BEGIN
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+        CONTINUE WHEN obj.in_extension;
+        CONTINUE WHEN obj.schema_name IS NOT NULL
+                  AND (starts_with(obj.schema_name, 'pg_temp')
+                       OR obj.schema_name NOT IN ('public', 'common', 'rbac', 'audit', 'pgmq'));
+        -- Bracket expressions, not backslash escapes: the body is re-parsed at
+        -- first execution, so a session with standard_conforming_strings = off
+        -- would otherwise turn this pattern into an invalid regexp.
+        CONTINUE WHEN obj.object_type = 'function'
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
-        VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''), current_query());
+        VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
+                left(current_query(), 8192));
     END LOOP;
 END;
 $$;
@@ -397,8 +437,33 @@ $$;
 COMMENT ON FUNCTION audit.log_ddl_event IS
 'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
+-- The tag allowlist keeps the trigger from firing at all for commands that
+-- cannot change the schema Semantius manages. It is deliberately broad: every
+-- CREATE/ALTER of a database-local schema object, plus the privilege and
+-- documentation commands. ddl_command_end reports no rows for DROP commands
+-- (dropped objects are only visible to a sql_drop trigger), so DROP tags would
+-- be dead weight here.
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
+    WHEN TAG IN (
+      'CREATE SCHEMA', 'ALTER SCHEMA'
+    , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+    , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+    , 'CREATE VIEW', 'ALTER VIEW'
+    , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+    , 'CREATE SEQUENCE', 'ALTER SEQUENCE'
+    , 'CREATE INDEX', 'ALTER INDEX'
+    , 'CREATE FUNCTION', 'ALTER FUNCTION'
+    , 'CREATE PROCEDURE', 'ALTER PROCEDURE'
+    , 'CREATE TRIGGER', 'ALTER TRIGGER'
+    , 'CREATE POLICY', 'ALTER POLICY'
+    , 'CREATE TYPE', 'ALTER TYPE'
+    , 'CREATE DOMAIN', 'ALTER DOMAIN'
+    , 'CREATE RULE', 'ALTER RULE'
+    , 'CREATE EXTENSION', 'ALTER EXTENSION'
+    , 'GRANT', 'REVOKE', 'ALTER DEFAULT PRIVILEGES'
+    , 'SECURITY LABEL', 'COMMENT'
+    )
     EXECUTE FUNCTION audit.log_ddl_event();
 
 COMMENT ON EVENT TRIGGER track_ddl_changes IS
@@ -621,6 +686,7 @@ REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;

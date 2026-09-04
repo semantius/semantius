@@ -15,7 +15,7 @@ folded in below. Two rows did not survive it:
   on a pull request", and the owner decided on 2026-09-03 to use neither pull
   requests nor a separate test workflow. It should be read as dropped.
 
-Last updated: 2026-09-03.
+Last updated: 2026-09-04.
 
 ## Where every extension-related item stands
 
@@ -26,7 +26,7 @@ table was never in the rebuild's scope.
 |---|---|---|---|
 | B2 | extension | **CLOSED** | `schema = public` + `encoding = 'UTF8'`, no `requires`. lifecycle step 6 (both halves), test 0440. |
 | B4 | migration | **CLOSED, one gap** | Fail-fast in 0160 and in migrate()'s pre-flight, both 55000; dead guard removed. lifecycle step 7. GAP: migrate()'s pre-flight fires first, so 0160's own header guard is only reachable on the CLI path, which has no test. |
-| B5 | migration | **STILL OPEN** | Never claimed. Event-trigger noise is unchanged; only its Problem text was corrected (both paths log the install's DDL again now that skip_audit is gone). |
+| B5 | migration | **CLOSED 2026-09-04** | Scoped audit: `audit.log_ddl_event()` skips `in_extension` objects, `pg_temp*` and every schema outside `public/common/rbac/audit/pgmq`; both `pgrst_ddl_watch` and `pgrst_drop_watch` carry the same schema filter. `0301_test_audit_ddl_scope.sql` + lifecycle step 11 (CREATE and DROP in a foreign schema and a temp table produce neither an audit row nor a NOTIFY; `public` still produces both). The row's own Problem text about the `pgrst_*` watches was wrong: they already filtered by tag and by `pg_temp`, only the schema filter was missing. Residue in **S18**. |
 | B6 | extension | **CLOSED, boundary pinned** | DROP EXTENSION needs no CASCADE and touches nothing. lifecycle steps 4, 4b, test 0440 group 8. Two things survive the recipe BY DESIGN and are now asserted rather than assumed: one cosmetic `pg_default_acl` row (equal to the built-in default) and the `authenticated`->`semantius_user` membership, which only the recipe's conditional final `DROP ROLE` clears. pgcrypto is left installed on purpose (optional last step). |
 | B7 | extension | **CLOSED** | Guard, both suites, the lifecycle script and the META checks all run before anything is packaged, released or pushed, and `--strict` is now passed by both `extension-release.yml` and `test.yml` (closed 2026-09-03: it is structurally inert while `versions.json` holds one build, since the check sits inside `if (prev)`, and becomes protective automatically at the second release). Contributor PRs get the same checks via `test.yml`; the maintainer pushes directly to `main` and verifies locally, then the tag gate re-checks everything. |
 | B8 | extension | **CLOSED** | Consumer README generated; its own done-when now passes literally: all 18 GUCs the migrations read appear verbatim (the brace shorthand was expanded because a literal grep is the criterion). No repo-only paths. |
@@ -36,13 +36,13 @@ table was never in the rebuild's scope.
 | B13 | extension | **CLOSED, not repeatably** | Generator LF-normalises before hashing and on every emitted file; confirmed byte-wise (CRLF sources in, zero CR bytes out) and two runs are byte-identical. REMAINS: no automated assertion; it rests on the release job's diff guard. |
 | B15 | extension | **CLOSED** | README quotes all three refusal texts, and the CREATE EXTENSION refusal now has a real test (it did not before the audit): lifecycle step 8. |
 | B16 | extension | **CLOSED** | The item that justified the rebuild. lifecycle step 2: a custom field on core `users` survives dump + single-pass restore with its physical column and its `fields` row. |
-| P6 | migration | **NARROWED** | Extension path now stores `SELECT semantius.migrate()` as query_text (~1,500 small rows). The whole-script query_text problem is CLI-path only. Row text updated; the CLI fix is still open. |
-| R1 | tooling | **PARTIAL** | `pg-ext-lifecycle.sh` written: 83 assertions, 0 failures. REMAINS, from the row's own text: the event-trigger-noise step (blocked on B5) and invoking the pgTAP suite from this script. |
+| P6 | migration | **CLOSED 2026-09-04** | `left(current_query(), 8192)` plus the generated-label filter. Measured on a full `pg-cli-retest.sh`: `audit_ddl_logs` 4,008 rows / 88.9 MB before, 2,156 rows / 8.4 MB after (**-90%**, target was -85%); raw `query_text` ~468 MB -> 16.7 MB; scratch database 116 MB -> 40 MB. Lifecycle step 11 pins the exact truncation with a deliberately over-long statement. The GRANT/REVOKE half of the label churn is unfilterable and is tracked in **S18**. |
+| R1 | tooling | **CLOSED 2026-09-04** | `pg-ext-lifecycle.sh`: 95 assertions, 0 failures. The event-trigger-noise step landed as step 11 (12 assertions). The other missing step, "run the pgTAP suite from this script", was dropped by owner decision on 2026-09-03. The remaining uncovered steps are R7, not R1. |
 | R2 | tooling | **CLOSED** | Resolved 2026-09-03 after the owner clarified: they work directly on `main` and tag releases and will not change that, but contributors may open PRs later. So `.github/workflows/test.yml` exists with a `pull_request`-only trigger (plus manual) - it never fires on a push, leaving the maintainer workflow untouched, and gives a contributor PR the full check set on a clean Linux runner: regenerate, the committed-equals-regenerated guard, both suites (Path B with coverage), the lifecycle script and the META checks. `extension-release.yml` deliberately does not depend on it, so a release stays self-contained. Not yet observed green, because no pull request exists to run it. |
 | R5 | tooling | **CLOSED** | postgresql-18-plpgsql-check in the dev image; both stacks report statement coverage (1,816/2,162). Confirmed live in both containers. |
 
-**Not closed: B5, B11, P6, R1** — plus the gaps noted inside B4, B10 and B13. Those are tracked in `plans/pg_semantius-open-items.md`, with the
-verification gaps collected under **R7**.
+**Not closed: B11** — plus the gaps noted inside B4, B10 and B13, and the new limits of the scoped audit (**S18**). Those are tracked in
+`plans/pg_semantius-open-items.md`, with the verification gaps collected under **R7**.
 
 ## Original rows
 
@@ -112,9 +112,37 @@ verification gaps collected under **R7**.
 
 ### Still open after the audit
 
-- **R1**: the event-trigger-noise step and invoking the pgTAP suite are absent
-  (tracked with the four other missing steps in open item **R7**).
+- **R1**: closed on 2026-09-04. The event-trigger-noise step is now step 11;
+  the pgTAP-suite clause was dropped by owner decision. The four other missing
+  steps stay in open item **R7**.
 - **B11**: nothing exercises the BYPASSRLS `RAISE EXCEPTION` firing, or the
   superuser grant-skip, at runtime.
 - **B4**: 0160's own header guard is never reached on the extension path.
 - **B13**: no repeatable assertion; it rests on the release-job diff guard.
+
+## The 2026-09-04 follow-up (B5, P6, S15, R1)
+
+Executed from `plans/audit-ddl-noise.md`. One change to one function plus its
+two neighbours; both suites and the lifecycle script green on both install
+paths (2,091 pgTAP assertions each, 95 lifecycle assertions).
+
+| What changed | Where | Verified by |
+|---|---|---|
+| `audit.log_ddl_event()` is `SECURITY DEFINER` (S15). It was the only one of the three audit triggers that was not; the request role could not run any DDL, not even `CREATE TEMP TABLE`, because `audit.current_user_id()` is revoked from PUBLIC. | `0150_audit_log.sql` | `0301` tests 4-5; lifecycle step 11 (as `semantius_user`, status propagated via `psqlrun`) |
+| Three `CONTINUE WHEN` filters: `in_extension`, schema scope (the five Semantius schemas; `pg_temp*` and foreign schemas out; NULL `schema_name` deliberately kept), and generated `*_label` companions (B5, P6). | `0150_audit_log.sql` | `0301` tests 1-3 and 8; lifecycle step 11 |
+| `query_text` bounded with `left(current_query(), 8192)` (P6). | `0150_audit_log.sql` | `0301` test 7 (upper bound); lifecycle step 11 pins the exact truncation with an over-long statement, which the pgTAP assertion alone could not |
+| `WHEN TAG IN (...)` on `track_ddl_changes` (B5). DROP tags omitted: `ddl_command_end` reports no rows for DROP commands, verified live. | `0150_audit_log.sql` | `0301` test 6 |
+| `REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC` (part of S6). | `0150_audit_log.sql` | consistency with the two other audit triggers |
+| The schema filter on **both** `pgrst_ddl_watch` and `pgrst_drop_watch`. The plan named only the first; a review found `DROP TABLE` in a foreign schema still fired `NOTIFY pgrst`. | `0090_notify_triggers.sql` | lifecycle step 11 (CREATE and DROP probes) |
+| Lifecycle step 11, and a fix to step 10: its failure path ran `diff \| head` under `set -e -o pipefail`, so a real failure there aborted the run and steps 11-12 never executed. | `pgdocker/pg-ext-lifecycle.sh` | the script itself: 95 passed, 0 failed |
+
+An independent review of this change found six defects, all fixed before the
+final run: the unfiltered `pgrst_drop_watch`; a vacuous `query_text` bound
+assertion (every statement `life1` had seen was short); a `notify_probe` whose
+timeouts returned `silent`, so a probe that never started would have passed two
+of the three assertions; an S15 check whose `case` catch-all reported ok on any
+error not containing "permission denied"; `res=$(notify_probe ...)` aborting
+the run under `set -e` on a failing DDL; and a comment claiming `CREATE SCHEMA`
+reports no object identity, which it does. What the review could not make
+work - filtering the `GRANT`/`REVOKE` half of the label churn - is **S18**.
+

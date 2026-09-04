@@ -57,11 +57,23 @@ export DENO_TLS_CA_STORE=system
 
 ### Database Access Restrictions
 
-**CRITICAL: psql is NOT available in this environment**
+**CRITICAL: psql is NOT available on the host**
 
-- **NEVER use psql commands** - they will fail because psql is not installed
+- **NEVER use psql on the host** - it is not installed and the command will fail
+- **NEVER make psql a dependency of the Deno CLI or of the pgTAP test files** -
+  that code must work against any PostgreSQL over a connection string alone
 - **NEVER attempt to run SQL directly via psql** - use Deno CLI commands only
 - All database interactions MUST go through the Deno CLI (`deno task` commands)
+
+**The one exception: `docker exec <container> psql` inside the pgdocker
+containers.** psql, `pg_dump`, `pg_restore` and `createdb` ship with the
+postgres image, and the container harness scripts in `pgdocker/` use them for
+checks the Deno CLI structurally cannot express - `CREATE DATABASE`, dump and
+restore, two concurrent sessions, `SET ROLE` refusals, hostile `PGOPTIONS`, a
+LATIN1 database. `pgdocker/pg-ext-lifecycle.sh` is built on this. That is
+allowed, and it is not a host dependency: nothing is installed on your machine.
+It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
+`apps/test/tests/`.
 - For testing SQL queries, use `deno task test` with pgTAP test files
 - For database connections, use `deno task connect` (but this only validates connectivity)
 - To execute SQL, add it to migration files or test files and run through the CLI
@@ -139,8 +151,10 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 - If any tests fail, **investigate and fix failures** before completing the task
 - If database is not accessible, **STOP, inform user, and wait** for connection string update
 - Use the DATABASE_URL from the environment (never create your own database)
-- **NEVER use `psql` directly** - psql is not installed in this environment
+- **NEVER use `psql` directly on the host** - it is not installed there
 - **ALWAYS use Deno CLI commands** - all database operations must go through `deno task` commands
+- The pgdocker harness scripts may use `docker exec <container> psql`; see
+  "Database Access Restrictions" above for why and where
 
 ### Complete Testing Workflow Summary
 
@@ -328,7 +342,9 @@ The `public.get_schema()` function returns JSON Schema with:
 ### Environment
 - `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
 - **NEVER create a new database** - always use the DATABASE_URL from the environment
-- **NEVER use `psql` directly** - always use `deno task` commands
+- **NEVER use `psql` directly on the host** - always use `deno task` commands
+  (the `pgdocker/*.sh` harness may use `docker exec <container> psql`; see
+  "Database Access Restrictions")
 - **GitHub Copilot agents**: Ensure `DENO_TLS_CA_STORE=system` is set as environment variable for system certificates
 - Format: `postgresql://username:password@host:port/database`
 

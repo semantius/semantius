@@ -6663,6 +6663,12 @@ BEGIN
         )
         -- don't notify for CREATE TEMP table or other pg_temp objects
         AND cmd.schema_name IS DISTINCT FROM 'pg_temp'
+        -- and only for the schemas Semantius owns: DDL in a foreign schema
+        -- cannot change the API surface PostgREST exposes. A NULL schema_name
+        -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
+        -- schema but can still change it, so it stays in scope.
+        AND (cmd.schema_name IS NULL
+             OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
         THEN
             PERFORM common.refresh_schema_cache();
         END IF;
@@ -6689,6 +6695,12 @@ BEGIN
         , 'rule'
         )
         AND obj.is_temporary IS false -- no pg_temp objects
+        -- and only for the schemas Semantius owns, matching pgrst_ddl_watch:
+        -- without this a DROP in a foreign schema still reloaded the cache. A
+        -- NULL schema_name here means the dropped object IS a schema, which
+        -- can change what PostgREST exposes, so it stays in scope.
+        AND (obj.schema_name IS NULL
+             OR obj.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
         THEN
             PERFORM common.refresh_schema_cache();
         END IF;
@@ -6737,7 +6749,7 @@ $pgsem__core_0090_notify_triggers$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0090_notify_triggers', '99ed7fa72fca4768156bca774f102fd659eda3283bdcb80503a7355a6147bc7d');
+      VALUES ('_core.0090_notify_triggers', '626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9507,8 +9519,38 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- STEP 7: DDL event trigger function and event trigger
 -- =====================================================
 
+-- Scoped DDL audit. SECURITY DEFINER because the function calls
+-- audit.current_user_id(), which is revoked from PUBLIC: without it the
+-- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
+-- other two audit triggers in this file are already definers.
+--
+-- Three filters, in the order they are applied:
+--   1. in_extension - objects an extension script created belong to that
+--      extension, not to this database's schema history.
+--   2. schema scope - only the schemas Semantius owns are evidence. DDL in a
+--      foreign schema, and temp objects (reported as schema 'pg_temp' here,
+--      'pg_temp_N' in the catalog), are not ours to record. A NULL
+--      schema_name is deliberately NOT filtered: GRANT, REVOKE and ALTER
+--      DEFAULT PRIVILEGES report no schema, no classid, no objid and no object
+--      identity - there is nothing to scope them by - and dropping them would
+--      throw away the privilege history this table exists to keep. CREATE
+--      SCHEMA also reports no schema (its identity is the new schema's name),
+--      so creating a schema is always logged, foreign ones included.
+--   3. generated label companions - rebuild_entity_label_functions (0145)
+--      drops and recreates the whole set of <name>_label(rowtype) functions on
+--      any field edit, so these events are churn, not history. This reaches
+--      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
+--      and REVOKE events carry a NULL object_identity, so roughly half the
+--      churn is unfilterable by any predicate this function can see.
+--      Conversely the pattern is a suffix match, so a hand-written function
+--      named <something>_label in one of the five schemas is not audited
+--      either, and an entity whose name needs quoting is (the quote sits
+--      between _label and the paren). Neither occurs today.
+-- query_text is bounded: current_query() is the entire migration script for
+-- script-driven DDL, stored once per event.
 CREATE OR REPLACE FUNCTION audit.log_ddl_event()
 RETURNS event_trigger
+SECURITY DEFINER
 SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -9517,8 +9559,18 @@ DECLARE
 BEGIN
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+        CONTINUE WHEN obj.in_extension;
+        CONTINUE WHEN obj.schema_name IS NOT NULL
+                  AND (starts_with(obj.schema_name, 'pg_temp')
+                       OR obj.schema_name NOT IN ('public', 'common', 'rbac', 'audit', 'pgmq'));
+        -- Bracket expressions, not backslash escapes: the body is re-parsed at
+        -- first execution, so a session with standard_conforming_strings = off
+        -- would otherwise turn this pattern into an invalid regexp.
+        CONTINUE WHEN obj.object_type = 'function'
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
-        VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''), current_query());
+        VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
+                left(current_query(), 8192));
     END LOOP;
 END;
 $$;
@@ -9526,8 +9578,33 @@ $$;
 COMMENT ON FUNCTION audit.log_ddl_event IS
 'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
+-- The tag allowlist keeps the trigger from firing at all for commands that
+-- cannot change the schema Semantius manages. It is deliberately broad: every
+-- CREATE/ALTER of a database-local schema object, plus the privilege and
+-- documentation commands. ddl_command_end reports no rows for DROP commands
+-- (dropped objects are only visible to a sql_drop trigger), so DROP tags would
+-- be dead weight here.
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
+    WHEN TAG IN (
+      'CREATE SCHEMA', 'ALTER SCHEMA'
+    , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+    , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+    , 'CREATE VIEW', 'ALTER VIEW'
+    , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+    , 'CREATE SEQUENCE', 'ALTER SEQUENCE'
+    , 'CREATE INDEX', 'ALTER INDEX'
+    , 'CREATE FUNCTION', 'ALTER FUNCTION'
+    , 'CREATE PROCEDURE', 'ALTER PROCEDURE'
+    , 'CREATE TRIGGER', 'ALTER TRIGGER'
+    , 'CREATE POLICY', 'ALTER POLICY'
+    , 'CREATE TYPE', 'ALTER TYPE'
+    , 'CREATE DOMAIN', 'ALTER DOMAIN'
+    , 'CREATE RULE', 'ALTER RULE'
+    , 'CREATE EXTENSION', 'ALTER EXTENSION'
+    , 'GRANT', 'REVOKE', 'ALTER DEFAULT PRIVILEGES'
+    , 'SECURITY LABEL', 'COMMENT'
+    )
     EXECUTE FUNCTION audit.log_ddl_event();
 
 COMMENT ON EVENT TRIGGER track_ddl_changes IS
@@ -9750,6 +9827,7 @@ REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
@@ -9769,7 +9847,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', 'aa7c6b5c85a41ce004d307e4389b725874f617f9d8756f1a0dee0f841b9b9250');
+      VALUES ('_core.0150_audit_log', '5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15958,7 +16036,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"2f8a0c722eace1f246a79349b903e5e5448fd9ebf521171f71be5e1ef827188d","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"1f05f055db5a055de3fe5327e76e13600afd8e3d1b5bff4099de455ae2298649","_core.0015_jsonlogic":"6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"122f30b0b451c2d894867952ada520f545087a9b45b3279c101cf6fcbe2b1458","_core.0070_dd_functions":"b576bcbbb21d392795e4dc690e3fcb5bea712e2634db561bc0e1c86d25f2df95","_core.0072_apply_core_fts":"aa7080c839c38ec443a04e8ca88b762c41baf3128e6607a45d5c375d2f50ce67","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"99ed7fa72fca4768156bca774f102fd659eda3283bdcb80503a7355a6147bc7d","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"48beff686cff4817d45d30c42d001064a93d4dff56783ede5dd9825d2040f197","_core.0150_audit_log":"aa7c6b5c85a41ce004d307e4389b725874f617f9d8756f1a0dee0f841b9b9250","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"cca529ede2964a409112694adcc0bed862153749bd2a59739fef34a3af616cc2","_core.0280_user_bookmarks":"5fa33717c64ea9eac6f9de9d6dea562def195e2bb0ef0e8c6f4b0010553e6468","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"64064b873d41637c8a0fd92d02b0d8524da0afc9e311862d23e5ce2d860c6c48"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"2f8a0c722eace1f246a79349b903e5e5448fd9ebf521171f71be5e1ef827188d","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"1f05f055db5a055de3fe5327e76e13600afd8e3d1b5bff4099de455ae2298649","_core.0015_jsonlogic":"6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"122f30b0b451c2d894867952ada520f545087a9b45b3279c101cf6fcbe2b1458","_core.0070_dd_functions":"b576bcbbb21d392795e4dc690e3fcb5bea712e2634db561bc0e1c86d25f2df95","_core.0072_apply_core_fts":"aa7080c839c38ec443a04e8ca88b762c41baf3128e6607a45d5c375d2f50ce67","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"48beff686cff4817d45d30c42d001064a93d4dff56783ede5dd9825d2040f197","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"cca529ede2964a409112694adcc0bed862153749bd2a59739fef34a3af616cc2","_core.0280_user_bookmarks":"5fa33717c64ea9eac6f9de9d6dea562def195e2bb0ef0e8c6f4b0010553e6468","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"64064b873d41637c8a0fd92d02b0d8524da0afc9e311862d23e5ce2d860c6c48"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

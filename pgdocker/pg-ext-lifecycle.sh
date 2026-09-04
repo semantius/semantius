@@ -22,6 +22,7 @@
 #   8b. role squatting is refused
 #   9.  LATIN1 and SQL_ASCII databases are refused
 #   10. equivalence: the CLI-installed and extension-installed schemas match
+#   11. event-trigger noise: the DDL audit and NOTIFY pgrst are scoped
 #   12. cleanup
 #
 # Non-interactive, every exit code checked. Needs the ext stack running
@@ -459,12 +460,110 @@ if docker exec "$CLI_CONTAINER" psql -U postgres -d appdb -tAc "SELECT 1" >/dev/
     ok "schemas are byte-identical ($(wc -l < /tmp/lifecycle-cli.sql) lines each)"
   else
     bad "schemas differ:"
-    diff /tmp/lifecycle-cli.sql /tmp/lifecycle-ext.sql | head -20 >&2
+    # `set -e -o pipefail` would abort the whole run here (diff exits 1), so the
+    # remaining steps would silently never run. The failure is already recorded.
+    diff /tmp/lifecycle-cli.sql /tmp/lifecycle-ext.sql | head -20 >&2 || true
   fi
   rm -f /tmp/lifecycle-cli.sql /tmp/lifecycle-ext.sql
 else
   ok "skipped: needs appdb on both $CLI_CONTAINER (migrate path) and $CONTAINER"
 fi
+
+# ------------------------------------------------------------ 11 event noise
+step "[11] Event-trigger noise: the DDL audit and NOTIFY pgrst are scoped (B5, P6, S15)"
+# life1 is the fresh install from step 1 and is untouched by the steps between.
+# The pgTAP suite proves the audit half of this (0301_test_audit_ddl_scope.sql);
+# the NOTIFY half can only be proved here, because a notification is queued at
+# COMMIT and the suite runs inside a transaction that rolls back.
+psqlrun life1 "CREATE SCHEMA lifecycle_foreign" >/dev/null
+
+# notify_probe <sql> -> echoes "notified", "silent", or one of the failure
+# tokens no-listener / ddl-failed / listener-stuck.
+# A detached psql session LISTENs and then sleeps; psql prints
+#   Asynchronous notification "pgrst" ... received from server process ...
+# when one arrives. Both waits poll on pg_stat_activity rather than sleeping a
+# fixed time: the LISTEN must be committed before the DDL commits, and the
+# listener must have exited before its output file is read. The poll matches the
+# sleeper's query text exactly, so the polling query never counts itself.
+# Every failure mode returns its OWN token, never "silent": a probe that never
+# started would otherwise pass the three "silent" assertions by accident, and a
+# failing DDL inside $(...) would abort the whole script under `set -e` before
+# step 12 could clean up.
+notify_probe() {
+  docker exec "$CONTAINER" rm -f /tmp/listener.out >/dev/null 2>&1 || true
+  docker exec -d "$CONTAINER" sh -c \
+    "psql -U postgres -d life1 -c 'LISTEN pgrst' -c 'SELECT pg_sleep(5)' > /tmp/listener.out 2>&1"
+  i=0
+  while [ "$(psqlq life1 "SELECT count(*) FROM pg_stat_activity WHERE datname='life1' AND query = 'SELECT pg_sleep(5)'")" != "1" ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 20 ]; then echo no-listener; return 0; fi
+    sleep 1
+  done
+  if ! docker exec "$CONTAINER" psql -U postgres -d life1 -v ON_ERROR_STOP=1 -qc "$1" >/dev/null; then
+    echo ddl-failed; return 0
+  fi
+  i=0
+  while [ "$(psqlq life1 "SELECT count(*) FROM pg_stat_activity WHERE datname='life1' AND query = 'SELECT pg_sleep(5)'")" = "1" ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 20 ]; then echo listener-stuck; return 0; fi
+    sleep 1
+  done
+  if docker exec "$CONTAINER" grep -q 'Asynchronous notification "pgrst"' /tmp/listener.out 2>/dev/null; then
+    echo notified
+  else
+    echo silent
+  fi
+}
+
+res=$(notify_probe "CREATE TABLE lifecycle_foreign.t (id int)")
+check "foreign schema: no NOTIFY pgrst" "silent" "$res"
+check "foreign schema: no audit row" "0" \
+  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE 'lifecycle_foreign.%'")"
+
+res=$(notify_probe "DROP TABLE lifecycle_foreign.t")
+check "foreign schema: no NOTIFY pgrst on DROP" "silent" "$res"
+
+res=$(notify_probe "CREATE TEMP TABLE lifecycle_tmp (id int)")
+check "temp table: no NOTIFY pgrst" "silent" "$res"
+check "temp table: no audit row" "0" \
+  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE '%lifecycle_tmp%'")"
+
+res=$(notify_probe "CREATE TABLE public.lifecycle_owned (id int)")
+check "public schema: NOTIFY pgrst still fires" "notified" "$res"
+check "public schema: audit row still written" "1" \
+  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity = 'public.lifecycle_owned'")"
+
+# S15: before the SECURITY DEFINER fix this failed with
+# "permission denied for function current_user_id" from audit.log_ddl_event().
+# psqlrun, not psqlq: the statement succeeding IS the assertion, so its exit
+# status must propagate. psqlq swallows it and would report ok on any error
+# whose text happens not to contain "permission denied".
+if out=$(psqlrun life1 "SET ROLE semantius_user; CREATE TEMP TABLE lifecycle_tmp_user (id int)" 2>&1); then
+  ok "the request role can create a temp table (S15)"
+else
+  bad "the request role still cannot create a temp table: $out"
+fi
+
+# P6: current_query() is the whole migration script on the CLI path, once per
+# event. The column is bounded; the generated label companions are not logged.
+# Every statement life1 has seen is short (the install attributes migrate() as
+# the query), so asserting max(length) <= 8192 over what is already there would
+# pass just as well with the bound removed. Issue an over-long statement and
+# pin the stored length exactly.
+pad=$(head -c 9000 < /dev/zero | tr "\0" "x")
+psqlrun life1 "CREATE TABLE public.lifecycle_long (id int) /* $pad */" >/dev/null
+check "an over-long DDL statement is truncated to exactly 8192 characters" "8192" \
+  "$(psqlq life1 "SELECT length(query_text) FROM audit_ddl_logs WHERE object_identity = 'public.lifecycle_long'")"
+maxlen=$(psqlq life1 "SELECT COALESCE(max(length(query_text)), 0) FROM audit_ddl_logs")
+[ "$maxlen" -le 8192 ] 2>/dev/null && ok "no audit row exceeds the bound (max $maxlen)" \
+  || bad "query_text max length is $maxlen"
+# Two halves: the generated companions really exist (so the churn really
+# happened and the next assertion is not vacuous), and none of it was logged.
+n_label=$(psqlq life1 "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND (p.proname = '_label' OR p.proname LIKE '%' || chr(92) || '_label')")
+[ "$n_label" -gt 0 ] 2>/dev/null && ok "the install generated $n_label *_label companions" \
+  || bad "no *_label companions found, so the next check proves nothing"
+check "generated *_label functions produce no audit rows" "0" \
+  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity ~ '(^|[.])[^.(]*_label[(]'")"
 
 # ---------------------------------------------------------------- 12 cleanup
 step "[12] Cleanup"
@@ -476,7 +575,7 @@ else
            life9b life_virgin; do
     dropdb_ "$d"
   done
-  docker exec "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control || true
+  docker exec "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out || true
   ok "scratch databases and files removed"
 fi
 

@@ -116,6 +116,12 @@ BEGIN
         )
         -- don't notify for CREATE TEMP table or other pg_temp objects
         AND cmd.schema_name IS DISTINCT FROM 'pg_temp'
+        -- and only for the schemas Semantius owns: DDL in a foreign schema
+        -- cannot change the API surface PostgREST exposes. A NULL schema_name
+        -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
+        -- schema but can still change it, so it stays in scope.
+        AND (cmd.schema_name IS NULL
+             OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
         THEN
             PERFORM common.refresh_schema_cache();
         END IF;
@@ -142,6 +148,12 @@ BEGIN
         , 'rule'
         )
         AND obj.is_temporary IS false -- no pg_temp objects
+        -- and only for the schemas Semantius owns, matching pgrst_ddl_watch:
+        -- without this a DROP in a foreign schema still reloaded the cache. A
+        -- NULL schema_name here means the dropped object IS a schema, which
+        -- can change what PostgREST exposes, so it stays in scope.
+        AND (obj.schema_name IS NULL
+             OR obj.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
         THEN
             PERFORM common.refresh_schema_cache();
         END IF;
