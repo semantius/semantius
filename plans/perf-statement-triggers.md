@@ -25,16 +25,23 @@ The audit/NOTIFY work of `plans/audit-ddl-noise.md` has also **landed**
 `pg-ext-lifecycle.sh` after it, so re-read both before starting: the line numbers
 cited here were taken against the post-`419a2ab` tree.
 
-## Open items this plan moves
+## Open items
+
+**Owns, and therefore closes.** One row, owned by this plan alone since the
+validator work moved here on 2026-09-04.
 
 | Row | Effect of this plan |
 |---|---|
-| **P4** | **Does not close as the row stands.** Note part of P4's stated fix — "build `$old`/`$now` only when the rule references them" — is delivered by `plans/perf-hot-paths.md` Step 2, not here; do not count it twice.  Its done-when is "10k-row INSERT with all three triggers at about 1.0-1.3 s"; the floors give **~1.38-1.78 s** (see Target below). Either take Step 3's validator work further, or put the rewrite of that target to the owner. Do not tick it at 1.5 s without deciding which. |
-| **Q5** | Possibly advanced. The row names `queue_event_after_insert` among its unused-variable sites, and Step 1 rewrites that function — clear the variable while you are in there. Base is **11, not 12**: `plans/perf-hot-paths.md` lands first and takes one. So 11 → 10. Does not close the row. |
-| **P7** | Watch it. If Step 3's non-raising sibling of `jl_request_context` is STABLE and writes settings, it joins the row's list, as `jl_request_context` itself already does. |
+| Row | Done when, and whether this plan gets there |
+|---|---|
+| **P4** | 10k-row INSERT with all three triggers at 1.0-1.3 s. **The floors give ~1.38-1.78 s** (see Target below), so closing needs that target renegotiated. All three of P4's named fixes - statement-level audit, `send_batch` for the queue, and the conditional `$old`/`$now` build - are in this plan. Nothing is credited to a sibling. |
 
-Nothing here closes a row outright either. P4 is within reach only if its target
-is met or renegotiated.
+**Touches without owning.**
+
+| Row | Effect here | Owner |
+|---|---|---|
+| **Q5** | one further unused-variable site (`queue_event_after_insert`, which Step 1 rewrites). Base is **11, not 12** - `plans/perf-hot-paths.md` lands first and takes one. So 11 becomes 10 | unowned |
+| **P7** | if Step 3b's non-raising sibling is STABLE and writes settings, it joins that row's list | unowned |
 
 ---
 
@@ -179,7 +186,28 @@ images in an evidence table. Owner decision, 2026-09-04.
 
 ---
 
-## Step 3 — the validator's per-row caller resolution
+## Step 3 — the validator: conditional context, and per-row caller resolution
+
+**This step owns the whole validator half of P4**, moved here on 2026-09-04 so
+P4 has a single owning plan. It edits `build_record_logic_trigger`
+(`0180:29-215`), a different generator from the policy one
+`plans/perf-hot-paths.md` edits (`0180:280-399`), sharing no code - so the two
+plans do not collide even though both touch that file.
+
+### 3a — build `$old`/`$mode` only when a rule references them
+
+P4's row names this among its fixes. Worth little on the INSERT benchmark
+(`$old` is `null`, `$mode` a literal) but it is P4's work and belongs here.
+
+- **Match on substring, not an exact key** - `0320_test_computed_validation.sql:275`
+  uses `{"var":"$old.label"}`.
+- **Treat `value_changed` as a `$old` reference** - `0210:935-948` reads `$old`
+  implicitly and returns `true` when it is absent, so
+  `{"value_changed":"status"}` would silently invert.
+- **There is no InitPlan in a BEFORE ROW trigger**, so this is the only
+  structural win available on this path.
+
+### 3b — the real per-row cost
 
 The generated compute/validate trigger's real per-row cost is **not** the
 `$old`/`$mode` build (worth nothing on an INSERT: `$old` is `'null'::jsonb`,

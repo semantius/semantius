@@ -107,7 +107,7 @@ Automatic: push a `v<version>` tag (e.g. `v0.3.0`). The
 generates the extension, cuts the GitHub Release, and pushes the image to GHCR —
 one tag, both artifacts, versions in lockstep.
 
-Releases go through [`./release.sh <version> --confirm`](../RELEASE.md), which
+Releases go through [`./release.sh <version>`](../RELEASE.md), which
 builds the image locally as a check and lets the workflow publish it. These two
 scripts are for building or pushing an image **outside** a release:
 

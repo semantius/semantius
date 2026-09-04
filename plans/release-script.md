@@ -64,12 +64,15 @@ and uploads it to PGXN.
   *and* `highestVersionBelow` went blind while `pruneOldFullInstalls` still deleted
   the current full install.
 
-### `release.sh <version> [--confirm] [--skip-tests] [--no-image] [--allow-edited-migrations] [--rerun-ci]`
+### `release.sh <version> [--dry-run] [--confirm] [--skip-tests] [--no-image] [--allow-edited-migrations] [--rerun-ci]`
 
 Phase 0 decides from `versions.json` via `jq` (a grep would scan the nested `files`
 keys at the same depth) and rejects a lower version before touching anything.
-Phase 1 is a read-only preflight that accumulates every blocker. The `--confirm`
-gate sits between them. Phase 2 generates, phase 3 runs the three harnesses in the
+Phase 1 is a read-only preflight that accumulates every blocker. The results and
+the plan are printed, and only then does it ask - a flag-only gate would mean
+re-running everything to answer a question about a result you can no longer see,
+and the second run's preflight is not the one you approved. `--confirm` skips the
+prompt for non-interactive use; `--dry-run` stops after the plan. Phase 2 generates, phase 3 runs the three harnesses in the
 load-bearing CI order, phase 4 commits and *then* proves determinism, phase 5 tags
 and pushes.
 
@@ -92,7 +95,7 @@ Notable constraints encoded rather than documented:
   `--rerun-ci` deletes and re-pushes the remote tag, which produces a genuine push
   event and exercises the same code path a real release does.
 
-### `scripts/pgxn-release.sh <version> --confirm`
+### `scripts/pgxn-release.sh <version>`
 
 Publishes the byte-identical archive attached to the GitHub Release, never a local
 rebuild — which also removes a hard blocker, since `zip` is not installed on the

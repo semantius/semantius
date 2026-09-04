@@ -16,31 +16,34 @@ introduces new coupling, new generated objects, or a new trust boundary.
 | Change | File | Effect |
 |---|---|---|
 | Stop resolving the caller twice per permission check | `0030_rbac_functions.sql` | 26.6 → ~11 µs per `has_permission` |
-| Resolve the request context once per query, not per row | `0180_computed_validation.sql` | ~14 µs off every rule row, read and write (~7 µs of it marginal once the first row lands) |
+| Resolve the request context once per query, not per row | `0180_computed_validation.sql` | ~14 µs off every rule row, read and write (~7 µs of it marginal once Step 1 lands) |
 | Remove the interpreter's two SQL round trips per node | `0210_raci.sql` | 30–50% off the 51 µs interpreter |
 
 Net on a 100k-row scan of a table with a `select_rule`: about **5 s → 2.5–3 s**.
 P2 stays open but much cheaper, and its remaining question becomes decidable
 against a measured number instead of the 2026-09-02 review's.
 
-## Open items this plan moves
+## Open items
 
-Closing rows in `plans/pg_semantius-open-items.md` is the point of the work, so
-be exact about what actually gets ticked. **Two rows do not close on the numbers
-this plan delivers** — that needs an owner decision, not a quiet tick.
+**Owns, and therefore closes.** Every row here is owned by this plan and by no
+other. A plan may own several rows; a row has exactly one owner.
 
-| Row | Effect of this plan |
+| Row | Done when, and whether this plan gets there |
 |---|---|
-| **P3** | **Does not close as the row stands.** Its done-when is "`has_permission` at about 5 µs per call"; this plan delivers **~11 µs**. Either do the extra frame collapse named at the end of Step 1, or put the rewrite of that target to the owner. Do not tick it at 11 µs without deciding which. |
-| **P2** | **Part (a) satisfied, and part of (b).** The row's done-when is "(a) about 25% less per row; (b) 100k-row scan under a compilable rule at about 20 ms, rule columns indexable." Step 2 delivers (a) **and the "hoist `$user_id/$now/$today` into InitPlans" half of the row's stated fix** — record that here, because on a NO-GO in the third plan nothing else would. Rewrite the row to the native-predicate remainder, with the new measured baseline, and record that the general "compile JsonLogic" fix was rejected. |
-| **P4** | **Partly delivered here.** P4's row names "build `$old`/`$now` only when the rule references them" as part of its fix; that is Step 2's conditional build. Measured and closed under `plans/perf-statement-triggers.md`, but credit it here so the work is not double-counted there. |
-| **Q2** | Advanced, not closed. 16 `SELECT expr INTO variable` warnings → 15; sub-step 5 fixes the one in `rbac.uid`. The row's done-when wants all 16. |
-| **Q5** | Advanced, not closed. 12 unused variables → 11; sub-step 6 removes `v_external_id`. |
-| **S12** | Delimiter half done by sub-step 7. The row's done-when is about the client-settable `app.oauth_scopes` GUC and needs the signed cache in `docs/bearer-mode-status.md` — stays open. |
-| **P7** | **Made slightly worse.** `jl_request_context` is a new STABLE function that writes settings through `ensure_context_initialized`. Add it to the row's list. |
+| **P3** | `has_permission` at ~5 µs per call. **This plan delivers ~11 µs.** Closing needs either the extra frame collapse named at the end of Step 1, or that target renegotiated with the owner. Do not tick it at 11 µs without deciding which. |
+| **P11** | The request context resolved once per statement rather than once per row — asserted structurally, because a timing figure alone cannot distinguish the two — and one rule row at ~54 µs from ~68. **This plan meets that.** Split out of P2 on 2026-09-04 so the row has a single owner. |
 
-Nothing here closes a row outright. P3 is the one within reach, and only if the
-target is met or renegotiated.
+**Touches without owning.** Listed so no sibling plan double-counts them.
+
+| Row | Effect here | Owner |
+|---|---|---|
+| **Q2** | 16 `SELECT expr INTO` sites become 15 (sub-step 5, in `rbac.uid`) | unowned |
+| **Q5** | 12 unused variables become 11 (sub-step 6, `v_external_id`) | unowned |
+| **S12** | the delimiter half only (sub-step 7); the row's done-when is the client-settable GUC and needs the signed cache | unowned |
+| **P7** | **made worse** — `jl_request_context` is a new STABLE function that writes settings; add it to that row | unowned |
+
+Q2 and Q5 are multi-site janitorial rows that no single plan finishes. They are
+deliberately left unowned rather than split further.
 
 ---
 
@@ -189,20 +192,13 @@ The generated rule predicate calls `ensure_context_initialized` and rebuilds
   call. An uncorrelated sub-select in an RLS qual becomes a once-per-statement
   InitPlan — the device P1 already used for `rbac.has_permission`. Pass `t`, not
   `t.*`, in every one.
-- In the compute/validate trigger (`0180:174-185`), build `$old`/`$mode` only
-  when a rule references them.
-  - **Match on substring, not an exact key** — `0320_test_computed_validation.sql:275`
-    uses `{"var":"$old.label"}`.
-  - **Treat `value_changed` as a `$old` reference** — `0210:935-948` reads
-    `$old` implicitly and returns `true` when it is absent, so
-    `{"value_changed":"status"}` would silently invert.
-  - **There is no InitPlan in a BEFORE ROW trigger**, so this conditional build
-    is the trigger's only win here. The trigger's *real* per-row cost is
-    `0180:174`, `rbac.user_id_or_null()`, which resolves the caller on every row
-    — but it is **not** a literal swap for `jl_request_context()`, which raises
-    where `user_id_or_null` deliberately returns NULL for unauthenticated and
-    migration contexts (`0180:172-173`). Leave it alone here;
-    `perf-statement-triggers.md` takes it, with a non-raising sibling.
+**Do not touch `build_record_logic_trigger` here.** `0180_computed_validation.sql`
+holds two independent generators: the compute/validate BEFORE ROW trigger
+(`:29-215`) and the policy generator this step edits (`:280-399`). They share no
+code. The trigger's per-row costs belong to P4 and are owned entirely by
+`plans/perf-statement-triggers.md`, so that one open item is closed by one plan.
+There is no InitPlan in a BEFORE ROW trigger anyway, so nothing here would help
+it.
 
 **Expected: ~68 → ~54 µs per rule row.** Marginal win once Step 1 has landed is
 ~10–13%, not the ~21% a standalone reading suggests — `0180:340` calls the same
@@ -309,19 +305,6 @@ assertion needs a positive control beside it — see `0301_test_audit_ddl_scope.
   regardless.
 - **Entity rename** rebuilds under the new name with both signatures and all
   three policies.
-- **`$old` and `$mode` absent from the generated `prosrc` when unreferenced**,
-  present when referenced. Scope this to a **validation-only** entity —
-  `0180:157` emits the `- '$old'` strip whenever there are computed fields, so a
-  computed entity's `prosrc` contains `$old` either way. The `$old.<field>`
-  fixture must carry **no bare `{"var":"$old"}`** — e.g.
-  `{"!=":[{"var":"$old.label"},{"var":"label"}]}` — with a behavioural assertion
-  (an UPDATE the rule must reject) beside the `prosrc` check. Nothing in the
-  tree distinguishes substring from exact-key matching today: every
-  `$old.<field>` reference is paired with a bare `$old`
-  (`0320_test_computed_validation.sql:275`, `0060_dd_schema.sql:383,385,388`;
-  `:390` and `:396` are the `value_changed`-only sites the next bullet needs).
-  Include a `value_changed`-only entity too.
-
 ### Extend: `apps/test/tests/0445_test_policy_initplan_form.sql`
 
 Nothing anywhere pins the `(SELECT …)` wrapper around `jl_request_context`, and

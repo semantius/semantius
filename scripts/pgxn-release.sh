@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # pgxn-release.sh  -  publish a released version to PGXN. Deliberately NOT in CI.
 #
-#   ./scripts/pgxn-release.sh 0.5.0 --confirm
+#   ./scripts/pgxn-release.sh 0.5.0            # verify, show the result, then ask
+#   ./scripts/pgxn-release.sh 0.5.0 --confirm  # skip the prompt (non-interactive)
 #
 # It uploads THE ARCHIVE ATTACHED TO THE GITHUB RELEASE, downloaded with `gh`,
 # never a locally rebuilt one. Two reasons: what gets frozen on PGXN is then the
@@ -39,7 +40,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$VERSION" ] || die "a version is required, e.g. ./scripts/pgxn-release.sh 0.5.0 --confirm"
+[ -n "$VERSION" ] || die "a version is required, e.g. ./scripts/pgxn-release.sh 0.5.0"
 
 # ---------------------------------------------------------------- tools
 command -v gh >/dev/null 2>&1 || die "gh is required: this script publishes the
@@ -169,9 +170,11 @@ if [ "$RELEASE_STATUS" != "stable" ] && [ "$ALLOW_TESTING" != "1" ]; then
 fi
 
 # ---------------------------------------------------------------- confirm
-if [ "$CONFIRM" != "1" ]; then
-  SUM="$(sha256sum "$ZIP" | cut -d' ' -f1)"
-  cat >&2 <<EOF
+# Everything above has already run, so the decision is made with the results in
+# view. --confirm skips the prompt for non-interactive use; typing the version is
+# asked for instead of y/N because this one cannot be undone.
+SUM="$(sha256sum "$ZIP" | cut -d' ' -f1)"
+cat >&2 <<EOF
 
 Verified. About to publish $NAME $VERSION to PGXN.
 
@@ -184,11 +187,18 @@ Verified. About to publish $NAME $VERSION to PGXN.
   replaced or withdrawn, only superseded. After this, v$VERSION is frozen
   everywhere - stop re-releasing it and cut the next version for any change.
 
-Re-run with --confirm to upload:
-  ./scripts/pgxn-release.sh $VERSION --confirm
-
 EOF
-  exit 1
+
+if [ "$CONFIRM" != "1" ]; then
+  if [ ! -t 0 ]; then
+    die "not a terminal, so there is nobody to ask. Re-run with --confirm."
+  fi
+  printf 'Type the version to publish it permanently (or anything else to cancel): ' >&2
+  read -r answer
+  if [ "$answer" != "$VERSION" ]; then
+    echo "Cancelled. Nothing was uploaded." >&2
+    exit 0
+  fi
 fi
 
 # ---------------------------------------------------------------- upload

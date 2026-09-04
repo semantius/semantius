@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # release.sh  -  build and release one version of the Semantius extension.
 #
-#   ./release.sh 0.5.0                 # dry run: decide, preflight, explain, stop
-#   ./release.sh 0.5.0 --confirm       # do it
+#   ./release.sh 0.5.0             # check, show the plan, then ask before doing it
+#   ./release.sh 0.5.0 --dry-run   # check and show the plan, then stop
+#   ./release.sh 0.5.0 --confirm   # skip the prompt (non-interactive use)
 #
 # The version argument decides everything:
 #
@@ -42,6 +43,7 @@ die() { echo "release.sh: $*" >&2; exit 1; }
 # ---------------------------------------------------------------- arguments
 TARGET=""
 CONFIRM=0
+DRY_RUN=0
 SKIP_TESTS=0
 NO_IMAGE=0
 ALLOW_EDITED=0
@@ -50,12 +52,13 @@ RERUN_CI=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --confirm)                  CONFIRM=1 ;;
+    --dry-run|-n)               DRY_RUN=1 ;;
     --skip-tests)               SKIP_TESTS=1 ;;
     --no-image)                 NO_IMAGE=1 ;;
     --allow-edited-migrations)  ALLOW_EDITED=1 ;;
     --rerun-ci)                 RERUN_CI=1 ;;
     -h|--help)
-      sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"
       exit 0 ;;
     -*) die "unknown option: $1 (see ./release.sh --help)" ;;
     *)
@@ -65,7 +68,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ -n "$TARGET" ] || die "a version is required, e.g. ./release.sh 0.5.0 --confirm"
+[ -n "$TARGET" ] || die "a version is required, e.g. ./release.sh 0.5.0"
 
 # Dotted numbers only. compareVersions() in the generator does split(".") + Number,
 # so a suffix like -rc1 yields NaN and silently disables the frozen-version guard.
@@ -98,8 +101,8 @@ release.sh: $TARGET is lower than the current build $CURRENT.
   install, orphan its upgrade script and move default_version backwards, and the
   generator refuses it for the same reason.
 
-  To re-release the current build:  ./release.sh $CURRENT --confirm
-  To cut a new one:                 ./release.sh <higher version> --confirm
+  To re-release the current build:  ./release.sh $CURRENT
+  To cut a new one:                 ./release.sh <higher version>
 EOF
   exit 1
 fi
@@ -194,10 +197,9 @@ fi
 # ==========================================================================
 # The confirm gate. Everything above is read-only.
 # ==========================================================================
-if [ "$CONFIRM" != "1" ]; then
-  echo
-  cat >&2 <<EOF
-Dry run. release.sh would release $NAME $TARGET ($MODE), in order:
+echo
+cat >&2 <<EOF
+release.sh will release $NAME $TARGET ($MODE), in order:
 
   1. regenerate $EXT_DIR/ at $TARGET$([ "$MODE" = new ] && echo ", write the $CURRENT -> $TARGET upgrade script and prune the $CURRENT full install")
   2. regenerate the packages/*/src/migrations-bundle.ts copies (build output,
@@ -221,8 +223,8 @@ Dry run. release.sh would release $NAME $TARGET ($MODE), in order:
   Pushing the tag starts .github/workflows/extension-release.yml, which
   publishes the GitHub Release and the GHCR image.
 EOF
-  if [ "$MODE" = "refresh" ]; then
-    cat >&2 <<EOF
+if [ "$MODE" = "refresh" ]; then
+  cat >&2 <<EOF
 
   This is a RE-RELEASE of $TARGET:
     - CI runs 'gh release delete v$TARGET' and recreates it, so the existing
@@ -233,16 +235,34 @@ EOF
       $TARGET -> $TARGET upgrade path. semantius.status().changed_versions is
       the only signal. See RELEASE.md.
 EOF
-  fi
-  cat >&2 <<EOF
+fi
+cat >&2 <<EOF
 
   It does NOT publish to PGXN. That is ./scripts/pgxn-release.sh, by hand, after
   the GitHub Release exists - PGXN releases are permanent.
 
-Re-run with --confirm to proceed:
-  ./release.sh $TARGET --confirm
 EOF
-  exit 1
+
+# The checks and the plan are printed FIRST, then the decision is asked for.
+# A flag-only gate would mean re-running everything to answer a question about a
+# result you can no longer see - and the second run's preflight is not the one
+# you approved.
+if [ "$DRY_RUN" = "1" ]; then
+  echo "Dry run: nothing was changed." >&2
+  exit 0
+fi
+
+if [ "$CONFIRM" != "1" ]; then
+  if [ ! -t 0 ]; then
+    die "not a terminal, so there is nobody to ask. Re-run with --confirm to
+  proceed without the prompt, or --dry-run to stop after the checks."
+  fi
+  printf 'Proceed with the release of %s? [y/N] ' "$TARGET" >&2
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES) ;;
+    *) echo "Cancelled. Nothing was changed." >&2; exit 0 ;;
+  esac
 fi
 
 # ==========================================================================
@@ -426,7 +446,7 @@ if [ "$SKIP_TESTS" = "1" ]; then
   the split exists to prevent.
 
   Re-run without --skip-tests to tag and push:
-    ./release.sh $TARGET --confirm
+    ./release.sh $TARGET
 EOF
   exit 1
 fi
@@ -456,7 +476,7 @@ regenerating $TARGET changed nothing.
   Pick one:
     - Nothing to do: the published v$TARGET already is this build.
     - Re-run the workflow against the same commit:
-        ./release.sh $TARGET --confirm --rerun-ci
+        ./release.sh $TARGET --rerun-ci
     - Change something first, then re-run release.sh.
 EOF
     exit 1
@@ -481,5 +501,5 @@ Done locally. CI now rebuilds from a clean checkout and publishes.
   that is the reproducibility proof this whole split exists for.
 
   PGXN is NOT part of this and is permanent once done:
-    ./scripts/pgxn-release.sh $TARGET --confirm
+    ./scripts/pgxn-release.sh $TARGET
 EOF

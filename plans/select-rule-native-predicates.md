@@ -12,17 +12,25 @@ work was first approved.
 
 ---
 
-## Open items this plan moves
+## Open items
+
+**Owns, and therefore closes.** One row, owned by this plan alone since P2 was
+split on 2026-09-04.
 
 | Row | Effect of this plan |
 |---|---|
 | **P2** | **This is the row this plan exists to close**, either way it goes. On a GO: satisfy part (b) of the done-when — "100k-row scan under a compilable rule at about 20 ms, rule columns indexable" — noting that only shape 1 *variant 1* becomes indexable; variant 2 is fast but not. On a NO-GO: close it as **scope-changed**, recording the measured post-`perf-hot-paths` baseline, that the general "compile JsonLogic" fix was rejected, and the accepted limit that entities with a `select_rule` do not scale to full scans. Part (a) was already satisfied by `plans/perf-hot-paths.md`. |
-| **P5** | **Made worse on a GO.** The fields-lifecycle hook adds roughly ten DDL events per field on rule-bearing entities. Add that to the row, and account for it in P5's own `WHEN`-clause work. Untouched on a NO-GO. |
-| **P7** | Untouched. `jl_request_context` was already added to that row by `perf-hot-paths.md`; the recognisers are not SECURITY DEFINER and write nothing. |
-| **B13** | Referenced only — the CRLF normalisation the drift tripwire needs. Not moved. |
 
-This is the only one of the three plans that closes a High row outright, and it
-closes it in one of two quite different ways. Decide first.
+**Touches without owning.**
+
+| Row | Effect here | Owner |
+|---|---|---|
+| **P5** | on a GO, adds about ten DDL events per field on rule-bearing entities | unowned |
+| **P7** | untouched; `jl_request_context` was already added to that row by `plans/perf-hot-paths.md`, and the recognisers are neither SECURITY DEFINER nor write settings | unowned |
+| **B13** | referenced only, for the tripwire's CRLF normalisation | closed |
+
+P2 is the only High row this plan owns, and it closes in one of two quite
+different ways. Decide first.
 
 ---
 

@@ -35,9 +35,13 @@ The one channel that does not honour the rule is **PGXN** — see below.
 ## Doing it
 
 ```bash
-./release.sh <version>              # dry run: decide, preflight, explain, stop
-./release.sh <version> --confirm    # regenerate, test, build, commit, tag, push
+./release.sh <version>              # check, show the plan, then ask
+./release.sh <version> --dry-run    # check and show the plan, then stop
 ```
+
+It prints the preflight results and exactly what it is about to do, and
+*then* asks. `--confirm` skips the prompt for non-interactive use; it is not
+the normal way to invoke it.
 
 One script, and the version argument selects the outcome. It regenerates
 `extension/`, runs all three harnesses in the order they depend on, builds the
@@ -156,14 +160,14 @@ would freeze a build that is going to change.
 So it is a separate, manual, guarded step:
 
 ```bash
-./scripts/pgxn-release.sh 0.5.0 --confirm
+./scripts/pgxn-release.sh 0.5.0
 ```
 
 [scripts/pgxn-release.sh](scripts/pgxn-release.sh) refuses unless the build on
 disk is that version (full install, `META.json` and `default_version` all agree),
 the working tree is clean, the tag `v<ver>` exists, and `HEAD` is the commit that
 tag points at. It warns when `release_status` is not `stable`, requires
-`--confirm`, then builds the same archive the workflow builds and hands it to
+the version to be typed, then hands the archive to
 `pgxn release` (or tells you to upload it at manager.pgxn.org).
 
 **Publish to PGXN only when the version is final.** Afterwards, stop re-tagging

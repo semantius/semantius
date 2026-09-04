@@ -7,9 +7,9 @@ name: Release extension
 # The same `pg_semantius-<version>.zip` it attaches is also a valid PGXN
 # distribution archive (it contains META.json). PGXN is never published from here:
 # a release there is permanent, so it is a separate manual step that uploads THIS
-# artifact — `./scripts/pgxn-release.sh <version> --confirm`. See RELEASE.md.
+# artifact — `./scripts/pgxn-release.sh <version>`. See RELEASE.md.
 #
-# Releases are cut with `./release.sh <version> --confirm`, which verifies and
+# Releases are cut with `./release.sh <version>`, which verifies and
 # tests locally, then tags and pushes; this workflow re-runs everything from a
 # clean checkout and publishes.
 
@@ -73,7 +73,7 @@ jobs:
       # necessarily the build that was tested locally (`pg-cli-retest.sh`,
       # `pg-ext-retest.sh`, `pg-ext-lifecycle.sh`). Failing here means the
       # committed extension/ is stale or was generated for a different version:
-      # ./release.sh <version> --confirm does all of that in the right order;
+      # ./release.sh <version> does all of that in the right order;
       # this failing means the tag was moved without it.
       # `git status --porcelain`, not `git diff`: the generator also WRITES new
       # upgrade scripts and PRUNES superseded full installs, and a plain diff
@@ -83,7 +83,7 @@ jobs:
           if [ -n "$(git status --porcelain -- extension/)" ]; then
             git status --porcelain -- extension/
             git diff -- extension/ || true
-            echo '::error::extension/ differs from the regenerated build; run `./release.sh ${{ steps.ver.outputs.version }} --confirm` locally, which regenerates, tests, commits and moves the tag in the right order'
+            echo '::error::extension/ differs from the regenerated build; run `./release.sh ${{ steps.ver.outputs.version }}` locally, which regenerates, tests, commits and moves the tag in the right order'
             exit 1
           fi
           echo "extension/ matches the regenerated build"

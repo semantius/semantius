@@ -217,8 +217,8 @@ extension baked in — see `pg-ext-create` in
 ### Build & release (maintainers)
 
 ```bash
-./release.sh <version>              # dry run: decide, preflight, explain, stop
-./release.sh <version> --confirm    # regenerate, test, build, commit, tag, push
+./release.sh <version>              # check, show the plan, then ask
+./release.sh <version> --dry-run    # check and show the plan, then stop
 ```
 
 One script builds a version: it regenerates `extension/`, runs the full suite on
@@ -242,7 +242,7 @@ for the functions; `migrate()` is idempotent per migration, so one code path
 serves install, upgrade and re-run.
 
 PGXN is the exception: a release there is permanent, so it is never automated.
-`./scripts/pgxn-release.sh <version> --confirm` uploads the archive the GitHub
+`./scripts/pgxn-release.sh <version>` uploads the archive the GitHub
 Release already published, after verifying it.
 
 **[RELEASE.md](RELEASE.md) is the maintainer guide** — the mutability rule, what
