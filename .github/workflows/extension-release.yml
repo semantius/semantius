@@ -223,11 +223,17 @@ jobs:
           V: ${{ steps.ver.outputs.version }}
           M: ${{ steps.pg.outputs.major }}
         run: |
+          . scripts/semver.sh
           git fetch --tags --force --quiet
-          TOP="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+          TOP="$(git tag -l 'v*' | semver_max_of)"
           # ">= the highest tag", matching docker-postgres/{build,publish}.sh.
-          NEWEST="$(printf '%s\n%s\n' "$TOP" "$V" | sort -V | tail -1)"
-          if [ -z "$TOP" ] || [ "$NEWEST" = "$V" ]; then HIGHEST=1; else HIGHEST=0; fi
+          # semver, not sort -V: a pre-release ranks BELOW its release, so
+          # cutting 0.6.0 after 0.6.0-rc1 must move :latest, not refuse to.
+          if [ -z "$TOP" ] || [ "$(semver_cmp "$V" "$TOP")" != "-1" ]; then
+            HIGHEST=1
+          else
+            HIGHEST=0
+          fi
           {
             echo "tags<<TAGS_EOF"
             echo "ghcr.io/$OWNER/postgres:$V-pg$M"

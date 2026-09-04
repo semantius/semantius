@@ -35,9 +35,13 @@ The one channel that does not honour the rule is **PGXN** — see below.
 ## Doing it
 
 ```bash
-./release.sh <version>              # check, show the plan, then ask
-./release.sh <version> --dry-run    # check and show the plan, then stop
+./release.sh v0.5.0              # check, show the plan, then ask
+./release.sh v0.5.0 --dry-run    # check and show the plan, then stop
 ```
+
+The argument is the tag. A bare `0.5.0` works too and means the same thing: the
+tag is `v0.5.0`, while the extension itself is versioned `0.5.0` in
+`default_version`, `META.json` and `pg_semantius--0.5.0.sql`.
 
 It prints the preflight results and exactly what it is about to do, and
 *then* asks. `--confirm` skips the prompt for non-interactive use; it is not
@@ -118,6 +122,50 @@ previous version — so such an edit could never reach an existing installation.
 That is also why 0.5.0 currently allows editing every migration: it is the only
 version in the manifest, so nothing is inherited.
 
+## Pre-releases
+
+`v0.6.0-rc.1`, `v0.6.0-beta`, `v0.6.0-preview3` are ordinary versions here, with
+**semver precedence**: a pre-release ranks *below* its release.
+
+```
+0.5.0  <  0.6.0-alpha  <  0.6.0-alpha.1  <  0.6.0-beta.2  <  0.6.0-beta.11  <  0.6.0-rc.1  <  0.6.0
+```
+
+So the sequence works the way you would expect:
+
+| after | `./release.sh` | |
+|---|---|---|
+| `v0.6.0-rc1` | `v0.6.0-rc2` | new version |
+| `v0.6.0-rc1` | `v0.6.0` | new version - the final outranks its pre-releases |
+| `v0.6.0` | `v0.6.0-rc1` | rejected: it is lower, so it is frozen |
+| `v0.5.0` | `v0.5.0-beta` | rejected for the same reason |
+
+Nothing special was added for this: `0.6.0-rc1` becomes frozen the moment `0.6.0`
+lands purely because the comparator says it is lower, and the existing "frozen
+once a higher version is in the manifest" rule does the rest. The upgrade chain
+follows too - cutting `0.6.0` after `0.6.0-rc1` writes
+`pg_semantius--0.6.0-rc1--0.6.0.sql`.
+
+Two traps this avoids, both real:
+
+- **`sort -V` is not semver.** GNU version sort puts `0.6.0` *before* `0.6.0-beta`,
+  i.e. it treats a pre-release as higher. Using it would make cutting `0.6.0`
+  after `0.6.0-rc1` look like a downgrade and get it rejected — the one release
+  you actually want. `scripts/semver.sh` exists for this and nothing in the
+  release path ranks versions any other way.
+- **The shell and the generator must agree.** `semver_cmp` in `scripts/semver.sh`
+  and `compareVersions()` in `packages/cli/commands/extension.ts` implement the
+  same total order and are tested against the same cases, including the canonical
+  chain from semver.org §11. Every guard here assumes they cannot disagree.
+
+Two things are refused rather than ordered:
+
+- **Build metadata** (`v0.6.0+sha`). Semver says it does not affect precedence,
+  which would make two distinct manifest keys compare equal.
+- **`--` anywhere, and a trailing `-`.** The first is the separator in
+  `<name>--<from>--<to>.sql`; the second PostgreSQL rejects in an extension
+  version.
+
 ## What a release actually produces
 
 Pushing the tag runs
@@ -160,7 +208,7 @@ would freeze a build that is going to change.
 So it is a separate, manual, guarded step:
 
 ```bash
-./scripts/pgxn-release.sh 0.5.0
+./scripts/pgxn-release.sh v0.5.0
 ```
 
 [scripts/pgxn-release.sh](scripts/pgxn-release.sh) refuses unless the build on

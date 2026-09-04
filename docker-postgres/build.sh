@@ -28,6 +28,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root (build context; COPYs ./extension)
 
+# Semver ordering, not `sort -V` (which ranks 0.6.0 BELOW 0.6.0-beta).
+. scripts/semver.sh
+
 IMAGE="${IMAGE:-ghcr.io/semantius/postgres}"
 
 # Postgres major for the tag suffix. Parsed from the Dockerfile's FROM line so
@@ -47,9 +50,11 @@ for f in apps/nwind/migrations/0010_create.sql apps/nwind/migrations/0020_load_d
   [ -f "$f" ] || { echo "Missing $f (needed to bake the optional nwind module)." >&2; exit 1; }
 done
 
-# Version: arg wins, else infer from the built extension SQL filename.
-version="${1:-$(ls extension/pg_semantius--*.sql 2>/dev/null \
-  | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)}"
+# Version: arg wins, else the control file's default_version - the one
+# authoritative value, and unlike a filename glob it can neither pick an upgrade
+# script nor mis-parse a pre-release suffix.
+version="${1:-$(sed -nE "s/^default_version = '(.*)'/\1/p" extension/pg_semantius.control 2>/dev/null)}"
+version="${version#v}"
 [ -n "$version" ] || { echo "could not resolve version — pass it explicitly: build.sh <version>" >&2; exit 1; }
 
 
@@ -59,12 +64,10 @@ version="${1:-$(ls extension/pg_semantius--*.sql 2>/dev/null \
 # makes a re-release replace its own image. Mirrors the same decision in
 # .github/workflows/extension-release.yml.
 git fetch --tags --force --quiet 2>/dev/null || true
-top_version="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+top_version="$(git tag -l 'v*' | semver_max_of)"
 # ">= the highest tag", not "== it": during a local release the tag for the
 # version being built does not exist yet, and a fresh clone may have no tags.
-if [ -z "$top_version" ] ||    [ "$(printf '%s
-%s
-' "$top_version" "$version" | sort -V | tail -1)" = "$version" ]; then
+if [ -z "$top_version" ] || [ "$(semver_cmp "$version" "$top_version")" != "-1" ]; then
   is_highest=1
 else
   is_highest=0

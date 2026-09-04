@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # pgxn-release.sh  -  publish a released version to PGXN. Deliberately NOT in CI.
 #
-#   ./scripts/pgxn-release.sh 0.5.0            # verify, show the result, then ask
-#   ./scripts/pgxn-release.sh 0.5.0 --confirm  # skip the prompt (non-interactive)
+#   ./scripts/pgxn-release.sh v0.5.0            # verify, show the result, then ask
+#   ./scripts/pgxn-release.sh v0.5.0 --confirm  # skip the prompt (non-interactive)
+#
+# The argument is the tag; a bare 0.5.0 is accepted too.
 #
 # It uploads THE ARCHIVE ATTACHED TO THE GITHUB RELEASE, downloaded with `gh`,
 # never a locally rebuilt one. Two reasons: what gets frozen on PGXN is then the
@@ -40,7 +42,10 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$VERSION" ] || die "a version is required, e.g. ./scripts/pgxn-release.sh 0.5.0"
+[ -n "$VERSION" ] || die "a version is required, e.g. ./scripts/pgxn-release.sh v0.5.0"
+# The tag is `v<version>`; the archive, META.json and the SQL filenames use the
+# bare version. Accept either spelling.
+VERSION="${VERSION#v}"
 
 # ---------------------------------------------------------------- tools
 command -v gh >/dev/null 2>&1 || die "gh is required: this script publishes the

@@ -217,9 +217,13 @@ extension baked in — see `pg-ext-create` in
 ### Build & release (maintainers)
 
 ```bash
-./release.sh <version>              # check, show the plan, then ask
-./release.sh <version> --dry-run    # check and show the plan, then stop
+./release.sh v0.5.0              # check, show the plan, then ask
+./release.sh v0.5.0 --dry-run    # check and show the plan, then stop
 ```
+
+The argument is the tag. A bare `0.5.0` works too and means the same thing: the
+tag is `v0.5.0`, while the extension itself is versioned `0.5.0` in
+`default_version`, `META.json` and `pg_semantius--0.5.0.sql`.
 
 One script builds a version: it regenerates `extension/`, runs the full suite on
 both install paths plus the lifecycle proof, builds the DB image locally, commits

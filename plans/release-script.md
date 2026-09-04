@@ -59,10 +59,21 @@ and uploads it to PGXN.
   `loadManifest` silently returns `{versions:{}}` for a missing file *and* for valid
   JSON of the wrong shape — so deleting `versions.json` used to disable every
   protection without a word.
-- Non-dotted-numeric versions are rejected. `"0.6.0-rc1".split(".").map(Number)`
-  gives `[0,6,NaN]`, and `NaN > 0` / `NaN < 0` are both false, so the frozen guard
-  *and* `highestVersionBelow` went blind while `pruneOldFullInstalls` still deleted
-  the current full install.
+- `compareVersions` was replaced with semver precedence (semver.org §11, minus
+  build metadata), and `scripts/semver.sh` implements the same total order for
+  the shell. The old comparator did `split(".").map(Number)`, so `0.6.0-rc1`
+  gave `[0,6,NaN]` - and `NaN > 0` / `NaN < 0` are both false, so the frozen
+  guard *and* `highestVersionBelow` went blind while `pruneOldFullInstalls`
+  still deleted the current full install by filename.
+- `sort -V` is used nowhere in the release path: GNU version sort ranks `0.6.0`
+  BELOW `0.6.0-beta`, which would make cutting the final over an rc look like a
+  downgrade. Both comparators are tested against the canonical semver chain.
+- Pre-releases needed no rule of their own. `0.6.0-rc1` freezes the moment
+  `0.6.0` enters the manifest, purely because the comparator ranks it lower -
+  the owner said either behaviour was acceptable, so the free one was taken.
+- Build metadata (`+sha`), `--` and a trailing `-` are refused: the first has no
+  precedence under semver (two keys would compare equal), the second is the
+  upgrade-script filename separator, the third PostgreSQL rejects.
 
 ### `release.sh <version> [--dry-run] [--confirm] [--skip-tests] [--no-image] [--allow-edited-migrations] [--rerun-ci]`
 

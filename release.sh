@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # release.sh  -  build and release one version of the Semantius extension.
 #
-#   ./release.sh 0.5.0             # check, show the plan, then ask before doing it
-#   ./release.sh 0.5.0 --dry-run   # check and show the plan, then stop
-#   ./release.sh 0.5.0 --confirm   # skip the prompt (non-interactive use)
+#   ./release.sh v0.5.0             # check, show the plan, then ask before doing it
+#   ./release.sh v0.5.0 --dry-run   # check and show the plan, then stop
+#   ./release.sh v0.5.0 --confirm   # skip the prompt (non-interactive use)
+#
+# The argument is the tag: v0.5.0. A bare 0.5.0 is accepted too - it is the same
+# thing, and it is what the extension itself is versioned as (default_version,
+# META.json, pg_semantius--0.5.0.sql). One version for the whole repo; the `v` is
+# only how git names it. Pre-releases are ordinary versions with semver
+# precedence: v0.6.0-rc.1 < v0.6.0, so cutting the final over an rc is a NEW
+# version and the rc is frozen from then on.
 #
 # The version argument decides everything:
 #
@@ -33,6 +40,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Version ordering is semver, NOT `sort -V`: GNU version sort puts 0.6.0 before
+# 0.6.0-beta, i.e. it treats a pre-release as HIGHER, which would make cutting
+# 0.6.0 after 0.6.0-rc1 look like a downgrade and get it rejected.
+. "$SCRIPT_DIR/scripts/semver.sh"
 
 NAME="pg_semantius"
 EXT_DIR="extension"
@@ -68,13 +80,22 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-[ -n "$TARGET" ] || die "a version is required, e.g. ./release.sh 0.5.0"
+[ -n "$TARGET" ] || die "a version is required, e.g. ./release.sh v0.5.0"
+
+# The tag is `v<version>`; the extension is versioned without the v. Accept
+# either spelling and canonicalise to the bare version, which is what the
+# generator, the manifest and every filename use.
+TARGET="${TARGET#v}"
+TAG="v$TARGET"
 
 # Dotted numbers only. compareVersions() in the generator does split(".") + Number,
 # so a suffix like -rc1 yields NaN and silently disables the frozen-version guard.
-case "$TARGET" in
-  *[!0-9.]* | .* | *. | "") die "invalid version \"$TARGET\": dotted numbers only (1.2.3)" ;;
-esac
+semver_valid "$TARGET" || die "invalid version \"$TARGET\".
+  Dotted numbers with an optional semver pre-release: v1.2.3, v1.2.3-rc.1.
+  Build metadata (+sha) is refused because semver says it does not affect
+  precedence, which would make two distinct versions compare equal; \"--\" is
+  the separator in the upgrade-script filename; a trailing \"-\" is rejected by
+  PostgreSQL."
 
 # ==========================================================================
 # Phase 0 - decide. No side effects: the reject case must be instant.
@@ -84,16 +105,13 @@ command -v jq >/dev/null 2>&1 || die "jq is required (it reads $MANIFEST)"
 
 # jq, not grep: the per-migration keys inside `files` sit at the same nesting
 # depth as the version keys and a pattern match would pick them up too.
-CURRENT="$(jq -r '.versions | keys_unsorted[]' "$MANIFEST" | sort -V | tail -1)"
+CURRENT="$(jq -r '.versions | keys_unsorted[]' "$MANIFEST" | semver_max_of)"
 [ -n "$CURRENT" ] || die "$MANIFEST holds no versions"
 
-ver_max() { printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1; }
-
-if [ "$TARGET" = "$CURRENT" ]; then
-  MODE=refresh
-elif [ "$(ver_max "$TARGET" "$CURRENT")" = "$TARGET" ]; then
-  MODE=new
-else
+case "$(semver_cmp "$TARGET" "$CURRENT")" in
+  0) MODE=refresh ;;
+  1) MODE=new ;;
+  *)
   cat >&2 <<EOF
 release.sh: $TARGET is lower than the current build $CURRENT.
 
@@ -104,16 +122,15 @@ release.sh: $TARGET is lower than the current build $CURRENT.
   To re-release the current build:  ./release.sh $CURRENT
   To cut a new one:                 ./release.sh <higher version>
 EOF
-  exit 1
-fi
+    exit 1 ;;
+esac
 
 # The manifest knows what was BUILT; the tags record what was PUBLISHED. A tag
 # above the manifest means a published version the manifest cannot see, which
 # blinds the frozen-version guard - refuse rather than guess.
 git fetch --tags --force --quiet 2>/dev/null || true
-TOP_TAG="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
-if [ -n "$TOP_TAG" ] && [ "$TOP_TAG" != "$CURRENT" ] && \
-   [ "$(ver_max "$TOP_TAG" "$CURRENT")" = "$TOP_TAG" ]; then
+TOP_TAG="$(git tag -l 'v*' | semver_max_of)"
+if [ -n "$TOP_TAG" ] && [ "$(semver_cmp "$TOP_TAG" "$CURRENT")" = "1" ]; then
   die "tag v$TOP_TAG is above the newest build $CURRENT in $MANIFEST.
   Something was published that the manifest does not know about, so the
   frozen-version guard cannot protect it. Reconcile before releasing."

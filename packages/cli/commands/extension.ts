@@ -107,15 +107,16 @@ export async function extensionCommand(
     ? "_core"
     : options.apps;
 
-  // compareVersions() parses dotted numbers only. A pre-release suffix makes
-  // Number() return NaN, and both `NaN > 0` and `NaN < 0` are false - so the
-  // frozen-version guard and the upgrade-chain lookup would BOTH go blind while
-  // pruneOldFullInstalls still deleted the current full install.
-  if (!/^\d+(\.\d+)*$/.test(version)) {
+  // Every guard below is built on compareVersions() giving a total order, so a
+  // version it cannot rank is refused rather than silently ranked as NaN.
+  if (!isValidVersion(version)) {
     console.error(
-      `Error: invalid version "${version}". Versions are dotted numbers ` +
-        `(1.2.3); a suffix such as -rc1 is invisible to the version comparison ` +
-        `and would silently disable the frozen-version guard.`,
+      `Error: invalid version "${version}". Dotted numbers with an optional ` +
+        `semver pre-release (1.2.3, 1.2.3-rc.1). Build metadata (+sha) is not ` +
+        `accepted: semver says it does not affect precedence, which would make ` +
+        `two distinct versions compare equal. "--" and a trailing "-" are not ` +
+        `accepted either: the first is the separator in the upgrade-script ` +
+        `filename, the second is rejected by PostgreSQL.`,
     );
     Deno.exit(1);
   }
@@ -417,16 +418,73 @@ async function sha256hex(text: string): Promise<string> {
     .join("");
 }
 
-/** Compares dotted numeric versions (e.g. "0.2.0" vs "0.10.0"). */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
+/**
+ * Semver precedence (semver.org §11), minus build metadata. Must stay in exact
+ * agreement with `semver_cmp` in `scripts/semver.sh` - every guard in this file
+ * and in release.sh is built on the two producing the same total order.
+ *
+ * Note what is NOT true here: `sort -V` orders 0.6.0 BEFORE 0.6.0-beta, i.e. it
+ * treats a pre-release as higher. Semver is the opposite, and so is this.
+ */
+export function compareVersions(a: string, b: string): number {
+  const [aCore, ...aRest] = stripV(a).split("-");
+  const [bCore, ...bRest] = stripV(b).split("-");
+  const aPre = aRest.join("-");
+  const bPre = bRest.join("-");
+
+  // Numeric core, field by field; missing fields are 0.
+  const pa = aCore.split(".").map((n) => Number(n));
+  const pb = bCore.split(".").map((n) => Number(n));
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const da = pa[i] ?? 0;
     const db = pb[i] ?? 0;
-    if (da !== db) return da - db;
+    if (da !== db) return da < db ? -1 : 1;
+  }
+
+  // A version WITHOUT a pre-release outranks the same core WITH one.
+  if (!aPre && !bPre) return 0;
+  if (!aPre) return 1;
+  if (!bPre) return -1;
+
+  const ia = aPre.split(".");
+  const ib = bPre.split(".");
+  for (let i = 0; i < Math.max(ia.length, ib.length); i++) {
+    // All shared identifiers equal: the one with MORE identifiers is higher.
+    if (i >= ia.length) return -1;
+    if (i >= ib.length) return 1;
+    const x = ia[i];
+    const y = ib[i];
+    const xNum = /^\d+$/.test(x);
+    const yNum = /^\d+$/.test(y);
+    if (xNum && yNum) {
+      const nx = Number(x);
+      const ny = Number(y);
+      if (nx !== ny) return nx < ny ? -1 : 1;
+      continue;
+    }
+    // Numeric identifiers always rank below alphanumeric ones.
+    if (xNum) return -1;
+    if (yNum) return 1;
+    if (x !== y) return x < y ? -1 : 1;
   }
   return 0;
+}
+
+function stripV(v: string): string {
+  return v.startsWith("v") ? v.slice(1) : v;
+}
+
+/**
+ * A version this project accepts: dotted numbers with an optional semver
+ * pre-release. Build metadata (`+sha`) is refused rather than ignored - semver
+ * says it does not affect precedence, which would make two distinct manifest
+ * keys compare equal, and every guard here needs a total order. `--` is refused
+ * because it is the separator in `<name>--<from>--<to>.sql`, and a leading or
+ * trailing `-` because PostgreSQL rejects it in an extension version.
+ */
+export function isValidVersion(v: string): boolean {
+  if (v.includes("+") || v.includes("--") || v.endsWith("-")) return false;
+  return /^\d+(\.\d+)*(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/.test(v);
 }
 
 /** Highest manifest version strictly below `target`, or undefined if none. */

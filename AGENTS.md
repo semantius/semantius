@@ -84,7 +84,7 @@ It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
 - All business logic implemented in PostgreSQL functions
 - Security enforced through RLS policies and custom RBAC
 - Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `0290_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
-- Releasing the extension is `./release.sh <version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the newest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing install - `migrate()` skips by migration name - which is accepted and documented, not a bug
+- Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the newest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing install - `migrate()` skips by migration name - which is accepted and documented, not a bug
 - Infrastructure defined in `apps/_core/` folder
 - Automated testing using pgTAP framework
 
