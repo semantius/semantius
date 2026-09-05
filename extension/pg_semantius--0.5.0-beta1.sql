@@ -710,9 +710,27 @@ BEGIN
 
     -- Not an object or multi-key object => pass through (primitive)
     IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
-    -- Must have exactly one key to be logic
-    SELECT key INTO op FROM jsonb_object_keys(rule) AS key LIMIT 1;
-    IF (SELECT count(*) FROM jsonb_object_keys(rule)) <> 1 THEN RETURN rule; END IF;
+    -- Must have exactly one key to be logic.
+    -- Read the key with an expression, never a query. jsonb_object_keys is
+    -- set-returning, so any use of it needs a FROM clause, and a FROM clause
+    -- puts the statement outside PL/pgSQL's simple-expression path: it is handed
+    -- to the SQL engine to be planned and executed like any other query. This
+    -- runs once per node, and a rule as small as {"==": [{"var": "c"}, "x"]} has
+    -- two of them, on every row.
+    --
+    -- `rule - op` removing the key we found leaves '{}' exactly when it was the
+    -- only one, which is the whole single-key test. Which key $.keyvalue()
+    -- picks out of a multi-key object does not matter: any such object is
+    -- returned unchanged whichever key came first.
+    --
+    -- The NULL guard is required, not decorative: an empty object {} has no key
+    -- to find, so op is NULL, and without the guard the next line evaluates
+    -- `rule -> NULL`. An object with no keys is not logic and belongs with the
+    -- other pass-through cases. The OR is safe either way round - `NULL <> '{}'`
+    -- is NULL, and TRUE OR NULL is TRUE - so it does not depend on
+    -- short-circuit evaluation, which SQL does not promise.
+    op := jsonb_path_query_first(rule, '$.keyvalue().key') #>> '{}';
+    IF op IS NULL OR rule - op <> '{}'::jsonb THEN RETURN rule; END IF;
 
     vals := rule -> op;
     -- Normalize: if vals is not an array, wrap it
@@ -722,6 +740,28 @@ BEGIN
     arr_len := jsonb_array_length(vals);
 
     -- ===================== if / ?: =====================
+    -- These twelve operators have to be dispatched BEFORE the depth-first
+    -- argument evaluation further down. They either short-circuit (if, and, or)
+    -- or bind their own scope (let, map, filter, reduce, all, none, some,
+    -- set_record), so their arguments must not be evaluated eagerly.
+    --
+    -- The membership test in front of them is what keeps that cheap for
+    -- everyone else. What follows is a run of separate IF statements, not an
+    -- ELSIF chain, so without the test every other operator - var, ==, +, cat,
+    -- all of them - evaluates twelve conditions that cannot match before
+    -- reaching its own, on every node of every rule on every row.
+    --
+    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
+    -- not move or change a single operator. The list must stay exactly the set
+    -- of operators implemented between here and the barrier. Adding one without
+    -- listing it here does not fail quietly - the operator falls through to the
+    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
+    -- foot of this function, which every operator's own test case will catch.
+    --
+    -- Reordering the operators themselves was measured and abandoned: it is
+    -- worth 0-2% against this guard's 5, and churns the whole file.
+    IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
+
     IF op = 'if' OR op = '?:' THEN
         i := 0;
         WHILE i < arr_len - 1 LOOP
@@ -878,6 +918,9 @@ BEGIN
         nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
+
+
+    END IF;   -- end of the pre-evaluation operator group
 
     -- =====================================================
     -- All remaining operators: depth-first evaluate arguments
@@ -1320,7 +1363,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c');
+      VALUES ('_core.0015_jsonlogic', '93df8d7041c21c0c1ab779463eea58d30255b17c0750decd9feed5cd91e2ced0');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1848,7 +1891,7 @@ BEGIN
     -- so for OAuth sessions it is authoritative for the subject. (Supabase/Neon
     -- PostgREST sessions have system_user 'scram-sha-256:authenticator' and are
     -- left untouched.)
-    SELECT system_user INTO v_system_user;
+    v_system_user := system_user;
     IF v_system_user LIKE 'oauth:%' THEN
         sub_value := substring(v_system_user FROM 7);
         v_role := 'authenticated';
@@ -2005,37 +2048,54 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
--- request role can overwrite. Behind PostgREST or an app server that is
--- harmless (the client never runs SQL), but a bearer session hands the client
--- SQL as the request role, so a cached context could be forged there (release
--- review S2). For bearer sessions the shortcut below is skipped and the
--- context is re-derived on every call until the cache is hardened.
+-- request role can overwrite, and nothing here can tell a value written by rbac
+-- from one written by the client. Behind PostgREST or an app server that is
+-- harmless, because the client never runs SQL at all. A PostgreSQL 18 OAuth
+-- bearer session does hand the client SQL as the request role, so a cached
+-- context could be forged there; for those sessions the shortcut below is
+-- skipped entirely and the context is re-derived on every call. Making the
+-- cache trustworthy for them needs it written and checksummed by a
+-- definer-only writer, so that a hand-edited setting is detected rather than
+-- believed. That is not built.
+--
+-- The shortcut also requires the cached subject to match the JWT subject, so
+-- that a session carrying no valid claims cannot take it. That is not a defense
+-- against forgery; rbac.has_permission carries the same test and spells out what
+-- it does and does not guarantee.
 CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
     v_external_id TEXT;
     v_user_id INTEGER;
     v_permissions TEXT;
-    v_initialized TEXT;
+    v_cached_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    IF rbac.is_bearer_session() THEN
+    -- The bearer test is the bare expression, not rbac.is_bearer_session():
+    -- that function pins search_path, which stops PostgreSQL inlining it, so
+    -- calling it costs a real function call on every permission check. The
+    -- function stays - whoami and the tests use it.
+    IF system_user LIKE 'oauth:%' THEN
         -- Permission cache disabled: say so once per session (server log and client).
+        PERFORM rbac.uid();
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
-            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check until the cache is hardened for bearer auth (release review S2).';
+            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
             PERFORM set_config('app.bearer_cache_notice', 'sent', false);
         END IF;
     ELSE
-        -- Check if already initialized in this transaction
-        v_initialized := current_setting('app.context_initialized', true);
-
-        IF v_initialized = 'true' THEN
+        -- Warm path. See rbac.has_permission for why the subject is compared;
+        -- the same four conditions are inlined there and in has_any_permission.
+        v_cached_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) = 'true'
+           AND v_cached_external_id IS NOT NULL
+           AND v_cached_external_id <> ''
+           AND v_cached_external_id = current_setting('request.jwt.claim.sub', true)
+        THEN
             RETURN; -- Already initialized, skip
         END IF;
     END IF;
 
-    -- Get current user from JWT
+    -- Cold path. rbac.uid() validates the claims and returns the subject; it is
+    -- the only place an identity is established.
     v_external_id := rbac.uid();
     
     -- Read-only lookup: Get user_id without modifying database
@@ -2163,7 +2223,11 @@ BEGIN
             -- Get permissions from OAuth scopes
             SELECT DISTINCT p.id AS permission_id
             FROM permissions p
-            WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
+            WHERE p.permission_name = ANY(
+                -- Separators normalized: any run of commas or whitespace.
+                -- See rbac.has_permission for why this is inlined and why it
+                -- cannot escalate.
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''))
             
             UNION
             
@@ -2193,16 +2257,72 @@ DECLARE
     v_oauth_scopes TEXT;
     v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate permission_name
+    -- Validate permission_name. rbac.uid() runs on this cold branch only: it is
+    -- what makes an unauthenticated caller raise 42501 instead of receiving
+    -- FALSE, and keeping it here means guard test 0060_test_security.sql still
+    -- sees a direct rbac.uid() call in this function.
     IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
+        PERFORM rbac.uid();
         RETURN FALSE;
     END IF;
-    
-    -- LAZY INITIALIZATION: Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-    
+
+    -- WARM PATH. The cache test is inlined here rather than delegated to
+    -- rbac.ensure_context_initialized(), which is why the same few lines appear
+    -- in three places. Delegating costs a second PL/pgSQL frame, and a frame - a
+    -- SECURITY DEFINER entry with a search_path save and restore - costs several
+    -- times the three current_setting reads it would be entering to perform. On
+    -- a warm check that frame dominates, and a warm check is what almost every
+    -- call is.
+    --
+    -- The copies must stay in step. has_any_permission and
+    -- ensure_context_initialized carry the same test, and
+    -- 0446_test_rbac_hot_path.sql asserts the ordering below in all three.
+    --
+    -- The bearer test stays ahead of the cache read, and must. The app.*
+    -- settings are ordinary GUCs with no owner: whoever holds the session can
+    -- overwrite them, and nothing here can tell a value written by rbac from
+    -- one written by the client. Behind PostgREST or an app server that is
+    -- harmless, because the client never runs SQL at all. A PostgreSQL 18 OAuth
+    -- bearer session does run SQL as the request role while the identity is
+    -- pinned in system_user, so there the cache is not trusted at any point and
+    -- the context is rebuilt on every check.
+    --
+    -- The subject comparison is therefore NOT a defense against a forged cache:
+    -- where the cache can be forged the bearer test above has already sent us to
+    -- the cold path, and where it cannot there is nothing to defend against. It
+    -- does exactly one thing - it refuses a session that carries no valid
+    -- claims. Such a session has an empty request.jwt.claim.sub, which cannot
+    -- equal a non-empty app.current_external_id, so it takes the cold path and
+    -- rbac.uid() rejects it there.
+    --
+    -- What the warm path does not check is the role and audience claims.
+    -- rbac.uid() validates those, and it runs only when the context is built:
+    -- once per transaction, not once per check. Rewriting
+    -- request.jwt.claim.role after the context exists does not change the answer
+    -- for the rest of that transaction. That gives nothing away - a caller able
+    -- to rewrite that GUC is running SQL in the session and can rewrite the
+    -- subject too - but a warm check is not equivalent to a cold one and should
+    -- not be read as if it were.
+    --
+    -- Why the comparison holds when the cache is genuine: app.current_external_id
+    -- and request.jwt.claim.sub are both transaction-local and both written by
+    -- the same cold pass. The Neon path returns the setting verbatim, the
+    -- Supabase fan-out writes it before re-reading it, the PostgreSQL 18
+    -- override rewrites it from system_user, and the two get_userinfo prefills
+    -- assign rbac.uid() to it.
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
+
     -- OPTIMIZATION: Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
@@ -2219,8 +2339,35 @@ BEGIN
                 RETURN TRUE;
             END IF;
             
-            -- Check if permission is in OAuth scopes
-            RETURN position(',' || p_permission_name || ',' IN ',' || v_oauth_scopes || ',') > 0;
+            -- Check if permission is in OAuth scopes.
+            -- Separator normalization. app.oauth_scopes was read as a
+            -- comma-separated list here and as a space-separated one in
+            -- rbac.user_has_permission, so the same value meant different things to
+            -- different checkers and a list in the "wrong" format confined the session
+            -- to nothing at all. Any run of commas or whitespace now separates, in all
+            -- four readers, so "a,b", "a b" and " a ,, b " are the same two scopes.
+            --
+            -- Inlined rather than given a helper function on purpose: guard test 0240
+            -- requires every function to pin search_path, and a pinned search_path
+            -- stops PostgreSQL inlining the call - the same trap that made
+            -- rbac.is_bearer_session() cost a real call on the hot path.
+            --
+            -- This cannot escalate. Scopes only ever subtract: the permission has
+            -- already been found in the caller's own permission set above, and this
+            -- test can only take it away again. Normalizing stops the filter denying
+            -- what the token actually granted; it cannot grant what the user lacks.
+            --
+            -- Normalizing the separators does not make the confinement binding.
+            -- app.oauth_scopes is a client-settable GUC like the rest of app.*, so
+            -- a session that can run SQL can simply blank it and walk out of its
+            -- own confinement - and blanking it reads as "no scopes", which the
+            -- branch above treats as no restriction. Closing that needs the scope
+            -- list to be carried inside a context the client cannot forge, i.e.
+            -- written and checksummed by a definer-only entry point, so that a
+            -- cleared or widened list is detected rather than believed. That work
+            -- is not done; only the separator inconsistency is fixed here.
+            RETURN p_permission_name = ANY(
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''));
         ELSE
             -- Permission not in cache
             RETURN FALSE;
@@ -2264,17 +2411,32 @@ DECLARE
     v_permission TEXT;
     v_oauth_scopes TEXT;
     v_has_base_permission BOOLEAN := FALSE;
+    v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate input
+    -- Validate input. rbac.uid() runs on this cold branch only - see
+    -- rbac.has_permission for why.
     IF p_permission_names IS NULL OR array_length(p_permission_names, 1) IS NULL THEN
+        PERFORM rbac.uid();
         RETURN FALSE;
     END IF;
 
-    -- LAZY INITIALIZATION: Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-    
+    -- WARM PATH. Identical to the test in rbac.has_permission,
+    -- inlined for the same reason and with the same ordering requirement: the
+    -- bearer test must stay ahead of the cache read. The reasoning is spelled
+    -- out there.
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
+
     -- Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
@@ -2302,7 +2464,11 @@ BEGIN
         -- Verify at least one permission is in OAuth scopes
         FOREACH v_permission IN ARRAY p_permission_names
         LOOP
-            IF position(',' || v_permission || ',' IN ',' || v_oauth_scopes || ',') > 0 THEN
+            -- Separators normalized: any run of commas or whitespace.
+            -- See rbac.has_permission for why this is inlined and why it
+            -- cannot escalate.
+            IF v_permission = ANY(
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '')) THEN
                 RETURN TRUE;
             END IF;
         END LOOP;
@@ -2450,7 +2616,18 @@ BEGIN
             THEN 'Granted'::TEXT
             ELSE 'User does not have this permission'::TEXT
         END AS reason
-    FROM unnest(string_to_array(p_requested_scopes, ' ')) AS s(scope);
+    -- Separators normalized, as at the three GUC read sites. p_requested_scopes
+    -- is an OAuth authorization-request scope string, which RFC 6749 delimits
+    -- with spaces, so space was never wrong here; accepting commas too leaves no
+    -- site in this file where the separator matters.
+    --
+    -- array_remove drops the empty strings that a leading, trailing or repeated
+    -- separator produces, so a request of ',' or a tab yields no rows rather
+    -- than one row for an empty scope. A NULL or all-blank request never gets
+    -- this far: the guard at the top of the function returns first.
+    FROM unnest(
+        array_remove(regexp_split_to_array(p_requested_scopes, '[,[:space:]]+'), '')
+    ) AS s(scope);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
@@ -2669,7 +2846,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3');
+      VALUES ('_core.0030_rbac_functions', '1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13928,9 +14105,27 @@ BEGIN
 
     -- Not an object or multi-key object => pass through (primitive)
     IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
-    -- Must have exactly one key to be logic
-    SELECT key INTO op FROM jsonb_object_keys(rule) AS key LIMIT 1;
-    IF (SELECT count(*) FROM jsonb_object_keys(rule)) <> 1 THEN RETURN rule; END IF;
+    -- Must have exactly one key to be logic.
+    -- Read the key with an expression, never a query. jsonb_object_keys is
+    -- set-returning, so any use of it needs a FROM clause, and a FROM clause
+    -- puts the statement outside PL/pgSQL's simple-expression path: it is handed
+    -- to the SQL engine to be planned and executed like any other query. This
+    -- runs once per node, and a rule as small as {"==": [{"var": "c"}, "x"]} has
+    -- two of them, on every row.
+    --
+    -- `rule - op` removing the key we found leaves '{}' exactly when it was the
+    -- only one, which is the whole single-key test. Which key $.keyvalue()
+    -- picks out of a multi-key object does not matter: any such object is
+    -- returned unchanged whichever key came first.
+    --
+    -- The NULL guard is required, not decorative: an empty object {} has no key
+    -- to find, so op is NULL, and without the guard the next line evaluates
+    -- `rule -> NULL`. An object with no keys is not logic and belongs with the
+    -- other pass-through cases. The OR is safe either way round - `NULL <> '{}'`
+    -- is NULL, and TRUE OR NULL is TRUE - so it does not depend on
+    -- short-circuit evaluation, which SQL does not promise.
+    op := jsonb_path_query_first(rule, '$.keyvalue().key') #>> '{}';
+    IF op IS NULL OR rule - op <> '{}'::jsonb THEN RETURN rule; END IF;
 
     vals := rule -> op;
     -- Normalize: if vals is not an array, wrap it
@@ -13940,6 +14135,28 @@ BEGIN
     arr_len := jsonb_array_length(vals);
 
     -- ===================== if / ?: =====================
+    -- These twelve operators have to be dispatched BEFORE the depth-first
+    -- argument evaluation further down. They either short-circuit (if, and, or)
+    -- or bind their own scope (let, map, filter, reduce, all, none, some,
+    -- set_record), so their arguments must not be evaluated eagerly.
+    --
+    -- The membership test in front of them is what keeps that cheap for
+    -- everyone else. What follows is a run of separate IF statements, not an
+    -- ELSIF chain, so without the test every other operator - var, ==, +, cat,
+    -- all of them - evaluates twelve conditions that cannot match before
+    -- reaching its own, on every node of every rule on every row.
+    --
+    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
+    -- not move or change a single operator. The list must stay exactly the set
+    -- of operators implemented between here and the barrier. Adding one without
+    -- listing it here does not fail quietly - the operator falls through to the
+    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
+    -- foot of this function, which every operator's own test case will catch.
+    --
+    -- Reordering the operators themselves was measured and abandoned: it is
+    -- worth 0-2% against this guard's 5, and churns the whole file.
+    IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
+
     IF op = 'if' OR op = '?:' THEN
         i := 0;
         WHILE i < arr_len - 1 LOOP
@@ -14096,6 +14313,9 @@ BEGIN
         nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
+
+
+    END IF;   -- end of the pre-evaluation operator group
 
     -- =====================================================
     -- All remaining operators: depth-first evaluate arguments
@@ -14722,7 +14942,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1');
+      VALUES ('_core.0210_raci', '335cd5b7fc8102d153342b6cfd4e64a9532810287e173b80d713e28e9b008eb3');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16202,7 +16422,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"6ca01fccb0a23ce9ef7d14eea1292a25bdad4904adf9a1927cefc95c36ed9b8c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"0aa7bb027a6bb6f3637543e036ddce3ab270704c76603a3c2a4276ae2fb853e3","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"2ad8e43424babf14f444692f9da18abff752c356b2fc00e600f355fafda913b1","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"93df8d7041c21c0c1ab779463eea58d30255b17c0750decd9feed5cd91e2ced0","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"335cd5b7fc8102d153342b6cfd4e64a9532810287e173b80d713e28e9b008eb3","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

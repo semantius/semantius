@@ -1,0 +1,25 @@
+# Line endings are LF in the repository and LF in the working tree.
+#
+# Why this file exists: a PL/pgSQL function body is stored verbatim in
+# pg_proc.prosrc. Without a rule here, core.autocrlf decides what a checkout
+# looks like, so the .sql files are CRLF on a Windows tree and LF everywhere
+# else - and the same migration then installs a textually different database
+# depending on who ran it. Anything written across a line break, or any
+# character class, means one thing on one checkout and another on the next, and
+# no machine can see the difference because each one only ever builds one of the
+# two. That is not hypothetical: it silently changed what
+# rbac.validate_oauth_scopes returned, and both test suites stayed green.
+#
+# The loaders normalize to LF as they read (packages/cli/commands/migrate.ts,
+# packages/cli/commands/extension.ts, scripts/bundle-sql.ts), which is what
+# guarantees the installed database is identical either way and protects
+# consumers who never check this repository out. This file is the other half:
+# it keeps carriage returns out of the source in the first place, so nobody can
+# type one into a string literal or a character class by accident.
+* text=auto eol=lf
+
+# Windows shells are the exception: cmd.exe is not reliable with LF-only batch
+# files, so these keep CRLF on checkout.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

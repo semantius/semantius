@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0015_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(288);
+SELECT plan(290);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -40,1433 +40,1444 @@ SELECT is(
     '["a","b"]'::jsonb,
     'test 7'
 );
+-- # Objects that are not single-key logic get passed through
+SELECT is(
+    evaluate_json_logic('{}'::jsonb, '{}'::jsonb),
+    '{}'::jsonb,
+    'test 8'
+);
+SELECT is(
+    evaluate_json_logic('{"==":[1,1],"extra":2}'::jsonb, '{}'::jsonb),
+    '{"==":[1,1],"extra":2}'::jsonb,
+    'test 9'
+);
 -- # Single operator tests
 SELECT is(
     evaluate_json_logic('{"==":[1,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 8'
+    'test 10'
 );
 SELECT is(
     evaluate_json_logic('{"==":[1,"1"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 9'
+    'test 11'
 );
 SELECT is(
     evaluate_json_logic('{"==":[1,2]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 10'
+    'test 12'
 );
 SELECT is(
     evaluate_json_logic('{"===":[1,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 11'
+    'test 13'
 );
 SELECT is(
     evaluate_json_logic('{"===":[1,"1"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 12'
+    'test 14'
 );
 SELECT is(
     evaluate_json_logic('{"===":[1,2]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 13'
+    'test 15'
 );
 SELECT is(
     evaluate_json_logic('{"!=":[1,2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 14'
+    'test 16'
 );
 SELECT is(
     evaluate_json_logic('{"!=":[1,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 15'
+    'test 17'
 );
 SELECT is(
     evaluate_json_logic('{"!=":[1,"1"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 16'
+    'test 18'
 );
 SELECT is(
     evaluate_json_logic('{"!==":[1,2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 17'
+    'test 19'
 );
 SELECT is(
     evaluate_json_logic('{"!==":[1,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 18'
+    'test 20'
 );
 SELECT is(
     evaluate_json_logic('{"!==":[1,"1"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 19'
+    'test 21'
 );
 SELECT is(
     evaluate_json_logic('{">":[2,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 20'
+    'test 22'
 );
 SELECT is(
     evaluate_json_logic('{">":[1,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 21'
+    'test 23'
 );
 SELECT is(
     evaluate_json_logic('{">":[1,2]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 22'
+    'test 24'
 );
 SELECT is(
     evaluate_json_logic('{">":["2",1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 23'
+    'test 25'
 );
 SELECT is(
     evaluate_json_logic('{">=":[2,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 24'
+    'test 26'
 );
 SELECT is(
     evaluate_json_logic('{">=":[1,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 25'
+    'test 27'
 );
 SELECT is(
     evaluate_json_logic('{">=":[1,2]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 26'
+    'test 28'
 );
 SELECT is(
     evaluate_json_logic('{">=":["2",1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 27'
+    'test 29'
 );
 SELECT is(
     evaluate_json_logic('{"<":[2,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 28'
+    'test 30'
 );
 SELECT is(
     evaluate_json_logic('{"<":[1,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 29'
+    'test 31'
 );
 SELECT is(
     evaluate_json_logic('{"<":[1,2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 30'
+    'test 32'
 );
 SELECT is(
     evaluate_json_logic('{"<":["1",2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 31'
+    'test 33'
 );
 SELECT is(
     evaluate_json_logic('{"<":[1,2,3]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 32'
+    'test 34'
 );
 SELECT is(
     evaluate_json_logic('{"<":[1,1,3]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 33'
+    'test 35'
 );
 SELECT is(
     evaluate_json_logic('{"<":[1,4,3]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 34'
+    'test 36'
 );
 SELECT is(
     evaluate_json_logic('{"<=":[2,1]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 35'
+    'test 37'
 );
 SELECT is(
     evaluate_json_logic('{"<=":[1,1]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 36'
+    'test 38'
 );
 SELECT is(
     evaluate_json_logic('{"<=":[1,2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 37'
+    'test 39'
 );
 SELECT is(
     evaluate_json_logic('{"<=":["1",2]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 38'
+    'test 40'
 );
 SELECT is(
     evaluate_json_logic('{"<=":[1,2,3]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 39'
+    'test 41'
 );
 SELECT is(
     evaluate_json_logic('{"<=":[1,4,3]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 40'
+    'test 42'
 );
 SELECT is(
     evaluate_json_logic('{"!":[false]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 41'
+    'test 43'
 );
 SELECT is(
     evaluate_json_logic('{"!":false}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 42'
+    'test 44'
 );
 SELECT is(
     evaluate_json_logic('{"!":[true]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 43'
+    'test 45'
 );
 SELECT is(
     evaluate_json_logic('{"!":true}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 44'
+    'test 46'
 );
 SELECT is(
     evaluate_json_logic('{"!":0}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 45'
+    'test 47'
 );
 SELECT is(
     evaluate_json_logic('{"!":1}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 46'
+    'test 48'
 );
 SELECT is(
     evaluate_json_logic('{"or":[true,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 47'
+    'test 49'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 48'
+    'test 50'
 );
 SELECT is(
     evaluate_json_logic('{"or":[true,false]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 49'
+    'test 51'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 50'
+    'test 52'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false,false,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 51'
+    'test 53'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false,false,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 52'
+    'test 54'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 53'
+    'test 55'
 );
 SELECT is(
     evaluate_json_logic('{"or":[true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 54'
+    'test 56'
 );
 SELECT is(
     evaluate_json_logic('{"or":[1,3]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 55'
+    'test 57'
 );
 SELECT is(
     evaluate_json_logic('{"or":[3,false]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 56'
+    'test 58'
 );
 SELECT is(
     evaluate_json_logic('{"or":[false,3]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 57'
+    'test 59'
 );
 SELECT is(
     evaluate_json_logic('{"and":[true,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 58'
+    'test 60'
 );
 SELECT is(
     evaluate_json_logic('{"and":[false,true]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 59'
+    'test 61'
 );
 SELECT is(
     evaluate_json_logic('{"and":[true,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 60'
+    'test 62'
 );
 SELECT is(
     evaluate_json_logic('{"and":[false,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 61'
+    'test 63'
 );
 SELECT is(
     evaluate_json_logic('{"and":[true,true,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 62'
+    'test 64'
 );
 SELECT is(
     evaluate_json_logic('{"and":[true,true,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 63'
+    'test 65'
 );
 SELECT is(
     evaluate_json_logic('{"and":[false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 64'
+    'test 66'
 );
 SELECT is(
     evaluate_json_logic('{"and":[true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 65'
+    'test 67'
 );
 SELECT is(
     evaluate_json_logic('{"and":[1,3]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 66'
+    'test 68'
 );
 SELECT is(
     evaluate_json_logic('{"and":[3,false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 67'
+    'test 69'
 );
 SELECT is(
     evaluate_json_logic('{"and":[false,3]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 68'
+    'test 70'
 );
 SELECT is(
     evaluate_json_logic('{"?:":[true,1,2]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 69'
+    'test 71'
 );
 SELECT is(
     evaluate_json_logic('{"?:":[false,1,2]}'::jsonb, '{}'::jsonb),
     '2'::jsonb,
-    'test 70'
+    'test 72'
 );
 SELECT is(
     evaluate_json_logic('{"in":["Bart",["Bart","Homer","Lisa","Marge","Maggie"]]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 71'
+    'test 73'
 );
 SELECT is(
     evaluate_json_logic('{"in":["Milhouse",["Bart","Homer","Lisa","Marge","Maggie"]]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 72'
+    'test 74'
 );
 SELECT is(
     evaluate_json_logic('{"in":["Spring","Springfield"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 73'
+    'test 75'
 );
 SELECT is(
     evaluate_json_logic('{"in":["i","team"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 74'
+    'test 76'
 );
 SELECT is(
     evaluate_json_logic('{"cat":"ice"}'::jsonb, '{}'::jsonb),
     '"ice"'::jsonb,
-    'test 75'
+    'test 77'
 );
 SELECT is(
     evaluate_json_logic('{"cat":["ice"]}'::jsonb, '{}'::jsonb),
     '"ice"'::jsonb,
-    'test 76'
+    'test 78'
 );
 SELECT is(
     evaluate_json_logic('{"cat":["ice","cream"]}'::jsonb, '{}'::jsonb),
     '"icecream"'::jsonb,
-    'test 77'
+    'test 79'
 );
 SELECT is(
     evaluate_json_logic('{"cat":[1,2]}'::jsonb, '{}'::jsonb),
     '"12"'::jsonb,
-    'test 78'
+    'test 80'
 );
 SELECT is(
     evaluate_json_logic('{"cat":["Robocop",2]}'::jsonb, '{}'::jsonb),
     '"Robocop2"'::jsonb,
-    'test 79'
+    'test 81'
 );
 SELECT is(
     evaluate_json_logic('{"cat":["we all scream for ","ice","cream"]}'::jsonb, '{}'::jsonb),
     '"we all scream for icecream"'::jsonb,
-    'test 80'
+    'test 82'
 );
 SELECT is(
     evaluate_json_logic('{"%":[1,2]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 81'
+    'test 83'
 );
 SELECT is(
     evaluate_json_logic('{"%":[2,2]}'::jsonb, '{}'::jsonb),
     '0'::jsonb,
-    'test 82'
+    'test 84'
 );
 SELECT is(
     evaluate_json_logic('{"%":[3,2]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 83'
+    'test 85'
 );
 SELECT is(
     evaluate_json_logic('{"max":[1,2,3]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 84'
+    'test 86'
 );
 SELECT is(
     evaluate_json_logic('{"max":[1,3,3]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 85'
+    'test 87'
 );
 SELECT is(
     evaluate_json_logic('{"max":[3,2,1]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 86'
+    'test 88'
 );
 SELECT is(
     evaluate_json_logic('{"max":[1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 87'
+    'test 89'
 );
 SELECT is(
     evaluate_json_logic('{"min":[1,2,3]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 88'
+    'test 90'
 );
 SELECT is(
     evaluate_json_logic('{"min":[1,1,3]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 89'
+    'test 91'
 );
 SELECT is(
     evaluate_json_logic('{"min":[3,2,1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 90'
+    'test 92'
 );
 SELECT is(
     evaluate_json_logic('{"min":[1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 91'
+    'test 93'
 );
 SELECT is(
     evaluate_json_logic('{"+":[1,2]}'::jsonb, '{}'::jsonb),
     '3'::jsonb,
-    'test 92'
+    'test 94'
 );
 SELECT is(
     evaluate_json_logic('{"+":[2,2,2]}'::jsonb, '{}'::jsonb),
     '6'::jsonb,
-    'test 93'
+    'test 95'
 );
 SELECT is(
     evaluate_json_logic('{"+":[1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 94'
+    'test 96'
 );
 SELECT is(
     evaluate_json_logic('{"+":["1",1]}'::jsonb, '{}'::jsonb),
     '2'::jsonb,
-    'test 95'
+    'test 97'
 );
 SELECT is(
     evaluate_json_logic('{"*":[3,2]}'::jsonb, '{}'::jsonb),
     '6'::jsonb,
-    'test 96'
+    'test 98'
 );
 SELECT is(
     evaluate_json_logic('{"*":[2,2,2]}'::jsonb, '{}'::jsonb),
     '8'::jsonb,
-    'test 97'
+    'test 99'
 );
 SELECT is(
     evaluate_json_logic('{"*":[1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 98'
+    'test 100'
 );
 SELECT is(
     evaluate_json_logic('{"*":["1",1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 99'
+    'test 101'
 );
 SELECT is(
     evaluate_json_logic('{"-":[2,3]}'::jsonb, '{}'::jsonb),
     '-1'::jsonb,
-    'test 100'
+    'test 102'
 );
 SELECT is(
     evaluate_json_logic('{"-":[3,2]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 101'
+    'test 103'
 );
 SELECT is(
     evaluate_json_logic('{"-":[3]}'::jsonb, '{}'::jsonb),
     '-3'::jsonb,
-    'test 102'
+    'test 104'
 );
 SELECT is(
     evaluate_json_logic('{"-":["1",1]}'::jsonb, '{}'::jsonb),
     '0'::jsonb,
-    'test 103'
+    'test 105'
 );
 SELECT is(
     evaluate_json_logic('{"/":[4,2]}'::jsonb, '{}'::jsonb),
     '2'::jsonb,
-    'test 104'
+    'test 106'
 );
 SELECT is(
     evaluate_json_logic('{"/":[2,4]}'::jsonb, '{}'::jsonb),
     '0.5'::jsonb,
-    'test 105'
+    'test 107'
 );
 SELECT is(
     evaluate_json_logic('{"/":["1",1]}'::jsonb, '{}'::jsonb),
     '1'::jsonb,
-    'test 106'
+    'test 108'
 );
 -- Substring
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",4]}'::jsonb, 'null'::jsonb),
     '"logic"'::jsonb,
-    'test 107'
+    'test 109'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",-5]}'::jsonb, 'null'::jsonb),
     '"logic"'::jsonb,
-    'test 108'
+    'test 110'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",0,1]}'::jsonb, 'null'::jsonb),
     '"j"'::jsonb,
-    'test 109'
+    'test 111'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",-1,1]}'::jsonb, 'null'::jsonb),
     '"c"'::jsonb,
-    'test 110'
+    'test 112'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",4,5]}'::jsonb, 'null'::jsonb),
     '"logic"'::jsonb,
-    'test 111'
+    'test 113'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",-5,5]}'::jsonb, 'null'::jsonb),
     '"logic"'::jsonb,
-    'test 112'
+    'test 114'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",-5,-2]}'::jsonb, 'null'::jsonb),
     '"log"'::jsonb,
-    'test 113'
+    'test 115'
 );
 SELECT is(
     evaluate_json_logic('{"substr":["jsonlogic",1,-5]}'::jsonb, 'null'::jsonb),
     '"son"'::jsonb,
-    'test 114'
+    'test 116'
 );
 -- Merge arrays
 SELECT is(
     evaluate_json_logic('{"merge":[]}'::jsonb, 'null'::jsonb),
     '[]'::jsonb,
-    'test 115'
+    'test 117'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1]]}'::jsonb, 'null'::jsonb),
     '[1]'::jsonb,
-    'test 116'
+    'test 118'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1],[]]}'::jsonb, 'null'::jsonb),
     '[1]'::jsonb,
-    'test 117'
+    'test 119'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1],[2]]}'::jsonb, 'null'::jsonb),
     '[1,2]'::jsonb,
-    'test 118'
+    'test 120'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1],[2],[3]]}'::jsonb, 'null'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 119'
+    'test 121'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1,2],[3]]}'::jsonb, 'null'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 120'
+    'test 122'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[[1],[2,3]]}'::jsonb, 'null'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 121'
+    'test 123'
 );
 -- Given non-array arguments, merge converts them to arrays
 SELECT is(
     evaluate_json_logic('{"merge":1}'::jsonb, 'null'::jsonb),
     '[1]'::jsonb,
-    'test 122'
+    'test 124'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[1,2]}'::jsonb, 'null'::jsonb),
     '[1,2]'::jsonb,
-    'test 123'
+    'test 125'
 );
 SELECT is(
     evaluate_json_logic('{"merge":[1,[2]]}'::jsonb, 'null'::jsonb),
     '[1,2]'::jsonb,
-    'test 124'
+    'test 126'
 );
 -- Too few args
 SELECT is(
     evaluate_json_logic('{"if":[]}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 125'
+    'test 127'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true]}'::jsonb, 'null'::jsonb),
     'true'::jsonb,
-    'test 126'
+    'test 128'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false]}'::jsonb, 'null'::jsonb),
     'false'::jsonb,
-    'test 127'
+    'test 129'
 );
 SELECT is(
     evaluate_json_logic('{"if":["apple"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 128'
+    'test 130'
 );
 -- Simple if/then/else cases
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 129'
+    'test 131'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple"]}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 130'
+    'test 132'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 131'
+    'test 133'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 132'
+    'test 134'
 );
 -- Empty arrays are falsey
 SELECT is(
     evaluate_json_logic('{"if":[[],"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 133'
+    'test 135'
 );
 SELECT is(
     evaluate_json_logic('{"if":[[1],"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 134'
+    'test 136'
 );
 SELECT is(
     evaluate_json_logic('{"if":[[1,2,3,4],"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 135'
+    'test 137'
 );
 -- Empty strings are falsey, all other strings are truthy
 SELECT is(
     evaluate_json_logic('{"if":["","apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 136'
+    'test 138'
 );
 SELECT is(
     evaluate_json_logic('{"if":["zucchini","apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 137'
+    'test 139'
 );
 SELECT is(
     evaluate_json_logic('{"if":["0","apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 138'
+    'test 140'
 );
 -- You can cast a string to numeric with a unary + 
 SELECT is(
     evaluate_json_logic('{"===":[0,"0"]}'::jsonb, 'null'::jsonb),
     'false'::jsonb,
-    'test 139'
+    'test 141'
 );
 SELECT is(
     evaluate_json_logic('{"===":[0,{"+":"0"}]}'::jsonb, 'null'::jsonb),
     'true'::jsonb,
-    'test 140'
+    'test 142'
 );
 SELECT is(
     evaluate_json_logic('{"if":[{"+":"0"},"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 141'
+    'test 143'
 );
 SELECT is(
     evaluate_json_logic('{"if":[{"+":"1"},"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 142'
+    'test 144'
 );
 -- Zero is falsy, all other numbers are truthy
 SELECT is(
     evaluate_json_logic('{"if":[0,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 143'
+    'test 145'
 );
 SELECT is(
     evaluate_json_logic('{"if":[1,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 144'
+    'test 146'
 );
 SELECT is(
     evaluate_json_logic('{"if":[3.1416,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 145'
+    'test 147'
 );
 SELECT is(
     evaluate_json_logic('{"if":[-1,"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 146'
+    'test 148'
 );
 -- Truthy and falsy definitions matter in Boolean operations
 SELECT is(
     evaluate_json_logic('{"!":[[]]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 147'
+    'test 149'
 );
 SELECT is(
     evaluate_json_logic('{"!!":[[]]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 148'
+    'test 150'
 );
 SELECT is(
     evaluate_json_logic('{"and":[[],true]}'::jsonb, '{}'::jsonb),
     '[]'::jsonb,
-    'test 149'
+    'test 151'
 );
 SELECT is(
     evaluate_json_logic('{"or":[[],true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 150'
+    'test 152'
 );
 SELECT is(
     evaluate_json_logic('{"!":[0]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 151'
+    'test 153'
 );
 SELECT is(
     evaluate_json_logic('{"!!":[0]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 152'
+    'test 154'
 );
 SELECT is(
     evaluate_json_logic('{"and":[0,true]}'::jsonb, '{}'::jsonb),
     '0'::jsonb,
-    'test 153'
+    'test 155'
 );
 SELECT is(
     evaluate_json_logic('{"or":[0,true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 154'
+    'test 156'
 );
 SELECT is(
     evaluate_json_logic('{"!":[""]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 155'
+    'test 157'
 );
 SELECT is(
     evaluate_json_logic('{"!!":[""]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 156'
+    'test 158'
 );
 SELECT is(
     evaluate_json_logic('{"and":["",true]}'::jsonb, '{}'::jsonb),
     '""'::jsonb,
-    'test 157'
+    'test 159'
 );
 SELECT is(
     evaluate_json_logic('{"or":["",true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 158'
+    'test 160'
 );
 SELECT is(
     evaluate_json_logic('{"!":["0"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 159'
+    'test 161'
 );
 SELECT is(
     evaluate_json_logic('{"!!":["0"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 160'
+    'test 162'
 );
 SELECT is(
     evaluate_json_logic('{"and":["0",true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 161'
+    'test 163'
 );
 SELECT is(
     evaluate_json_logic('{"or":["0",true]}'::jsonb, '{}'::jsonb),
     '"0"'::jsonb,
-    'test 162'
+    'test 164'
 );
 -- If the conditional is logic, it gets evaluated
 SELECT is(
     evaluate_json_logic('{"if":[{">":[2,1]},"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 163'
+    'test 165'
 );
 SELECT is(
     evaluate_json_logic('{"if":[{">":[1,2]},"apple","banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 164'
+    'test 166'
 );
 -- If the consequents are logic, they get evaluated
 SELECT is(
     evaluate_json_logic('{"if":[true,{"cat":["ap","ple"]},{"cat":["ba","na","na"]}]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 165'
+    'test 167'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,{"cat":["ap","ple"]},{"cat":["ba","na","na"]}]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 166'
+    'test 168'
 );
 -- If/then/elseif/then cases
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",true,"banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 167'
+    'test 169'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",false,"banana"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 168'
+    'test 170'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",true,"banana"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 169'
+    'test 171'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",false,"banana"]}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 170'
+    'test 172'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",true,"banana","carrot"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 171'
+    'test 173'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",false,"banana","carrot"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 172'
+    'test 174'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",true,"banana","carrot"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 173'
+    'test 175'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",false,"banana","carrot"]}'::jsonb, 'null'::jsonb),
     '"carrot"'::jsonb,
-    'test 174'
+    'test 176'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",false,"banana",false,"carrot"]}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 175'
+    'test 177'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",false,"banana",false,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"date"'::jsonb,
-    'test 176'
+    'test 178'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",false,"banana",true,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"carrot"'::jsonb,
-    'test 177'
+    'test 179'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",true,"banana",false,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 178'
+    'test 180'
 );
 SELECT is(
     evaluate_json_logic('{"if":[false,"apple",true,"banana",true,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"banana"'::jsonb,
-    'test 179'
+    'test 181'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",false,"banana",false,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 180'
+    'test 182'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",false,"banana",true,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 181'
+    'test 183'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",true,"banana",false,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 182'
+    'test 184'
 );
 SELECT is(
     evaluate_json_logic('{"if":[true,"apple",true,"banana",true,"carrot","date"]}'::jsonb, 'null'::jsonb),
     '"apple"'::jsonb,
-    'test 183'
+    'test 185'
 );
 -- Arrays with logic
 SELECT is(
     evaluate_json_logic('[1,{"var":"x"},3]'::jsonb, '{"x":2}'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 184'
+    'test 186'
 );
 SELECT is(
     evaluate_json_logic('{"if":[{"var":"x"},[{"var":"y"}],99]}'::jsonb, '{"x":true,"y":42}'::jsonb),
     '[42]'::jsonb,
-    'test 185'
+    'test 187'
 );
 -- # Compound Tests
 SELECT is(
     evaluate_json_logic('{"and":[{">":[3,1]},true]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 186'
+    'test 188'
 );
 SELECT is(
     evaluate_json_logic('{"and":[{">":[3,1]},false]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 187'
+    'test 189'
 );
 SELECT is(
     evaluate_json_logic('{"and":[{">":[3,1]},{"!":true}]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 188'
+    'test 190'
 );
 SELECT is(
     evaluate_json_logic('{"and":[{">":[3,1]},{"<":[1,3]}]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 189'
+    'test 191'
 );
 SELECT is(
     evaluate_json_logic('{"?:":[{">":[3,1]},"visible","hidden"]}'::jsonb, '{}'::jsonb),
     '"visible"'::jsonb,
-    'test 190'
+    'test 192'
 );
 -- # Data-Driven
 SELECT is(
     evaluate_json_logic('{"var":["a"]}'::jsonb, '{"a":1}'::jsonb),
     '1'::jsonb,
-    'test 191'
+    'test 193'
 );
 SELECT is(
     evaluate_json_logic('{"var":["b"]}'::jsonb, '{"a":1}'::jsonb),
     'null'::jsonb,
-    'test 192'
+    'test 194'
 );
 SELECT is(
     evaluate_json_logic('{"var":["a"]}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 193'
+    'test 195'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a"}'::jsonb, '{"a":1}'::jsonb),
     '1'::jsonb,
-    'test 194'
+    'test 196'
 );
 SELECT is(
     evaluate_json_logic('{"var":"b"}'::jsonb, '{"a":1}'::jsonb),
     'null'::jsonb,
-    'test 195'
+    'test 197'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a"}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 196'
+    'test 198'
 );
 SELECT is(
     evaluate_json_logic('{"var":["a",1]}'::jsonb, 'null'::jsonb),
     '1'::jsonb,
-    'test 197'
+    'test 199'
 );
 SELECT is(
     evaluate_json_logic('{"var":["b",2]}'::jsonb, '{"a":1}'::jsonb),
     '2'::jsonb,
-    'test 198'
+    'test 200'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a.b"}'::jsonb, '{"a":{"b":"c"}}'::jsonb),
     '"c"'::jsonb,
-    'test 199'
+    'test 201'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a.q"}'::jsonb, '{"a":{"b":"c"}}'::jsonb),
     'null'::jsonb,
-    'test 200'
+    'test 202'
 );
 SELECT is(
     evaluate_json_logic('{"var":["a.q",9]}'::jsonb, '{"a":{"b":"c"}}'::jsonb),
     '9'::jsonb,
-    'test 201'
+    'test 203'
 );
 SELECT is(
     evaluate_json_logic('{"var":1}'::jsonb, '["apple","banana"]'::jsonb),
     '"banana"'::jsonb,
-    'test 202'
+    'test 204'
 );
 SELECT is(
     evaluate_json_logic('{"var":"1"}'::jsonb, '["apple","banana"]'::jsonb),
     '"banana"'::jsonb,
-    'test 203'
+    'test 205'
 );
 SELECT is(
     evaluate_json_logic('{"var":"1.1"}'::jsonb, '["apple",["banana","beer"]]'::jsonb),
     '"beer"'::jsonb,
-    'test 204'
+    'test 206'
 );
 SELECT is(
     evaluate_json_logic('{"and":[{"<":[{"var":"temp"},110]},{"==":[{"var":"pie.filling"},"apple"]}]}'::jsonb, '{"temp":100,"pie":{"filling":"apple"}}'::jsonb),
     'true'::jsonb,
-    'test 205'
+    'test 207'
 );
 SELECT is(
     evaluate_json_logic('{"var":[{"?:":[{"<":[{"var":"temp"},110]},"pie.filling","pie.eta"]}]}'::jsonb, '{"temp":100,"pie":{"filling":"apple","eta":"60s"}}'::jsonb),
     '"apple"'::jsonb,
-    'test 206'
+    'test 208'
 );
 SELECT is(
     evaluate_json_logic('{"in":[{"var":"filling"},["apple","cherry"]]}'::jsonb, '{"filling":"apple"}'::jsonb),
     'true'::jsonb,
-    'test 207'
+    'test 209'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a.b.c"}'::jsonb, 'null'::jsonb),
     'null'::jsonb,
-    'test 208'
+    'test 210'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a.b.c"}'::jsonb, '{"a":null}'::jsonb),
     'null'::jsonb,
-    'test 209'
+    'test 211'
 );
 SELECT is(
     evaluate_json_logic('{"var":"a.b.c"}'::jsonb, '{"a":{"b":null}}'::jsonb),
     'null'::jsonb,
-    'test 210'
+    'test 212'
 );
 SELECT is(
     evaluate_json_logic('{"var":""}'::jsonb, '1'::jsonb),
     '1'::jsonb,
-    'test 211'
+    'test 213'
 );
 SELECT is(
     evaluate_json_logic('{"var":null}'::jsonb, '1'::jsonb),
     '1'::jsonb,
-    'test 212'
+    'test 214'
 );
 SELECT is(
     evaluate_json_logic('{"var":[]}'::jsonb, '1'::jsonb),
     '1'::jsonb,
-    'test 213'
+    'test 215'
 );
 -- Missing
 SELECT is(
     evaluate_json_logic('{"missing":[]}'::jsonb, 'null'::jsonb),
     '[]'::jsonb,
-    'test 214'
+    'test 216'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a"]}'::jsonb, 'null'::jsonb),
     '["a"]'::jsonb,
-    'test 215'
+    'test 217'
 );
 SELECT is(
     evaluate_json_logic('{"missing":"a"}'::jsonb, 'null'::jsonb),
     '["a"]'::jsonb,
-    'test 216'
+    'test 218'
 );
 SELECT is(
     evaluate_json_logic('{"missing":"a"}'::jsonb, '{"a":"apple"}'::jsonb),
     '[]'::jsonb,
-    'test 217'
+    'test 219'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a"]}'::jsonb, '{"a":"apple"}'::jsonb),
     '[]'::jsonb,
-    'test 218'
+    'test 220'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a","b"]}'::jsonb, '{"a":"apple"}'::jsonb),
     '["b"]'::jsonb,
-    'test 219'
+    'test 221'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a","b"]}'::jsonb, '{"b":"banana"}'::jsonb),
     '["a"]'::jsonb,
-    'test 220'
+    'test 222'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a","b"]}'::jsonb, '{"a":"apple","b":"banana"}'::jsonb),
     '[]'::jsonb,
-    'test 221'
+    'test 223'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a","b"]}'::jsonb, '{}'::jsonb),
     '["a","b"]'::jsonb,
-    'test 222'
+    'test 224'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a","b"]}'::jsonb, 'null'::jsonb),
     '["a","b"]'::jsonb,
-    'test 223'
+    'test 225'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a.b"]}'::jsonb, 'null'::jsonb),
     '["a.b"]'::jsonb,
-    'test 224'
+    'test 226'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a.b"]}'::jsonb, '{"a":"apple"}'::jsonb),
     '["a.b"]'::jsonb,
-    'test 225'
+    'test 227'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a.b"]}'::jsonb, '{"a":{"c":"apple cake"}}'::jsonb),
     '["a.b"]'::jsonb,
-    'test 226'
+    'test 228'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a.b"]}'::jsonb, '{"a":{"b":"apple brownie"}}'::jsonb),
     '[]'::jsonb,
-    'test 227'
+    'test 229'
 );
 SELECT is(
     evaluate_json_logic('{"missing":["a.b","a.c"]}'::jsonb, '{"a":{"b":"apple brownie"}}'::jsonb),
     '["a.c"]'::jsonb,
-    'test 228'
+    'test 230'
 );
 -- Missing some
 SELECT is(
     evaluate_json_logic('{"missing_some":[1,["a","b"]]}'::jsonb, '{"a":"apple"}'::jsonb),
     '[]'::jsonb,
-    'test 229'
+    'test 231'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[1,["a","b"]]}'::jsonb, '{"b":"banana"}'::jsonb),
     '[]'::jsonb,
-    'test 230'
+    'test 232'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[1,["a","b"]]}'::jsonb, '{"a":"apple","b":"banana"}'::jsonb),
     '[]'::jsonb,
-    'test 231'
+    'test 233'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[1,["a","b"]]}'::jsonb, '{"c":"carrot"}'::jsonb),
     '["a","b"]'::jsonb,
-    'test 232'
+    'test 234'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[2,["a","b","c"]]}'::jsonb, '{"a":"apple","b":"banana"}'::jsonb),
     '[]'::jsonb,
-    'test 233'
+    'test 235'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[2,["a","b","c"]]}'::jsonb, '{"a":"apple","c":"carrot"}'::jsonb),
     '[]'::jsonb,
-    'test 234'
+    'test 236'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[2,["a","b","c"]]}'::jsonb, '{"a":"apple","b":"banana","c":"carrot"}'::jsonb),
     '[]'::jsonb,
-    'test 235'
+    'test 237'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[2,["a","b","c"]]}'::jsonb, '{"a":"apple","d":"durian"}'::jsonb),
     '["b","c"]'::jsonb,
-    'test 236'
+    'test 238'
 );
 SELECT is(
     evaluate_json_logic('{"missing_some":[2,["a","b","c"]]}'::jsonb, '{"d":"durian","e":"eggplant"}'::jsonb),
     '["a","b","c"]'::jsonb,
-    'test 237'
+    'test 239'
 );
 -- Missing and If are friends, because empty arrays are falsey in JsonLogic
 SELECT is(
     evaluate_json_logic('{"if":[{"missing":"a"},"missed it","found it"]}'::jsonb, '{"a":"apple"}'::jsonb),
     '"found it"'::jsonb,
-    'test 238'
+    'test 240'
 );
 SELECT is(
     evaluate_json_logic('{"if":[{"missing":"a"},"missed it","found it"]}'::jsonb, '{"b":"banana"}'::jsonb),
     '"missed it"'::jsonb,
-    'test 239'
+    'test 241'
 );
 -- Missing, Merge, and If are friends. VIN is always required, APR is only required if financing is true.
 SELECT is(
     evaluate_json_logic('{"missing":{"merge":["vin",{"if":[{"var":"financing"},["apr"],[]]}]}}'::jsonb, '{"financing":true}'::jsonb),
     '["vin","apr"]'::jsonb,
-    'test 240'
+    'test 242'
 );
 SELECT is(
     evaluate_json_logic('{"missing":{"merge":["vin",{"if":[{"var":"financing"},["apr"],[]]}]}}'::jsonb, '{"financing":false}'::jsonb),
     '["vin"]'::jsonb,
-    'test 241'
+    'test 243'
 );
 -- Filter, map, all, none, and some
 SELECT is(
     evaluate_json_logic('{"filter":[{"var":"integers"},true]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 242'
+    'test 244'
 );
 SELECT is(
     evaluate_json_logic('{"filter":[{"var":"integers"},false]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     '[]'::jsonb,
-    'test 243'
+    'test 245'
 );
 SELECT is(
     evaluate_json_logic('{"filter":[{"var":"integers"},{">=":[{"var":""},2]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     '[2,3]'::jsonb,
-    'test 244'
+    'test 246'
 );
 SELECT is(
     evaluate_json_logic('{"filter":[{"var":"integers"},{"%":[{"var":""},2]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     '[1,3]'::jsonb,
-    'test 245'
+    'test 247'
 );
 SELECT is(
     evaluate_json_logic('{"map":[{"var":"integers"},{"*":[{"var":""},2]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     '[2,4,6]'::jsonb,
-    'test 246'
+    'test 248'
 );
 SELECT is(
     evaluate_json_logic('{"map":[{"var":"integers"},{"*":[{"var":""},2]}]}'::jsonb, 'null'::jsonb),
     '[]'::jsonb,
-    'test 247'
+    'test 249'
 );
 SELECT is(
     evaluate_json_logic('{"map":[{"var":"desserts"},{"var":"qty"}]}'::jsonb, '{"desserts":[{"name":"apple","qty":1},{"name":"brownie","qty":2},{"name":"cupcake","qty":3}]}'::jsonb),
     '[1,2,3]'::jsonb,
-    'test 248'
+    'test 250'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"integers"},{"+":[{"var":"current"},{"var":"accumulator"}]},0]}'::jsonb, '{"integers":[1,2,3,4]}'::jsonb),
     '10'::jsonb,
-    'test 249'
+    'test 251'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"integers"},{"+":[{"var":"current"},{"var":"accumulator"}]},{"var":"start_with"}]}'::jsonb, '{"integers":[1,2,3,4],"start_with":59}'::jsonb),
     '69'::jsonb,
-    'test 250'
+    'test 252'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"integers"},{"+":[{"var":"current"},{"var":"accumulator"}]},0]}'::jsonb, 'null'::jsonb),
     '0'::jsonb,
-    'test 251'
+    'test 253'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"integers"},{"*":[{"var":"current"},{"var":"accumulator"}]},1]}'::jsonb, '{"integers":[1,2,3,4]}'::jsonb),
     '24'::jsonb,
-    'test 252'
+    'test 254'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"integers"},{"*":[{"var":"current"},{"var":"accumulator"}]},0]}'::jsonb, '{"integers":[1,2,3,4]}'::jsonb),
     '0'::jsonb,
-    'test 253'
+    'test 255'
 );
 SELECT is(
     evaluate_json_logic('{"reduce":[{"var":"desserts"},{"+":[{"var":"accumulator"},{"var":"current.qty"}]},0]}'::jsonb, '{"desserts":[{"name":"apple","qty":1},{"name":"brownie","qty":2},{"name":"cupcake","qty":3}]}'::jsonb),
     '6'::jsonb,
-    'test 254'
+    'test 256'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"integers"},{">=":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'true'::jsonb,
-    'test 255'
+    'test 257'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"integers"},{"==":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'false'::jsonb,
-    'test 256'
+    'test 258'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'false'::jsonb,
-    'test 257'
+    'test 259'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[]}'::jsonb),
     'false'::jsonb,
-    'test 258'
+    'test 260'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'true'::jsonb,
-    'test 259'
+    'test 261'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"items"},{">":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'false'::jsonb,
-    'test 260'
+    'test 262'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"items"},{"<":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'false'::jsonb,
-    'test 261'
+    'test 263'
 );
 SELECT is(
     evaluate_json_logic('{"all":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[]}'::jsonb),
     'false'::jsonb,
-    'test 262'
+    'test 264'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"integers"},{">=":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'false'::jsonb,
-    'test 263'
+    'test 265'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"integers"},{"==":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'false'::jsonb,
-    'test 264'
+    'test 266'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'true'::jsonb,
-    'test 265'
+    'test 267'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[]}'::jsonb),
     'true'::jsonb,
-    'test 266'
+    'test 268'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'false'::jsonb,
-    'test 267'
+    'test 269'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"items"},{">":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'false'::jsonb,
-    'test 268'
+    'test 270'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"items"},{"<":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'true'::jsonb,
-    'test 269'
+    'test 271'
 );
 SELECT is(
     evaluate_json_logic('{"none":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[]}'::jsonb),
     'true'::jsonb,
-    'test 270'
+    'test 272'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"integers"},{">=":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'true'::jsonb,
-    'test 271'
+    'test 273'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"integers"},{"==":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'true'::jsonb,
-    'test 272'
+    'test 274'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[1,2,3]}'::jsonb),
     'false'::jsonb,
-    'test 273'
+    'test 275'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"integers"},{"<":[{"var":""},1]}]}'::jsonb, '{"integers":[]}'::jsonb),
     'false'::jsonb,
-    'test 274'
+    'test 276'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'true'::jsonb,
-    'test 275'
+    'test 277'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"items"},{">":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'true'::jsonb,
-    'test 276'
+    'test 278'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"items"},{"<":[{"var":"qty"},1]}]}'::jsonb, '{"items":[{"qty":1,"sku":"apple"},{"qty":2,"sku":"banana"}]}'::jsonb),
     'false'::jsonb,
-    'test 277'
+    'test 279'
 );
 SELECT is(
     evaluate_json_logic('{"some":[{"var":"items"},{">=":[{"var":"qty"},1]}]}'::jsonb, '{"items":[]}'::jsonb),
     'false'::jsonb,
-    'test 278'
+    'test 280'
 );
 -- # is_match
 SELECT is(
     evaluate_json_logic('{"is_match":["hello@example.com","^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 279'
+    'test 281'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["not-an-email","^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 280'
+    'test 282'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["valid-slug-123","^[a-z0-9]+(?:-[a-z0-9]+)*$"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 281'
+    'test 283'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["Invalid Slug!","^[a-z0-9]+(?:-[a-z0-9]+)*$"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 282'
+    'test 284'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":[{"var":"email"},"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{"email":"user@example.org"}'::jsonb),
     'true'::jsonb,
-    'test 283'
+    'test 285'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":[{"var":"email"},"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}'::jsonb, '{"email":"bad-email"}'::jsonb),
     'false'::jsonb,
-    'test 284'
+    'test 286'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["hello world","^hello"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 285'
+    'test 287'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["goodbye world","^hello"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 286'
+    'test 288'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["abc123","^[a-z]+[0-9]+$"]}'::jsonb, '{}'::jsonb),
     'true'::jsonb,
-    'test 287'
+    'test 289'
 );
 SELECT is(
     evaluate_json_logic('{"is_match":["123abc","^[a-z]+[0-9]+$"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
-    'test 288'
+    'test 290'
 );
 -- EOF
 

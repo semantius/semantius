@@ -165,7 +165,7 @@ BEGIN
     -- so for OAuth sessions it is authoritative for the subject. (Supabase/Neon
     -- PostgREST sessions have system_user 'scram-sha-256:authenticator' and are
     -- left untouched.)
-    SELECT system_user INTO v_system_user;
+    v_system_user := system_user;
     IF v_system_user LIKE 'oauth:%' THEN
         sub_value := substring(v_system_user FROM 7);
         v_role := 'authenticated';
@@ -322,37 +322,54 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
--- request role can overwrite. Behind PostgREST or an app server that is
--- harmless (the client never runs SQL), but a bearer session hands the client
--- SQL as the request role, so a cached context could be forged there (release
--- review S2). For bearer sessions the shortcut below is skipped and the
--- context is re-derived on every call until the cache is hardened.
+-- request role can overwrite, and nothing here can tell a value written by rbac
+-- from one written by the client. Behind PostgREST or an app server that is
+-- harmless, because the client never runs SQL at all. A PostgreSQL 18 OAuth
+-- bearer session does hand the client SQL as the request role, so a cached
+-- context could be forged there; for those sessions the shortcut below is
+-- skipped entirely and the context is re-derived on every call. Making the
+-- cache trustworthy for them needs it written and checksummed by a
+-- definer-only writer, so that a hand-edited setting is detected rather than
+-- believed. That is not built.
+--
+-- The shortcut also requires the cached subject to match the JWT subject, so
+-- that a session carrying no valid claims cannot take it. That is not a defense
+-- against forgery; rbac.has_permission carries the same test and spells out what
+-- it does and does not guarantee.
 CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
     v_external_id TEXT;
     v_user_id INTEGER;
     v_permissions TEXT;
-    v_initialized TEXT;
+    v_cached_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    IF rbac.is_bearer_session() THEN
+    -- The bearer test is the bare expression, not rbac.is_bearer_session():
+    -- that function pins search_path, which stops PostgreSQL inlining it, so
+    -- calling it costs a real function call on every permission check. The
+    -- function stays - whoami and the tests use it.
+    IF system_user LIKE 'oauth:%' THEN
         -- Permission cache disabled: say so once per session (server log and client).
+        PERFORM rbac.uid();
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
-            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check until the cache is hardened for bearer auth (release review S2).';
+            RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
             PERFORM set_config('app.bearer_cache_notice', 'sent', false);
         END IF;
     ELSE
-        -- Check if already initialized in this transaction
-        v_initialized := current_setting('app.context_initialized', true);
-
-        IF v_initialized = 'true' THEN
+        -- Warm path. See rbac.has_permission for why the subject is compared;
+        -- the same four conditions are inlined there and in has_any_permission.
+        v_cached_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) = 'true'
+           AND v_cached_external_id IS NOT NULL
+           AND v_cached_external_id <> ''
+           AND v_cached_external_id = current_setting('request.jwt.claim.sub', true)
+        THEN
             RETURN; -- Already initialized, skip
         END IF;
     END IF;
 
-    -- Get current user from JWT
+    -- Cold path. rbac.uid() validates the claims and returns the subject; it is
+    -- the only place an identity is established.
     v_external_id := rbac.uid();
     
     -- Read-only lookup: Get user_id without modifying database
@@ -480,7 +497,11 @@ BEGIN
             -- Get permissions from OAuth scopes
             SELECT DISTINCT p.id AS permission_id
             FROM permissions p
-            WHERE p.permission_name = ANY(string_to_array(v_oauth_scopes, ' '))
+            WHERE p.permission_name = ANY(
+                -- Separators normalized: any run of commas or whitespace.
+                -- See rbac.has_permission for why this is inlined and why it
+                -- cannot escalate.
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''))
             
             UNION
             
@@ -510,16 +531,72 @@ DECLARE
     v_oauth_scopes TEXT;
     v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate permission_name
+    -- Validate permission_name. rbac.uid() runs on this cold branch only: it is
+    -- what makes an unauthenticated caller raise 42501 instead of receiving
+    -- FALSE, and keeping it here means guard test 0060_test_security.sql still
+    -- sees a direct rbac.uid() call in this function.
     IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
+        PERFORM rbac.uid();
         RETURN FALSE;
     END IF;
-    
-    -- LAZY INITIALIZATION: Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-    
+
+    -- WARM PATH. The cache test is inlined here rather than delegated to
+    -- rbac.ensure_context_initialized(), which is why the same few lines appear
+    -- in three places. Delegating costs a second PL/pgSQL frame, and a frame - a
+    -- SECURITY DEFINER entry with a search_path save and restore - costs several
+    -- times the three current_setting reads it would be entering to perform. On
+    -- a warm check that frame dominates, and a warm check is what almost every
+    -- call is.
+    --
+    -- The copies must stay in step. has_any_permission and
+    -- ensure_context_initialized carry the same test, and
+    -- 0446_test_rbac_hot_path.sql asserts the ordering below in all three.
+    --
+    -- The bearer test stays ahead of the cache read, and must. The app.*
+    -- settings are ordinary GUCs with no owner: whoever holds the session can
+    -- overwrite them, and nothing here can tell a value written by rbac from
+    -- one written by the client. Behind PostgREST or an app server that is
+    -- harmless, because the client never runs SQL at all. A PostgreSQL 18 OAuth
+    -- bearer session does run SQL as the request role while the identity is
+    -- pinned in system_user, so there the cache is not trusted at any point and
+    -- the context is rebuilt on every check.
+    --
+    -- The subject comparison is therefore NOT a defense against a forged cache:
+    -- where the cache can be forged the bearer test above has already sent us to
+    -- the cold path, and where it cannot there is nothing to defend against. It
+    -- does exactly one thing - it refuses a session that carries no valid
+    -- claims. Such a session has an empty request.jwt.claim.sub, which cannot
+    -- equal a non-empty app.current_external_id, so it takes the cold path and
+    -- rbac.uid() rejects it there.
+    --
+    -- What the warm path does not check is the role and audience claims.
+    -- rbac.uid() validates those, and it runs only when the context is built:
+    -- once per transaction, not once per check. Rewriting
+    -- request.jwt.claim.role after the context exists does not change the answer
+    -- for the rest of that transaction. That gives nothing away - a caller able
+    -- to rewrite that GUC is running SQL in the session and can rewrite the
+    -- subject too - but a warm check is not equivalent to a cold one and should
+    -- not be read as if it were.
+    --
+    -- Why the comparison holds when the cache is genuine: app.current_external_id
+    -- and request.jwt.claim.sub are both transaction-local and both written by
+    -- the same cold pass. The Neon path returns the setting verbatim, the
+    -- Supabase fan-out writes it before re-reading it, the PostgreSQL 18
+    -- override rewrites it from system_user, and the two get_userinfo prefills
+    -- assign rbac.uid() to it.
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
+
     -- OPTIMIZATION: Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
@@ -536,8 +613,35 @@ BEGIN
                 RETURN TRUE;
             END IF;
             
-            -- Check if permission is in OAuth scopes
-            RETURN position(',' || p_permission_name || ',' IN ',' || v_oauth_scopes || ',') > 0;
+            -- Check if permission is in OAuth scopes.
+            -- Separator normalization. app.oauth_scopes was read as a
+            -- comma-separated list here and as a space-separated one in
+            -- rbac.user_has_permission, so the same value meant different things to
+            -- different checkers and a list in the "wrong" format confined the session
+            -- to nothing at all. Any run of commas or whitespace now separates, in all
+            -- four readers, so "a,b", "a b" and " a ,, b " are the same two scopes.
+            --
+            -- Inlined rather than given a helper function on purpose: guard test 0240
+            -- requires every function to pin search_path, and a pinned search_path
+            -- stops PostgreSQL inlining the call - the same trap that made
+            -- rbac.is_bearer_session() cost a real call on the hot path.
+            --
+            -- This cannot escalate. Scopes only ever subtract: the permission has
+            -- already been found in the caller's own permission set above, and this
+            -- test can only take it away again. Normalizing stops the filter denying
+            -- what the token actually granted; it cannot grant what the user lacks.
+            --
+            -- Normalizing the separators does not make the confinement binding.
+            -- app.oauth_scopes is a client-settable GUC like the rest of app.*, so
+            -- a session that can run SQL can simply blank it and walk out of its
+            -- own confinement - and blanking it reads as "no scopes", which the
+            -- branch above treats as no restriction. Closing that needs the scope
+            -- list to be carried inside a context the client cannot forge, i.e.
+            -- written and checksummed by a definer-only entry point, so that a
+            -- cleared or widened list is detected rather than believed. That work
+            -- is not done; only the separator inconsistency is fixed here.
+            RETURN p_permission_name = ANY(
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''));
         ELSE
             -- Permission not in cache
             RETURN FALSE;
@@ -581,17 +685,32 @@ DECLARE
     v_permission TEXT;
     v_oauth_scopes TEXT;
     v_has_base_permission BOOLEAN := FALSE;
+    v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate input
+    -- Validate input. rbac.uid() runs on this cold branch only - see
+    -- rbac.has_permission for why.
     IF p_permission_names IS NULL OR array_length(p_permission_names, 1) IS NULL THEN
+        PERFORM rbac.uid();
         RETURN FALSE;
     END IF;
 
-    -- LAZY INITIALIZATION: Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-    
+    -- WARM PATH. Identical to the test in rbac.has_permission,
+    -- inlined for the same reason and with the same ordering requirement: the
+    -- bearer test must stay ahead of the cache read. The reasoning is spelled
+    -- out there.
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
+
     -- Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
     
@@ -619,7 +738,11 @@ BEGIN
         -- Verify at least one permission is in OAuth scopes
         FOREACH v_permission IN ARRAY p_permission_names
         LOOP
-            IF position(',' || v_permission || ',' IN ',' || v_oauth_scopes || ',') > 0 THEN
+            -- Separators normalized: any run of commas or whitespace.
+            -- See rbac.has_permission for why this is inlined and why it
+            -- cannot escalate.
+            IF v_permission = ANY(
+                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '')) THEN
                 RETURN TRUE;
             END IF;
         END LOOP;
@@ -767,7 +890,18 @@ BEGIN
             THEN 'Granted'::TEXT
             ELSE 'User does not have this permission'::TEXT
         END AS reason
-    FROM unnest(string_to_array(p_requested_scopes, ' ')) AS s(scope);
+    -- Separators normalized, as at the three GUC read sites. p_requested_scopes
+    -- is an OAuth authorization-request scope string, which RFC 6749 delimits
+    -- with spaces, so space was never wrong here; accepting commas too leaves no
+    -- site in this file where the separator matters.
+    --
+    -- array_remove drops the empty strings that a leading, trailing or repeated
+    -- separator produces, so a request of ',' or a tab yields no rows rather
+    -- than one row for an empty scope. A NULL or all-blank request never gets
+    -- this far: the guard at the top of the function returns first.
+    FROM unnest(
+        array_remove(regexp_split_to_array(p_requested_scopes, '[,[:space:]]+'), '')
+    ) AS s(scope);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 

@@ -8,6 +8,10 @@
     [ null, {}, null ],
     [ ["a","b"], {}, ["a","b"] ],
 
+    "# Objects that are not single-key logic get passed through",
+    [ {}, {}, {} ],
+    [ {"==":[1,1],"extra":2}, {}, {"==":[1,1],"extra":2} ],
+
     "# Single operator tests",
     [ {"==":[1,1]}, {}, true ],
     [ {"==":[1,"1"]}, {}, true ],

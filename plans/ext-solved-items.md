@@ -22,7 +22,7 @@ forced are folded in below. Two of its rows did not survive:
   on a pull request", and the owner decided on 2026-09-03 to use neither pull
   requests nor a separate test workflow. It should be read as dropped.
 
-Last updated: 2026-09-04.
+Last updated: 2026-09-05.
 
 ## The 0.5.0 rebuild (2026-09-03): where every item stands
 
@@ -196,3 +196,164 @@ after a schema edit. That route stays unbuilt.
 by granting EXECUTE on `audit.current_user_id()` to `semantius_owner` before
 the loop; the loop is still order-dependent in principle and is open item
 **S19**.
+
+## P3 (2026-09-05): the warm permission check stopped resolving the caller twice
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P3 | High | migration | `0030_rbac_functions.sql` (`uid`, `ensure_context_initialized`, `has_permission`) | Every `has_permission` runs `rbac.uid()` twice, and each `uid()` issues two SPI queries (`SELECT system_user INTO`, `_settings` read). Measured: `has_permission` 26.6 us per call, `uid()` 8.0 us, `ensure_context_initialized` 14.4 us, the cache check itself 0.4 us. | Test `app.context_initialized` before calling `uid()`; drop the redundant `PERFORM rbac.uid()` in the checkers; `v := system_user` instead of `SELECT ... INTO`; cache the validated sub per transaction. Coordinate with the bearer-mode signed cache in `docs/bearer-mode-status.md`. Absorbs the rbac part of Q2. **Owned by `plans/perf-hot-paths.md`**. | `has_permission` at about 5 us per call (from 26 us), re-measured per Appendix B. |
+
+**Measured: 17.9-19.4 us -> 2.0 us per warm call**, about 9x, which clears the
+5 us done-when. The absolute baseline is lower than the review's 26.6 us because
+this is different hardware; the *structure* the review described reproduced
+exactly (`has_permission` 17.02 total, its own body 4.88, `ensure_context_initialized`
+8.64, `uid` 3.40 x 2 calls, `is_bearer_session` 1.19). The baseline was taken
+twice - once on the database as found, once after stashing the change and
+rebuilding from scratch - so the comparison is like-for-like. Method is
+Appendix B: `track_functions = all`, a PL/pgSQL loop of 20,000 calls inside a
+rolled-back transaction, read back from `pg_stat_xact_user_functions`.
+
+Call counts per 20,000 warm checks, which is the part that cannot be timing noise:
+
+| | before | after |
+|---|---|---|
+| `ensure_context_initialized` | 20,001 | 1 |
+| `uid` | 40,005 | 3 |
+| `is_bearer_session` | 20,001 | 0 |
+
+| What changed | Where | Verified by |
+|---|---|---|
+| The cache test is inlined into `has_permission` and `has_any_permission`, which now read the three settings themselves and call `ensure_context_initialized()` only on a miss. A warm check enters one PL/pgSQL frame instead of two; the second frame was most of what the call cost, because a SECURITY DEFINER plpgsql entry with a `SET search_path` save/restore is expensive relative to a `current_setting` read. | `0030_rbac_functions.sql` | `0446_test_rbac_hot_path.sql`: both checkers mention `app.context_initialized` in `prosrc`. Before the change neither did, so this is the assertion that fails on revert. |
+| The bearer-session test is the bare `system_user LIKE 'oauth:%'` rather than a call to `rbac.is_bearer_session()`. That function pins `search_path`, which stops PostgreSQL inlining it, so it cost a real function call on every check. The function stays: `whoami` reports through it and `0435` pins it. | `0030_rbac_functions.sql` | `0446`: `is_bearer_session` still exists and is false in a SCRAM session |
+| `ensure_context_initialized` no longer opens with a redundant `PERFORM rbac.uid()`. Both of its branches fell through to `v_external_id := rbac.uid()` regardless, so the leading call was pure duplication rather than something to be moved. | `0030_rbac_functions.sql` | measured: `uid` calls per 20,000 checks fell from 40,005 to 3 |
+| The warm shortcut now also requires `app.current_external_id` to be non-empty and to equal `request.jwt.claim.sub`. This is **not** a fix for the client-writable cache (S2) and buys nothing in a supported deployment, where the client never runs SQL and cannot write `app.*` at all. It replaces a side effect of the removed `rbac.uid()` calls: those refused a session carrying no valid claims, and the comparison keeps that refusal. Sound because both settings are transaction-local and written by the same cold pass - the Neon path returns the setting verbatim, the Supabase fan-out writes it before re-reading, the PG18 override rewrites it, and both `get_userinfo` prefills assign `rbac.uid()`. | `0030_rbac_functions.sql` | `0446`: a cache naming another subject is rebuilt and denied, by `has_permission` and `has_any_permission`, with a genuine warm hit as the positive control; and a session with no claims plus a hand-written cache raises 42501 |
+| `v_system_user := system_user` instead of `SELECT system_user INTO` in `uid()` - the one real Q2 site in `rbac`. | `0030_rbac_functions.sql` | n/a (Q2 decremented to 15) |
+| `app.oauth_scopes` separators normalized: any run of commas or whitespace separates, in all three GUC readers and in `validate_oauth_scopes`' request parameter. Previously `has_permission`/`has_any_permission` read commas and `user_has_permission` read spaces, so a list in the "wrong" format silently confined the session to nothing. Inlined rather than given a helper because `0240` requires every function to pin `search_path`, and a pinned `search_path` blocks inlining - the same trap as `is_bearer_session`. Cannot escalate: scopes only subtract, the permission has already been matched against the caller's own set before the scope test runs. | `0030_rbac_functions.sql` | `0405` GROUP 6, eleven assertions across all four readers with negative controls; verified to fail under the old readers before the change |
+
+**Two things the owning plan asked for and did not get, deliberately.**
+
+- The plan wanted `PERFORM rbac.uid()` deleted outright from the checkers, which
+  costs the `0060_test_security.sql` guard: it would have had to accept
+  `rbac.ensure_context_initialized()` as a substitute for a direct `rbac.uid()`
+  call, for every SECURITY DEFINER function in `public` and `rbac`, forever -
+  and that substitute is weaker after this change, because
+  `ensure_context_initialized` now returns early on a warm session. Instead the
+  call was kept on each checker's input-validation branch, which is never hot.
+  Behavior is therefore unchanged for a blank permission name (an
+  unauthenticated caller still gets 42501, not FALSE) and **`0060` needed no
+  edit at all**.
+- `get_current_user_permissions` was left alone: it has no validation branch to
+  host the call, it is an RPC rather than a per-row path, and it is not named in
+  P3's done-when. It gets the forged-cache protection anyway, through
+  `ensure_context_initialized`, which carries the same subject test - verified.
+
+**Residue.** `require_permission` and `require_any_permission` still open with
+`PERFORM rbac.uid()` and so still cost about 14 us. They are outside P3's
+done-when, which names `has_permission` only, but anyone re-measuring should
+measure the right function. Not tracked as a new row.
+
+**Read the 9x as what it is: per call.** The RLS policies in `0050_rbac_rls.sql`
+invoke the checker as `(select rbac.has_permission('admin'))`, and the
+sub-select makes it an InitPlan the planner evaluates once per query rather than
+once per row. So table RLS was never paying 17.9 us per row and does not now
+save 15.9 per row. Where the per-call figure is actually collected is everywhere
+the check is *not* hoisted: the generated per-row rule predicates, the checkers
+called from inside PL/pgSQL loops, and direct calls from application code and
+RPCs. This does not reduce the change - the same reasoning is why P7 wants the
+checkers to stay hoistable - but the headline number is a per-call one and
+should not be quoted as a per-row throughput gain.
+
+## P12 (2026-09-05): the JsonLogic interpreter stopped querying the database to read a JSON key
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P12 | High | migration | `0210_raci.sql` (`evaluate_json_logic`, the installed CREATE OR REPLACE at :380-1020) | Identifying a node operator costs two SQL round trips (`:430-431`): a `SELECT ... FROM jsonb_object_keys` and a `SELECT count(*)` over the same set-returning function. Neither qualifies for PL/pgSQL simple-expression evaluation, so both go through full SPI - four executions per row for a two-node rule, plausibly 30-50% of the 51 µs interpreter cost. Reaches every caller: select_rule policies, generated validation triggers and RACI gates. | Identify the operator with one non-SPI expression (`jsonb_path_query_first`), keeping an explicit zero-key guard for the `{}` rule. Do not reorder the operator IF-chain and do not convert it to CASE - `exec_stmt_case` walks its WHEN list linearly too. **Owned by `plans/perf-hot-paths.md`**. | `evaluate_json_logic` issues no SQL round trip to identify a node operator, and one node is 30-50% cheaper, re-measured per Appendix B. |
+
+Closed at the lower edge of its band, deliberately and on the record: **5.6-5.9
+-> ~4.0 us per node, 29.0-30.8% cheaper, median 30.3% over eight samples.** The
+30-50% figure in the done-when was always an estimate ("plausibly 30-50% of the
+interpreter cost"); the real distribution of that cost is now known and is
+written down below, so the row closes on measurement rather than on the guess.
+
+Method: the pre-change body extracted from git, renamed together with its 27
+recursive call sites, and run interleaved with the new one inside a single
+transaction - 480,000 calls each - so machine load could not favor either. An
+earlier attempt across separate transactions gave 12% and 31% and was discarded
+as noise. A dispatch variant that briefly showed 3.01 us was discarded too: its
+call count was 80,008 where every other variant showed 320,016, which is what
+exposed that its recursion was not landing on itself.
+
+| What changed | Where | Verified by |
+|---|---|---|
+| Operator identification is one non-SPI expression. `jsonb_path_query_first(rule, '$.keyvalue().key')` reads the key in the same order `jsonb_object_keys` returned it, and `rule - op` leaves `'{}'` exactly when that key was the only one. It replaces `SELECT key INTO op FROM jsonb_object_keys(rule) LIMIT 1` plus a second `SELECT count(*)` over the same set-returning function: both had a FROM clause, which disqualified them from PL/pgSQL's simple-expression path, so each went to the SQL engine to be planned and executed - four executions per row for a two-node rule. | `0210_raci.sql` and `0015_jsonlogic.sql` | the 290-case corpus, `0016_test_jsonlogic_ext.sql`, `0350_test_raci.sql` |
+| An explicit NULL guard for the zero-key rule. `{}` yields no key, and without the guard the next line evaluates `rule -> NULL`. Verified load-bearing rather than assumed: rebuilt without it, `{}` raises `Unrecognized operation: <NULL>` instead of passing through. | both copies | new corpus case `[{}, {}, {}]` |
+| The 12 operators that must run before the depth-first argument evaluation - the ones that short-circuit or bind their own scope - are wrapped in a single `op = ANY(ARRAY[...])` guard. The dispatch is 44 separate `IF op = '...'` statements, not an ELSIF chain, so every ordinary operator used to evaluate 12 dead statements before it could match, on every node of every rule on every row. No operator moved and no body changed. This is what took the figure from 25-29% to ~30%. | both copies | all 12 guarded operators have coverage (10 in the corpus, `let` and `set_record` in `0016`/`0350`), so one dropped from the list fails as `Unrecognized operation` |
+| Both copies were fixed, not just the installed one. `0015` creates the function and `0210` replaces it with an extended version, so only `0210` runs - but leaving `0015` slow is a trap for whoever reads or measures the wrong one. | `0015_jsonlogic.sql` | n/a |
+| A multi-key passthrough case was added alongside the `{}` one. The change swaps "count the keys" for "remove the key and see what is left", and multi-key is where those differ most in kind. Neither case existed anywhere in the 288-case corpus, which is now 290. | `0015_test_jsonlogic.json` | regenerated with `deno task testgen_jsonlogic` |
+
+**Measured and declined.** Reordering the operators within the dispatch: 0-2%,
+inside the noise, against a diff that churns the whole file. The owning plan
+predicted this and was right, though it attributed the cost to the wrong thing -
+the expense is the 12 dead statements ahead of the barrier, not the position of
+any one operator behind it. Dropping the function's `SET search_path`: a real
+~5%, refused because `0240` requires every function to pin one and that guard is
+not worth five percent.
+
+**Where the floor is.** What remains per node is the PL/pgSQL frame, the jsonb
+operand handling, and the operator's own work. Past roughly 35% the floor is
+PL/pgSQL itself: multiples rather than percentages need either C, which would end
+this extension's pure-SQL portability, or not running the interpreter at all for
+recognizable rule shapes - which is **P2**, and is where the order-of-magnitude
+actually lives.
+
+## B19 (2026-09-05): the install paths stopped disagreeing about line endings
+
+Opened and closed the same day, during the P3/P12 work that exposed it. Recorded
+here rather than dropped, because the failure mode is invisible by construction
+and worth knowing about.
+
+**What was wrong.** A PL/pgSQL function body is stored verbatim in
+`pg_proc.prosrc`. The `.sql` files are LF in the repository and CRLF in a Windows
+working tree - `core.autocrlf` is true and there is no `.gitattributes` - and two
+of the three loaders passed the file through untouched. So the same migration
+installed a textually different database depending on who ran it: **129 of 260
+function bodies contained carriage returns after `deno task migrate`, and 0 after
+`CREATE EXTENSION`.** The generated bundles carried them too - 17,362 CR bytes,
+measured by reverting the fix.
+
+**Why that is not cosmetic.** Anything written across a line break, or any
+character class, means one thing on one checkout and another on the next, and no
+machine can see the difference because each one only ever builds one of the two.
+It had already happened: a scope-separator `btrim` was written with its character
+set typed literally into the source instead of escaped, so the CRLF path trimmed
+carriage returns and the LF build did not, and `rbac.validate_oauth_scopes`
+returned a different number of rows on the two paths. Both suites were green.
+Caught in review, before it was committed.
+
+| What changed | Where | Verified by |
+|---|---|---|
+| Migration text is normalized to LF as it is read, so every path that feeds SQL to PostgreSQL agrees. `extension.ts` already did this at `toLf`, added earlier so a local build and CI would hash identically; the other two loaders did not. | `packages/cli/commands/migrate.ts`, `scripts/bundle-sql.ts` | 129 -> 0 carriage returns in `pg_proc.prosrc` after a full migrate; 17,362 -> 0 CR bytes in the generated bundles |
+| A guard so it cannot come back: no function body in the Semantius schemas may contain a carriage return. It runs on both install paths, which is what makes it meaningful - the property it asserts is that the two agree. | `0240_test_no_unsafe_functions.sql` | green on `pg-cli-retest.sh` and `pg-ext-retest.sh`, 2130 assertions |
+| The scope readers keep their own tripwire regardless: tab, CRLF and trailing-carriage-return inputs, and the `validate_oauth_scopes` row count that actually diverged. | `0405_test_rbac_helpers.sql` | the trailing-CR assertion returns 1 row under the fixed code and returned 2 under the old LF build |
+
+**Both halves, and why neither alone is enough.** `.gitattributes` pins the
+working tree - `* text=auto eol=lf`, with `.cmd`/`.bat`/`.ps1` kept at CRLF
+because cmd.exe is unreliable with LF-only batch files. Every blob in the
+repository was already LF, so it cost no content change; a fresh checkout of a
+migration now yields 0 carriage returns where the tree held 1,249. That is the
+origin of the defect and it is now shut.
+
+It is still not sufficient on its own. It governs checkouts of this repository
+and nothing else: an existing tree keeps its CRLF until the files are checked out
+again, and a consumer who gets the SQL from the extension tarball, from a
+published `migrations-bundle.ts`, or from an editor that saves CRLF is outside
+its reach. The loader normalization is what makes the guarantee unconditional at
+the boundary that matters - the text handed to PostgreSQL - and it is what makes
+the `0240` assertion true on a tree that predates this change. The two are
+complementary: `.gitattributes` keeps carriage returns out of the source so
+nobody can type one into a character class by accident, `toLf` keeps them out of
+the database whatever the source turned out to be.

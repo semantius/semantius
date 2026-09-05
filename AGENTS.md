@@ -14,6 +14,26 @@ This document provides essential information for AI agents working with the Sema
   `modeled`, `traveled`). If a spelling differs between the two dialects, the
   American one is the only accepted form. The single exception is text vendored
   from upstream, which stays byte-identical to its source.
+- **Comments explain why, and stand on their own.** A comment earns its place by
+  recording what the code cannot say for itself: the constraint that forced this
+  shape, the cheaper approach that does not work, the property that must not be
+  broken, the cost of getting it wrong. Restating what the next line does is
+  noise. Three specific failures, all of which have shipped here before:
+  - **Do not defer the reasoning to a document or a tracking id.** `see
+    docs/foo.md`, `(open item P3)`, `(release review S2)` are pointers, not
+    explanations, and a reader who has only this file is left with nothing. Plan
+    ids are worse than merely indirect: they dangle by construction, because a
+    closed item is *deleted* from `plans/pg_semantius-open-items.md`. Write the
+    reasoning into the comment. Cross-references to other SQL or test files
+    (`pinned by 0405_test_rbac_helpers.sql`) are fine - they live in the
+    repository and survive.
+  - **Describe the code, not the change that produced it.** "One expression
+    instead of two queries", "no longer calls uid() twice", "the old count(*)
+    test kept this" all narrate a diff against something no future reader can
+    see. Say what the code does and why, in the present tense. Git holds the
+    history and `plans/ext-solved-items.md` holds the rationale for the change.
+  - **The same applies to text the user sees.** An internal tracking id inside a
+    `RAISE` message or a CLI error means nothing to the operator reading it.
 - **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
 
 ## Project Overview

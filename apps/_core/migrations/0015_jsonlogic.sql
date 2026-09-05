@@ -136,9 +136,27 @@ BEGIN
 
     -- Not an object or multi-key object => pass through (primitive)
     IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
-    -- Must have exactly one key to be logic
-    SELECT key INTO op FROM jsonb_object_keys(rule) AS key LIMIT 1;
-    IF (SELECT count(*) FROM jsonb_object_keys(rule)) <> 1 THEN RETURN rule; END IF;
+    -- Must have exactly one key to be logic.
+    -- Read the key with an expression, never a query. jsonb_object_keys is
+    -- set-returning, so any use of it needs a FROM clause, and a FROM clause
+    -- puts the statement outside PL/pgSQL's simple-expression path: it is handed
+    -- to the SQL engine to be planned and executed like any other query. This
+    -- runs once per node, and a rule as small as {"==": [{"var": "c"}, "x"]} has
+    -- two of them, on every row.
+    --
+    -- `rule - op` removing the key we found leaves '{}' exactly when it was the
+    -- only one, which is the whole single-key test. Which key $.keyvalue()
+    -- picks out of a multi-key object does not matter: any such object is
+    -- returned unchanged whichever key came first.
+    --
+    -- The NULL guard is required, not decorative: an empty object {} has no key
+    -- to find, so op is NULL, and without the guard the next line evaluates
+    -- `rule -> NULL`. An object with no keys is not logic and belongs with the
+    -- other pass-through cases. The OR is safe either way round - `NULL <> '{}'`
+    -- is NULL, and TRUE OR NULL is TRUE - so it does not depend on
+    -- short-circuit evaluation, which SQL does not promise.
+    op := jsonb_path_query_first(rule, '$.keyvalue().key') #>> '{}';
+    IF op IS NULL OR rule - op <> '{}'::jsonb THEN RETURN rule; END IF;
 
     vals := rule -> op;
     -- Normalize: if vals is not an array, wrap it
@@ -148,6 +166,28 @@ BEGIN
     arr_len := jsonb_array_length(vals);
 
     -- ===================== if / ?: =====================
+    -- These twelve operators have to be dispatched BEFORE the depth-first
+    -- argument evaluation further down. They either short-circuit (if, and, or)
+    -- or bind their own scope (let, map, filter, reduce, all, none, some,
+    -- set_record), so their arguments must not be evaluated eagerly.
+    --
+    -- The membership test in front of them is what keeps that cheap for
+    -- everyone else. What follows is a run of separate IF statements, not an
+    -- ELSIF chain, so without the test every other operator - var, ==, +, cat,
+    -- all of them - evaluates twelve conditions that cannot match before
+    -- reaching its own, on every node of every rule on every row.
+    --
+    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
+    -- not move or change a single operator. The list must stay exactly the set
+    -- of operators implemented between here and the barrier. Adding one without
+    -- listing it here does not fail quietly - the operator falls through to the
+    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
+    -- foot of this function, which every operator's own test case will catch.
+    --
+    -- Reordering the operators themselves was measured and abandoned: it is
+    -- worth 0-2% against this guard's 5, and churns the whole file.
+    IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
+
     IF op = 'if' OR op = '?:' THEN
         i := 0;
         WHILE i < arr_len - 1 LOOP
@@ -304,6 +344,9 @@ BEGIN
         nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
+
+
+    END IF;   -- end of the pre-evaluation operator group
 
     -- =====================================================
     -- All remaining operators: depth-first evaluate arguments

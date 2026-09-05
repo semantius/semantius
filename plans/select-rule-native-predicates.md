@@ -401,10 +401,54 @@ an index condition.
 
 ---
 
+## Regenerate
+
+This plan edits `0180_computed_validation.sql`, so the extension **must** be
+regenerated; an earlier draft omitted this step entirely.
+
+Regenerate the **current** version *in place*. Today that is `0.5.0-beta1`, but
+read it from `default_version` in `extension/pg_semantius.control` rather than
+trusting this line — it moves.
+
+**Never pass a version that is not already the current one.**
+`deno task extension <new-version>` *cuts a release*: it writes a new install
+script, deletes the previous one, writes an upgrade script, bumps
+`default_version` and records the version in `versions.json`. Only the newest
+version is mutable and may be regenerated in place, which is what is wanted here.
+`--strict` is accepted but ignored: the released-migration check has been on by
+default since it was introduced (`cli.ts:413-419`). It does not bite here —
+regenerating the newest version skips that check entirely, because it compares
+against the *previous* version and the newest one has none below it
+(`extension.ts:91-96`, `:273`). Editing migrations and regenerating in place is
+the intended workflow, and `--allow-edited-migrations` is not needed.
+
+```sh
+VER=$(sed -n "s/.*default_version *= *'\(.*\)'.*/\1/p" extension/pg_semantius.control)
+deno task extension "$VER" && deno task bundle-sql
+git status --porcelain -- extension/          # must be empty
+```
+
+---
+
 ## Verification
 
-The standard sequence (see `plans/perf-hot-paths.md`), plus the lifecycle script
-for the indexability step.
+```sh
+deno task connect
+deno task dropall --confirm
+deno task migrate --apps _core,nwind,test --verbose
+deno task test
+VER=$(sed -n "s/.*default_version *= *'\(.*\)'.*/\1/p" extension/pg_semantius.control)
+deno task extension "$VER" && deno task bundle-sql
+git status --porcelain -- extension/          # must be empty
+pgdocker/pg-cli-retest.sh
+pgdocker/pg-ext-retest.sh
+pgdocker/pg-ext-lifecycle.sh
+```
+
+Then `deno task test --coverage` and update
+`docs/pg_semantius-test-coverage.md`. `pg-ext-lifecycle.sh` additionally carries
+this plan's `Index Cond` assertion, which needs real DDL and a committing
+session.
 
 Bookkeeping in `plans/pg_semantius-open-items.md`: close **P2**, recording the
 measured before/after and that the general "compile JsonLogic" fix was rejected

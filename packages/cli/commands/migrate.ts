@@ -219,6 +219,19 @@ async function migrateApp(
 }
 
 /** Loads all .sql files from apps/{folderName}/{subfolder}/ sorted ascending. */
+/** Migration text is normalized to LF before it reaches PostgreSQL. The .sql
+ * files are CRLF in a Windows checkout and LF elsewhere, and a function body is
+ * stored verbatim in pg_proc.prosrc - so without this, the same migration
+ * installs a textually different database depending on who ran it. That is not
+ * cosmetic: a character class or a quoted literal written across a line break
+ * means one thing on one checkout and another on the next, and no test can see
+ * the difference because each machine only ever builds one of them. Every
+ * install path normalizes the same way, so all of them agree.
+ */
+function toLf(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 async function loadSqlFiles(
   folderName: string,
   subfolder: string,
@@ -239,7 +252,7 @@ async function loadSqlFiles(
     const migrations: MigrationFile[] = [];
     for (const fileName of sqlFileNames) {
       const filePath = `${sqlPath}/${fileName}`;
-      const content = await Deno.readTextFile(filePath);
+      const content = toLf(await Deno.readTextFile(filePath));
       migrations.push({
         name: fileName.replace(/\.sql$/, ""),
         content,
