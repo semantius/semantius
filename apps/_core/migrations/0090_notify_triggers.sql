@@ -186,14 +186,22 @@ REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 
--- Nothing outside this file calls common.refresh_schema_cache(): the two DML
--- trigger functions above and the two event-trigger functions below are its only
--- callers, and all four now reach it as the owner. Left callable by the request
--- role it is a free amplifier - one RPC per request makes PostgREST rebuild its
--- schema cache, and an unauthenticated session could do it, because the function
--- carries no rbac.uid() and none would help: a NOTIFY costs the same whoever
--- sends it. The revoke from PUBLIC is the half that matters; the grant to
--- semantius_user was the documented one.
+-- Nothing outside this file calls common.refresh_schema_cache(). Its four
+-- callers are the two DML trigger functions and the two event-trigger functions
+-- above, and they reach it by two different routes: the DML pair are SECURITY
+-- DEFINER and run as the owner, while pgrst_ddl_watch and pgrst_drop_watch are
+-- SECURITY INVOKER and run as whoever executed the DDL.
+--
+-- That second route is why this revoke is safe only as long as the request role
+-- cannot run DDL. It holds today because semantius_user has CREATE on no schema
+-- and owns nothing, so it can never fire an event trigger. A temp table is the
+-- one thing it can create, and pg_temp is filtered out by the schema allow-list
+-- above before refresh_schema_cache is reached. Grant the request role CREATE
+-- anywhere and DDL starts failing with 42501 from inside an event trigger.
+--
+-- Left callable by the request role the function is a free amplifier: one RPC
+-- per request makes PostgREST rebuild its schema cache, and no identity check
+-- would help, because a NOTIFY costs the same whoever sends it.
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
 

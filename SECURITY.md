@@ -57,15 +57,18 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
   would run as the restorer. Restore as the same superuser name, without
   `--no-owner`.
-- **A function created by hand in `public` or `common` is PUBLIC-executable.**
-  PostgreSQL grants EXECUTE to PUBLIC on every new function. The
-  `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
-  those two schemas does not change that and never did: revoking only the
-  built-in PUBLIC grant leaves an ACL PostgreSQL treats as the default, so no
-  entry is stored. This is a property of any install, restored or not. The
-  extension's own functions are revoked explicitly instead, and guard test
-  `0060_test_security.sql` fails if one is missed; a function you add yourself
-  needs its own `REVOKE`, and needs it whether or not it is SECURITY DEFINER.
+- **A function you create by hand in any of the extension's schemas is
+  PUBLIC-executable.** PostgreSQL grants EXECUTE to PUBLIC on every new
+  function, and the `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS
+  FROM PUBLIC` entries do not change that: `pg_default_acl` records only the
+  privileges a schema *adds*, so a revoke of the built-in PUBLIC grant is not
+  representable there and is dropped. In `rbac` the effect is wider, because the
+  surviving `GRANT EXECUTE ... TO semantius_user` in the same entry does apply:
+  a function you add there is PUBLIC-executable *and* automatically exposed to
+  the request role over RPC. This is a property of any install, restored or not.
+  The extension's own functions are revoked explicitly instead, and guard test
+  `0060_test_security.sql` fails if one is missed; a function you add needs its
+  own `REVOKE`, whether or not it is SECURITY DEFINER.
 - **Session mode trusts the application tier.** When an application connects
   as `semantius_authenticator`, switches to the request role and writes the
   JWT claim settings itself, that application is the trust boundary: whoever
@@ -97,6 +100,13 @@ is wrong, say so, but they will not be treated as vulnerabilities.
 - **An API key is its owner.** A key authenticates as the user it belongs to
   and carries every permission that user holds; there is no per-key scope.
   Keep an administrator's key where you keep the administrator's password.
+- **The last enabled Administrator cannot be removed through the API.**
+  Dropping the role from the last holder, deleting that user, disabling them, or
+  deleting the Administrator role is refused, because every route back in is
+  itself gated on `admin` and the first-user election fires only when a user row
+  is created. A direct superuser or owner connection is exempt, so an operator
+  can still empty the set deliberately; the next principal to log in *for the
+  first time* is then elected.
 - **pgmq's information functions are callable by the request role.** Queue
   names, metrics and topic bindings are readable. Queue contents are not:
   they are reachable only through the queue RPCs, which require the queue's

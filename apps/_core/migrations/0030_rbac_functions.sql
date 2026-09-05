@@ -246,12 +246,20 @@ COMMENT ON FUNCTION rbac.uid IS
 -- SELF-OR-ADMIN. Four functions in this file take a subject as a parameter and
 -- answer a question about it - this one, user_has_permission,
 -- get_user_permissions and validate_oauth_scopes. All four are SECURITY DEFINER
--- and reachable over PostgREST RPC, so without a target check any authenticated
--- session could read any other principal's identity and authorization state, and
--- could enumerate which subjects exist by watching NULL turn into a row. Asking
--- about yourself is ordinary; asking about somebody else is an administrative
--- act. The rule is the one public.list_api_keys already applies, and it raises
--- rather than returning empty so a denial is never mistaken for an answer.
+-- and reachable over PostgREST RPC, so a target check is the only thing between
+-- an authenticated session and another principal's authorization state:
+-- user_roles, role_permissions and permissions are invisible to a plain user
+-- under RLS, and these functions read straight past that.
+--
+-- The identity half is a smaller gain, and worth being honest about. `user:read`
+-- sits in the base User role, so a logged-in session can already read the whole
+-- users table; guarding this function matters for a deployment that narrows
+-- `user:read`, and costs nothing where it does not.
+--
+-- Asking about yourself is ordinary; asking about somebody else is an
+-- administrative act. The rule is the one public.list_api_keys already applies,
+-- and it raises rather than returning empty so a denial is never mistaken for an
+-- answer.
 --
 -- rbac.uid() is called inside the test, not before it: it is the authentication
 -- gate (it raises when the session carries no valid claims) and it is STABLE, so
@@ -897,7 +905,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. It would be inherited
-    -- from rbac.get_user_permissions below in any case; stating it here is what
+    -- from rbac.get_user_permissions above in any case; stating it here is what
     -- makes the empty-external_id rejection and the scope split unreachable for
     -- a caller asking about somebody else.
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN

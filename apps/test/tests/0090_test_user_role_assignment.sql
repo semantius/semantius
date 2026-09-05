@@ -67,20 +67,25 @@ SELECT ok(
     'User 1002 should still have role 1 after deletion attempt'
 );
 
--- Test 7: Verify that other roles CAN be deleted (role 2 from user 1003)
--- First, verify user 1003 has role 2 (Administrator)
+-- Test 7: Verify that other roles CAN be deleted.
+-- Role 2 is given to user 9001 and taken away again, rather than taken from
+-- user 1003: user 1003 is the only enabled Administrator, and removing the last
+-- one is refused by rbac.assert_administrator_remains (pinned in
+-- 0091_test_last_administrator.sql). With two holders the deletion is ordinary.
+INSERT INTO user_roles (user_id, role_id) VALUES (9001, 2);
+
 SELECT ok(
-    (SELECT COUNT(*) FROM user_roles WHERE user_id = 1003 AND role_id = 2) = 1,
-    'User 1003 should have role 2 (Administrator) before deletion test'
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9001 AND role_id = 2) = 1,
+    'User 9001 should have role 2 (Administrator) before deletion test'
 );
 
--- Delete role 2 from user 1003 (this should succeed)
-DELETE FROM user_roles WHERE user_id = 1003 AND role_id = 2;
+-- Delete role 2 from user 9001 (this should succeed)
+DELETE FROM user_roles WHERE user_id = 9001 AND role_id = 2;
 
 -- Verify role 2 was successfully deleted
 SELECT ok(
-    (SELECT COUNT(*) FROM user_roles WHERE user_id = 1003 AND role_id = 2) = 0,
-    'Role 2 (Administrator) should be successfully deleted from user 1003'
+    (SELECT COUNT(*) FROM user_roles WHERE user_id = 9001 AND role_id = 2) = 0,
+    'Role 2 (Administrator) should be successfully deleted from user 9001'
 );
 
 SELECT * FROM finish();

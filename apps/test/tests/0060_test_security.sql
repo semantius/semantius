@@ -6,18 +6,24 @@
 --       RLS enabled with no policies BY DESIGN (0012), which is how a table is
 --       made unreachable through the Data API, and 2.1 reads that shape as a
 --       failure.
---   2.2 (PUBLIC EXECUTE) covers public, rbac, common and audit. Every schema
---       this project creates functions in belongs here: PostgreSQL grants
---       EXECUTE to PUBLIC on every new function and the schema-wide ALTER
---       DEFAULT PRIVILEGES in 0010 does not stop it (see the comment there), so
---       an explicit REVOKE is the only defense and this is what proves one was
---       written.
+--   2.2 (PUBLIC EXECUTE) covers public, rbac, common and audit - every schema
+--       whose functions this project writes. PostgreSQL grants EXECUTE to PUBLIC
+--       on every new function and the schema-wide ALTER DEFAULT PRIVILEGES in
+--       0010 does not stop it (see the comment there), so an explicit REVOKE is
+--       the only defense and this is what proves one was written. `pgmq` is
+--       excluded although 0160 creates its functions here too: they are vendored
+--       upstream code kept byte-identical to it, they are not reachable from
+--       PostgREST, which exposes `public` only, and what they expose to a
+--       DB-only caller is queue names, metrics and topic bindings. Revisit if
+--       `pgmq` is ever exposed or the request role gains SELECT on a queue
+--       table.
 --   2.3 (SECURITY DEFINER must call rbac.uid()) covers public and rbac. It
---       cannot cover common or audit: the cache functions, refresh_schema_cache
---       and audit.enable_tracking are definers that legitimately have no
---       identity to check, because they run before or beneath any request.
---       Widening it would mean adding all of them to the exclusion list, which
---       is the thing 2.3 exists to avoid.
+--       cannot cover common or audit: the five cache functions,
+--       refresh_schema_cache, enable_tracking, disable_tracking,
+--       primary_key_columns and log_ddl_event are all definers that legitimately
+--       have no identity to check, because they run before or beneath any
+--       request. Widening it would mean adding every one of them to the
+--       exclusion list, which is the thing 2.3 exists to avoid.
 BEGIN;
 
 SELECT plan(10);
@@ -126,11 +132,10 @@ SELECT is(
 -- =====================================================
 -- TEST 2.4: Privileges the request role must not hold
 -- =====================================================
--- Six catalog facts, each of which was true in the other direction until
--- 2026-09-05. They are asserted here rather than only through behavior because
--- a grant is restored by accident - a new GRANT ... ON ALL, a schema-wide
--- default privilege, a vendor bump - long after the behavior test that once
--- covered it was written, and this file is where a reviewer looks.
+-- Seven catalog facts, asserted here rather than only through behavior because
+-- a grant comes back by accident - a new GRANT ... ON ALL, a schema-wide default
+-- privilege, a vendor bump - long after the behavior test that covered it was
+-- written, and this file is where a reviewer looks.
 
 SELECT ok(
     NOT pg_catalog.has_function_privilege('semantius_user', 'common.cache_get(text)', 'EXECUTE'),

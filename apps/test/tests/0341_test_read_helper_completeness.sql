@@ -105,14 +105,13 @@ SELECT is(
 -- =====================================================
 SELECT authenticate_as('user3');
 
--- Clearing every last_seen produces the state the bootstrap used to misread.
--- It looks pristine and is not: user3 has held Administrator since the seed.
--- The old gate asked whether any OTHER user had been seen, so it read this as
--- "nobody has arrived yet" and elected the next principal created with a
--- last_seen, on top of the administrator already in place. The gate is the role
--- now, so neither insert below is elected.
--- 0110_test_first_user_get_userinfo.sql owns the whole rule, including the
--- election itself and the re-bootstrap after the last administrator is removed.
+-- Clearing every last_seen produces a state that looks pristine and is not:
+-- user3 has held Administrator since the seed. A bootstrap keyed on "has any
+-- other user been seen" reads this as "nobody has arrived yet" and elects the
+-- next principal created with a last_seen, on top of the administrator already
+-- in place. The gate is the role, so neither insert below is elected.
+-- 0110_test_first_user_get_userinfo.sql owns the whole rule and
+-- 0091_test_last_administrator.sql owns the guard that keeps the role held.
 UPDATE users SET last_seen = NULL;
 
 -- A user created WITHOUT last_seen has not arrived and is never elected.
@@ -127,7 +126,7 @@ SELECT is(
     'a user created without last_seen does NOT auto-receive Administrator');
 
 -- A user created WITH last_seen has arrived, and is still not elected: the role
--- is taken. This assertion said the opposite until the gate was fixed.
+-- is taken. This is the assertion that separates the two gates.
 INSERT INTO users (external_id, email, display_name, last_seen)
 VALUES ('b9_boss', 'b9_boss@test.com', 'Boss', CURRENT_TIMESTAMP);
 

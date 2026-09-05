@@ -772,7 +772,7 @@ coercion helper and 21 corpus cases.
 
 A non-numeric string against a number still coerces to 0, not NaN, so
 `{"<":["b",1]}` is true here and false in JavaScript. That is pre-existing
-behaviour, the same function's null handling depends on it (test 0335), and
+behavior, the same function's null handling depends on it (test 0335), and
 no row asked for NaN semantics. The corpus asserts only cases where the two
 agree.
 
@@ -894,10 +894,12 @@ a protection that a restore can lose.
 Each takes a subject or is a definer with no identity check, and each was
 reachable by the request role. Fixed here rather than left as new rows:
 
-- `rbac.get_user_by_external_id` - the same self-or-admin guard. This one also
-  closes enumeration: an unknown subject is now refused exactly like a known
-  one, so the two cannot be told apart. An administrator still gets NULL for an
-  unknown subject.
+- `rbac.get_user_by_external_id` - the same self-or-admin guard, and the weakest
+  of the four: `user:read` sits in the base User role, so a logged-in session can
+  already read the whole users table and there is no enumeration left to close in
+  the default configuration. It is worth having for a deployment that narrows
+  `user:read`, and it costs nothing - there is no caller. An administrator still
+  gets NULL for an unknown subject.
 - `rbac.validate_oauth_scopes` - the same guard. It would have inherited it
   through `get_user_permissions` anyway; stating it makes the refusal happen
   before the empty-`external_id` rejection rather than after.
@@ -1025,6 +1027,54 @@ was standing in for, taken under `pg_advisory_xact_lock(hashtext(
 'rbac.bootstrap_administrator'))`. `NEW.last_seen IS NOT NULL` stays, so
 provisioning a batch before anyone logs in still elects nobody.
 
+### The set is not allowed to empty
+
+The gate answers "is the role held", so it matters what happens when it stops
+being held. The election is `AFTER INSERT ON users`, and a principal that already
+has a row logs in through `rbac.upsert_user_from_jwt`'s `ON CONFLICT DO UPDATE`,
+which fires UPDATE triggers and never this one. So an established user is never
+elected however many times they authenticate, even with no administrator in
+place. Verified on a scratch database: with the administrator set emptied, an
+existing user logging in elects nobody, and only a principal with no users row is
+elected.
+
+That makes "delete the last administrator and log in again" a way to strand a
+database rather than a way to repair one, so the set is not allowed to empty.
+`rbac.assert_administrator_remains` is a statement-level AFTER trigger on
+`user_roles`, `users` and `roles` that refuses any statement leaving no *enabled*
+holder of role 2 - removing the role, deleting the user, disabling the user, or
+dropping the role itself, which cascades. Disabled holders are excluded on
+purpose: a disabled principal holds the role and can do nothing with it, which is
+also how `rbac.user_has_permission` reads it.
+
+Three details the shape forces:
+
+- **Statement-level, not row-level.** The rule is about the state the statement
+  leaves behind. A row trigger deleting two administrators one at a time has to
+  reason about which rows the same statement has already removed; asking once, at
+  the end, does not.
+- **SECURITY INVOKER, alone in that file.** `current_user` inside a definer is
+  the function owner, which has BYPASSRLS, so the operator exemption would let
+  everyone through.
+- **An `admin` early-out.** A statement trigger fires even when the statement
+  matched nothing, so a plain user's `DELETE FROM users` - which RLS silently
+  reduces to zero rows - reaches the trigger too, and their view of `user_roles`
+  is empty because reading it needs `admin`. Counting from that view would refuse
+  a statement that did nothing; `0081_test_user_table_write_protection.sql`
+  caught exactly that on the first attempt.
+
+The exemption is a BYPASSRLS caller, matching `fields_ctype_lock` in 0070: a
+direct superuser or owner connection may still empty the set, which is how a
+database is repaired by hand and how `0110_test_first_user_get_userinfo.sql`
+builds a system that has never had an administrator. It gives nothing away -
+such a connection already holds everything the extension protects.
+
+Pinned by `0091_test_last_administrator.sql`, 13 assertions: each of the four
+routes refused, the floor following whoever the last holder is, a disabled holder
+not counting, ordinary user updates unaffected, and the exemption working.
+`0090_test_user_role_assignment.sql` moved its "other roles can be deleted" case
+off user3, who is the only administrator, onto a second holder.
+
 ### What the lock is for, and why the marker was declined
 
 The read and the write are two statements, so two first logins arriving
@@ -1035,17 +1085,15 @@ column, no unique partial index.
 
 A one-shot marker in `_settings` was the other candidate and was declined. It
 does not close S8 on its own: seeded users with `last_seen` NULL never enter the
-branch, so no marker is ever written and the next principal still takes the
-role. Making it work means every installer has to set it, which moves the
-problem outward. It also needs a documented reset path, because deleting the
-last administrator is possible - `rbac.prevent_user_role_deletion` guards role 1
-only. The role gate re-bootstraps by construction, which is the answer the owner
-chose.
+branch, so no marker is ever written and the next principal still takes the role.
+Making it work means every installer has to set it, which moves the problem
+outward, and it needs a documented reset path of its own.
 
-Two consequences are now written into the migration rather than discovered:
-re-bootstrap is deliberate, and an administrator holding `user:manage` can elect
-a principal by inserting a users row with `last_seen` set while no administrator
-exists. Both take an administrator or an empty cluster to reach.
+One consequence stays open by design and is written into the migration: an
+administrator holding `user:manage` can elect a principal deliberately, by
+inserting a users row with `last_seen` set while no administrator exists.
+Reaching that needs a superuser to have emptied the set first, so it is
+accepted.
 
 ### The seed stopped depending on a security trigger
 
@@ -1086,6 +1134,7 @@ again.
 ### Proof
 
 `pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh` after
-`deno task extension 0.5.0-beta1`: **2,232 passing on both paths**, up from
-2,227 by the five new assertions in 0110. `pgdocker/pg-ext-lifecycle.sh`: **112
-passed, 0 failed**, up from 105 by the seven checks of step 1e.
+`deno task extension 0.5.0-beta1`: **2,245 passing on both paths**, up from
+2,227 by the five new assertions in 0110 and the thirteen in 0091.
+`pgdocker/pg-ext-lifecycle.sh`: **112 passed, 0 failed**, up from 105 by the
+seven checks of step 1e.

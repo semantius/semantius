@@ -265,12 +265,12 @@ SELECT ok((SELECT server_time FROM public.ping()) BETWEEN now() - interval '1 mi
 -- GROUP 7: the subject parameter is confined to self, or to an admin
 -- =====================================================
 -- Four helpers in 0030 take the subject to answer about as a parameter, are
--- SECURITY DEFINER, and are reachable over PostgREST RPC. They checked only that
--- the CALLER was authenticated, so a plain user could read another principal's
--- full permission set, ask whether any subject held any permission, and probe
--- which external ids exist. They raise now unless the subject is the caller or
--- the caller holds admin. Raising, not returning empty: an empty answer is
--- indistinguishable from "this principal has nothing", which is itself an answer.
+-- SECURITY DEFINER, and are reachable over PostgREST RPC. Authenticating the
+-- caller is not enough on its own: it leaves any logged-in session able to read
+-- another principal's full permission set, which RLS otherwise hides completely.
+-- They raise unless the subject is the caller or the caller holds admin.
+-- Raising, not returning empty: an empty answer is indistinguishable from "this
+-- principal has nothing", which is itself an answer.
 
 SELECT set_config('app.oauth_scopes', '', true);
 SELECT authenticate_as('user1');

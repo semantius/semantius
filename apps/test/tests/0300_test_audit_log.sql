@@ -510,12 +510,11 @@ SELECT ok(
 -- TEST 21: the log is append-only from outside, prunable by an admin
 -- =====================================================
 -- The five SECURITY DEFINER trigger functions are the only writers. A log its
--- own subject can append to proves nothing: before this was closed, user1 wrote
--- rows carrying a foreign user_id and an invented command_tag, and an
--- unauthenticated session could do the same, because the INSERT policies were
--- WITH CHECK (true) and INSERT was granted to the request role. Deleting stays
--- with the administrator - that is how an operator prunes the log, and TEST 4
--- and TEST 12 above rely on it.
+-- own subject can append to proves nothing: a request role with INSERT can write
+-- a row carrying any user_id and any command_tag it likes, and the row is
+-- indistinguishable from one a trigger wrote. Deleting stays with the
+-- administrator - that is how an operator prunes the log, and TEST 4 and TEST 12
+-- above rely on it.
 
 SELECT authenticate_as('user1');
 

@@ -255,17 +255,19 @@ END $$;
 -- session.
 --
 -- These two statements do NOT close that, and nothing in this tree may rely on
--- them. Revoking only the built-in PUBLIC grant leaves an ACL holding nothing
--- but the owner's implicit rights; PostgreSQL treats that as identical to the
--- built-in default, stores no pg_default_acl row, and the next function created
--- here is world-executable again. (Checked against pg_default_acl and
--- pg_proc.proacl: the entries for `public` and `common` do not exist, while the
--- one for `rbac`, which also carries a GRANT, does.) They are kept because they
--- are harmless and because a future PostgreSQL may honor them.
+-- them. pg_default_acl records the privileges a schema ADDS to the built-in
+-- default; a revoke of the built-in PUBLIC grant is not representable there, so
+-- it is dropped and the next function created in the schema is world-executable
+-- again. That holds whether or not the schema also carries a GRANT: `rbac` has
+-- one, its pg_default_acl row exists and does hand EXECUTE to semantius_user,
+-- and a function created under it still comes out with PUBLIC in its ACL. The
+-- statements are kept because they cost nothing and a future PostgreSQL may
+-- honor them.
 --
 -- What actually protects a function is an explicit REVOKE EXECUTE FROM PUBLIC,
--- per function or per schema (0030 does the whole rbac schema at once). Guard
--- test 0060_test_security.sql fails the moment one is missing.
+-- per function or per schema; 0030 does the whole rbac schema at once, which is
+-- the real reason nothing there is PUBLIC-executable. Guard test
+-- 0060_test_security.sql fails the moment one is missing.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
@@ -289,10 +291,11 @@ $$ LANGUAGE plpgsql SET search_path = common;
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
 
 -- Explicit, for the reason given above. A trigger function needs no EXECUTE
--- privilege to fire - PostgreSQL checks that at CREATE TRIGGER time, and every
--- CREATE TRIGGER naming this function runs inside SECURITY DEFINER dictionary
--- code owned by the same role - so the PUBLIC grant bought nothing and only
--- made this schema the odd one out.
+-- privilege to fire: PostgreSQL checks it once, at CREATE TRIGGER time. Every
+-- CREATE TRIGGER naming this function is either a plain statement in a migration
+-- (0020, 0060), which the installer runs, or is built by SECURITY DEFINER
+-- dictionary code (0070, 0145), which runs as the owner. Both already hold
+-- EXECUTE without the PUBLIC grant.
 REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
 
 -- =====================================================
@@ -333,7 +336,7 @@ $pgsem__core_0010_create_core$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0010_create_core', 'd186c6097f3404a9298d814044c310f39997b70942ff69b3de17ee0da6f768c2');
+      VALUES ('_core.0010_create_core', '457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -553,18 +556,18 @@ BEGIN
 END $$;
 
 -- The cache functions are SECURITY DEFINER and read and write common._cache
--- unconditionally: they carry no rbac.uid(), because the callers are dictionary
--- code that runs before any identity exists. Nothing outside this file calls
--- them, and nothing outside the database may.
+-- unconditionally: they carry no rbac.uid() because a cache lookup has no
+-- subject to check. They are reachable only from a connection that already holds
+-- the database - `common` is not exposed by PostgREST and the request role holds
+-- nothing in it - so a caller here is the installer, a direct owner connection,
+-- or an app tier connecting as the owner, never a request.
 --
 -- Withholding the grant to semantius_user is not enough. PostgreSQL grants
 -- EXECUTE to PUBLIC on every new function, and the schema-wide
 -- `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
--- 0010 does not prevent it: revoking the built-in PUBLIC grant leaves an ACL
--- that PostgreSQL normalizes back to the built-in default, so no pg_default_acl
--- row is stored and the next function is world-executable again. An explicit
--- per-function REVOKE is the only form that holds, and 0060_test_security.sql
--- fails if one is ever missed.
+-- 0010 does not prevent it - see the comment there for why it cannot. An
+-- explicit per-function REVOKE is the only form that holds, and
+-- 0060_test_security.sql fails if one is ever missed.
 REVOKE EXECUTE ON FUNCTION common.cache_get(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_delete(TEXT) FROM PUBLIC;
@@ -597,7 +600,7 @@ COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including tota
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0012_create_cache', 'c4e43ba57dffa4f2714804993dd0f555c55db8cfa7c790fe5fadab7d859c5cbf');
+      VALUES ('_core.0012_create_cache', '60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -2017,12 +2020,20 @@ COMMENT ON FUNCTION rbac.uid IS
 -- SELF-OR-ADMIN. Four functions in this file take a subject as a parameter and
 -- answer a question about it - this one, user_has_permission,
 -- get_user_permissions and validate_oauth_scopes. All four are SECURITY DEFINER
--- and reachable over PostgREST RPC, so without a target check any authenticated
--- session could read any other principal's identity and authorization state, and
--- could enumerate which subjects exist by watching NULL turn into a row. Asking
--- about yourself is ordinary; asking about somebody else is an administrative
--- act. The rule is the one public.list_api_keys already applies, and it raises
--- rather than returning empty so a denial is never mistaken for an answer.
+-- and reachable over PostgREST RPC, so a target check is the only thing between
+-- an authenticated session and another principal's authorization state:
+-- user_roles, role_permissions and permissions are invisible to a plain user
+-- under RLS, and these functions read straight past that.
+--
+-- The identity half is a smaller gain, and worth being honest about. `user:read`
+-- sits in the base User role, so a logged-in session can already read the whole
+-- users table; guarding this function matters for a deployment that narrows
+-- `user:read`, and costs nothing where it does not.
+--
+-- Asking about yourself is ordinary; asking about somebody else is an
+-- administrative act. The rule is the one public.list_api_keys already applies,
+-- and it raises rather than returning empty so a denial is never mistaken for an
+-- answer.
 --
 -- rbac.uid() is called inside the test, not before it: it is the authentication
 -- gate (it raises when the session carries no valid claims) and it is STABLE, so
@@ -2668,7 +2679,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. It would be inherited
-    -- from rbac.get_user_permissions below in any case; stating it here is what
+    -- from rbac.get_user_permissions above in any case; stating it here is what
     -- makes the empty-external_id rejection and the scope split unreachable for
     -- a caller asking about somebody else.
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN
@@ -2935,7 +2946,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '7fbf03cd974e9aa0120f93e9b962177380ee430f26e9d7f68b068d424087acbf');
+      VALUES ('_core.0030_rbac_functions', '5fea8f65f981ca68cfc0b1159b97ab3f7a761c5fe5d47b9fd53497a8f1e679cc');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3329,14 +3340,14 @@ BEGIN
     -- authenticated is not a principal reaching the system, so provisioning a
     -- batch of users before anyone logs in elects nobody.
     --
-    -- No role-2 row exists yet: this is the gate, and it is the part that was
-    -- wrong. It used to ask whether any OTHER user had a last_seen, which is a
-    -- different question. Pre-provisioned users keep last_seen NULL forever, so
-    -- once the administrator was itself pre-provisioned, or its last_seen was
-    -- cleared, the old test stayed true after the election and the next
-    -- principal to log in was elected as well - repeatedly. Asking whether the
-    -- role is taken cannot drift that way, survives any seed, and needs no
-    -- marker row that every installer would then have to set.
+    -- No role-2 row exists yet: this is the gate. The obvious cheaper test -
+    -- whether any OTHER user has a last_seen - answers a different question and
+    -- drifts away from this one. Pre-provisioned users keep last_seen NULL
+    -- forever, so on a system whose administrator was pre-provisioned, or whose
+    -- last_seen was cleared, that test reads true even though an administrator
+    -- exists, and elects every later first login on top of it. Asking whether
+    -- the role is taken cannot drift, survives any seed, and needs no marker row
+    -- that every installer would then have to set.
     --
     -- Under pg_advisory_xact_lock because the read and the write are two
     -- statements: two first logins arriving together would both see an empty
@@ -3345,13 +3356,18 @@ BEGIN
     -- fresh snapshot in which the role is taken. The key is this function's own;
     -- hashtext('migrate') and hashtext('pgmq.queue_...') are already in use.
     --
-    -- Two consequences worth stating rather than discovering. Deleting the last
-    -- administrator is possible - rbac.prevent_user_role_deletion guards role 1
-    -- only - and re-bootstraps the cluster by construction: the next principal
-    -- to arrive is elected. And an administrator holding user:manage can elect
-    -- one deliberately, by inserting a users row with last_seen set while no
-    -- administrator exists. Both take an administrator or an empty cluster to
-    -- reach, which is why they are accepted.
+    -- The election fires on INSERT only, so it is genuinely once per system and
+    -- not a recovery mechanism. A principal whose users row already exists logs
+    -- in through an ON CONFLICT DO UPDATE (rbac.upsert_user_from_jwt), which
+    -- fires UPDATE triggers and never this one - so an established user cannot
+    -- be elected however many times they authenticate, even with the
+    -- administrator set empty. That is why the set is not allowed to empty:
+    -- rbac.assert_administrator_remains below refuses any statement that would.
+    --
+    -- One consequence stays open by design. An administrator holding
+    -- user:manage can elect a principal deliberately, by inserting a users row
+    -- with last_seen set while no administrator exists. Reaching that needs a
+    -- superuser to have emptied the set first, so it is accepted.
     IF NEW.last_seen IS NOT NULL THEN
         PERFORM pg_advisory_xact_lock(hashtext('rbac.bootstrap_administrator'));
 
@@ -3411,6 +3427,129 @@ CREATE TRIGGER prevent_user_role_deletion_trigger
 
 COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 'Prevents deletion of role 1 (User) from any user in user_roles table.';
+
+-- =====================================================
+-- TRIGGER: An administrator must always remain
+-- =====================================================
+-- A system with no enabled Administrator cannot be administered and cannot be
+-- repaired through the API: every route back in - granting a role, enabling a
+-- user - is itself gated on `admin`. Three statements reach that state and all
+-- three are ordinary things an administrator may do by accident:
+--
+--   DELETE FROM user_roles WHERE role_id = 2       (drop the role assignment)
+--   DELETE FROM users WHERE id = <the admin>       (cascades to the row above)
+--   UPDATE users SET is_disabled = TRUE ...        (the role survives, the
+--                                                   administrator does not)
+--
+-- The third is why the check counts only users with is_disabled = FALSE, and
+-- why it is not enough to look at user_roles: a disabled principal holds the
+-- role and can do nothing with it, and rbac.user_has_permission ignores it for
+-- exactly that reason.
+--
+-- This is a statement-level AFTER trigger, not a row-level BEFORE one, because
+-- the rule is about the state the statement leaves behind. A row trigger
+-- deleting two administrators one at a time has to reason about which rows the
+-- same statement has already removed; asking once, at the end, does not.
+--
+-- SECURITY INVOKER, unlike everything else in this file, and it has to be:
+-- current_user inside a SECURITY DEFINER function is the function owner, which
+-- has BYPASSRLS, so the first exemption below would let every caller through.
+--
+-- That exemption is the operator's escape hatch and matches fields_ctype_lock in
+-- 0070: a direct superuser or owner connection may still empty the administrator
+-- set, which is how a database is repaired and how a test builds a system that
+-- has never had one. It gives away nothing - such a connection already holds
+-- everything the extension protects.
+--
+-- The second exemption is what keeps an invoker trigger honest. A statement
+-- trigger fires even when the statement matched no rows, so a plain user
+-- issuing `DELETE FROM users` - which RLS silently reduces to nothing - reaches
+-- this code too, and their view of user_roles is empty because reading it needs
+-- `admin`. Counting from that view would refuse a statement that did nothing.
+-- Every policy on users, user_roles and roles requires `admin` to write, so a
+-- caller without it cannot have changed anything here, and a caller with it can
+-- read every row the count needs. An unauthenticated session raises inside
+-- rbac.has_permission rather than answering, and is not an administrator either.
+CREATE OR REPLACE FUNCTION rbac.assert_administrator_remains()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_is_admin BOOLEAN;
+BEGIN
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        RETURN NULL;
+    END IF;
+
+    BEGIN
+        v_is_admin := rbac.has_permission('admin');
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+
+    IF NOT v_is_admin THEN
+        RETURN NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM user_roles ur
+        JOIN users u ON u.id = ur.user_id
+        WHERE ur.role_id = 2
+          AND u.is_disabled = FALSE
+    ) THEN
+        RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
+            USING ERRCODE = 'P0001',
+                  HINT = 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.';
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SET search_path = rbac, public;
+
+-- Created after 0030's blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac, so it
+-- carries PostgreSQL's built-in PUBLIC grant until this line takes it away. The
+-- request role keeps EXECUTE: it is the invoker, and the trigger is useless if
+-- the caller cannot run it.
+REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_remains() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.assert_administrator_remains IS
+'Statement-level guard: refuses any statement that would leave no enabled user holding role 2 (Administrator). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+
+CREATE TRIGGER assert_administrator_remains_on_user_roles
+    AFTER DELETE ON user_roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+CREATE TRIGGER assert_administrator_remains_on_user_delete
+    AFTER DELETE ON users
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+-- Scoped to the one column that can revoke an administrator without touching a
+-- role: an unscoped UPDATE trigger would run this query on every login, because
+-- get_userinfo() refreshes last_seen on each one.
+CREATE TRIGGER assert_administrator_remains_on_disable
+    AFTER UPDATE OF is_disabled ON users
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_user_roles ON user_roles IS
+'Refuses a DELETE that removes the last enabled Administrator.';
+COMMENT ON TRIGGER assert_administrator_remains_on_user_delete ON users IS
+'Refuses a DELETE that removes the last enabled Administrator (the user_roles rows go with the user).';
+-- user_roles.role_id references roles ON DELETE CASCADE, so dropping the
+-- Administrator role itself takes every assignment with it. That cascade runs as
+-- the referencing table's owner, which is BYPASSRLS and therefore exempt from
+-- the user_roles trigger above - this one fires in the caller's own context and
+-- catches it.
+CREATE TRIGGER assert_administrator_remains_on_role_delete
+    AFTER DELETE ON roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_disable ON users IS
+'Refuses an UPDATE that disables the last enabled Administrator.';
+COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
+'Refuses a DELETE of the Administrator role while it is the only source of an enabled administrator.';
 
 -- =====================================================
 -- TRIGGER: Default assigned_by to current user
@@ -3502,7 +3641,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', '853d8f421754e147db8dba786b7d7a0a5c75e97a24eecfa0d703dc5f4c900c4a');
+      VALUES ('_core.0050_rbac_rls', '789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7173,14 +7312,22 @@ REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 
--- Nothing outside this file calls common.refresh_schema_cache(): the two DML
--- trigger functions above and the two event-trigger functions below are its only
--- callers, and all four now reach it as the owner. Left callable by the request
--- role it is a free amplifier - one RPC per request makes PostgREST rebuild its
--- schema cache, and an unauthenticated session could do it, because the function
--- carries no rbac.uid() and none would help: a NOTIFY costs the same whoever
--- sends it. The revoke from PUBLIC is the half that matters; the grant to
--- semantius_user was the documented one.
+-- Nothing outside this file calls common.refresh_schema_cache(). Its four
+-- callers are the two DML trigger functions and the two event-trigger functions
+-- above, and they reach it by two different routes: the DML pair are SECURITY
+-- DEFINER and run as the owner, while pgrst_ddl_watch and pgrst_drop_watch are
+-- SECURITY INVOKER and run as whoever executed the DDL.
+--
+-- That second route is why this revoke is safe only as long as the request role
+-- cannot run DDL. It holds today because semantius_user has CREATE on no schema
+-- and owns nothing, so it can never fire an event trigger. A temp table is the
+-- one thing it can create, and pg_temp is filtered out by the schema allow-list
+-- above before refresh_schema_cache is reached. Grant the request role CREATE
+-- anywhere and DDL starts failing with 42501 from inside an event trigger.
+--
+-- Left callable by the request role the function is a free amplifier: one RPC
+-- per request makes PostgREST rebuild its schema cache, and no identity check
+-- would help, because a NOTIFY costs the same whoever sends it.
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
 
@@ -7205,7 +7352,7 @@ $pgsem__core_0090_notify_triggers$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0090_notify_triggers', 'd6b6283824af27669128bce88a494db65a0c6c09f9568028e4dc1e4940c095f8');
+      VALUES ('_core.0090_notify_triggers', '30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7389,16 +7536,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 COMMENT ON FUNCTION public.validate_api_key IS
 'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
 
--- Not reachable by the request role, and not by PUBLIC either, where it was
--- executable. It is the primitive that establishes an identity, so it cannot
--- carry an rbac.uid() check the way every other definer in this schema does,
--- and that leaves it with no defense of its own: it runs bcrypt at cost 10 on
--- every call, which is an unauthenticated CPU amplifier, and it returns before
--- crypt() when the key_id is unknown, which is a timing oracle separating live
--- key ids from dead ones. Nothing calls it - not this repository outside the
--- definition, not the app tiers - and the API-key tests reach it with RESET
--- ROLE. If an entry point ever needs it, that entry point is a SECURITY DEFINER
--- function, not a grant to semantius_user.
+-- Reachable from the auth tier over a direct owner connection, and from nothing
+-- else. That is the only caller shape that can work: the API-key exchange
+-- continues by reading `users` with no JWT context, which needs the RLS bypass
+-- an owner has and a request role never does.
+--
+-- It is the primitive that establishes an identity, so it cannot carry an
+-- rbac.uid() check the way every other definer in this schema does, and a grant
+-- to the request role would therefore be a grant with nothing behind it: an
+-- unauthenticated bcrypt call at cost 10 per request, and a timing oracle,
+-- because the key_id lookup returns before crypt() and so rejects an unknown key
+-- id measurably faster than a wrong secret for a known one. The API-key tests
+-- reach it with RESET ROLE for the same reason. If a new entry point needs it,
+-- that entry point is a SECURITY DEFINER function, not a grant.
 REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 
@@ -7521,7 +7671,7 @@ $pgsem__core_0110_apikeys$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0110_apikeys', '2027fc677314d978dde832d0552c404bcec80b3ee290991738b44cfd46ceaaef');
+      VALUES ('_core.0110_apikeys', 'f8ee6efd639645c165cf68eeac34859a7c27d0de845dddcb76e0ae4a23d877f0');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16938,7 +17088,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d186c6097f3404a9298d814044c310f39997b70942ff69b3de17ee0da6f768c2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"c4e43ba57dffa4f2714804993dd0f555c55db8cfa7c790fe5fadab7d859c5cbf","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"7fbf03cd974e9aa0120f93e9b962177380ee430f26e9d7f68b068d424087acbf","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"853d8f421754e147db8dba786b7d7a0a5c75e97a24eecfa0d703dc5f4c900c4a","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"d6b6283824af27669128bce88a494db65a0c6c09f9568028e4dc1e4940c095f8","_core.0110_apikeys":"2027fc677314d978dde832d0552c404bcec80b3ee290991738b44cfd46ceaaef","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"f9f6cf339ffd3aa1df18245eff8aade14ca92c6eb71728aa69c7a88edd4e51a2","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"5fea8f65f981ca68cfc0b1159b97ab3f7a761c5fe5d47b9fd53497a8f1e679cc","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"f8ee6efd639645c165cf68eeac34859a7c27d0de845dddcb76e0ae4a23d877f0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"f9f6cf339ffd3aa1df18245eff8aade14ca92c6eb71728aa69c7a88edd4e51a2","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

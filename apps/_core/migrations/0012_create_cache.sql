@@ -107,18 +107,18 @@ BEGIN
 END $$;
 
 -- The cache functions are SECURITY DEFINER and read and write common._cache
--- unconditionally: they carry no rbac.uid(), because the callers are dictionary
--- code that runs before any identity exists. Nothing outside this file calls
--- them, and nothing outside the database may.
+-- unconditionally: they carry no rbac.uid() because a cache lookup has no
+-- subject to check. They are reachable only from a connection that already holds
+-- the database - `common` is not exposed by PostgREST and the request role holds
+-- nothing in it - so a caller here is the installer, a direct owner connection,
+-- or an app tier connecting as the owner, never a request.
 --
 -- Withholding the grant to semantius_user is not enough. PostgreSQL grants
 -- EXECUTE to PUBLIC on every new function, and the schema-wide
 -- `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
--- 0010 does not prevent it: revoking the built-in PUBLIC grant leaves an ACL
--- that PostgreSQL normalizes back to the built-in default, so no pg_default_acl
--- row is stored and the next function is world-executable again. An explicit
--- per-function REVOKE is the only form that holds, and 0060_test_security.sql
--- fails if one is ever missed.
+-- 0010 does not prevent it - see the comment there for why it cannot. An
+-- explicit per-function REVOKE is the only form that holds, and
+-- 0060_test_security.sql fails if one is ever missed.
 REVOKE EXECUTE ON FUNCTION common.cache_get(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_delete(TEXT) FROM PUBLIC;

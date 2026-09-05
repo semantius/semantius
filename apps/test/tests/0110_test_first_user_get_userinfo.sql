@@ -5,12 +5,12 @@
 -- back door. The gate is "no user holds role 2 yet", taken under an advisory
 -- lock, plus "this row arrives with last_seen set".
 --
--- It used to be "no other user has last_seen", which is a different question and
--- the wrong one: pre-provisioned users keep last_seen NULL forever, so once the
--- administrator's own last_seen was cleared - or the administrator was itself
--- pre-provisioned - the test stayed true and the NEXT principal to log in was
--- elected too. TEST 19 to 21 reproduce exactly that state and assert the
--- election does not happen; they fail against the old gate.
+-- The cheaper-looking gate, "no other user has last_seen", answers a different
+-- question: pre-provisioned users keep last_seen NULL forever, so on a system
+-- whose administrator was pre-provisioned - or whose last_seen was cleared - it
+-- reads true even though an administrator exists, and elects the next principal
+-- to log in on top of them. TEST 19 to 21 build exactly that state and assert
+-- the election does not happen; they are what separates the two gates.
 --
 -- Nothing here is persisted: the whole file runs in one transaction that rolls
 -- back, including the deletion of the seeded administrator's role row.
@@ -233,12 +233,19 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: re-bootstrap
+-- TEST: an empty administrator set elects again
 -- =====================================================
--- Deleting the last administrator is possible - rbac.prevent_user_role_deletion
--- guards role 1 only - and the gate makes the cluster administrable again by
--- construction, with no reset path and no marker row to clear. That is the
--- behavior the "no user holds role 2" form buys and a one-shot marker would not.
+-- rbac.assert_administrator_remains refuses to leave the set empty, so reaching
+-- this state needs the BYPASSRLS exemption - a direct superuser connection,
+-- which is what RESET ROLE gives here. It is worth pinning anyway, because it is
+-- what an operator repairing a database by hand will hit, and because it is the
+-- difference between this gate and a one-shot marker: there is no reset path and
+-- no marker row to clear.
+--
+-- Note the subject. The election is on INSERT, so it reaches a principal that
+-- has no users row yet; an established principal logging in again goes through
+-- ON CONFLICT DO UPDATE and is never elected, which is why the set is guarded
+-- rather than left to recover on its own.
 
 RESET ROLE;
 DELETE FROM user_roles WHERE role_id = 2;
@@ -256,7 +263,7 @@ SELECT set_config('search_path', 'pgtap, public', true);
 -- Test 22
 SELECT ok(
     (SELECT public.get_userinfo()->'roles' @> '[{"role_name": "Administrator"}]'::jsonb),
-    'after the last administrator is removed, the next principal to arrive is elected again'
+    'with the administrator set empty, a principal arriving for the first time is elected'
 );
 
 SELECT * FROM finish();

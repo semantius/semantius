@@ -158,8 +158,8 @@ All 75 `pgmq.*` functions are PUBLIC-executable, none pins `search_path`, none
 is `SECURITY DEFINER`, all are owned by `semantius_owner`. The request role
 cannot read the queue tables, so what is exposed is information:
 `list_queues`, `metrics_all`, `list_topic_bindings`. `SECURITY.md:92-95`
-**documents that exposure as intended behaviour**, so closing it is a
-documented-behaviour change, not only a hardening. The vendored file stays
+**documents that exposure as intended behavior**, so closing it is a
+documented-behavior change, not only a hardening. The vendored file stays
 byte-identical to upstream v1.11.1 (decision of 2026-09-05), so the fix lives
 outside it. Semantius's own `queue_*` wrappers in `0170_queue.sql` are
 `SECURITY DEFINER` (`:70`, `:89`, `:110`) and need no PUBLIC grant; the tests
@@ -189,7 +189,7 @@ Whatever is chosen, two things the first draft missed:
 
 - Question: A, B or C? A is one line and reversible; C is the only one that
   also makes the linter row go away. **Answered 2026-09-05: none of them. Accepted
-  as documented behaviour and closed; reachability is DB-only (PostgREST
+  as documented behavior and closed; reachability is DB-only (PostgREST
   exposes `public` only, confirmed on the running container), the exposure is
   metadata, and `SECURITY.md` already states it. Record in
   `plans/ext-solved-items.md`. This section stays for the reasoning only.**

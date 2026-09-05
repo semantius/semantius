@@ -51,17 +51,19 @@ END $$;
 -- session.
 --
 -- These two statements do NOT close that, and nothing in this tree may rely on
--- them. Revoking only the built-in PUBLIC grant leaves an ACL holding nothing
--- but the owner's implicit rights; PostgreSQL treats that as identical to the
--- built-in default, stores no pg_default_acl row, and the next function created
--- here is world-executable again. (Checked against pg_default_acl and
--- pg_proc.proacl: the entries for `public` and `common` do not exist, while the
--- one for `rbac`, which also carries a GRANT, does.) They are kept because they
--- are harmless and because a future PostgreSQL may honor them.
+-- them. pg_default_acl records the privileges a schema ADDS to the built-in
+-- default; a revoke of the built-in PUBLIC grant is not representable there, so
+-- it is dropped and the next function created in the schema is world-executable
+-- again. That holds whether or not the schema also carries a GRANT: `rbac` has
+-- one, its pg_default_acl row exists and does hand EXECUTE to semantius_user,
+-- and a function created under it still comes out with PUBLIC in its ACL. The
+-- statements are kept because they cost nothing and a future PostgreSQL may
+-- honor them.
 --
 -- What actually protects a function is an explicit REVOKE EXECUTE FROM PUBLIC,
--- per function or per schema (0030 does the whole rbac schema at once). Guard
--- test 0060_test_security.sql fails the moment one is missing.
+-- per function or per schema; 0030 does the whole rbac schema at once, which is
+-- the real reason nothing there is PUBLIC-executable. Guard test
+-- 0060_test_security.sql fails the moment one is missing.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
@@ -85,10 +87,11 @@ $$ LANGUAGE plpgsql SET search_path = common;
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
 
 -- Explicit, for the reason given above. A trigger function needs no EXECUTE
--- privilege to fire - PostgreSQL checks that at CREATE TRIGGER time, and every
--- CREATE TRIGGER naming this function runs inside SECURITY DEFINER dictionary
--- code owned by the same role - so the PUBLIC grant bought nothing and only
--- made this schema the odd one out.
+-- privilege to fire: PostgreSQL checks it once, at CREATE TRIGGER time. Every
+-- CREATE TRIGGER naming this function is either a plain statement in a migration
+-- (0020, 0060), which the installer runs, or is built by SECURITY DEFINER
+-- dictionary code (0070, 0145), which runs as the owner. Both already hold
+-- EXECUTE without the PUBLIC grant.
 REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
 
 -- =====================================================

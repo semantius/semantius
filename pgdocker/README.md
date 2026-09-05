@@ -227,8 +227,12 @@ For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
 > role, the next principal to *arrive* — a user row created with `last_seen` set,
 > which is what `get_userinfo()` does on first login — is auto-assigned it
 > (`rbac.auto_assign_user_role`), in both modes. Log in as your intended admin
-> first. Pre-provisioning users who have not logged in elects nobody, and removing
-> the last Administrator re-opens the election for the next arrival.
+> first: pre-provisioning users who have not logged in elects nobody, and the
+> election fires only when the user row is created, so an existing user is never
+> elected however many times they log in afterwards. For the same reason the
+> system refuses to leave itself without an enabled Administrator — you cannot
+> remove the role from the last one, delete them, or disable them, except over a
+> direct superuser connection.
 
 ### Testing session mode
 

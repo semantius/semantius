@@ -5,10 +5,12 @@
 -- Also test that every user-defined function carries a COMMENT (documentation
 -- invariant). Third-party extension functions (pgmq, pgcrypto, …) are excluded:
 -- they are extension-owned (pg_depend deptype='e') or live in an excluded schema.
--- pgmq is excluded on purpose: its functions are vendored upstream code, unreachable from
--- PostgREST (only `public` is exposed) and accepted as-is on 2026-09-05 (open-items Q7,
--- record in plans/ext-solved-items.md). Revisit if pgmq is ever exposed or the request role
--- gains SELECT on queue tables.
+-- pgmq is excluded on purpose, from both lists. Its functions are vendored upstream code kept
+-- byte-identical to the release they came from, so anything set on them from outside is undone
+-- by the next vendor bump; they are not reachable from PostgREST, which exposes `public` only;
+-- and what a DB-only caller gets from them is queue names, metrics and topic bindings, never
+-- queue contents, which the request role cannot read. Revisit if pgmq is ever exposed or the
+-- request role gains SELECT on a queue table.
 BEGIN;
 
 SELECT plan(3);

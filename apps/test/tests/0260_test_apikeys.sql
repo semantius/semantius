@@ -242,9 +242,10 @@ SELECT ok(
     'last_used_at should be NULL before first validation'
 );
 
--- Validate the key. Every call to validate_api_key in this file runs with
--- RESET ROLE for one reason: it is an internal authentication primitive with no
--- grant to the request role and none to PUBLIC.
+-- Validate the key with RESET ROLE, as every other passing call to
+-- validate_api_key in this file does: it is an internal authentication primitive
+-- with no grant to the request role and none to PUBLIC. The one call made as the
+-- request role is the refusal asserted below.
 DO $$
 BEGIN
     PERFORM validate_api_key(current_setting('test.last_used_key', true));

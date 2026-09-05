@@ -29,7 +29,9 @@ closed (test `0341`). Live status → `plans/authz-remediation-plan.md` §7.
 `last_seen` NULL forever, so once the administrator was itself pre-provisioned or its `last_seen`
 was cleared, the test stayed true after the election and every subsequent first login was elected
 too. Tests `0110`/`0341`, and the concurrency half in `pgdocker/pg-ext-lifecycle.sh` step 1e,
-which no pgTAP file can express.
+which no pgTAP file can express. Paired with it, an enabled holder of role 2 is now an
+invariant rather than an expectation: I5's bootstrap exception can no longer be reached twice,
+and the system cannot be left unadministrable through the API.
 **Purpose:** the single source of truth for *intended* RBAC/ABAC/DD-integrity behavior.
 Tests and implementation derive from THIS document, independently of each other.
 
@@ -265,8 +267,10 @@ red-first tests (0331/0332/0334) are now green. Items NOT marked FIXED remain op
   role 2", under `pg_advisory_xact_lock`, and still requires `NEW.last_seen IS NOT NULL` so a
   batch of never-seen users elects nobody (`0050`). The election is now idempotent in the sense
   that matters: it happens once per empty administrator set, not once per apparently-quiet
-  system. Deleting the last administrator re-opens it deliberately, which is the supported way
-  to recover a cluster.
+  system. It fires on INSERT only, so an established principal is never elected however many
+  times it authenticates; the administrator set is therefore not allowed to empty, and
+  `rbac.assert_administrator_remains` refuses any statement that would (removing the role,
+  deleting the user, or disabling it). A direct superuser connection is exempt.
 
 **ACCEPTED (per premises/decisions, not violations):** `select_rule` REPLACE semantics (D8);
 audit-log read exposure to admin (P2); cascade into credential children (D9); DD metadata

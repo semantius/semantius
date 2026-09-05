@@ -290,14 +290,14 @@ BEGIN
     -- authenticated is not a principal reaching the system, so provisioning a
     -- batch of users before anyone logs in elects nobody.
     --
-    -- No role-2 row exists yet: this is the gate, and it is the part that was
-    -- wrong. It used to ask whether any OTHER user had a last_seen, which is a
-    -- different question. Pre-provisioned users keep last_seen NULL forever, so
-    -- once the administrator was itself pre-provisioned, or its last_seen was
-    -- cleared, the old test stayed true after the election and the next
-    -- principal to log in was elected as well - repeatedly. Asking whether the
-    -- role is taken cannot drift that way, survives any seed, and needs no
-    -- marker row that every installer would then have to set.
+    -- No role-2 row exists yet: this is the gate. The obvious cheaper test -
+    -- whether any OTHER user has a last_seen - answers a different question and
+    -- drifts away from this one. Pre-provisioned users keep last_seen NULL
+    -- forever, so on a system whose administrator was pre-provisioned, or whose
+    -- last_seen was cleared, that test reads true even though an administrator
+    -- exists, and elects every later first login on top of it. Asking whether
+    -- the role is taken cannot drift, survives any seed, and needs no marker row
+    -- that every installer would then have to set.
     --
     -- Under pg_advisory_xact_lock because the read and the write are two
     -- statements: two first logins arriving together would both see an empty
@@ -306,13 +306,18 @@ BEGIN
     -- fresh snapshot in which the role is taken. The key is this function's own;
     -- hashtext('migrate') and hashtext('pgmq.queue_...') are already in use.
     --
-    -- Two consequences worth stating rather than discovering. Deleting the last
-    -- administrator is possible - rbac.prevent_user_role_deletion guards role 1
-    -- only - and re-bootstraps the cluster by construction: the next principal
-    -- to arrive is elected. And an administrator holding user:manage can elect
-    -- one deliberately, by inserting a users row with last_seen set while no
-    -- administrator exists. Both take an administrator or an empty cluster to
-    -- reach, which is why they are accepted.
+    -- The election fires on INSERT only, so it is genuinely once per system and
+    -- not a recovery mechanism. A principal whose users row already exists logs
+    -- in through an ON CONFLICT DO UPDATE (rbac.upsert_user_from_jwt), which
+    -- fires UPDATE triggers and never this one - so an established user cannot
+    -- be elected however many times they authenticate, even with the
+    -- administrator set empty. That is why the set is not allowed to empty:
+    -- rbac.assert_administrator_remains below refuses any statement that would.
+    --
+    -- One consequence stays open by design. An administrator holding
+    -- user:manage can elect a principal deliberately, by inserting a users row
+    -- with last_seen set while no administrator exists. Reaching that needs a
+    -- superuser to have emptied the set first, so it is accepted.
     IF NEW.last_seen IS NOT NULL THEN
         PERFORM pg_advisory_xact_lock(hashtext('rbac.bootstrap_administrator'));
 
@@ -372,6 +377,129 @@ CREATE TRIGGER prevent_user_role_deletion_trigger
 
 COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 'Prevents deletion of role 1 (User) from any user in user_roles table.';
+
+-- =====================================================
+-- TRIGGER: An administrator must always remain
+-- =====================================================
+-- A system with no enabled Administrator cannot be administered and cannot be
+-- repaired through the API: every route back in - granting a role, enabling a
+-- user - is itself gated on `admin`. Three statements reach that state and all
+-- three are ordinary things an administrator may do by accident:
+--
+--   DELETE FROM user_roles WHERE role_id = 2       (drop the role assignment)
+--   DELETE FROM users WHERE id = <the admin>       (cascades to the row above)
+--   UPDATE users SET is_disabled = TRUE ...        (the role survives, the
+--                                                   administrator does not)
+--
+-- The third is why the check counts only users with is_disabled = FALSE, and
+-- why it is not enough to look at user_roles: a disabled principal holds the
+-- role and can do nothing with it, and rbac.user_has_permission ignores it for
+-- exactly that reason.
+--
+-- This is a statement-level AFTER trigger, not a row-level BEFORE one, because
+-- the rule is about the state the statement leaves behind. A row trigger
+-- deleting two administrators one at a time has to reason about which rows the
+-- same statement has already removed; asking once, at the end, does not.
+--
+-- SECURITY INVOKER, unlike everything else in this file, and it has to be:
+-- current_user inside a SECURITY DEFINER function is the function owner, which
+-- has BYPASSRLS, so the first exemption below would let every caller through.
+--
+-- That exemption is the operator's escape hatch and matches fields_ctype_lock in
+-- 0070: a direct superuser or owner connection may still empty the administrator
+-- set, which is how a database is repaired and how a test builds a system that
+-- has never had one. It gives away nothing - such a connection already holds
+-- everything the extension protects.
+--
+-- The second exemption is what keeps an invoker trigger honest. A statement
+-- trigger fires even when the statement matched no rows, so a plain user
+-- issuing `DELETE FROM users` - which RLS silently reduces to nothing - reaches
+-- this code too, and their view of user_roles is empty because reading it needs
+-- `admin`. Counting from that view would refuse a statement that did nothing.
+-- Every policy on users, user_roles and roles requires `admin` to write, so a
+-- caller without it cannot have changed anything here, and a caller with it can
+-- read every row the count needs. An unauthenticated session raises inside
+-- rbac.has_permission rather than answering, and is not an administrator either.
+CREATE OR REPLACE FUNCTION rbac.assert_administrator_remains()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_is_admin BOOLEAN;
+BEGIN
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        RETURN NULL;
+    END IF;
+
+    BEGIN
+        v_is_admin := rbac.has_permission('admin');
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+
+    IF NOT v_is_admin THEN
+        RETURN NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM user_roles ur
+        JOIN users u ON u.id = ur.user_id
+        WHERE ur.role_id = 2
+          AND u.is_disabled = FALSE
+    ) THEN
+        RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
+            USING ERRCODE = 'P0001',
+                  HINT = 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.';
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SET search_path = rbac, public;
+
+-- Created after 0030's blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac, so it
+-- carries PostgreSQL's built-in PUBLIC grant until this line takes it away. The
+-- request role keeps EXECUTE: it is the invoker, and the trigger is useless if
+-- the caller cannot run it.
+REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_remains() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.assert_administrator_remains IS
+'Statement-level guard: refuses any statement that would leave no enabled user holding role 2 (Administrator). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+
+CREATE TRIGGER assert_administrator_remains_on_user_roles
+    AFTER DELETE ON user_roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+CREATE TRIGGER assert_administrator_remains_on_user_delete
+    AFTER DELETE ON users
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+-- Scoped to the one column that can revoke an administrator without touching a
+-- role: an unscoped UPDATE trigger would run this query on every login, because
+-- get_userinfo() refreshes last_seen on each one.
+CREATE TRIGGER assert_administrator_remains_on_disable
+    AFTER UPDATE OF is_disabled ON users
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_user_roles ON user_roles IS
+'Refuses a DELETE that removes the last enabled Administrator.';
+COMMENT ON TRIGGER assert_administrator_remains_on_user_delete ON users IS
+'Refuses a DELETE that removes the last enabled Administrator (the user_roles rows go with the user).';
+-- user_roles.role_id references roles ON DELETE CASCADE, so dropping the
+-- Administrator role itself takes every assignment with it. That cascade runs as
+-- the referencing table's owner, which is BYPASSRLS and therefore exempt from
+-- the user_roles trigger above - this one fires in the caller's own context and
+-- catches it.
+CREATE TRIGGER assert_administrator_remains_on_role_delete
+    AFTER DELETE ON roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_disable ON users IS
+'Refuses an UPDATE that disables the last enabled Administrator.';
+COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
+'Refuses a DELETE of the Administrator role while it is the only source of an enabled administrator.';
 
 -- =====================================================
 -- TRIGGER: Default assigned_by to current user
