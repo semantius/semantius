@@ -101,14 +101,21 @@ SELECT is(
     'has_consultation returns the true state for a participant in the governing process');
 
 -- =====================================================
--- first-user bootstrap hardening (LOW)
+-- first-user bootstrap
 -- =====================================================
 SELECT authenticate_as('user3');
 
--- Simulate a pristine system: no user has ever been seen.
+-- Clearing every last_seen produces the state the bootstrap used to misread.
+-- It looks pristine and is not: user3 has held Administrator since the seed.
+-- The old gate asked whether any OTHER user had been seen, so it read this as
+-- "nobody has arrived yet" and elected the next principal created with a
+-- last_seen, on top of the administrator already in place. The gate is the role
+-- now, so neither insert below is elected.
+-- 0110_test_first_user_get_userinfo.sql owns the whole rule, including the
+-- election itself and the re-bootstrap after the last administrator is removed.
 UPDATE users SET last_seen = NULL;
 
--- A user created WITHOUT last_seen must NOT auto-become Administrator (the over-grant fix).
+-- A user created WITHOUT last_seen has not arrived and is never elected.
 INSERT INTO users (external_id, email, display_name, last_seen)
 VALUES ('b9_newbie', 'b9_newbie@test.com', 'Newbie', NULL);
 
@@ -117,9 +124,10 @@ SELECT is(
      JOIN users u ON u.id = ur.user_id
      WHERE u.external_id = 'b9_newbie' AND ur.role_id = 2),
     0,
-    'a user created without last_seen does NOT auto-receive Administrator (no over-grant)');
+    'a user created without last_seen does NOT auto-receive Administrator');
 
--- A user genuinely accessing the system first (created WITH last_seen, none seen before) DOES.
+-- A user created WITH last_seen has arrived, and is still not elected: the role
+-- is taken. This assertion said the opposite until the gate was fixed.
 INSERT INTO users (external_id, email, display_name, last_seen)
 VALUES ('b9_boss', 'b9_boss@test.com', 'Boss', CURRENT_TIMESTAMP);
 
@@ -127,8 +135,8 @@ SELECT is(
     (SELECT count(*)::int FROM user_roles ur
      JOIN users u ON u.id = ur.user_id
      WHERE u.external_id = 'b9_boss' AND ur.role_id = 2),
-    1,
-    'the genuine first-accessing user (created with last_seen) still becomes Administrator');
+    0,
+    'a user created with last_seen is NOT elected while an administrator exists');
 
 SELECT * FROM finish();
 ROLLBACK;

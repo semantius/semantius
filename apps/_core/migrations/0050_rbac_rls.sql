@@ -275,42 +275,60 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 CREATE OR REPLACE FUNCTION rbac.auto_assign_user_role()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_is_first_user BOOLEAN;
 BEGIN
     -- Insert the user into role 1 (User) if not already assigned
     -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
     INSERT INTO user_roles (user_id, role_id)
     VALUES (NEW.id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
-    
-    -- Bootstrap admin (I5, hardened b9): grant Administrator (role 2) to the first user who has
-    -- ACTUALLY accessed the system — i.e. this row is created WITH last_seen set AND no other user
-    -- has ever been seen. The extra `NEW.last_seen IS NOT NULL` clause closes the over-grant where
-    -- a fresh batch of users (all last_seen NULL, created before anyone logs in) would EACH satisfy
-    -- "no other user has last_seen" and all become admin. Residual (accepted LOW): two users
-    -- created concurrently both WITH last_seen, neither committed, can still both qualify — closing
-    -- that fully needs an advisory lock / unique partial index on the admin assignment.
-    v_is_first_user := NEW.last_seen IS NOT NULL
-       AND NOT EXISTS (
-        SELECT 1 FROM users
-        WHERE id != NEW.id
-        AND last_seen IS NOT NULL
-    );
-    
-    IF v_is_first_user THEN
-        -- Assign Administrator role (role ID 2) to the first user
-        INSERT INTO user_roles (user_id, role_id)
-        VALUES (NEW.id, 2)
-        ON CONFLICT (user_id, role_id) DO NOTHING;
+
+    -- Bootstrap admin: the first principal that actually reaches the system
+    -- takes Administrator (role 2), so a fresh install is administrable without
+    -- a back door. Two conditions, both load-bearing.
+    --
+    -- `NEW.last_seen IS NOT NULL`: a row created for somebody who has never
+    -- authenticated is not a principal reaching the system, so provisioning a
+    -- batch of users before anyone logs in elects nobody.
+    --
+    -- No role-2 row exists yet: this is the gate, and it is the part that was
+    -- wrong. It used to ask whether any OTHER user had a last_seen, which is a
+    -- different question. Pre-provisioned users keep last_seen NULL forever, so
+    -- once the administrator was itself pre-provisioned, or its last_seen was
+    -- cleared, the old test stayed true after the election and the next
+    -- principal to log in was elected as well - repeatedly. Asking whether the
+    -- role is taken cannot drift that way, survives any seed, and needs no
+    -- marker row that every installer would then have to set.
+    --
+    -- Under pg_advisory_xact_lock because the read and the write are two
+    -- statements: two first logins arriving together would both see an empty
+    -- user_roles and both insert. The lock is transaction-scoped, so the loser
+    -- waits for the winner to commit and then, under READ COMMITTED, takes a
+    -- fresh snapshot in which the role is taken. The key is this function's own;
+    -- hashtext('migrate') and hashtext('pgmq.queue_...') are already in use.
+    --
+    -- Two consequences worth stating rather than discovering. Deleting the last
+    -- administrator is possible - rbac.prevent_user_role_deletion guards role 1
+    -- only - and re-bootstraps the cluster by construction: the next principal
+    -- to arrive is elected. And an administrator holding user:manage can elect
+    -- one deliberately, by inserting a users row with last_seen set while no
+    -- administrator exists. Both take an administrator or an empty cluster to
+    -- reach, which is why they are accepted.
+    IF NEW.last_seen IS NOT NULL THEN
+        PERFORM pg_advisory_xact_lock(hashtext('rbac.bootstrap_administrator'));
+
+        IF NOT EXISTS (SELECT 1 FROM user_roles WHERE role_id = 2) THEN
+            INSERT INTO user_roles (user_id, role_id)
+            VALUES (NEW.id, 2)
+            ON CONFLICT (user_id, role_id) DO NOTHING;
+        END IF;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
-COMMENT ON FUNCTION rbac.auto_assign_user_role IS 
-'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first user accessing the system.';
+COMMENT ON FUNCTION rbac.auto_assign_user_role IS
+'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
 
 CREATE TRIGGER auto_assign_user_role_trigger
     AFTER INSERT ON users

@@ -9,7 +9,7 @@
         "_core/0020_rbac_schema": "27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd",
         "_core/0030_rbac_functions": "7fbf03cd974e9aa0120f93e9b962177380ee430f26e9d7f68b068d424087acbf",
         "_core/0040_rbac_seed": "1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620",
-        "_core/0050_rbac_rls": "b550a736a36d91317c30b6c991975d7dd6ced3cc6b91ae005a3d829221f22d31",
+        "_core/0050_rbac_rls": "853d8f421754e147db8dba786b7d7a0a5c75e97a24eecfa0d703dc5f4c900c4a",
         "_core/0060_dd_schema": "2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf",
         "_core/0070_dd_functions": "b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2",
         "_core/0072_apply_core_fts": "09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34",

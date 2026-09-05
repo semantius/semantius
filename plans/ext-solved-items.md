@@ -1006,3 +1006,86 @@ point is a SECURITY DEFINER function, not a grant.
 `pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh` after
 `deno task extension 0.5.0-beta1`: **2,227 passing on both paths**, up from
 2,225 by exactly the two new assertions.
+
+---
+
+## S8 (2026-09-05): the first-user bootstrap is gated on the role, not on timestamps
+
+`rbac.auto_assign_user_role` granted Administrator when the incoming row had a
+`last_seen` and **no other user had one**. That second clause is a heuristic
+standing in for "nobody has arrived yet", and it drifts: a user row created for
+somebody who never logs in keeps `last_seen` NULL forever, so on a database
+whose administrator was pre-provisioned - or whose `last_seen` was later cleared
+- the clause stayed true after the election, and the next principal to log in
+was elected too. Repeatedly. Not a race: the ordinary steady state of a system
+that provisions users before they arrive.
+
+The gate is now **"no user holds role 2"**, which is the question the old test
+was standing in for, taken under `pg_advisory_xact_lock(hashtext(
+'rbac.bootstrap_administrator'))`. `NEW.last_seen IS NOT NULL` stays, so
+provisioning a batch before anyone logs in still elects nobody.
+
+### What the lock is for, and why the marker was declined
+
+The read and the write are two statements, so two first logins arriving
+together both saw an empty `user_roles` and both inserted. The advisory lock is
+transaction-scoped: the loser waits for the winner to commit and then, under
+READ COMMITTED, takes a fresh snapshot in which the role is taken. No extra
+column, no unique partial index.
+
+A one-shot marker in `_settings` was the other candidate and was declined. It
+does not close S8 on its own: seeded users with `last_seen` NULL never enter the
+branch, so no marker is ever written and the next principal still takes the
+role. Making it work means every installer has to set it, which moves the
+problem outward. It also needs a documented reset path, because deleting the
+last administrator is possible - `rbac.prevent_user_role_deletion` guards role 1
+only. The role gate re-bootstraps by construction, which is the answer the owner
+chose.
+
+Two consequences are now written into the migration rather than discovered:
+re-bootstrap is deliberate, and an administrator holding `user:manage` can elect
+a principal by inserting a users row with `last_seen` set while no administrator
+exists. Both take an administrator or an empty cluster to reach.
+
+### The seed stopped depending on a security trigger
+
+`apps/test/migrations/0030_seed.sql` inserted user3 with a `last_seen` and no
+`user_roles` row, so its Administrator role came from this trigger firing at
+seed time. That is a seed getting its administrator from a security mechanism,
+which turns any change to that mechanism into an unexplained failure in another
+file. The row is explicit now. The trigger still elects user3 there - it is
+inserted last, with a `last_seen`, and no role-2 row exists yet - so the
+explicit INSERT is a no-op today and load-bearing the moment the gate changes
+again.
+
+### Pins
+
+- `0110_test_first_user_get_userinfo.sql` rewritten, 17 assertions to 22. It
+  builds the empty state properly now: clearing `last_seen` is no longer enough,
+  because user3 holds role 2 from the seed, so the setup deletes role-2 rows as
+  the installer. Tests 19 to 21 reproduce the exact state the old gate misread -
+  an administrator exists and not one user has a `last_seen` - and assert the
+  next principal is not elected. Test 22 pins re-bootstrap.
+- `0341_test_read_helper_completeness.sql` carried the hole as a passing
+  assertion: "the genuine first-accessing user (created with last_seen) still
+  becomes Administrator", written after `UPDATE users SET last_seen = NULL` while
+  user3 held the role. It now asserts the opposite, which is the fix.
+- **The concurrency half cannot live in pgTAP**: one session, one transaction, no
+  `dblink` in this tree. It is `pgdocker/pg-ext-lifecycle.sh` step 1e, seven
+  checks: a fresh install has no administrator, two `get_userinfo()` logins
+  overlap (the first holds its transaction open for five seconds, the second
+  arrives two seconds in), exactly one administrator results, it is the first
+  login, the loser keeps the User role, and a later login is not elected.
+  Verified to be a real pin and not a vacuous one: with the `pg_advisory_xact_lock`
+  line removed from the trigger on a scratch database, the same two logins
+  produce **two** administrators.
+
+`docs/authz-spec.md` carries an amendment for I5, and the first-user warning in
+`pgdocker/README.md` now says what the rule actually is.
+
+### Proof
+
+`pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh` after
+`deno task extension 0.5.0-beta1`: **2,232 passing on both paths**, up from
+2,227 by the five new assertions in 0110. `pgdocker/pg-ext-lifecycle.sh`: **112
+passed, 0 failed**, up from 105 by the seven checks of step 1e.

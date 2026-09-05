@@ -1,27 +1,48 @@
--- Test get_userinfo() for the first user (auto-admin) scenario
--- Verifies that when the very first user calls get_userinfo(),
--- they get Administrator role, admin permission, and ALL modules
--- (persisted: _core + Northwind).
--- Also pins the bootstrap negatives (formerly 0100_test_first_user_admin):
--- once a seen user exists, a second user created WITH last_seen and a user
--- created with last_seen NULL both get role 1 (User) but NOT role 2.
+-- Test get_userinfo() for the first user (auto-admin) scenario.
+--
+-- The bootstrap grants Administrator (role 2) to the first principal that
+-- actually reaches the system, so a fresh install is administrable without a
+-- back door. The gate is "no user holds role 2 yet", taken under an advisory
+-- lock, plus "this row arrives with last_seen set".
+--
+-- It used to be "no other user has last_seen", which is a different question and
+-- the wrong one: pre-provisioned users keep last_seen NULL forever, so once the
+-- administrator's own last_seen was cleared - or the administrator was itself
+-- pre-provisioned - the test stayed true and the NEXT principal to log in was
+-- elected too. TEST 19 to 21 reproduce exactly that state and assert the
+-- election does not happen; they fail against the old gate.
+--
+-- Nothing here is persisted: the whole file runs in one transaction that rolls
+-- back, including the deletion of the seeded administrator's role row.
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(22);
 
 -- =====================================================
--- SETUP: Simulate a fresh system with no active users
+-- SETUP: Simulate a fresh system with no administrator
 -- =====================================================
+-- As the installer, so RLS is out of the way and no seeded identity has to hold
+-- a permission for the setup to work. Clearing last_seen alone is not enough
+-- any more: user3 holds role 2 from the seed, and that is now what the gate
+-- reads.
 
--- Use admin to clear last_seen on all existing test users
-SELECT authenticate_as('user3');
-UPDATE users SET last_seen = NULL WHERE id IN (1001, 1002, 1003);
-
--- Switch to postgres role to set up JWT claims for a user that doesn't exist yet
--- (authenticate_as requires the user to already exist, but we need get_userinfo to create them)
 RESET ROLE;
+UPDATE users SET last_seen = NULL;
+DELETE FROM user_roles WHERE role_id = 2;
+
+-- Test 1: the precondition, so nothing below can pass vacuously
+SELECT is(
+    (SELECT count(*)::integer FROM user_roles WHERE role_id = 2),
+    0,
+    'setup: no principal holds Administrator'
+);
 
 -- Set JWT claims for a brand-new user
+-- (authenticate_as requires the user to already exist, but we need get_userinfo
+-- to create them). The role claim is set here rather than inherited from an
+-- earlier authenticate_as: rbac.uid() rejects the session without it, and this
+-- file authenticates nobody before the first login it is testing.
+SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', 'firstuser_ui', true);
 SELECT set_config('request.jwt.claim.email', 'firstadmin@test.com', true);
 SELECT set_config('request.jwt.claim.name', 'First Admin', true);
@@ -47,98 +68,97 @@ SELECT set_config('search_path', 'pgtap, public', true);
 CREATE TEMP TABLE first_user_info AS
 SELECT public.get_userinfo() AS info;
 
--- Test 1: get_userinfo() should succeed and return non-null
+-- Test 2: get_userinfo() should succeed and return non-null
 SELECT ok(
     (SELECT info IS NOT NULL FROM first_user_info),
     'get_userinfo() should succeed for a brand-new first user'
 );
 
--- Test 2: Should have correct email
+-- Test 3: Should have correct email
 SELECT is(
     (SELECT info->>'email' FROM first_user_info),
     'firstadmin@test.com',
     'First user should have correct email'
 );
 
--- Test 2b: Should have correct display_name from JWT name
+-- Test 4: Should have correct display_name from JWT name
 SELECT is(
     (SELECT info->>'display_name' FROM first_user_info),
     'First Admin',
     'First user should have display_name from JWT name'
 );
 
--- Test 2c: Should have correct first_name from JWT given_name
+-- Test 5: Should have correct first_name from JWT given_name
 SELECT is(
     (SELECT info->>'first_name' FROM first_user_info),
     'First',
     'First user should have first_name from JWT given_name'
 );
 
--- Test 2d: Should have correct last_name from JWT family_name
+-- Test 6: Should have correct last_name from JWT family_name
 SELECT is(
     (SELECT info->>'last_name' FROM first_user_info),
     'Admin',
     'First user should have last_name from JWT family_name'
 );
 
--- Test 3: Should have User role
+-- Test 7: Should have User role
 SELECT ok(
     (SELECT info->'roles' @> '[{"role_name": "User"}]'::jsonb FROM first_user_info),
     'First user should have User role'
 );
 
--- Test 4: Should have Administrator role (auto-assigned as first user)
+-- Test 8: Should have Administrator role (auto-assigned as first user)
 SELECT ok(
     (SELECT info->'roles' @> '[{"role_name": "Administrator"}]'::jsonb FROM first_user_info),
     'First user should have Administrator role (auto-assigned)'
 );
 
--- Test 5: Should have admin permission
+-- Test 9: Should have admin permission
 SELECT ok(
     (SELECT info->'permissions' @> '["admin"]'::jsonb FROM first_user_info),
     'First user should have admin permission'
 );
 
--- Test 6: Should have user:read permission
+-- Test 10: Should have user:read permission
 SELECT ok(
     (SELECT info->'permissions' @> '["user:read"]'::jsonb FROM first_user_info),
     'First user should have user:read permission'
 );
 
--- Test 7: Should have user:manage permission
+-- Test 11: Should have user:manage permission
 SELECT ok(
     (SELECT info->'permissions' @> '["user:manage"]'::jsonb FROM first_user_info),
     'First user should have user:manage permission'
 );
 
--- Test 8: Modules should NOT be empty
+-- Test 12: Modules should NOT be empty
 SELECT ok(
     (SELECT jsonb_array_length(info->'modules') > 0 FROM first_user_info),
     'First user (admin) modules should not be empty'
 );
 
--- Test 9: Should see at least _core and Northwind modules (ignoring any additional modules)
+-- Test 13: Should see at least _core and Northwind modules (ignoring any additional modules)
 SELECT ok(
     (SELECT info->'modules' @> '[{"module_name": "_core"}, {"module_name": "Northwind"}]'::jsonb FROM first_user_info),
     'First user (admin) should see _core and Northwind modules'
 );
 
--- Test 10: Should see _core module (requires admin permission)
+-- Test 14: Should see _core module (requires admin permission)
 SELECT ok(
     (SELECT info->'modules' @> '[{"module_name": "_core"}]'::jsonb FROM first_user_info),
     'First user (admin) should see _core module'
 );
 
 -- =====================================================
--- TEST: bootstrap negatives - only the FIRST seen user becomes admin
+-- TEST: bootstrap negatives - the role is taken, so nobody else gets it
 -- =====================================================
--- The first user above now has last_seen set, so nobody created afterwards
--- may receive role 2. Insert as user3 (user:manage); last_seen of user3 is
+-- Insert as firstuser_ui, which now holds user:manage. Its own last_seen is
 -- irrelevant to its permissions.
 RESET ROLE;
-SELECT authenticate_as('user3');
+SELECT authenticate_as('firstuser_ui');
 
--- Test 11/12: a second user created WITH last_seen gets role 1 but NOT role 2
+-- Test 15/16: a second user created WITH last_seen gets role 1 but NOT role 2
 INSERT INTO users (id, external_id, email, last_seen)
 VALUES (9902, 'seconduser', 'second@test.com', CURRENT_TIMESTAMP);
 
@@ -152,7 +172,7 @@ SELECT ok(
     'Role 2 (Administrator) should NOT be assigned to second user'
 );
 
--- Test 13/14: a user created WITHOUT last_seen gets role 1 but NOT role 2
+-- Test 17/18: a user created WITHOUT last_seen gets role 1 but NOT role 2
 INSERT INTO users (id, external_id, email, last_seen)
 VALUES (9903, 'thirduser', 'third@test.com', NULL);
 
@@ -164,6 +184,79 @@ SELECT ok(
 SELECT ok(
     (SELECT COUNT(*) FROM user_roles WHERE user_id = 9903 AND role_id = 2) = 0,
     'Role 2 (Administrator) should NOT be assigned to user without last_seen'
+);
+
+-- =====================================================
+-- TEST: the state the old gate got wrong
+-- =====================================================
+-- An administrator exists, and NOT ONE user in the table has a last_seen. That
+-- is an ordinary state: every principal was pre-provisioned, or the column was
+-- cleared. The old gate read "no other user has last_seen" as "nobody has ever
+-- arrived" and elected the next principal to log in, handing Administrator to
+-- whoever authenticated next.
+
+RESET ROLE;
+UPDATE users SET last_seen = NULL;
+
+-- Test 19: the precondition
+SELECT ok(
+    (SELECT count(*) FROM user_roles WHERE role_id = 2) > 0
+    AND NOT EXISTS (SELECT 1 FROM users WHERE last_seen IS NOT NULL),
+    'setup: an administrator exists and no user has ever been seen'
+);
+
+SELECT set_config('request.jwt.claim.sub', 'seconduser_ui', true);
+SELECT set_config('request.jwt.claim.email', 'second@test.com', true);
+SELECT set_config('request.jwt.claim.name', '', true);
+SELECT set_config('request.jwt.claim.given_name', '', true);
+SELECT set_config('request.jwt.claim.family_name', '', true);
+SELECT set_config('app.current_user_id', NULL, false);
+SELECT set_config('app.current_external_id', NULL, false);
+SELECT set_config('app.user_permissions', NULL, false);
+SELECT set_config('app.context_initialized', NULL, false);
+
+SET ROLE semantius_user;
+SELECT set_config('search_path', 'pgtap, public', true);
+
+CREATE TEMP TABLE second_user_info AS
+SELECT public.get_userinfo() AS info;
+
+-- Test 20/21
+SELECT ok(
+    (SELECT info->'roles' @> '[{"role_name": "User"}]'::jsonb FROM second_user_info),
+    'a principal provisioned while an administrator exists still gets the User role'
+);
+
+SELECT ok(
+    (SELECT NOT (info->'roles' @> '[{"role_name": "Administrator"}]'::jsonb) FROM second_user_info),
+    'a principal provisioned while an administrator exists is NOT elected, even though no user has last_seen'
+);
+
+-- =====================================================
+-- TEST: re-bootstrap
+-- =====================================================
+-- Deleting the last administrator is possible - rbac.prevent_user_role_deletion
+-- guards role 1 only - and the gate makes the cluster administrable again by
+-- construction, with no reset path and no marker row to clear. That is the
+-- behavior the "no user holds role 2" form buys and a one-shot marker would not.
+
+RESET ROLE;
+DELETE FROM user_roles WHERE role_id = 2;
+
+SELECT set_config('request.jwt.claim.sub', 'thirduser_ui', true);
+SELECT set_config('request.jwt.claim.email', 'third_ui@test.com', true);
+SELECT set_config('app.current_user_id', NULL, false);
+SELECT set_config('app.current_external_id', NULL, false);
+SELECT set_config('app.user_permissions', NULL, false);
+SELECT set_config('app.context_initialized', NULL, false);
+
+SET ROLE semantius_user;
+SELECT set_config('search_path', 'pgtap, public', true);
+
+-- Test 22
+SELECT ok(
+    (SELECT public.get_userinfo()->'roles' @> '[{"role_name": "Administrator"}]'::jsonb),
+    'after the last administrator is removed, the next principal to arrive is elected again'
 );
 
 SELECT * FROM finish();

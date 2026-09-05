@@ -42,7 +42,13 @@ gets its own dated section in `plans/ext-solved-items.md`.
    function and the wrong choice is expensive. **Done 2026-09-05**, fix A; see
    `plans/ext-solved-items.md`.
 3. **S8**, the first-user bootstrap. Its own change: it is a race, it
-   invalidates an existing test, and its pin cannot live in pgTAP.
+   invalidates an existing test, and its pin cannot live in pgTAP. **Done
+   2026-09-05**; see `plans/ext-solved-items.md`. It invalidated a second test
+   the review did not spot, `0341_test_read_helper_completeness.sql`, which
+   asserted the over-grant as correct behavior.
+
+**All three changes are executed. This plan owns no open row; it is kept for the
+reasoning behind the decisions.**
 
 ## Change 1: the mechanical five
 

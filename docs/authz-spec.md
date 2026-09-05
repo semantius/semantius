@@ -23,6 +23,13 @@ carry `ctype` (`0060`/`0070`/`0145`/`0240`, test `0339`), completing the `core =
 identity for the timestamps. b9 — read-helper completeness FIXED: `build_schema_for_table`
 self-gates by view_permission, `has_consultation` is caller-scoped, first-user bootstrap over-grant
 closed (test `0341`). Live status → `plans/authz-remediation-plan.md` §7.
+**Amended 2026-09-05 (S8):** I5's bootstrap exception is re-keyed. The gate is no longer
+"no other user has a `last_seen`" but "no user holds role 2", taken under
+`pg_advisory_xact_lock`. The old form was a heuristic that drifted: pre-provisioned users keep
+`last_seen` NULL forever, so once the administrator was itself pre-provisioned or its `last_seen`
+was cleared, the test stayed true after the election and every subsequent first login was elected
+too. Tests `0110`/`0341`, and the concurrency half in `pgdocker/pg-ext-lifecycle.sh` step 1e,
+which no pgTAP file can express.
 **Purpose:** the single source of truth for *intended* RBAC/ABAC/DD-integrity behavior.
 Tests and implementation derive from THIS document, independently of each other.
 
@@ -254,8 +261,12 @@ red-first tests (0331/0332/0334) are now green. Items NOT marked FIXED remain op
 - **I-perm:** permission cache is transaction-scoped; first-touch stale-empty snapshot patched
   only in `get_userinfo` (`0080:110-121`); admin auto-grant bound to literal role name
   `Administrator`.
-- **I5 (bootstrap):** first-user→Administrator keyed on race-prone `last_seen IS NOT NULL`
-  heuristic (`0050:284-295`).
+- **I5 (bootstrap) [FIXED 2026-09-05]:** first-user→Administrator is keyed on "no user holds
+  role 2", under `pg_advisory_xact_lock`, and still requires `NEW.last_seen IS NOT NULL` so a
+  batch of never-seen users elects nobody (`0050`). The election is now idempotent in the sense
+  that matters: it happens once per empty administrator set, not once per apparently-quiet
+  system. Deleting the last administrator re-opens it deliberately, which is the supported way
+  to recover a cluster.
 
 **ACCEPTED (per premises/decisions, not violations):** `select_rule` REPLACE semantics (D8);
 audit-log read exposure to admin (P2); cascade into credential children (D9); DD metadata

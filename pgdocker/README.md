@@ -223,9 +223,12 @@ For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
 > a superuser/BYPASSRLS and will **silently return all rows**. Always use the
 > `semantius_authenticator` connection string for app traffic.
 
-> ⚠️ **First user becomes Administrator.** On a fresh database the *first* provisioned
-> user is auto-assigned the **Administrator** role (`rbac.auto_assign_user_role`), in
-> both modes. Provision your intended admin first.
+> ⚠️ **First user becomes Administrator.** While no user holds the Administrator
+> role, the next principal to *arrive* — a user row created with `last_seen` set,
+> which is what `get_userinfo()` does on first login — is auto-assigned it
+> (`rbac.auto_assign_user_role`), in both modes. Log in as your intended admin
+> first. Pre-provisioning users who have not logged in elects nobody, and removing
+> the last Administrator re-opens the election for the next arrival.
 
 ### Testing session mode
 

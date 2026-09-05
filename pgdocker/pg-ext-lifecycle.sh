@@ -11,6 +11,7 @@
 #   1b. a second database on the same cluster (roles already exist)
 #   1c. concurrency: two migrate() callers serialize on the advisory lock
 #   1d. transaction shape: psql -1, and BEGIN/ROLLBACK leaves nothing
+#   1e. first-user bootstrap: two concurrent logins elect exactly one admin
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
@@ -184,6 +185,61 @@ check "a rolled-back migrate() leaves no schema common" "0" \
   "$(psqlq life1d2 "SELECT count(*) FROM pg_namespace WHERE nspname='common'")"
 check "the roles still exist after the rollback" "4" \
   "$(psqlq life1d2 "SELECT count(*) FROM pg_roles WHERE rolname IN ('authenticated','semantius_user','semantius_authenticator','semantius_owner')")"
+
+# ------------------------------------------- 1e first-user bootstrap race
+step "[1e] First-user bootstrap: two concurrent logins elect exactly one admin"
+# The pgTAP suite cannot prove this. It runs in one session inside one
+# transaction, and there is no dblink in this tree, so the only place two
+# sessions can meet is here.
+#
+# The trigger that grants Administrator reads "does any user hold role 2" and
+# then writes, which are two statements. Without the advisory lock two first
+# logins arriving together both read an empty user_roles and both insert, and a
+# fresh install ends up with two administrators - one of them whoever happened
+# to log in second. With it, the loser waits for the winner to commit and then,
+# under READ COMMITTED, takes a fresh snapshot in which the role is taken.
+newdb life1e
+psqlrun life1e "CREATE EXTENSION pg_semantius" >/dev/null
+psqlq life1e "SELECT semantius.migrate()" >/dev/null
+check "a fresh install has no administrator" "0" \
+  "$(psqlq life1e "SELECT count(*) FROM public.user_roles WHERE role_id = 2")"
+
+# Session A provisions inside an open transaction and holds it for 5 seconds, so
+# it still owns the lock when B arrives. get_userinfo() is the supported entry
+# point and the one an application actually calls on first login.
+race_login() { # race_login <sub> <email> <trailing sql>
+  printf "BEGIN; SET ROLE semantius_user;
+          SELECT set_config('request.jwt.claim.role', 'authenticated', true);
+          SELECT set_config('request.jwt.claim.sub', '%s', true);
+          SELECT set_config('request.jwt.claim.email', '%s', true);
+          SELECT public.get_userinfo(); %s COMMIT;" "$1" "$2" "$3"
+}
+docker exec -d "$CONTAINER" psql -U postgres -d life1e \
+  -c "$(race_login race_a a@example.test 'SELECT pg_sleep(5);')" >/dev/null
+sleep 2
+b_out=$(docker exec "$CONTAINER" psql -U postgres -d life1e -tAc \
+  "$(race_login race_b b@example.test '')" 2>&1)
+echo "$b_out" | grep -q "ERROR" && bad "second login failed: $b_out" \
+  || ok "the second login completed after the first committed"
+
+check "both principals exist, so the race really ran" "2" \
+  "$(psqlq life1e "SELECT count(*) FROM public.users WHERE external_id IN ('race_a','race_b')")"
+check "exactly one administrator" "1" \
+  "$(psqlq life1e "SELECT count(*) FROM public.user_roles WHERE role_id = 2")"
+check "and it is the login that got there first" "race_a" \
+  "$(psqlq life1e "SELECT u.external_id FROM public.users u
+                     JOIN public.user_roles ur ON ur.user_id = u.id
+                    WHERE ur.role_id = 2")"
+check "the loser still holds the User role" "1" \
+  "$(psqlq life1e "SELECT count(*) FROM public.user_roles ur
+                     JOIN public.users u ON u.id = ur.user_id
+                    WHERE u.external_id = 'race_b' AND ur.role_id = 1")"
+
+# A third login long after the fact is not elected either: the gate is the role,
+# not the timing.
+psqlq life1e "$(race_login race_c c@example.test '')" >/dev/null
+check "a later login is not elected" "1" \
+  "$(psqlq life1e "SELECT count(*) FROM public.user_roles WHERE role_id = 2")"
 
 # --------------------------------------------------- 2 dump / single-pass restore
 step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)"
@@ -613,7 +669,7 @@ step "[12] Cleanup"
 if [ "$KEEP" = "1" ]; then
   echo "   --keep: scratch databases left in place"
 else
-  for d in life1 life1b life1c life1d life1d2 life2 life2p life2j life2t life5 \
+  for d in life1 life1b life1c life1d life1d2 life1e life2 life2p life2j life2t life5 \
            life6 life6b life6c life6d life7 life7b life7c life8 life8c life9 \
            life9b life_virgin; do
     dropdb_ "$d"
