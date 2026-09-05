@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0015_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(290);
+SELECT plan(311);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -1478,6 +1478,112 @@ SELECT is(
     evaluate_json_logic('{"is_match":["123abc","^[a-z]+[0-9]+$"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,
     'test 290'
+);
+-- # String comparison (B20, B21): two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number
+SELECT is(
+    evaluate_json_logic('{">":["10","9"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 291'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["10","9"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 292'
+);
+SELECT is(
+    evaluate_json_logic('{">":["b","a"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 293'
+);
+SELECT is(
+    evaluate_json_logic('{">":["a","b"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 294'
+);
+SELECT is(
+    evaluate_json_logic('{">=":["b","b"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 295'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["a","b"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 296'
+);
+SELECT is(
+    evaluate_json_logic('{"<=":["a","a"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 297'
+);
+SELECT is(
+    evaluate_json_logic('{"<=":["b","a"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 298'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["B","a"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 299'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["a","b","c"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 300'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["a","c","b"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 301'
+);
+SELECT is(
+    evaluate_json_logic('{"<=":["a","a","b"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 302'
+);
+SELECT is(
+    evaluate_json_logic('{"<":["2024-01-01","2024-02-01"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 303'
+);
+SELECT is(
+    evaluate_json_logic('{">":["10",9]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 304'
+);
+SELECT is(
+    evaluate_json_logic('{"<":[9,"10"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 305'
+);
+SELECT is(
+    evaluate_json_logic('{">=":["2",1,3]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 306'
+);
+SELECT is(
+    evaluate_json_logic('{"<":[1,"2",3]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 307'
+);
+SELECT is(
+    evaluate_json_logic('{">":["b",1]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 308'
+);
+SELECT is(
+    evaluate_json_logic('{">=":["2024-01-01",0]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 309'
+);
+SELECT is(
+    evaluate_json_logic('{"<":[{"var":"a"},{"var":"b"}]}'::jsonb, '{"a":"apple","b":"banana"}'::jsonb),
+    'true'::jsonb,
+    'test 310'
+);
+SELECT is(
+    evaluate_json_logic('{">":[{"var":"a"},{"var":"b"}]}'::jsonb, '{"a":"10","b":"9"}'::jsonb),
+    'false'::jsonb,
+    'test 311'
 );
 -- EOF
 

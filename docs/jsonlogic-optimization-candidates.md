@@ -194,9 +194,11 @@ Beyond the three signals, prefer a shape that:
    expression: `{">=": [{"var":"valid_to"}, {"var":"$today"}]}` drags in
    `jl_to_number`, which renders both sides as text and tries numeric then
    timestamp coercion. A named `not_expired` operator resolves the column against
-   `pg_attribute` and compares dates as dates. See **B20** and **B21** in
-   `plans/pg_semantius-open-items.md` for what that coercion path currently gets
-   wrong.
+   `pg_attribute` and compares dates as dates. The generic path is faithful to
+   the reference since 2026-09-05 (two strings compare as text, and a
+   non-numeric string no longer raises; B20 and B21 in
+   `plans/ext-solved-items.md`), but it still cannot know that a column is a
+   date, which is the point.
 
 ## Confirming the win before committing
 

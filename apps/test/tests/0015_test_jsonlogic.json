@@ -584,5 +584,28 @@
         false
     ],
 
+    "# String comparison (B20, B21): two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number",
+    [ {">":["10","9"]}, {}, false ],
+    [ {"<":["10","9"]}, {}, true ],
+    [ {">":["b","a"]}, {}, true ],
+    [ {">":["a","b"]}, {}, false ],
+    [ {">=":["b","b"]}, {}, true ],
+    [ {"<":["a","b"]}, {}, true ],
+    [ {"<=":["a","a"]}, {}, true ],
+    [ {"<=":["b","a"]}, {}, false ],
+    [ {"<":["B","a"]}, {}, true ],
+    [ {"<":["a","b","c"]}, {}, true ],
+    [ {"<":["a","c","b"]}, {}, false ],
+    [ {"<=":["a","a","b"]}, {}, true ],
+    [ {"<":["2024-01-01","2024-02-01"]}, {}, true ],
+    [ {">":["10",9]}, {}, true ],
+    [ {"<":[9,"10"]}, {}, true ],
+    [ {">=":["2",1,3]}, {}, true ],
+    [ {"<":[1,"2",3]}, {}, true ],
+    [ {">":["b",1]}, {}, false ],
+    [ {">=":["2024-01-01",0]}, {}, true ],
+    [ {"<":[{"var":"a"},{"var":"b"}]}, {"a":"apple","b":"banana"}, true ],
+    [ {">":[{"var":"a"},{"var":"b"}]}, {"a":"10","b":"9"}, false ],
+
     "EOF"
 ]

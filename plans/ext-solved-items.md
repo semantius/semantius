@@ -716,3 +716,70 @@ are unlinted, not mis-reported. They moved to **Q6**.
   after `deno task extension 0.5.0-beta1`: 2,175 passing.
 - `deno task bundle-sql` regenerated the three bundle copies; they are
   git-ignored (B18), so they do not appear in the diff.
+
+---
+
+## B20 and B21 (2026-09-05): the JsonLogic comparisons follow the reference
+
+The rows as they stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| B20 | Medium (REST) | migration | `0015_jsonlogic.sql` (`jl_to_number`, the timestamp fallback) | Comparing two non-numeric strings **raises** instead of returning a value: `{">":["b","a"]}` gives `ERROR: invalid input syntax for type timestamp: "b"`. `jl_to_number` tries `txt::numeric`, then `extract(epoch FROM txt::timestamp)`, and catches only `invalid_text_representation` and `datetime_field_overflow`; `'b'::timestamp` raises **22007 `invalid_datetime_format`**, which is not caught and escapes. Reachable from user data, not just from the rule: a rule comparing a text column to a constant crashes on any row whose value is not numeric or date-like. Blast radius differs by caller - computed and validation rules re-raise with context (`0180:130-135`, `:162-167`), but a `select_rule` swallows it in `EXCEPTION WHEN OTHERS THEN RETURN FALSE` (`0180:443-446`), so the rule silently evaluates false for that row and hides it with no error anywhere. | Catch `invalid_datetime_format` alongside the two already handled, or narrow the fallback to values that look like dates before attempting the cast. Fixing B21 properly subsumes this for the string/string case, but the guard is worth having on its own because `jl_to_number` is reached from twelve operators, not only the comparisons. | `{">":["b","a"]}` returns a value instead of raising, with corpus cases in `0015_test_jsonlogic.json` covering non-numeric strings on both sides. |
+| B21 | Medium (REST) | migration | `0210_raci.sql` (`>`, `>=`, `<`, `<=` at :754-790) and the same block in `0015_jsonlogic.sql` | The four comparison operators coerce **both** operands through `jl_to_number` unconditionally, so two strings are compared numerically: `{">":["10","9"]}` returns **true**, where JsonLogic returns false (the reference implementation is JavaScript's own `>`, which compares two strings lexicographically and only coerces when one side is a number). Verified 2026-09-05 that the rest of the loose-comparison surface is faithful - `null < 5` true, `null == 0` false, `null != "x"` true, `5 === "5"` false all match the reference - so this is the divergence, not a family of them. Not caught by the 290-case corpus because **every comparison case in the official JsonLogic suite has at least one numeric operand** (`{">":["2",1]}`, `{"<":["1",2]}`); string-vs-string is untested upstream. In a `select_rule` a wrong comparison is a wrong visibility answer, so this is correctness-adjacent to security, though it needs an admin to write a text comparison rule. See **B20** for the same code path crashing. | Compare lexicographically when both operands are strings and neither is numeric; keep numeric coercion when either side is a number, which is what the reference does and what the corpus pins. Both copies (`0015` creates the function, `0210` replaces it) or they drift. Note the three-argument between form of `<` and `<=` (`0210:768-790`) takes the same rule. | `{">":["10","9"]}` is false and `{">":["b","a"]}` is true, with corpus cases for string/string on all four operators added to `0015_test_jsonlogic.json` and regenerated with `deno task testgen_jsonlogic`. |
+
+**Both closed.** One change to the interpreter, in both of its copies, plus the
+coercion helper and 21 corpus cases.
+
+### What changed
+
+- **B21.** The four comparison operators `>`, `>=`, `<`, `<=` no longer push
+  both operands through `jl_to_number` unconditionally. When both operands are
+  JSON strings they compare as text in code-point order (`COLLATE "C"`), which
+  is what JavaScript's own operators do and therefore what the reference
+  implementation does; any other pair is coerced to numbers as before. So
+  `{">":["10","9"]}` is false and `{">":["10",9]}` is true. The three-argument
+  between form of `<` and `<=` applies the rule to each pair separately. The
+  four separate `IF op = ...` blocks became one block that computes a sign for
+  the pair once; no helper function was added, to keep the per-node cost P12
+  measured (an extra PL/pgSQL call per comparison node would have cost more
+  than the whole P12 gain on those nodes). Both copies are byte-identical
+  again apart from the RACI operators 0210 adds.
+- **B20.** `jl_to_number`'s two coercion attempts now catch `data_exception`,
+  the whole 22xxx class, instead of two named conditions. `'b'::timestamp`
+  raises 22007 `invalid_datetime_format`, which escaped before and crashed any
+  rule comparing a text column against a number. With B21 the string/string
+  case never reaches this path; the guard matters for string/number.
+- **`jl_to_number` is STABLE, not IMMUTABLE.** The timestamp fallback follows
+  `DateStyle`, so the old label was wrong. Found by plpgsql_check during the
+  Q sweep the same day; two similar warnings on `format_to_data_type` and
+  `format_to_json_type` were checked and are false alarms (generic operators
+  applied to constants).
+- Corpus: 21 cases under "String comparison (B20, B21)" in
+  `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
+  `deno task testgen_jsonlogic` (290 to 311). One of the 21 was written wrong
+  on the first pass: `{">=":["2",1,3]}` was expected false, on the assumption
+  that `>=` had a between form. It does not, in the reference or here; the
+  third operand is ignored and the answer is true. The code was right, the
+  expectation was corrected, and this is recorded so nobody reads the first
+  red run as a regression.
+- `docs/jsonlogic-optimization-candidates.md` no longer points at the open
+  rows for "what the coercion path gets wrong"; it now says the generic path
+  is faithful and that the remaining reason for named operators is that the
+  generic path cannot know a column is a date.
+
+### Deliberately not changed
+
+A non-numeric string against a number still coerces to 0, not NaN, so
+`{"<":["b",1]}` is true here and false in JavaScript. That is pre-existing
+behaviour, the same function's null handling depends on it (test 0335), and
+no row asked for NaN semantics. The corpus asserts only cases where the two
+agree.
+
+### Proof
+
+- `pgdocker/pg-cli-retest.sh`: 2,196 passing. `pgdocker/pg-ext-retest.sh`
+  after `deno task extension 0.5.0-beta1`: 2,196 passing. Up from 2,175 by
+  exactly the 21 new cases.
+- `{">":["b","a"]}` returns true instead of raising; `{">":["10","9"]}` is
+  false; `{"<":["a","b","c"]}` is true and `{"<":["a","c","b"]}` false.

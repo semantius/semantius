@@ -603,16 +603,20 @@ BEGIN
             txt_val := val #>> '{}';
 
             -- First try numeric coercion to preserve original JsonLogic behavior.
+            -- data_exception is the whole 22xxx class: bad syntax, overflow,
+            -- anything the cast can raise on caller-supplied text (B20).
             BEGIN
                 RETURN txt_val::numeric;
-            EXCEPTION WHEN invalid_text_representation THEN
+            EXCEPTION WHEN data_exception THEN
                 NULL;
             END;
 
-            -- Then try timestamp/date coercion for ISO-like date strings.
+            -- Then try timestamp/date coercion for ISO-like date strings. This is
+            -- a Semantius extension (JavaScript would give NaN); it makes the
+            -- function STABLE, not IMMUTABLE, because the parse follows DateStyle.
             BEGIN
                 RETURN extract(epoch FROM txt_val::timestamp)::numeric;
-            EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow THEN
+            EXCEPTION WHEN data_exception THEN
                 RETURN 0::numeric;
             END;
 
@@ -621,7 +625,7 @@ BEGIN
         ELSE RETURN 0::numeric;
     END CASE;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to text (for cat, substr, in-string)
 CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
@@ -671,6 +675,7 @@ DECLARE
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
+    cmp_ab int; cmp_bc int;
     result jsonb;
     scoped_data jsonb;
     scoped_logic jsonb;
@@ -1032,42 +1037,46 @@ BEGIN
         RETURN to_jsonb(jl_truthy(a));
     END IF;
 
-    -- ===================== > =====================
-    IF op = '>' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a > num_b);
-    END IF;
-
-    -- ===================== >= =====================
-    IF op = '>=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a >= num_b);
-    END IF;
-
-    -- ===================== < =====================
-    IF op = '<' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        IF c IS NULL THEN
-            RETURN to_jsonb(num_a < num_b);
+    -- ===================== > >= < <= =====================
+    -- Two strings compare as text in code-point order (COLLATE "C"), which is
+    -- what JavaScript's own operators do and therefore what the reference
+    -- implementation does; any other pair is coerced to numbers through
+    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
+    -- three-argument between form of < and <= applies the rule to each pair.
+    IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
+        IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
+            txt_a := a #>> '{}';
+            txt_b := b #>> '{}';
+            cmp_ab := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
         ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a < num_b AND num_b < num_c);
+            num_a := jl_to_number(a);
+            num_b := jl_to_number(b);
+            cmp_ab := CASE WHEN num_a < num_b THEN -1
+                           WHEN num_a > num_b THEN 1
+                           ELSE 0 END;
         END IF;
-    END IF;
-
-    -- ===================== <= =====================
-    IF op = '<=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
+        IF op = '>' THEN RETURN to_jsonb(cmp_ab > 0); END IF;
+        IF op = '>=' THEN RETURN to_jsonb(cmp_ab >= 0); END IF;
         IF c IS NULL THEN
-            RETURN to_jsonb(num_a <= num_b);
-        ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a <= num_b AND num_b <= num_c);
+            RETURN to_jsonb(CASE WHEN op = '<' THEN cmp_ab < 0 ELSE cmp_ab <= 0 END);
         END IF;
+        IF jsonb_typeof(b) = 'string' AND jsonb_typeof(c) = 'string' THEN
+            txt_a := b #>> '{}';
+            txt_b := c #>> '{}';
+            cmp_bc := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
+        ELSE
+            num_b := jl_to_number(b);
+            num_c := jl_to_number(c);
+            cmp_bc := CASE WHEN num_b < num_c THEN -1
+                           WHEN num_b > num_c THEN 1
+                           ELSE 0 END;
+        END IF;
+        IF op = '<' THEN RETURN to_jsonb(cmp_ab < 0 AND cmp_bc < 0); END IF;
+        RETURN to_jsonb(cmp_ab <= 0 AND cmp_bc <= 0);
     END IF;
 
     -- ===================== % =====================
@@ -1365,7 +1374,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '0a54d0101fa3f5c1f7ffc9ff4c28caf56665b06d48495d78b0a5870f4fbc5d4c');
+      VALUES ('_core.0015_jsonlogic', '2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14432,6 +14441,7 @@ DECLARE
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
+    cmp_ab int; cmp_bc int;
     result jsonb;
     scoped_data jsonb;
     scoped_logic jsonb;
@@ -14793,42 +14803,46 @@ BEGIN
         RETURN to_jsonb(jl_truthy(a));
     END IF;
 
-    -- ===================== > =====================
-    IF op = '>' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a > num_b);
-    END IF;
-
-    -- ===================== >= =====================
-    IF op = '>=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a >= num_b);
-    END IF;
-
-    -- ===================== < =====================
-    IF op = '<' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        IF c IS NULL THEN
-            RETURN to_jsonb(num_a < num_b);
+    -- ===================== > >= < <= =====================
+    -- Two strings compare as text in code-point order (COLLATE "C"), which is
+    -- what JavaScript's own operators do and therefore what the reference
+    -- implementation does; any other pair is coerced to numbers through
+    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
+    -- three-argument between form of < and <= applies the rule to each pair.
+    IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
+        IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
+            txt_a := a #>> '{}';
+            txt_b := b #>> '{}';
+            cmp_ab := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
         ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a < num_b AND num_b < num_c);
+            num_a := jl_to_number(a);
+            num_b := jl_to_number(b);
+            cmp_ab := CASE WHEN num_a < num_b THEN -1
+                           WHEN num_a > num_b THEN 1
+                           ELSE 0 END;
         END IF;
-    END IF;
-
-    -- ===================== <= =====================
-    IF op = '<=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
+        IF op = '>' THEN RETURN to_jsonb(cmp_ab > 0); END IF;
+        IF op = '>=' THEN RETURN to_jsonb(cmp_ab >= 0); END IF;
         IF c IS NULL THEN
-            RETURN to_jsonb(num_a <= num_b);
-        ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a <= num_b AND num_b <= num_c);
+            RETURN to_jsonb(CASE WHEN op = '<' THEN cmp_ab < 0 ELSE cmp_ab <= 0 END);
         END IF;
+        IF jsonb_typeof(b) = 'string' AND jsonb_typeof(c) = 'string' THEN
+            txt_a := b #>> '{}';
+            txt_b := c #>> '{}';
+            cmp_bc := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
+        ELSE
+            num_b := jl_to_number(b);
+            num_c := jl_to_number(c);
+            cmp_bc := CASE WHEN num_b < num_c THEN -1
+                           WHEN num_b > num_c THEN 1
+                           ELSE 0 END;
+        END IF;
+        IF op = '<' THEN RETURN to_jsonb(cmp_ab < 0 AND cmp_bc < 0); END IF;
+        RETURN to_jsonb(cmp_ab <= 0 AND cmp_bc <= 0);
     END IF;
 
     -- ===================== % =====================
@@ -15308,7 +15322,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '93f589dbfa892c6ca18b4f73d11ec3d4832a04b77011dd5df1ec272502b580d5');
+      VALUES ('_core.0210_raci', 'ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16788,7 +16802,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"0a54d0101fa3f5c1f7ffc9ff4c28caf56665b06d48495d78b0a5870f4fbc5d4c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"c20d4c04ea4840c42b84686ea28799321f966feb2da4f7a9390796f593025f67","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"b550a736a36d91317c30b6c991975d7dd6ced3cc6b91ae005a3d829221f22d31","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"40ed079db2acbd1e741a1d4d1c172643a966d0c605f30ee4b14341aa532c3b4f","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"93f589dbfa892c6ca18b4f73d11ec3d4832a04b77011dd5df1ec272502b580d5","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"c20d4c04ea4840c42b84686ea28799321f966feb2da4f7a9390796f593025f67","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"b550a736a36d91317c30b6c991975d7dd6ced3cc6b91ae005a3d829221f22d31","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"40ed079db2acbd1e741a1d4d1c172643a966d0c605f30ee4b14341aa532c3b4f","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

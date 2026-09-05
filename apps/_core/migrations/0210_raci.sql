@@ -387,6 +387,7 @@ DECLARE
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
+    cmp_ab int; cmp_bc int;
     result jsonb;
     scoped_data jsonb;
     scoped_logic jsonb;
@@ -748,42 +749,46 @@ BEGIN
         RETURN to_jsonb(jl_truthy(a));
     END IF;
 
-    -- ===================== > =====================
-    IF op = '>' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a > num_b);
-    END IF;
-
-    -- ===================== >= =====================
-    IF op = '>=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        RETURN to_jsonb(num_a >= num_b);
-    END IF;
-
-    -- ===================== < =====================
-    IF op = '<' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        IF c IS NULL THEN
-            RETURN to_jsonb(num_a < num_b);
+    -- ===================== > >= < <= =====================
+    -- Two strings compare as text in code-point order (COLLATE "C"), which is
+    -- what JavaScript's own operators do and therefore what the reference
+    -- implementation does; any other pair is coerced to numbers through
+    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
+    -- three-argument between form of < and <= applies the rule to each pair.
+    IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
+        IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
+            txt_a := a #>> '{}';
+            txt_b := b #>> '{}';
+            cmp_ab := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
         ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a < num_b AND num_b < num_c);
+            num_a := jl_to_number(a);
+            num_b := jl_to_number(b);
+            cmp_ab := CASE WHEN num_a < num_b THEN -1
+                           WHEN num_a > num_b THEN 1
+                           ELSE 0 END;
         END IF;
-    END IF;
-
-    -- ===================== <= =====================
-    IF op = '<=' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
+        IF op = '>' THEN RETURN to_jsonb(cmp_ab > 0); END IF;
+        IF op = '>=' THEN RETURN to_jsonb(cmp_ab >= 0); END IF;
         IF c IS NULL THEN
-            RETURN to_jsonb(num_a <= num_b);
-        ELSE
-            num_c := jl_to_number(c);
-            RETURN to_jsonb(num_a <= num_b AND num_b <= num_c);
+            RETURN to_jsonb(CASE WHEN op = '<' THEN cmp_ab < 0 ELSE cmp_ab <= 0 END);
         END IF;
+        IF jsonb_typeof(b) = 'string' AND jsonb_typeof(c) = 'string' THEN
+            txt_a := b #>> '{}';
+            txt_b := c #>> '{}';
+            cmp_bc := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
+                           WHEN txt_a COLLATE "C" > txt_b THEN 1
+                           ELSE 0 END;
+        ELSE
+            num_b := jl_to_number(b);
+            num_c := jl_to_number(c);
+            cmp_bc := CASE WHEN num_b < num_c THEN -1
+                           WHEN num_b > num_c THEN 1
+                           ELSE 0 END;
+        END IF;
+        IF op = '<' THEN RETURN to_jsonb(cmp_ab < 0 AND cmp_bc < 0); END IF;
+        RETURN to_jsonb(cmp_ab <= 0 AND cmp_bc <= 0);
     END IF;
 
     -- ===================== % =====================
