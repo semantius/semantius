@@ -1,13 +1,15 @@
-# Security grants and guards: S5, S6, S7, S8, S9, S10, S11, Q7
+# Security grants and guards: S5, S6, S7, S8, S9, S10, S11
 
-Owner of those eight rows in `plans/pg_semantius-open-items.md`. Written
+Owner of those seven rows (Q7 was accepted and closed on 2026-09-05; its
+section below is kept for the reasoning) in `plans/pg_semantius-open-items.md`. Written
 2026-09-05 for a fresh session, then reviewed the same day by an independent
 agent against the source and the live catalog; three sections were wrong on
 the first pass (S11, S8, Q7) and are corrected below, with the review's
-findings kept where they change the work. Nothing here is decided yet: every
-section ends with a question, because the project rule is that nothing
-touching a trust boundary is decided by an agent alone. Answer the questions
-in this file, in place, and the executing session works from the answers.
+findings kept where they change the work. Every section ends with a question,
+because the project rule is that nothing touching a trust boundary is decided
+by an agent alone; **all of them were answered by the owner on 2026-09-05**
+and the answers are recorded in place. The executing session works from those
+answers and does not reopen them.
 
 Facts below were checked on 2026-09-05 against the migrations, the tests, the
 live `appdb` catalog on `postgres18-cli`, and the sibling repositories under
@@ -29,17 +31,19 @@ Three changes, not one. Each lands with its pinning test and both harnesses
 green (`pgdocker/pg-cli-retest.sh`, `pgdocker/pg-ext-retest.sh`), and each
 gets its own dated section in `plans/ext-solved-items.md`.
 
-1. **The mechanical six**: S5, S6, S9, S10, S11 and Q7. Every one is a
+1. **The mechanical five**: S5, S6, S9, S10 and S11. Every one is a
    `REVOKE`, a `SECURITY DEFINER` flip on a trigger function, or a
    self-or-admin guard, and every one is pinned by extending an existing guard
    test (`0060_test_security.sql`, `0240_test_no_unsafe_functions.sql`). One
-   change.
+   change. **Done 2026-09-05**, together with all three "same class" findings
+   below; see `plans/ext-solved-items.md`. The sections that follow are kept
+   for the reasoning, not as work.
 2. **S7**, the API-key primitive. Its own change: it is an authentication
    function and the wrong choice is expensive.
 3. **S8**, the first-user bootstrap. Its own change: it is a race, it
    invalidates an existing test, and its pin cannot live in pgTAP.
 
-## Change 1: the mechanical six
+## Change 1: the mechanical five
 
 ### S5, audit tables writable by the request role
 
@@ -66,7 +70,7 @@ capability and breaks 0300. The first draft of this plan revoked it; do not.
   audit tests cover that already); 0300's admin deletes still pass.
 - Question: keep the admin DELETE on audit rows? The tests say it is
   intended. If the answer is no, that is a separate decision with its own row,
-  since it changes a documented admin capability. [ ]
+  since it changes a documented admin capability. **Answered 2026-09-05: keep DELETE.**
 
 ### S6, `common.cache_*` definers executable by PUBLIC
 
@@ -88,7 +92,7 @@ grant.
   'EXECUTE')` is false; 0060 green with 2.2 widened.
 - Question: does any app tier call `common.cache_*`? The schema is not
   exposed by PostgREST, and nothing in `packages/` or `apps/` does. Confirm,
-  then revoke. [ ]
+  then revoke. **Answered 2026-09-05: no callers, revoke.**
 
 ### S9, reading another user's permissions
 
@@ -102,7 +106,7 @@ exception listed under "Same class, not in the rows" below.
 - Pin: user1 calling `get_user_permissions('user3')` raises; user1 for user1
   still works; user3 (admin) for user1 works.
 - Question: raise, or return empty? The row allows either. Raising is the
-  consistent choice with `list_api_keys`. [ ]
+  consistent choice with `list_api_keys`. **Answered 2026-09-05: raise.**
 
 ### S10, upserting any user
 
@@ -117,7 +121,7 @@ working after a revoke.
   provisions a new principal.
 - Question: is it called directly by any app tier? Repeat
   `grep -r upsert_user_from_jwt` over `C:\dev\semantius-cloud` and
-  `C:\dev\oauth-hono-mcp` before acting. [ ]
+  `C:\dev\oauth-hono-mcp` before acting. **Answered 2026-09-05: no callers, revoke.**
 
 ### S11, schema-reload spam (corrected after review)
 
@@ -139,9 +143,9 @@ is the owner (definer dictionary code) or the installer, since
 - Pin: unauthenticated call raises; an `entities` insert still emits the
   NOTIFY (`pg-ext-lifecycle.sh` step 11 probes this).
 - Question: revoke outright, as above, or throttle and keep it callable? There
-  is no caller outside the triggers. [ ]
+  is no caller outside the triggers. **Answered 2026-09-05: revoke outright.**
 
-### Q7, the vendored pgmq functions (corrected after review)
+### Q7, the vendored pgmq functions (corrected after review; accepted and closed 2026-09-05)
 
 All 75 `pgmq.*` functions are PUBLIC-executable, none pins `search_path`, none
 is `SECURITY DEFINER`, all are owned by `semantius_owner`. The request role
@@ -177,7 +181,11 @@ Whatever is chosen, two things the first draft missed:
 - Update `SECURITY.md:92-95` in the same change.
 
 - Question: A, B or C? A is one line and reversible; C is the only one that
-  also makes the linter row go away. [ ]
+  also makes the linter row go away. **Answered 2026-09-05: none of them. Accepted
+  as documented behaviour and closed; reachability is DB-only (PostgREST
+  exposes `public` only, confirmed on the running container), the exposure is
+  metadata, and `SECURITY.md` already states it. Record in
+  `plans/ext-solved-items.md`. This section stays for the reasoning only.**
 
 ## Change 2: S7, `public.validate_api_key(text)`
 
@@ -204,7 +212,7 @@ option A.
   unauthenticated call raises (B).
 - Question: who is supposed to call it? If "the PostgREST pre-request hook"
   or "the app tier", B; if "nothing yet", A. Everything in the tree says A.
-  [ ]
+  **Answered 2026-09-05: A, revoke.**
 
 ## Change 3: S8, first-user bootstrap (corrected after review)
 
@@ -262,7 +270,7 @@ re-snapshots after the first transaction commits and sees the role row.
 - Question: is "re-bootstrapping" a cluster (an admin deletes the last admin
   and wants the next login to take it) a case to support? With the role-2
   gate it works by construction and needs no reset path; with a marker it
-  needs one. If you want the marker anyway, say why. [ ]
+  needs one. If you want the marker anyway, say why. **Answered 2026-09-05: re-bootstrap, no marker.**
 
 ## Same class, not in the rows
 

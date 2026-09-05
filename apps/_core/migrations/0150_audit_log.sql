@@ -801,16 +801,19 @@ END $$;
 ALTER TABLE public.audit_record_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_ddl_logs ENABLE ROW LEVEL SECURITY;
 
--- Allow all operations for admin users
+-- An audit row may only be written by the SECURITY DEFINER trigger functions
+-- above, never by the request role: a log the logged party can append to proves
+-- nothing. There is deliberately no INSERT policy, and INSERT is revoked below,
+-- so a forged row with a foreign user_id or an invented command_tag has no path
+-- in. UPDATE is revoked for the same reason - it has no policy today, and
+-- without the revoke a future policy would silently reopen the hole.
+--
+-- Reading and deleting stay with the administrator: 0300_test_audit_log.sql
+-- exercises the deletes, which is how an operator prunes the log.
 CREATE POLICY audit_record_logs_select ON public.audit_record_logs
     FOR SELECT
     TO semantius_user
     USING ((SELECT rbac.has_permission('admin')));
-
-CREATE POLICY audit_record_logs_insert ON public.audit_record_logs
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK (true);
 
 CREATE POLICY audit_record_logs_delete ON public.audit_record_logs
     FOR DELETE
@@ -822,21 +825,23 @@ CREATE POLICY audit_ddl_logs_select ON public.audit_ddl_logs
     TO semantius_user
     USING ((SELECT rbac.has_permission('admin')));
 
-CREATE POLICY audit_ddl_logs_insert ON public.audit_ddl_logs
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK (true);
-
 CREATE POLICY audit_ddl_logs_delete ON public.audit_ddl_logs
     FOR DELETE
     TO semantius_user
     USING ((SELECT rbac.has_permission('admin')));
 
 -- Grant necessary table permissions to semantius_user
-GRANT SELECT, INSERT, DELETE ON public.audit_record_logs TO semantius_user;
-GRANT SELECT, INSERT, DELETE ON public.audit_ddl_logs TO semantius_user;
+GRANT SELECT, DELETE ON public.audit_record_logs TO semantius_user;
+GRANT SELECT, DELETE ON public.audit_ddl_logs TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
+
+-- The grants above are additive, so the write privileges have to be taken away
+-- explicitly: 0050 hands semantius_user SELECT, INSERT, UPDATE, DELETE on every
+-- table in public and on every table created there afterwards, which is where
+-- these two get theirs.
+REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
+REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
 
 -- Grant usage on the audit schema to semantius_user (needed for trigger execution)
 GRANT USAGE ON SCHEMA audit TO semantius_user;

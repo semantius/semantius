@@ -56,17 +56,22 @@ SELECT throws_ok(
     'Insert into roles should fail because user1 lacks admin permission'
 );
 
--- Read-only lookup helper (used by RLS in read-only transactions)
+-- Read-only lookup helper (used by RLS in read-only transactions).
+-- The subject is confined: user1 may look itself up, and anything else raises,
+-- which is what stops a plain user from enumerating external ids. The whole rule,
+-- including the administrator's view of it and the NULL-for-unknown answer they
+-- still get, is in 0405_test_rbac_helpers.sql.
 SELECT is(
     rbac.get_user_by_external_id('user1'),
     1001::integer,
     'rbac.get_user_by_external_id should return 1001 for user1'
 );
 
-SELECT is(
-    rbac.get_user_by_external_id('does_not_exist'),
-    NULL::integer,
-    'rbac.get_user_by_external_id should return NULL for non-existent user'
+SELECT throws_ok(
+    $$SELECT rbac.get_user_by_external_id('does_not_exist')$$,
+    '42501',
+    NULL,
+    'rbac.get_user_by_external_id should refuse a subject that is not the caller'
 );
 
 select authenticate_as('user2');

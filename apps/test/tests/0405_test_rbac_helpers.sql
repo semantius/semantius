@@ -25,9 +25,14 @@
 -- blank list reads as "no scopes", i.e. no restriction. Closing that needs the
 -- scope list carried in a context the client cannot forge, written and
 -- checksummed by a definer-only entry point. Not done; not tested here.
+--
+-- GROUP 7 pins the target check the four subject-taking helpers apply. It is
+-- also why every cross-user call in GROUP 4 and GROUP 6 names 'admin' in its
+-- scope list: that check runs through rbac.has_permission, so a scope list
+-- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(58);
+SELECT plan(77);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -122,12 +127,12 @@ SELECT ok(NOT rbac.user_has_permission('', 'nwind:view'),
 SELECT ok(NOT rbac.user_has_permission('user2', ''),
     'user_has_permission: empty permission name is false');
 
-SELECT set_config('app.oauth_scopes', 'nwind:view', true);
+SELECT set_config('app.oauth_scopes', 'admin nwind:view', true);
 SELECT ok(rbac.user_has_permission('user2', 'nwind:view'),
     'user_has_permission: a permission inside the scope list stays granted');
 SELECT ok(NOT rbac.user_has_permission('user2', 'nwind:manage'),
     'user_has_permission: a permission outside the scope list is denied');
-SELECT set_config('app.oauth_scopes', 'nwind:manage', true);
+SELECT set_config('app.oauth_scopes', 'admin nwind:manage', true);
 SELECT ok(rbac.user_has_permission('user2', 'nwind:view'),
     'user_has_permission: a scope that implies the permission via permission_hierarchy grants it');
 SELECT set_config('app.oauth_scopes', '', true);
@@ -162,17 +167,19 @@ SELECT throws_ok($$SELECT * FROM rbac.validate_oauth_scopes('', 'nwind:view')$$,
 SELECT set_config('app.oauth_scopes', '', true);
 SELECT authenticate_as('user3');   -- admin, so user_has_permission is allowed
 
-SELECT set_config('app.oauth_scopes', 'nwind:view nwind:manage', true);
+SELECT set_config('app.oauth_scopes', 'admin nwind:view nwind:manage', true);
 SELECT ok(rbac.user_has_permission('user2', 'nwind:manage'),
     'space-separated scopes: user_has_permission agrees');
-SELECT set_config('app.oauth_scopes', 'nwind:view,nwind:manage', true);
+SELECT set_config('app.oauth_scopes', 'admin,nwind:view,nwind:manage', true);
 SELECT ok(rbac.user_has_permission('user2', 'nwind:manage'),
     'comma-separated scopes: user_has_permission agrees');
-SELECT set_config('app.oauth_scopes', ' nwind:view , , nwind:manage ', true);
+SELECT set_config('app.oauth_scopes', ' admin , , nwind:view , , nwind:manage ', true);
 SELECT ok(rbac.user_has_permission('user2', 'nwind:manage'),
     'mixed and repeated separators: user_has_permission agrees');
 
 -- Negative control: normalization must not invent a scope that is not listed.
+-- The subject here is user3 itself, so the target check takes the self branch
+-- and 'admin' can stay out of the scope list.
 SELECT set_config('app.oauth_scopes', 'nwind:view nwind:manage', true);
 SELECT ok(NOT rbac.user_has_permission('user3', 'admin'),
     'normalized scopes still confine: admin is not in the list');
@@ -253,6 +260,109 @@ SELECT is((SELECT current_user_name FROM public.ping()), 'semantius_user',
     'ping: reports the request role as current_user');
 SELECT ok((SELECT server_time FROM public.ping()) BETWEEN now() - interval '1 minute' AND now() + interval '1 minute',
     'ping: server_time is the current time');
+
+-- =====================================================
+-- GROUP 7: the subject parameter is confined to self, or to an admin
+-- =====================================================
+-- Four helpers in 0030 take the subject to answer about as a parameter, are
+-- SECURITY DEFINER, and are reachable over PostgREST RPC. They checked only that
+-- the CALLER was authenticated, so a plain user could read another principal's
+-- full permission set, ask whether any subject held any permission, and probe
+-- which external ids exist. They raise now unless the subject is the caller or
+-- the caller holds admin. Raising, not returning empty: an empty answer is
+-- indistinguishable from "this principal has nothing", which is itself an answer.
+
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user1');
+
+-- Self is always allowed, and still answers.
+SELECT lives_ok($$SELECT * FROM rbac.get_user_permissions('user1')$$,
+    'get_user_permissions: a plain user may ask about itself');
+SELECT ok(EXISTS (SELECT 1 FROM rbac.get_user_permissions('user1') WHERE permission_name = 'user:read'),
+    'get_user_permissions: the self answer is the real permission set');
+SELECT ok(NOT rbac.user_has_permission('user1', 'admin'),
+    'user_has_permission: a plain user may ask about itself');
+SELECT is(rbac.get_user_by_external_id('user1'), 1001,
+    'get_user_by_external_id: a plain user may look itself up');
+SELECT is((SELECT count(*)::int FROM rbac.validate_oauth_scopes('user1', 'admin')), 1,
+    'validate_oauth_scopes: a plain user may validate its own scopes');
+
+-- Any other subject needs admin.
+SELECT throws_ok($$SELECT * FROM rbac.get_user_permissions('user3')$$,
+    '42501', NULL,
+    'get_user_permissions: a plain user cannot read another principal''s permissions');
+SELECT throws_ok($$SELECT rbac.user_has_permission('user3', 'admin')$$,
+    '42501', NULL,
+    'user_has_permission: a plain user cannot ask about another principal');
+SELECT throws_ok($$SELECT rbac.get_user_by_external_id('user3')$$,
+    '42501', NULL,
+    'get_user_by_external_id: a plain user cannot look another principal up');
+SELECT throws_ok($$SELECT * FROM rbac.validate_oauth_scopes('user3', 'admin')$$,
+    '42501', NULL,
+    'validate_oauth_scopes: a plain user cannot validate another principal''s scopes');
+
+-- Enumeration goes with it: a subject that does not exist is refused exactly
+-- like one that does, so the two cannot be told apart from the outside.
+SELECT throws_ok($$SELECT rbac.get_user_by_external_id('does_not_exist')$$,
+    '42501', NULL,
+    'get_user_by_external_id: an unknown subject is refused, not reported missing');
+
+-- An administrator keeps all four.
+SELECT authenticate_as('user3');
+
+SELECT ok(EXISTS (SELECT 1 FROM rbac.get_user_permissions('user1') WHERE permission_name = 'user:read'),
+    'get_user_permissions: an administrator may read another principal''s permissions');
+SELECT ok(NOT rbac.user_has_permission('user1', 'nwind:view'),
+    'user_has_permission: an administrator may ask about another principal');
+SELECT is(rbac.get_user_by_external_id('user1'), 1001,
+    'get_user_by_external_id: an administrator may look another principal up');
+SELECT is(rbac.get_user_by_external_id('does_not_exist'), NULL::integer,
+    'get_user_by_external_id: NULL for an unknown subject is an administrator answer');
+SELECT is((SELECT is_valid FROM rbac.validate_oauth_scopes('user1', 'admin')), false,
+    'validate_oauth_scopes: an administrator may validate another principal''s scopes');
+
+-- =====================================================
+-- GROUP 8: primitives the request role may not reach at all
+-- =====================================================
+-- Two functions have no safe caller-facing form, so they are revoked rather than
+-- guarded. rbac.upsert_user_from_jwt writes the users table and takes the
+-- subject as a parameter, which would let any session create a principal that
+-- never authenticated or refresh a foreign last_seen - the column the first-user
+-- bootstrap in 0050 reads. rbac.validate_permission_exists is a definer with no
+-- identity check, reached only from definer triggers. Both are asserted as
+-- user3, the administrator: this is a missing grant, not a missing permission,
+-- so admin does not help.
+
+SELECT throws_ok(
+    $$SELECT rbac.upsert_user_from_jwt('ghost', 'ghost@test.com')$$,
+    '42501', NULL,
+    'upsert_user_from_jwt: not callable by the request role, admin included');
+SELECT throws_ok(
+    $$SELECT rbac.validate_permission_exists('admin')$$,
+    '42501', NULL,
+    'validate_permission_exists: not callable by the request role, admin included');
+
+-- get_userinfo() is the supported way in and is unaffected: it is SECURITY
+-- DEFINER and passes rbac.uid(), so it still provisions and refreshes the
+-- calling principal.
+SELECT authenticate_as('user1');
+SELECT is((SELECT public.get_userinfo()->>'external_id'), 'user1',
+    'get_userinfo: still provisions the calling principal through the definer path');
+
+-- =====================================================
+-- GROUP 9: the schema-reload notification
+-- =====================================================
+-- common.refresh_schema_cache() sends NOTIFY pgrst, and the two DML trigger
+-- functions on entities and fields are SECURITY DEFINER so they can still reach
+-- it. Callable by the request role it is a free amplifier: one RPC per request
+-- makes PostgREST rebuild its schema cache, and no identity check would help,
+-- because a NOTIFY costs the same whoever sends it. That entity and field writes
+-- still emit it is proved by every DDL test in this suite, which would fail with
+-- 42501 inside the trigger otherwise.
+
+SELECT throws_ok($$SELECT common.refresh_schema_cache()$$,
+    '42501', NULL,
+    'refresh_schema_cache: not callable by the request role');
 
 SELECT * FROM finish();
 ROLLBACK;

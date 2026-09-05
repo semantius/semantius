@@ -62,7 +62,16 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
 
+-- Provisioning is not a request-role capability. This function takes the subject
+-- as a parameter and writes to users, so a caller that could reach it could
+-- create a principal that never authenticated, overwrite another one's email, or
+-- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
+-- 0050 reads. Its one caller, public.get_userinfo() below, is SECURITY DEFINER
+-- and passes rbac.uid(), so it keeps working with no grant at all. The revoke
+-- from semantius_user has to be explicit: 0030's ALTER DEFAULT PRIVILEGES grants
+-- EXECUTE on every function created in this schema.
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
 
 -- =====================================================
 -- Update get_userinfo to pass first_name/last_name from JWT claims

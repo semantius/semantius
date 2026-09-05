@@ -46,9 +46,22 @@ END $$;
 -- =====================================================
 -- SECURE DEFAULTS: Revoke PUBLIC execute on all future functions
 -- =====================================================
--- PostgreSQL grants EXECUTE to PUBLIC by default on all functions.
--- This changes the default so new functions are NOT callable by PUBLIC,
--- preventing accidental privilege escalation via SECURITY DEFINER functions.
+-- PostgreSQL grants EXECUTE to PUBLIC by default on every new function, which
+-- is how a SECURITY DEFINER function becomes callable by an unauthenticated
+-- session.
+--
+-- These two statements do NOT close that, and nothing in this tree may rely on
+-- them. Revoking only the built-in PUBLIC grant leaves an ACL holding nothing
+-- but the owner's implicit rights; PostgreSQL treats that as identical to the
+-- built-in default, stores no pg_default_acl row, and the next function created
+-- here is world-executable again. (Checked against pg_default_acl and
+-- pg_proc.proacl: the entries for `public` and `common` do not exist, while the
+-- one for `rbac`, which also carries a GRANT, does.) They are kept because they
+-- are harmless and because a future PostgreSQL may honor them.
+--
+-- What actually protects a function is an explicit REVOKE EXECUTE FROM PUBLIC,
+-- per function or per schema (0030 does the whole rbac schema at once). Guard
+-- test 0060_test_security.sql fails the moment one is missing.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
@@ -70,6 +83,13 @@ END;
 $$ LANGUAGE plpgsql SET search_path = common;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
+
+-- Explicit, for the reason given above. A trigger function needs no EXECUTE
+-- privilege to fire - PostgreSQL checks that at CREATE TRIGGER time, and every
+-- CREATE TRIGGER naming this function runs inside SECURITY DEFINER dictionary
+-- code owned by the same role - so the PUBLIC grant bought nothing and only
+-- made this schema the odd one out.
+REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
 
 -- =====================================================
 -- _SETTINGS TABLE

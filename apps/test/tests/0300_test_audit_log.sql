@@ -12,9 +12,10 @@
 --   9. audit tables registered in entities/fields metadata
 --  10. _core tables have audit enabled
 --  11. an upsert logs INSERT and UPDATE across the two trigger shapes
+--  12. the request role cannot write the log it appears in
 BEGIN;
 
-SELECT plan(39);
+SELECT plan(43);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -503,6 +504,59 @@ SELECT ok(
           AND column_name = 'user_id'
     ),
     'audit_ddl_logs should have user_id column (not user_name)'
+);
+
+-- =====================================================
+-- TEST 21: the log is append-only from outside, prunable by an admin
+-- =====================================================
+-- The five SECURITY DEFINER trigger functions are the only writers. A log its
+-- own subject can append to proves nothing: before this was closed, user1 wrote
+-- rows carrying a foreign user_id and an invented command_tag, and an
+-- unauthenticated session could do the same, because the INSERT policies were
+-- WITH CHECK (true) and INSERT was granted to the request role. Deleting stays
+-- with the administrator - that is how an operator prunes the log, and TEST 4
+-- and TEST 12 above rely on it.
+
+SELECT authenticate_as('user1');
+
+-- A row that would be accepted on its merits: every NOT NULL column is present
+-- and all four CHECK constraints hold, so 42501 is the privilege check refusing
+-- it and not a malformed statement passing for a defense.
+SELECT throws_ok(
+    $$INSERT INTO audit_record_logs
+          (record_id, record_pk, op, user_id, table_oid, table_schema, table_name, record)
+      VALUES ('00000000-0000-0000-0000-000000000001', '1003', 'INSERT', 1003,
+              'public.users'::regclass, 'public', 'users', '{"id": 1003}'::jsonb)$$,
+    '42501',
+    NULL,
+    'a plain user cannot forge a record-audit row'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO audit_ddl_logs (command_tag, object_identity, query_text, user_id)
+      VALUES ('DROP TABLE', 'public.users', 'nothing to see here', 1003)$$,
+    '42501',
+    NULL,
+    'a plain user cannot forge a DDL-audit row'
+);
+
+-- The definer triggers are unaffected: this INSERT into an audited table still
+-- produces its audit row, written by audit.insert_update_delete_trigger().
+SELECT authenticate_as('user2');
+INSERT INTO audit_test_items (item_name, status) VALUES ('Widget Delta', 'active');
+
+SELECT authenticate_as('user3');
+SELECT is(
+    (SELECT count(*)::integer FROM audit_record_logs
+     WHERE table_name = 'audit_test_items' AND op = 'INSERT'
+       AND record->>'item_name' = 'Widget Delta'),
+    1,
+    'the definer trigger still writes the audit row for a normal insert'
+);
+
+SELECT lives_ok(
+    $$DELETE FROM audit_record_logs WHERE table_name = 'audit_test_items'$$,
+    'an administrator can still prune the record-audit log'
 );
 
 -- =====================================================

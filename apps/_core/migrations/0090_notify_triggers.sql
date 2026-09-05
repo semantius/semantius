@@ -40,6 +40,12 @@ COMMENT ON FUNCTION common.refresh_schema_cache() IS
 -- =====================================================
 -- TRIGGER FUNCTION: NOTIFY ON TABLES CHANGES
 -- =====================================================
+-- SECURITY DEFINER, like its sibling below, because it fires on a DML statement
+-- issued by the request role and common.refresh_schema_cache() is not callable
+-- by that role: an entities write would otherwise fail with 42501. Safe to run
+-- as the owner - the body takes no argument, builds no dynamic SQL, and reaches
+-- exactly one fully qualified function - and search_path is pinned so the name
+-- it reaches cannot be redirected by the caller.
 
 CREATE OR REPLACE FUNCTION notify_pgrst_tables()
 RETURNS TRIGGER AS $$
@@ -52,7 +58,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
 
 COMMENT ON FUNCTION notify_pgrst_tables IS
 'Trigger function that notifies PostgREST to reload schema when entities are modified.';
@@ -78,7 +84,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
 
 COMMENT ON FUNCTION notify_pgrst_fields IS
 'Trigger function that notifies PostgREST to reload schema when fields are modified.';
@@ -180,9 +186,19 @@ REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 
--- Allow semantius_user to call common.refresh_schema_cache() so that DML
--- triggers on entities/fields (which fire in the session user's context) can
--- invoke the function.  The function itself is SECURITY DEFINER, so it
--- always runs as the owner and is the only code that touches _settings.
+-- Nothing outside this file calls common.refresh_schema_cache(): the two DML
+-- trigger functions above and the two event-trigger functions below are its only
+-- callers, and all four now reach it as the owner. Left callable by the request
+-- role it is a free amplifier - one RPC per request makes PostgREST rebuild its
+-- schema cache, and an unauthenticated session could do it, because the function
+-- carries no rbac.uid() and none would help: a NOTIFY costs the same whoever
+-- sends it. The revoke from PUBLIC is the half that matters; the grant to
+-- semantius_user was the documented one.
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
+
+-- USAGE on the schema stays: it reaches nothing on its own (every function in
+-- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
+-- has RLS with no policies and no table grant), and dropping it is a separate
+-- change with a wider blast radius than this one.
 GRANT USAGE ON SCHEMA common TO semantius_user;
-GRANT EXECUTE ON FUNCTION common.refresh_schema_cache() TO semantius_user;

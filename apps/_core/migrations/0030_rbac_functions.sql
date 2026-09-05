@@ -242,6 +242,20 @@ COMMENT ON FUNCTION rbac.uid IS
 -- Read-only function to get user_id by external_id
 -- Used by RLS policies in read-only transactions (e.g., PostgREST GET requests)
 -- Returns NULL if user doesn't exist
+--
+-- SELF-OR-ADMIN. Four functions in this file take a subject as a parameter and
+-- answer a question about it - this one, user_has_permission,
+-- get_user_permissions and validate_oauth_scopes. All four are SECURITY DEFINER
+-- and reachable over PostgREST RPC, so without a target check any authenticated
+-- session could read any other principal's identity and authorization state, and
+-- could enumerate which subjects exist by watching NULL turn into a row. Asking
+-- about yourself is ordinary; asking about somebody else is an administrative
+-- act. The rule is the one public.list_api_keys already applies, and it raises
+-- rather than returning empty so a denial is never mistaken for an answer.
+--
+-- rbac.uid() is called inside the test, not before it: it is the authentication
+-- gate (it raises when the session carries no valid claims) and it is STABLE, so
+-- naming it here costs nothing on the paths that call it again downstream.
 CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
     p_external_id TEXT
 )
@@ -249,7 +263,9 @@ RETURNS INTEGER AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
-    PERFORM rbac.uid();
+    IF p_external_id IS DISTINCT FROM rbac.uid() THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
 
     -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
@@ -421,7 +437,14 @@ DECLARE
     v_has_permission BOOLEAN;
     v_permission_id INTEGER;
 BEGIN
-    PERFORM rbac.uid();
+    -- Self-or-admin, as at rbac.get_user_by_external_id, where the rule is
+    -- explained. Note that the admin test runs through rbac.has_permission and
+    -- therefore honors app.oauth_scopes: a session confined to scopes that do
+    -- not include 'admin' cannot ask about another subject even if the principal
+    -- behind it is an administrator.
+    IF p_external_id IS DISTINCT FROM rbac.uid() THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
 
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
@@ -788,7 +811,13 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 BEGIN
-    PERFORM rbac.uid();
+    -- Self-or-admin, as at rbac.get_user_by_external_id. The self branch is what
+    -- keeps rbac.ensure_context_initialized working and is also why the guard
+    -- cannot recurse: that function asks only about rbac.uid(), so it never
+    -- reaches the admin test, which would otherwise call back into it.
+    IF p_external_id IS DISTINCT FROM rbac.uid() THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
 
     -- Validate external_id
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
@@ -867,7 +896,13 @@ RETURNS TABLE (
     reason TEXT
 ) AS $$
 BEGIN
-    PERFORM rbac.uid();
+    -- Self-or-admin, as at rbac.get_user_by_external_id. It would be inherited
+    -- from rbac.get_user_permissions below in any case; stating it here is what
+    -- makes the empty-external_id rejection and the scope split unreachable for
+    -- a caller asking about somebody else.
+    IF p_external_id IS DISTINCT FROM rbac.uid() THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
 
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
@@ -911,6 +946,10 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- Validate that a permission exists
 -- Note: no rbac.uid() here — this function is called by triggers
 -- during migrations when there is no JWT context.
+-- Its callers (create_dd_table in 0070, queue_validate_permissions in 0170) are
+-- SECURITY DEFINER, so it needs no grant to the request role and is revoked from
+-- it below: a definer with no identity check is not something to leave reachable
+-- over RPC, even when all it answers is whether a permission name is registered.
 CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -1104,3 +1143,8 @@ CREATE TRIGGER auto_grant_permission_to_administrator
 -- Must come AFTER all CREATE FUNCTION statements
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
 
+-- rbac.validate_permission_exists is reached only from SECURITY DEFINER trigger
+-- functions (see its header); the default privileges above hand it to the
+-- request role along with every other function in this schema, so it takes an
+-- explicit revoke to keep it off the RPC surface.
+REVOKE EXECUTE ON FUNCTION rbac.validate_permission_exists(TEXT) FROM semantius_user;

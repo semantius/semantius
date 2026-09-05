@@ -51,12 +51,21 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   privileges.** The extension's `ALTER DEFAULT PRIVILEGES` entries bind to the
   role that installed it, so restoring a dump as a superuser with a different
   name leaves the four schemas and the event triggers owned by the restorer
-  and drops those entries, including `REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`
-  in `public`. Functions created by hand afterwards are then PUBLIC-executable.
+  and drops those entries: the request role's data access on future tables in
+  `public` and its EXECUTE on future functions in `rbac`.
   `semantius.status()` reports the drift. `pg_restore --no-owner` additionally
   loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
   would run as the restorer. Restore as the same superuser name, without
   `--no-owner`.
+- **A function created by hand in `public` or `common` is PUBLIC-executable.**
+  PostgreSQL grants EXECUTE to PUBLIC on every new function. The
+  `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
+  those two schemas does not change that and never did: revoking only the
+  built-in PUBLIC grant leaves an ACL PostgreSQL treats as the default, so no
+  entry is stored. This is a property of any install, restored or not. The
+  extension's own functions are revoked explicitly instead, and guard test
+  `0060_test_security.sql` fails if one is missed; a function you add yourself
+  needs its own `REVOKE`, and needs it whether or not it is SECURITY DEFINER.
 - **Session mode trusts the application tier.** When an application connects
   as `semantius_authenticator`, switches to the request role and writes the
   JWT claim settings itself, that application is the trust boundary: whoever

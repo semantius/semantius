@@ -783,3 +783,177 @@ agree.
   exactly the 21 new cases.
 - `{">":["b","a"]}` returns true instead of raising; `{">":["10","9"]}` is
   false; `{"<":["a","b","c"]}` is true and `{"<":["a","c","b"]}` false.
+
+---
+
+## Q7 (2026-09-05): accepted, the vendored pgmq functions stay PUBLIC-executable
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| Q7 | Medium (DB) | migration | `0160_pgmq.sql` (all vendored `pgmq.*` functions) | 75 linter warnings: every vendored function is EXECUTE-able by PUBLIC and none pins `search_path`; guard test 0240 excludes the `pgmq` schema. Practical exposure is limited (none is SECURITY DEFINER, the request role cannot read the queue tables) to information functions such as `list_queues`, `metrics_all`, `list_topic_bindings`. `convert_archive_partitioned` concatenates `table_name` (upstream code, never called). | Pin `search_path` on the vendored functions or document the exception in 0240; revoke PUBLIC on the information functions. **Owned by `plans/security-grants-and-guards.md`.** | 0240 covers `pgmq` and is green. |
+
+**Closed as accepted, not as fixed.** Decision by the owner on 2026-09-05,
+after the question was put with the reachability spelled out:
+
+- PostgREST exposes the `public` schema only (`PGRST_DB_SCHEMAS: "public"`
+  in `semantius-self-hosted/docker-compose.yml:379`, confirmed on the running
+  `semantius-api` container). `pgmq` is not reachable from REST at all.
+- What remains is a DB-only path: session mode, an app-tier SQL injection, or
+  a PostgreSQL 18 bearer session running SQL as `semantius_user`. None of the
+  75 functions is `SECURITY DEFINER`, all are owned by `semantius_owner`, and
+  the queue tables are unreadable by the request role, so such a caller gets
+  queue names, metrics and topic bindings and nothing else.
+- `SECURITY.md:92-95` already documents that exposure as intended.
+- The vendored file `0160_pgmq.sql` is kept byte-identical to upstream
+  v1.11.1 (decision of the same day under Q2, Q3, Q5), so the only fixes
+  available were from outside the file, and each is undone silently by the
+  next vendor bump unless a guard test catches it.
+
+The options that were declined, for the record: `REVOKE USAGE ON SCHEMA pgmq
+FROM semantius_user` (one line; would have closed the DB-only path), and a
+migration revoking PUBLIC per function with `ALTER FUNCTION ... SET
+search_path` (would also have cleared the 75 linter warnings).
+
+What changed: nothing in the migrations. Guard test
+`0240_test_no_unsafe_functions.sql` keeps `pgmq` in its exclusion lists and
+now says in a comment that this is a decision, not an oversight. The
+reasoning also lives in `plans/security-grants-and-guards.md` under Q7. If
+the reachability changes, because `pgmq` is added to `PGRST_DB_SCHEMAS` or
+the request role gains SELECT on queue tables, this decision has to be
+revisited.
+
+---
+
+## S5, S6, S9, S10, S11 (2026-09-05): the mechanical five, plus three of the same shape
+
+Five rows from `plans/security-grants-and-guards.md`, all closed by a REVOKE, a
+`SECURITY DEFINER` flip on a trigger function, or a self-or-admin guard. The
+plan's decisions are recorded there; this is what shipped, and the three
+findings that turned out to matter more than the rows themselves.
+
+### The mechanism the whole change rests on
+
+`ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` **does
+nothing.** Not "does nothing here", not "was overridden later": PostgreSQL
+stores no `pg_default_acl` row for it, and the next function created in that
+schema is world-executable. Revoking only the built-in PUBLIC grant leaves an
+ACL holding nothing but the owner's implicit rights, which PostgreSQL treats as
+identical to the default, so the row is dropped again. Reproduced on the
+PostgreSQL 18 image, twice, including the case where a GRANT in the same schema
+does materialize a row: the function created afterwards still came out with
+`=X` in its ACL.
+
+That is why `common` had all seven of its functions PUBLIC-executable while
+`rbac` had none of its twenty-three: `rbac` is covered by an explicit
+`REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC` at the end of
+`0030`, and `common` was covered by nothing but the two no-op statements in
+`0010`. Every fix in this change is an explicit revoke; the comment in `0010`
+now says so, and `SECURITY.md` no longer claims the default-privileges entry as
+a protection that a restore can lose.
+
+### What changed
+
+- **S5, the audit tables.** `public.audit_record_logs` and
+  `public.audit_ddl_logs` had `FOR INSERT ... WITH CHECK (true)` policies and
+  INSERT granted to the request role, so user1 wrote rows with a foreign
+  `user_id` and an invented `command_tag`. Both INSERT policies are gone and
+  `INSERT, UPDATE` is revoked. UPDATE was dead only because no policy existed
+  for it; revoked so a future policy cannot resurrect it. **DELETE stays**,
+  with its admin-only policies: it is how an operator prunes the log and
+  `0300_test_audit_log.sql` exercises it. The first draft of the plan revoked
+  it and would have broken that.
+- **S6, the cache primitives.** Explicit `REVOKE EXECUTE ... FROM PUBLIC` on
+  `common.cache_get/set/delete/cleanup/stats` and on
+  `common.update_updated_at_column()`. The last one is a trigger function and
+  needed no grant to fire: PostgreSQL checks EXECUTE at `CREATE TRIGGER` time,
+  and every `CREATE TRIGGER` naming it runs inside SECURITY DEFINER dictionary
+  code owned by the same role.
+- **S9, reading another subject's authorization state.** `user_has_permission`
+  and `get_user_permissions` take the subject as a parameter and checked only
+  that the caller was authenticated. They now allow `p_external_id = rbac.uid()`
+  and otherwise require `admin`, the rule `public.list_api_keys` already
+  applied. They raise rather than returning empty, because an empty permission
+  set is itself an answer.
+- **S10, upserting any principal.** `rbac.upsert_user_from_jwt` is revoked from
+  `semantius_user` as well as PUBLIC. Its only caller, `public.get_userinfo()`,
+  is SECURITY DEFINER and passes `rbac.uid()`, so provisioning still works.
+- **S11, schema-reload spam.** `common.refresh_schema_cache()` was already the
+  definer; what was missing is that its two DML callers, `notify_pgrst_tables`
+  and `notify_pgrst_fields`, are SECURITY INVOKER and fire as the request role.
+  Revoking the function without flipping them would have broken every entity
+  and field write with 42501 - the first draft of the plan proposed exactly
+  that. Both trigger functions are SECURITY DEFINER now, with `search_path`
+  pinned; then the function is revoked from `semantius_user` **and** PUBLIC,
+  where it was executable. The two event-trigger callers were never affected:
+  they run as whoever executed the DDL, which is the owner or the installer.
+
+### Three of the same shape, found by the plan's review
+
+Each takes a subject or is a definer with no identity check, and each was
+reachable by the request role. Fixed here rather than left as new rows:
+
+- `rbac.get_user_by_external_id` - the same self-or-admin guard. This one also
+  closes enumeration: an unknown subject is now refused exactly like a known
+  one, so the two cannot be told apart. An administrator still gets NULL for an
+  unknown subject.
+- `rbac.validate_oauth_scopes` - the same guard. It would have inherited it
+  through `get_user_permissions` anyway; stating it makes the refusal happen
+  before the empty-`external_id` rejection rather than after.
+- `rbac.validate_permission_exists` - revoked from `semantius_user`. Both
+  callers (`create_dd_table`, `queue_validate_permissions`) are definers.
+
+### Why the guard cannot recurse
+
+`rbac.require_permission('admin')` reaches `rbac.has_permission`, which reaches
+`rbac.ensure_context_initialized`, which calls `get_user_permissions` and
+`get_user_by_external_id` - both now guarded. It terminates because
+`ensure_context_initialized` only ever asks about `rbac.uid()`, so it takes the
+self branch and never reaches the admin test. The guards are written with
+`rbac.uid()` inline rather than behind a helper for a second reason: guard test
+2.3 in `0060_test_security.sql` requires every non-trigger definer to name
+`rbac.uid()` in its own source, and it refuses allowlists and indirect chains.
+
+The admin test runs through `rbac.has_permission`, so it honors
+`app.oauth_scopes`: a session confined to scopes that do not name `admin` cannot
+ask about another subject even when the principal behind it is an
+administrator. That is deliberate, and it is why the cross-user assertions in
+`0405_test_rbac_helpers.sql` now name `admin` in their scope lists.
+
+### Pins
+
+- `0060_test_security.sql` grew from 3 assertions to 9. Test 2.2 (PUBLIC
+  EXECUTE) now covers `common` and `audit` as well as `public` and `rbac`.
+  Tests 2.1 and 2.3 stay scoped, and the file now says why: 2.1 would flag
+  `common._cache`, whose RLS-without-policies is the design, and 2.3 would flag
+  every definer in `common` and `audit` that legitimately has no identity to
+  check, which would mean adding them all to the exclusion list that 2.3 exists
+  to avoid. Six new assertions read the catalog directly, because a grant comes
+  back by accident long after the behavior test that covered it was written.
+- `0405_test_rbac_helpers.sql` grew from 58 to 77: GROUP 7 pins the
+  self-or-admin rule on all four helpers from both sides, GROUP 8 the two
+  outright revokes and that `get_userinfo()` still provisions, GROUP 9 the
+  schema-reload revoke.
+- `0300_test_audit_log.sql` grew from 39 to 43: a plain user's forged row is
+  refused with 42501 (a row valid on its merits, so the refusal is the privilege
+  check and not a malformed statement), the definer trigger still writes its
+  row, and an administrator can still prune.
+- `0010_test_rls.sql` no longer asserts that an unknown subject returns NULL to
+  a plain user; it asserts the refusal, and the NULL-for-unknown answer moved to
+  the administrator's assertions in 0405.
+
+### Proof
+
+`pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh` after
+`deno task extension 0.5.0-beta1`: **2,225 passing on both paths**, up from
+2,196 by exactly the 29 new assertions. `pgdocker/pg-ext-lifecycle.sh`: 105
+passed, 0 failed, with step 10 reporting the two install paths byte-identical
+at 23,503 lines each.
+
+One thing that run taught, worth knowing before reading a red lifecycle: step
+10 dumps the CLI database and the extension database and diffs them, and
+`deno task dropall` deliberately spares the `extensions` schema, so a
+`--coverage` run leaves `plpgsql_check` behind on the CLI container and step 10
+fails on it forever after. Dropping the extension from that database is the
+fix, not a change to the script.

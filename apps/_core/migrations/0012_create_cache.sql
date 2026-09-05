@@ -106,10 +106,24 @@ BEGIN
     END IF;
 END $$;
 
--- Do NOT grant execute permissions to semantius_user role
--- This prevents access via PostgREST /rpc/ endpoints
--- Functions use SECURITY DEFINER so they can access the table directly
--- Only direct database connections can execute these functions
+-- The cache functions are SECURITY DEFINER and read and write common._cache
+-- unconditionally: they carry no rbac.uid(), because the callers are dictionary
+-- code that runs before any identity exists. Nothing outside this file calls
+-- them, and nothing outside the database may.
+--
+-- Withholding the grant to semantius_user is not enough. PostgreSQL grants
+-- EXECUTE to PUBLIC on every new function, and the schema-wide
+-- `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
+-- 0010 does not prevent it: revoking the built-in PUBLIC grant leaves an ACL
+-- that PostgreSQL normalizes back to the built-in default, so no pg_default_acl
+-- row is stored and the next function is world-executable again. An explicit
+-- per-function REVOKE is the only form that holds, and 0060_test_security.sql
+-- fails if one is ever missed.
+REVOKE EXECUTE ON FUNCTION common.cache_get(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.cache_delete(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.cache_cleanup() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.cache_stats() FROM PUBLIC;
 
 -- Add comments explaining the table and functions
 COMMENT ON TABLE common._cache IS 'Generic cache table for storing key-value pairs with expiration. RLS enabled without policies to prevent Data API access.';
