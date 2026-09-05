@@ -22,6 +22,16 @@ forced are folded in below. Two of its rows did not survive:
   on a pull request", and the owner decided on 2026-09-03 to use neither pull
   requests nor a separate test workflow. It should be read as dropped.
 
+**The plan files that carried out this work were deleted on 2026-09-05** —
+`audit-ddl-noise.md`, `perf-hot-paths.md`, `perf-per-statement.md` and
+`release-script.md`, and `pg_semantius-extension-rebuild.md` with them once its
+last live reference was made self-contained (the old R7, split into R7, R8 and R9
+on the same day), and `select-rule-native-predicates.md` after its durable
+constraints were moved into `docs/jsonlogic-optimization-candidates.md`. They
+were step-by-step instructions and design notes for work now in the tree, and everything durable about them is in this file. Rows quoted below still
+name them in their original text; that text is a historical record and is left as
+it was written. Git history has the files if the archaeology is ever wanted.
+
 Last updated: 2026-09-05.
 
 ## The 0.5.0 rebuild (2026-09-03): where every item stands
@@ -129,7 +139,7 @@ table was never in the rebuild's scope.
 
 ## The 2026-09-04 follow-up (B5, P6, S15, R1)
 
-Executed from `plans/audit-ddl-noise.md`. One change to one function plus its
+Executed from `plans/audit-ddl-noise.md` (since deleted; in git history). One change to one function plus its
 two neighbours; both suites and the lifecycle script green on both install
 paths (2,091 pgTAP assertions each, 95 lifecycle assertions).
 
@@ -531,9 +541,14 @@ The row as it stood in the open items:
 
 **Closed as scope-changed, not as done.** The problem is real and confirmed by
 measurement; the *fix* the row prescribed was rejected on review. The work itself
-continues under **P14**, by a different mechanism. `plans/select-rule-native-predicates.md`
-is superseded and marked as such rather than deleted, because its rejection
-analysis is the reason P14 looks the way it does.
+continues under **P14**, by a different mechanism. The plan that prescribed the
+rejected mechanism, `plans/select-rule-native-predicates.md`, was deleted the
+same day: the four constraints in it that P14 genuinely needs - the auth gate,
+the catalog type check, the three-arm `fields` lifecycle hook and the
+compiler rejection - were moved into
+`docs/jsonlogic-optimization-candidates.md` under "When you add one", which is
+where someone building a named operator will actually look. Git history has the
+rest.
 
 ### The go/no-go measurement the plan asked for
 

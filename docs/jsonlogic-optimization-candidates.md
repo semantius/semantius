@@ -222,15 +222,89 @@ an assertion of this kind belongs if you want it pinned.
 
 ## When you add one
 
-A named operator is not just an interpreter branch. It also needs:
+A named operator is not just an interpreter branch. Four constraints below are
+not obvious and were each established the hard way; the rest is bookkeeping.
+
+### The mechanical parts
 
 - a branch in `evaluate_json_logic` (`0210_raci.sql`), and the same in
   `0015_jsonlogic.sql` if the operator is not RACI-specific — both copies, or the
   two drift
 - native emission in `build_select_rule_policy` (`0180_computed_validation.sql`)
-- the column-lifecycle protection: naming a column inside an RLS policy means a
-  `DROP COLUMN ... CASCADE` from `delete_dd_field` will drop the policy and leave
-  RLS enabled with none, which hides every row silently
 - corpus cases in `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
   `deno task testgen_jsonlogic`
 - a test that the interpreted and native forms agree, including on NULL
+
+### 1. The operator must consume the request context itself
+
+Do **not** try to gate authentication with a separate
+`(SELECT jl_request_context()) IS NOT NULL AND ...` conjunct. An InitPlan is
+evaluated lazily, so once the predicate becomes an index condition the gate is
+left as a filter over the index output and never runs first. Requiring the
+operator itself to reference `$user_id` / `$today` / `$now` or `has_permission`
+makes the gate intrinsic instead.
+
+**The honest claim is parity with today, not an absolute guarantee.** The gate
+fires on the first tuple the scan filters, or before the first tuple when the
+predicate is an index condition (runtime index keys are evaluated in
+`ExecReScanIndexScan`, even on an empty table). On any plan that yields zero
+tuples neither fires — which is exactly today's behaviour, where
+`select_rule_<t>()` is never called either. Consequence to accept: the same query
+on the same data can answer 42501 or zero rows depending on the plan chosen,
+**so a gate test must insert a row first** or it proves nothing.
+
+This permanently excludes context-free operators. That is a deliberate
+consequence, not a gap to close later.
+
+### 2. Resolve the column against the catalog, not against `format`
+
+Check `pg_attribute.atttypid` against an explicit allowlist. Do **not** derive
+the type from the field's `format`: `format_to_data_type` (`0070_dd_functions.sql:14-54`)
+falls through to `TEXT` for anything it does not recognise, and a native
+`text = int` has no operator — so `CREATE POLICY` would fail *inside* a `fields`
+trigger, at DDL time, where it is worst. A `boolean` column diverges for a
+different reason (`jl_loose_eq` coerces it through `jl_to_number`,
+`0015_jsonlogic.sql:83-84`).
+
+The same check is what stops migration `0280_user_bookmarks.sql` failing: the
+entity row carrying the rule is inserted at `:45`, its `user_id` field only at
+`:56`, so at policy-build time the column does not exist yet. The emission must
+degrade to the interpreted form rather than raise.
+
+### 3. The `fields` lifecycle hook — three arms, all AFTER
+
+Naming a column inside an RLS policy creates a column-level dependency the
+interpreted helper never had, and the data-dictionary field lifecycle was
+written assuming no such dependency exists. Model the trigger on
+`dd_label_fn_sync_field` / `zzz_label_fn_field_*` (`0145_managed_enable.sql:1049-1096`) — the
+same shape, not a novel construct — with the `entities.select_rule <> '{}'` gate
+*inside* the function, because a trigger `WHEN` clause cannot query `entities`.
+
+- **AFTER INSERT.** Fields arrive after the entity row, so an operator that could
+  not resolve its column at entity-insert must be retried once the column exists.
+  Must sort after `add_field_trigger` (`0070_dd_functions.sql:794`), which runs the
+  `ALTER TABLE ... ADD COLUMN`; a `zzz_` prefix guarantees that.
+- **AFTER DELETE — mandatory.** `delete_dd_field` runs `DROP COLUMN ... CASCADE`
+  from a BEFORE DELETE trigger (`0070_dd_functions.sql:1164`). Against a native policy that
+  CASCADE drops all three policies, leaving RLS enabled with none — every read
+  returns zero rows and nothing raises. This is the failure that must not ship.
+- **AFTER UPDATE, with `field_name` in the `WHEN` clause.** Keep the clause tight
+  or `rename_dd_reference_tables` (`0140_dd_rename.sql:272`) rebuilds a policy for every
+  referencing entity on every table rename.
+
+Renaming a column named by an operator is **not** covered by this: nothing
+rewrites `entities.select_rule` on a field rename. Assert the accepted
+behaviour — the comparison fails closed — rather than pretending it round-trips.
+
+Budget about ten extra DDL events per field on rule-bearing entities; open item
+**P5** tracks that cost.
+
+### 4. Do not write a general compiler
+
+A general JsonLogic-to-SQL translator was designed and rejected twice. It is a
+second implementation of a 44-operator language whose definition is split across
+`0015_jsonlogic.sql` and the `CREATE OR REPLACE` in `0210_raci.sql`, so the two
+drift silently, and review passes kept finding semantic divergences between the
+interpreter and the obvious SQL mapping. Named operators exist precisely so that
+neither side has to reverse-engineer the other. The full reasoning is in the P2
+closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md).

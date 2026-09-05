@@ -231,6 +231,49 @@ docker exec "$CONTAINER" pg_restore -U postgres -d life2t -1 --exit-on-error /tm
   && ok "pg_restore -1 (single transaction)" || bad "pg_restore -1 failed"
 check "  signature matches" "$SIG1" "$(psqlq life2t "$SIGNATURE_SQL")"
 
+# ---------------------------------- 5 restore where the extension is not installed
+# The dump carries CREATE EXTENSION pg_semantius. On a server that cannot have
+# the extension - a managed service such as Neon, Supabase or RDS, where you do
+# not control the extension directory - that one statement must fail and NOTHING
+# else must: the schema and the data are ordinary objects, not extension members.
+# This is the practical half of "backup is a plain pg_dump": a dump you can only
+# restore on a machine you control is not portable.
+#
+# The files are moved aside and put back IMMEDIATELY after the restore attempt,
+# before any assertion runs, so a failing check can never leave the container
+# without its extension for the steps that follow.
+step "[5] Restore where the extension is NOT installed (managed-service case)"
+docker exec -u root "$CONTAINER" sh -c "mkdir -p /tmp/extstash && mv $EXT_DIR/pg_semantius* /tmp/extstash/"
+newdb life5
+set +e
+restore_out=$(docker exec "$CONTAINER" pg_restore -U postgres -d life5 /tmp/life1.dump 2>&1)
+restore_rc=$?
+set -e
+docker exec -u root "$CONTAINER" sh -c "mv /tmp/extstash/pg_semantius* $EXT_DIR/ && rmdir /tmp/extstash"
+check "the extension files are back in place" "1" \
+  "$(docker exec "$CONTAINER" sh -c "test -f $EXT_DIR/pg_semantius.control && echo 1 || echo 0")"
+
+if [ "$restore_rc" -ne 0 ]; then
+  ok "pg_restore exits non-zero without --exit-on-error (the extension is missing)"
+else
+  bad "pg_restore exited 0 although the extension could not be created"
+fi
+err_all=$(printf '%s\n' "$restore_out" | grep -c 'error:' || true)
+err_ext=$(printf '%s\n' "$restore_out" | grep 'error:' | grep -c 'pg_semantius' || true)
+check "every restore error concerns pg_semantius and nothing else" "$err_all" "$err_ext"
+check "the restored signature still matches the source" "$SIG1" "$(psqlq life5 "$SIGNATURE_SQL")"
+check "B16: the custom column survived without the extension" "lifecycle_note" \
+  "$(psqlq life5 "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='lifecycle_note'")"
+check "the custom entity's rows survived" "3" "$(psqlq life5 "SELECT count(*) FROM public.lifecycle_widgets")"
+check "no semantius schema, so no pending()/version()" "0" \
+  "$(psqlq life5 "SELECT count(*) FROM pg_namespace WHERE nspname='semantius'")"
+check "the database is functional: RLS policies intact" \
+  "$(psqlq life1 "SELECT count(*) FROM pg_policies")" "$(psqlq life5 "SELECT count(*) FROM pg_policies")"
+psqlrun life5 "INSERT INTO public.lifecycle_widgets (label) VALUES ('delta')" >/dev/null \
+  && ok "the database is functional: an ordinary write works" \
+  || bad "an ordinary write failed on the extension-less restore"
+check "  and the row is there" "4" "$(psqlq life5 "SELECT count(*) FROM public.lifecycle_widgets")"
+
 # ------------------------------------------------------------------- 4 drop
 step "[4] DROP EXTENSION is inert"
 SIG_BEFORE=$(psqlq life2 "$SIGNATURE_SQL")
@@ -570,7 +613,7 @@ step "[12] Cleanup"
 if [ "$KEEP" = "1" ]; then
   echo "   --keep: scratch databases left in place"
 else
-  for d in life1 life1b life1c life1d life1d2 life2 life2p life2j life2t \
+  for d in life1 life1b life1c life1d life1d2 life2 life2p life2j life2t life5 \
            life6 life6b life6c life6d life7 life7b life7c life8 life8c life9 \
            life9b life_virgin; do
     dropdb_ "$d"
