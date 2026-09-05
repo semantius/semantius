@@ -683,6 +683,11 @@ BEGIN
 
     -- ===================== value_changed =====================
     -- Checks if a field value has changed compared to $old.
+    -- Reads $old without the rule ever naming it. build_record_logic_trigger in
+    -- 0180_computed_validation.sql decides whether to build $old by searching the
+    -- rule text for "$old" or for this operator's name, so any new operator that
+    -- reads $old implicitly has to be added to that search or its rules will
+    -- silently see no previous row.
     -- When $old is missing or null in data, always returns true (new record).
     -- When $old is present, compares $old.<field> with current <field>.
     IF op = 'value_changed' THEN

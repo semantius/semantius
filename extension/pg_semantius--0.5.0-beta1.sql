@@ -1257,6 +1257,11 @@ BEGIN
 
     -- ===================== value_changed =====================
     -- Checks if a field value has changed compared to $old.
+    -- Reads $old without the rule ever naming it. build_record_logic_trigger in
+    -- 0180_computed_validation.sql decides whether to build $old by searching the
+    -- rule text for "$old" or for this operator's name, so any new operator that
+    -- reads $old implicitly has to be added to that search or its rules will
+    -- silently see no previous row.
     -- When $old is missing or null in data, always returns true (new record).
     -- When $old is present, compares $old.<field> with current <field>.
     IF op = 'value_changed' THEN
@@ -1363,7 +1368,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '93df8d7041c21c0c1ab779463eea58d30255b17c0750decd9feed5cd91e2ced0');
+      VALUES ('_core.0015_jsonlogic', '8511c0020a65722248325772bf33c89faf7bfb2d89a67bd2762c13598fcdcd76');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7661,13 +7666,20 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
                 'compute_validate_' || OLD.table_name);
 
-            -- Drop old select_rule function (CASCADE drops the policy that uses it).
-            -- The AFTER trigger manage_select_rule_policy will rebuild it under the new name.
+            -- Drop both select_rule overloads (CASCADE drops the policies that use
+            -- them). The AFTER trigger manage_select_rule_policy rebuilds them under
+            -- the new name. The signatures pair the OLD function name with the NEW
+            -- row type on purpose: the physical table was renamed a few lines above,
+            -- so the composite type already answers to NEW.table_name while the
+            -- functions still carry the old name.
+            EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE',
+                'select_rule_' || OLD.table_name, NEW.table_name);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, NEW.table_name);
 
             -- Rename queue event triggers on the entity table.
-            -- Pattern: queue_<queue_name>_<handler>_on_<old_table>
+            -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
+            -- event the mapping covers.
             FOR v_old_name IN
                 SELECT t.tgname
                 FROM pg_trigger t
@@ -8318,7 +8330,7 @@ $pgsem__core_0140_dd_rename$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153');
+      VALUES ('_core.0140_dd_rename', '32e41d2e24cfa18550184ba7857d3328d6676112aad4782c9657c1199cede4bb');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9711,7 +9723,10 @@ DECLARE
     v_record_pk TEXT;
     v_user_id INTEGER;
 BEGIN
-    -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
+    -- Only ever reached for UPDATE, where both images exist; the CHECK
+    -- constraints on audit_record_logs require both, which is why this event is
+    -- not folded into the statement-level triggers. COALESCE keeps the
+    -- expression total rather than relying on that.
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
 
@@ -9744,8 +9759,115 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
-'Row-level AFTER trigger function that logs INSERT, UPDATE, and DELETE operations
-to audit_record_logs. Captures the JWT user_id and primary key value.';
+'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
+Captures the JWT user_id and primary key value. INSERT and DELETE are logged by
+the statement-level functions in this schema.';
+
+-- INSERT and DELETE are logged one statement at a time. The work the row-level
+-- function repeats per row - the catalog lookup for the primary key columns and
+-- the resolution of the acting user - is constant for the whole statement, and
+-- the rows themselves arrive as a set that can be inserted with a single
+-- INSERT ... SELECT.
+--
+-- UPDATE is row-level. An update log entry carries the before
+-- and after image of the same row, and the CHECK constraints on
+-- audit_record_logs require both. A transition table is an unordered set whose
+-- only join key is the primary key - which is exactly what old_record_id exists
+-- to track changing. entities.table_name is a primary key that rename_dd_table
+-- rewrites, and entities is audited, so pairing the two images by key would
+-- silently attach the wrong before-image to a renamed row in a table whose whole
+-- purpose is evidence.
+--
+-- new_rows and old_rows below are transition tables: ephemeral named relations
+-- resolved from the query environment, not through search_path. They are the one
+-- kind of name that cannot be schema-qualified, which is why they appear bare in
+-- functions that otherwise qualify every identifier.
+
+CREATE OR REPLACE FUNCTION audit.insert_trigger()
+    RETURNS TRIGGER
+    SECURITY DEFINER
+    SET search_path = ''
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
+    v_user_id INTEGER = audit.current_user_id();
+BEGIN
+    INSERT INTO public.audit_record_logs(
+        record_id,
+        old_record_id,
+        record_pk,
+        op,
+        user_id,
+        table_oid,
+        table_schema,
+        table_name,
+        record,
+        old_record
+    )
+    SELECT
+        audit.to_record_id(TG_RELID, pkey_cols, to_jsonb(r)),
+        NULL,
+        audit.extract_record_pk(pkey_cols, to_jsonb(r)),
+        'INSERT'::audit.operation,
+        v_user_id,
+        TG_RELID,
+        TG_TABLE_SCHEMA,
+        TG_TABLE_NAME,
+        to_jsonb(r),
+        NULL
+    FROM new_rows r;
+
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.insert_trigger IS
+'Statement-level AFTER INSERT trigger function that logs every inserted row to
+audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+
+CREATE OR REPLACE FUNCTION audit.delete_trigger()
+    RETURNS TRIGGER
+    SECURITY DEFINER
+    SET search_path = ''
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
+    v_user_id INTEGER = audit.current_user_id();
+BEGIN
+    INSERT INTO public.audit_record_logs(
+        record_id,
+        old_record_id,
+        record_pk,
+        op,
+        user_id,
+        table_oid,
+        table_schema,
+        table_name,
+        record,
+        old_record
+    )
+    SELECT
+        NULL,
+        audit.to_record_id(TG_RELID, pkey_cols, to_jsonb(r)),
+        audit.extract_record_pk(pkey_cols, to_jsonb(r)),
+        'DELETE'::audit.operation,
+        v_user_id,
+        TG_RELID,
+        TG_TABLE_SCHEMA,
+        TG_TABLE_NAME,
+        NULL,
+        to_jsonb(r)
+    FROM old_rows r;
+
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.delete_trigger IS
+'Statement-level AFTER DELETE trigger function that logs every deleted row to
+audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     RETURNS TRIGGER
@@ -9787,12 +9909,38 @@ CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS)
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    statement_row TEXT = format('
+    -- The four trigger names are fixed literals rather than derived from the
+    -- table name. That is what makes renaming an audited table free: the
+    -- triggers follow the table and nothing has to be rebuilt.
+    --
+    -- audit_i and audit_d carry a REFERENCING clause, so they must be dropped
+    -- and recreated rather than replaced when their shape changes; CREATE
+    -- TRIGGER without OR REPLACE fails loudly on a name that already exists,
+    -- which is what the existence checks below are for.
+    statement_ins TEXT = format('
+        CREATE TRIGGER audit_i
+            AFTER INSERT
+            ON %s
+            REFERENCING NEW TABLE AS new_rows
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION audit.insert_trigger();',
+        $1
+    );
+    statement_upd TEXT = format('
         CREATE TRIGGER audit_i_u_d
-            AFTER INSERT OR UPDATE OR DELETE
+            AFTER UPDATE
             ON %s
             FOR EACH ROW
             EXECUTE FUNCTION audit.insert_update_delete_trigger();',
+        $1
+    );
+    statement_del TEXT = format('
+        CREATE TRIGGER audit_d
+            AFTER DELETE
+            ON %s
+            REFERENCING OLD TABLE AS old_rows
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION audit.delete_trigger();',
         $1
     );
     statement_stmt TEXT = format('
@@ -9804,13 +9952,43 @@ DECLARE
         $1
     );
     pkey_cols TEXT[] = audit.primary_key_columns($1);
+    v_has_row_trigger BOOLEAN;
 BEGIN
     IF pkey_cols = ARRAY[]::TEXT[] THEN
         RAISE EXCEPTION 'Table % cannot be audited because it has no primary key', $1;
     END IF;
 
-    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d') THEN
-        EXECUTE statement_row;
+    -- audit_i_u_d is the UPDATE trigger. A trigger of that name that also fires
+    -- on INSERT or DELETE would log those events a second time once audit_i and
+    -- audit_d are present, so it is dropped and rebuilt narrow rather than
+    -- accepted as already there. Bits 0x04 INSERT and 0x08 DELETE, tested
+    -- together: either one is enough to double-log.
+    SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d')
+      INTO v_has_row_trigger;
+
+    IF v_has_row_trigger AND EXISTS(
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = $1 AND tgname = 'audit_i_u_d'
+          AND (tgtype & 12) <> 0
+    ) THEN
+        EXECUTE format('DROP TRIGGER audit_i_u_d ON %s', $1);
+        v_has_row_trigger := FALSE;
+    END IF;
+
+    -- The checks below are name-only: a trigger already present is left exactly
+    -- as it is. Changing the shape of audit_i, audit_d or audit_t therefore
+    -- reaches only tables that do not yet carry it; an existing table needs
+    -- disable_tracking() first.
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i') THEN
+        EXECUTE statement_ins;
+    END IF;
+
+    IF NOT v_has_row_trigger THEN
+        EXECUTE statement_upd;
+    END IF;
+
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_d') THEN
+        EXECUTE statement_del;
     END IF;
 
     IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_t') THEN
@@ -9820,7 +9998,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.enable_tracking IS
-'Creates audit triggers (audit_i_u_d for row-level, audit_t for truncate) on the given table.
+'Creates audit triggers on the given table: audit_i and audit_d statement-level for
+INSERT and DELETE, audit_i_u_d row-level for UPDATE, audit_t for truncate.
 Raises an exception if the table has no primary key.';
 
 CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
@@ -9831,22 +10010,17 @@ CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    statement_row TEXT = format(
-        'DROP TRIGGER IF EXISTS audit_i_u_d ON %s;',
-        $1
-    );
-    statement_stmt TEXT = format(
-        'DROP TRIGGER IF EXISTS audit_t ON %s;',
-        $1
-    );
+    v_name TEXT;
 BEGIN
-    EXECUTE statement_row;
-    EXECUTE statement_stmt;
+    FOREACH v_name IN ARRAY ARRAY['audit_i', 'audit_i_u_d', 'audit_d', 'audit_t']
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %s', v_name, $1);
+    END LOOP;
 END;
 $$;
 
 COMMENT ON FUNCTION audit.disable_tracking IS
-'Removes audit triggers (audit_i_u_d, audit_t) from the given table.';
+'Removes all audit triggers (audit_i, audit_i_u_d, audit_d, audit_t) from the given table.';
 
 -- =====================================================
 -- STEP 7: DDL event trigger function and event trigger
@@ -10001,7 +10175,8 @@ VALUES
 -- Handles three scenarios:
 --   A) INSERT: enable audit on newly created managed tables
 --   B) UPDATE: toggle audit when audit_log changes, or when managed changes
---   C) Rename: audit triggers follow automatically (trigger names are stable: audit_i_u_d, audit_t)
+--   C) Rename: audit triggers follow automatically (trigger names are stable:
+--      audit_i, audit_i_u_d, audit_d, audit_t)
 
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
@@ -10159,6 +10334,8 @@ REVOKE EXECUTE ON FUNCTION audit.to_record_id(OID, TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
@@ -10180,7 +10357,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e');
+      VALUES ('_core.0150_audit_log', '3ebda5b599b57f90f8b12d3775c3c9477dc529a8741516712019cbd82eee11e1');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -12571,16 +12748,25 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
+    -- Messages are flushed in fixed windows rather than one array per statement.
+    -- pgmq.send_batch takes a jsonb[], and an array is a single value bound by
+    -- the 1 GB varlena limit: at roughly 190 bytes per message one array covers
+    -- a few million rows and then the statement fails outright. Flushing keeps
+    -- every array well under that bound, at the cost of one extra INSERT per
+    -- window. It does not bound the trigger's memory: the transition table
+    -- itself holds every affected row for the whole statement, in a tuplestore
+    -- that spills past work_mem.
+    c_batch_size CONSTANT INT := 1000;
     v_queue_name TEXT;
     v_id_field TEXT;
     v_event_type TEXT;
-    v_id_value JSONB;
-    v_row_jsonb JSONB;
+    v_msgs JSONB[] := ARRAY[]::JSONB[];
     v_msg JSONB;
 BEGIN
     -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
     -- Falls back to 'id' when the LEFT JOIN to entities returns no row (table not registered
     -- in the entity system). The entities.id_column column always has a value when the row exists.
+    -- queue_table_events.table_name is unique, so at most one mapping can match.
     SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
     INTO v_queue_name, v_id_field, v_event_type
     FROM queue_table_events qte
@@ -12590,37 +12776,81 @@ BEGIN
     LIMIT 1;
 
     IF v_queue_name IS NULL THEN
-        RETURN COALESCE(NEW, OLD);
+        RETURN NULL;
     END IF;
 
-    -- Extract the id value preserving its native JSON type (number, text, etc.)
+    -- new_rows and old_rows are the transition tables declared by the triggers
+    -- below. They are ephemeral named relations, resolved from the query
+    -- environment rather than through search_path, so they cannot be reached by
+    -- a schema-qualified name. Each branch only ever executes under the trigger
+    -- that declares the table it names: a DELETE trigger never reaches the
+    -- new_rows statement and vice versa.
+    --
+    -- event_type is the mapping's event_handler, not TG_OP: a consumer
+    -- subscribed to 'change' expects that label on every message, whichever DML
+    -- statement produced it.
     IF TG_OP = 'DELETE' THEN
-        v_row_jsonb := to_jsonb(OLD);
+        FOR v_msg IN
+            SELECT jsonb_build_object(
+                       'op', TG_OP,
+                       'ts', now(),
+                       'table', TG_TABLE_NAME,
+                       'id_field', v_id_field,
+                       'id_value', to_jsonb(r) -> v_id_field,
+                       'message_type', 'entity_event',
+                       'event_type', v_event_type
+                   )
+            FROM old_rows r
+        LOOP
+            v_msgs := array_append(v_msgs, v_msg);
+            IF array_length(v_msgs, 1) >= c_batch_size THEN
+                PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+                v_msgs := ARRAY[]::JSONB[];
+            END IF;
+        END LOOP;
     ELSE
-        v_row_jsonb := to_jsonb(NEW);
+        FOR v_msg IN
+            SELECT jsonb_build_object(
+                       'op', TG_OP,
+                       'ts', now(),
+                       'table', TG_TABLE_NAME,
+                       'id_field', v_id_field,
+                       'id_value', to_jsonb(r) -> v_id_field,
+                       'message_type', 'entity_event',
+                       'event_type', v_event_type
+                   )
+            FROM new_rows r
+        LOOP
+            v_msgs := array_append(v_msgs, v_msg);
+            IF array_length(v_msgs, 1) >= c_batch_size THEN
+                PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+                v_msgs := ARRAY[]::JSONB[];
+            END IF;
+        END LOOP;
     END IF;
-    v_id_value := v_row_jsonb -> v_id_field;
 
-    v_msg := jsonb_build_object(
-        'op', TG_OP,
-        'ts', now(),
-        'table', TG_TABLE_NAME,
-        'id_field', v_id_field,
-        'id_value', v_id_value,
-        'message_type', 'entity_event',
-        'event_type', v_event_type
-    );
+    -- A statement trigger also fires for a statement that touched no rows, and
+    -- pgmq refuses an empty batch, so the tail flush is guarded rather than
+    -- unconditional.
+    --
+    -- The single-message case takes pgmq.send instead: send_batch costs about
+    -- 10 microseconds more than send for one message, which is the whole
+    -- difference on a one-row write - the common shape for a REST caller. The
+    -- batch is what pays from a handful of rows up.
+    IF array_length(v_msgs, 1) = 1 THEN
+        PERFORM pgmq.send(v_queue_name, v_msgs[1]);
+    ELSIF array_length(v_msgs, 1) > 0 THEN
+        PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+    END IF;
 
-    PERFORM pgmq.send(v_queue_name, v_msg);
-
-    RETURN COALESCE(NEW, OLD);
+    RETURN NULL;
 END;
 $$;
 
 -- Manage event trigger creation / removal
 
 COMMENT ON FUNCTION queue_build_record_json() IS
-'Per-row AFTER trigger function (installed on target tables by queue_table_events) that serializes the affected record to JSON and enqueues it as a pgmq message on the mapped queue.';
+'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that serializes every affected record to JSON and enqueues them as pgmq messages on the mapped queue, in batches.';
 
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
@@ -12629,8 +12859,8 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_trigger_name TEXT;
-    v_trigger_events TEXT;
     v_queue_name TEXT;
+    v_event TEXT;
 BEGIN
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
@@ -12640,34 +12870,54 @@ BEGIN
         RAISE EXCEPTION 'Parent queue not found for queue_id %', NEW.queue_id;
     END IF;
 
-    -- Determine which trigger events to fire
-    v_trigger_events := CASE NEW.event_handler
-        WHEN 'insert' THEN 'INSERT'
-        WHEN 'update' THEN 'UPDATE'
-        WHEN 'upsert' THEN 'INSERT OR UPDATE'
-        WHEN 'delete' THEN 'DELETE'
-        WHEN 'change' THEN 'INSERT OR UPDATE OR DELETE'
-    END;
+    -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
+    -- on a trigger defined for more than one event and the transition table is
+    -- what makes the enqueue statement-level. So 'upsert' installs two triggers
+    -- and 'change' three.
+    --
+    -- The name carries the event, not the handler:
+    -- queue_<queue>_<event>_on_<table>. For a single-event handler the two words
+    -- coincide. The name must end in _on_<table>, because 0140_dd_rename.sql
+    -- renames these triggers by matching that suffix and swapping the new table
+    -- name onto the end. The handler itself is not lost: it is read back from
+    -- queue_table_events when a message is built.
+    FOREACH v_event IN ARRAY (CASE NEW.event_handler
+        WHEN 'insert' THEN ARRAY['INSERT']
+        WHEN 'update' THEN ARRAY['UPDATE']
+        WHEN 'upsert' THEN ARRAY['INSERT', 'UPDATE']
+        WHEN 'delete' THEN ARRAY['DELETE']
+        WHEN 'change' THEN ARRAY['INSERT', 'UPDATE', 'DELETE']
+    END)
+    LOOP
+        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
 
-    v_trigger_name := 'queue_' || v_queue_name || '_' || NEW.event_handler || '_on_' || NEW.table_name;
-
-    -- Create the trigger on the target table
-    EXECUTE format(
-        'CREATE OR REPLACE TRIGGER %I
-            AFTER %s ON %I
-            FOR EACH ROW
-            EXECUTE FUNCTION queue_build_record_json()',
-        v_trigger_name,
-        v_trigger_events,
-        NEW.table_name
-    );
+        -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
+        -- survive an aborted install, and dropping first makes the install
+        -- idempotent for the events this handler covers. It cannot repair a
+        -- handler that changed in place - there is no AFTER UPDATE trigger on
+        -- queue_table_events, so an event_handler edit reinstalls nothing.
+        -- queue_event_after_delete compensates by dropping every event name
+        -- rather than the handler's own.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, NEW.table_name);
+        EXECUTE format(
+            'CREATE TRIGGER %I
+                AFTER %s ON %I
+                REFERENCING %s
+                FOR EACH STATEMENT
+                EXECUTE FUNCTION queue_build_record_json()',
+            v_trigger_name,
+            v_event,
+            NEW.table_name,
+            CASE WHEN v_event = 'DELETE' THEN 'OLD TABLE AS old_rows' ELSE 'NEW TABLE AS new_rows' END
+        );
+    END LOOP;
 
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION queue_event_after_insert() IS
-'Trigger function that installs the per-table queue_build_record_json trigger on the mapped table when a queue_table_events mapping is inserted.';
+'Trigger function that installs one statement-level queue_build_record_json trigger per DML event on the mapped table when a queue_table_events mapping is inserted.';
 
 CREATE TRIGGER queue_event_after_insert_trigger
     AFTER INSERT ON queue_table_events
@@ -12680,8 +12930,8 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_trigger_name TEXT;
     v_queue_name TEXT;
+    v_event TEXT;
 BEGIN
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
@@ -12692,12 +12942,26 @@ BEGIN
         RETURN OLD;
     END IF;
 
-    v_trigger_name := 'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name;
+    -- Every event name, not just the ones this handler covers: a mapping whose
+    -- event_handler was narrowed after install still owns the triggers created
+    -- for the wider set, and a mapping deleted without them leaves a table
+    -- enqueuing to a queue it is no longer mapped to.
+    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
+    LOOP
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS %I ON %I',
+            'queue_' || v_queue_name || '_' || v_event || '_on_' || OLD.table_name,
+            OLD.table_name
+        );
+    END LOOP;
 
-    -- Drop the trigger on the target table (ignore if missing)
+    -- The handler-named trigger from before the per-event split. Harmless when
+    -- the handler is single-event (the loop above already dropped that name);
+    -- necessary for 'upsert' and 'change', which never had a name of their own
+    -- in the event set.
     EXECUTE format(
         'DROP TRIGGER IF EXISTS %I ON %I',
-        v_trigger_name,
+        'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name,
         OLD.table_name
     );
 
@@ -12706,7 +12970,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION queue_event_after_delete() IS
-'Trigger function that drops the per-table queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
+'Trigger function that drops every queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
 
 CREATE TRIGGER queue_event_after_delete_trigger
     AFTER DELETE ON queue_table_events
@@ -12911,7 +13175,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', '7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1');
+      VALUES ('_core.0170_queue', 'bee1317b02ec738787672baa0c9391abe5c88ca94d767aaa62326f769a54dcab');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -12965,6 +13229,8 @@ DECLARE
     v_message TEXT;
     v_has_computed BOOLEAN;
     v_writeback TEXT;
+    v_all_logic TEXT;
+    v_extra_ctx TEXT := '';
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -12992,6 +13258,39 @@ BEGIN
     END IF;
 
     v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
+
+    -- $old is built only for entities whose rules read it: it serializes the
+    -- whole previous row on every UPDATE and DELETE, for rules that mostly never
+    -- look at it. $mode is a lowercased TG_OP and costs nothing, so it is always
+    -- present - and it is the variable that guards DELETE, where a missing value
+    -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
+    -- blocking the delete.
+    --
+    -- The $old test is a substring search over the raw rule text rather than a
+    -- lookup of a "$old" key, because a reference is usually a path -
+    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
+    -- value the rule needs. Three forms count as a reference:
+    --   * the name appearing anywhere, which covers every literal path;
+    --   * value_changed, which never names $old but reads the key itself and
+    --     returns true whenever it is absent, so an entity using it would
+    --     silently start reporting every field as changed;
+    --   * a var whose argument is an object rather than a string. The
+    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
+    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
+    --     the text. Such a rule cannot be searched, so any entity using one gets
+    --     the full context.
+    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
+                   COALESCE(v_entity.validation_rules::text, '');
+
+    IF v_all_logic LIKE '%$old%'
+       OR v_all_logic LIKE '%value_changed%'
+       OR v_all_logic LIKE '%"var": {%' THEN
+        v_extra_ctx := v_extra_ctx || $CTX$,
+        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
+    END IF;
+
+    v_extra_ctx := v_extra_ctx || $CTX$,
+        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -13101,9 +13400,7 @@ BEGIN
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
                        ELSE to_jsonb(v_uid_text::int)
-                   END,
-        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END,
-        '$mode',    to_jsonb(lower(TG_OP))
+                   END%s
     );
 %s
     -- DELETE keeps no computed output; the validation rules above may still abort it.
@@ -13113,7 +13410,7 @@ BEGIN
 %s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_block, v_writeback);
+$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
 
     EXECUTE v_body;
 
@@ -13193,11 +13490,56 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- STEP 3: Per-row SELECT policy generator (select_rule)
 -- =====================================================
 -- When an entity has a non-empty select_rule (a JsonLogic object), this
--- function generates a helper function and replaces the default
--- <table>_select_policy with one that evaluates the rule per row.
--- The generated function converts the row to JSONB, injects reserved
--- variables ($today, $now, $user_id — there is no $old/$mode for a read),
+-- function generates two helper functions and rebuilds the SELECT, UPDATE and
+-- DELETE policies so each row is filtered by the rule. The two-argument helper
+-- merges the row with a statement context handed to it; the one-argument helper
+-- resolves that context itself. Reserved variables are
+-- ($today, $now, $user_id — there is no $old/$mode for a read),
 -- evaluates the JsonLogic rule, and returns true only when the result is truthy.
+
+-- The reserved JsonLogic variables that do not vary within a statement. RLS
+-- quals reach this through an uncorrelated sub-select so the planner turns it
+-- into an InitPlan and evaluates it once per statement instead of once per row;
+-- 0445_test_policy_initplan_form.sql pins that shape against a well-meaning
+-- edit to a bare call.
+--
+-- rbac.uid() is called directly and first. It is what refuses a session with no
+-- valid claims, and this function is the only refusal on the select_rule read
+-- path: that policy's USING clause carries no permission conjunct, and the
+-- generated predicate swallows every error from rule evaluation. Reaching uid()
+-- indirectly is not equivalent - rbac.ensure_context_initialized() returns early
+-- on an already-initialized session without calling it, so the gate would hold
+-- only on the first statement of a transaction.
+--
+-- The user id comes from rbac.user_id() rather than from app.current_user_id.
+-- That setting is client-writable in a direct SQL session, and every other
+-- reader in the codebase reaches the identity through the rbac helpers so that
+-- hardening them hardens all of it at once; a raw read here would be the one
+-- reader left behind. rbac.user_id() also raises 28000 for a subject with no
+-- users row, which is the answer the other RLS paths give.
+CREATE OR REPLACE FUNCTION public.jl_request_context()
+RETURNS JSONB AS $$
+DECLARE
+    v_uid INTEGER;
+BEGIN
+    PERFORM rbac.uid();
+    v_uid := rbac.user_id();
+    RETURN jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        -- An unresolved user is jsonb null, never SQL NULL: a NULL here would
+        -- make the whole || merge in the caller NULL and silently empty the
+        -- rule's data, so every rule would see a row with no columns.
+        '$user_id', CASE WHEN v_uid IS NULL THEN 'null'::jsonb ELSE to_jsonb(v_uid) END
+    );
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_request_context() IS
+'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -13210,8 +13552,11 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop the function if it exists
+        -- Entity is being deleted — drop both overloads if they exist. A
+        -- DROP that names only one signature is a silent no-op for the other,
+        -- and the CASCADE that removes the dependent policies rides on it.
         v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
         RETURN;
     END IF;
@@ -13224,14 +13569,17 @@ BEGIN
     v_fn_name := 'select_rule_' || p_table_name;
     v_policy_name := p_table_name || '_select_policy';
 
-    -- Always drop old function (CASCADE removes anything depending on it)
+    -- Always drop both overloads before rebuilding (CASCADE removes anything
+    -- depending on them). Dropping only one leaves the other behind and the
+    -- CREATE below then fails with a duplicate-function error.
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
 
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
 
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table (P1). Test 0445 pins it.
+    -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
     -- If select_rule is empty, restore the default permission-only policies (read = view
     -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
@@ -13251,24 +13599,31 @@ BEGIN
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
 
-    -- Build the per-row evaluation function
+    -- Build the per-row evaluation function in two overloads.
+    --
+    -- The two-argument form takes the statement-constant context as a parameter
+    -- so the policies can hoist it out of the per-row loop. It answers rule
+    -- questions for anyone able to supply a context, which is unavoidable: an
+    -- RLS qual runs with the querying role's privileges, so semantius_user must
+    -- hold EXECUTE. It returns no row data - the caller already holds the row it
+    -- passes in, and RLS still filters any relation being scanned. The
+    -- permission operators resolve against the session rather than against
+    -- $user_id, so a forged context cannot widen what a caller may see. It does
+    -- merge the context over the row, so a caller can shadow a column and aim an
+    -- operator such as has_consultation at a record it cannot read; the answer
+    -- is one boolean, never its contents.
+    --
+    -- The one-argument form supplies the context itself and is the entry point
+    -- for callers outside a policy, get_record_by_id in 0070_dd_functions.sql
+    -- among them. It carries the authentication gate for those callers, which is
+    -- why it must not be reduced to a convenience wrapper that skips it.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
-    v_uid_text text;
 BEGIN
-    PERFORM rbac.ensure_context_initialized();
-    v_uid_text := current_setting('app.current_user_id', true);
-    v_data := to_jsonb(p_row) || jsonb_build_object(
-        '$today',   to_jsonb(CURRENT_DATE),
-        '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        '$user_id', CASE
-                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
-                   END
-    );
+    v_data := to_jsonb(p_row) || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -13279,38 +13634,53 @@ BEGIN
     RETURN jl_truthy(v_result);
 END;
 $SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit);
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+    SELECT public.%I(p_row, public.jl_request_context());
+$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
 
     EXECUTE v_body;
 
-    -- Revoke PUBLIC execute on the generated function (security best practice).
-    -- Without this revoke the function is callable by any database role, which
-    -- violates the project's no-public-execute invariant (0060_test_security.sql).
-    -- Grant EXECUTE to semantius_user so the RLS policy can call the function.
+    -- Both overloads need their own grants and comment: privileges and comments
+    -- attach to a signature, not to a name, so an overload left out is callable
+    -- by any role and undocumented. 0060_test_security.sql and
+    -- 0240_test_no_unsafe_functions.sql sweep for exactly that.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
+        v_fn_name, p_table_name,
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
+
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
         v_fn_name, p_table_name,
-        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s". Generated by build_select_rule_policy.', p_table_name));
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
 
-    -- Create the new select policy using the generated function
+    -- The context sub-select is uncorrelated, so the planner lifts it to an
+    -- InitPlan and resolves the request once per statement rather than once per
+    -- scanned row. It has to appear in all three policies: a USING clause is
+    -- evaluated per row for every UPDATE and DELETE as well, so a policy left
+    -- with a bare call keeps paying per row on the write path.
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
         v_policy_name, p_table_name, v_fn_name, p_table_name);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
-    -- of statement shape, this closes the I2 bypass (bare / WHERE TRUE writes) that relying on
-    -- the SELECT policy alone left open. WITH CHECK stays edit_permission-only (D1/I3: no
-    -- post-image check_rule yet).
+    -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
+    -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
+    -- row out of its own rule.
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*)) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
         p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*))',
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
         p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -13347,7 +13717,9 @@ BEGIN
     END IF;
 
     IF TG_OP = 'DELETE' THEN
+        -- Both overloads, or the survivor blocks the next CREATE under this name.
         v_fn_name := 'select_rule_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
         RETURN OLD;
     END IF;
@@ -13402,7 +13774,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', '4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0');
+      VALUES ('_core.0180_computed_validation', '41c6b4b29d8e129d4bd45b356059ffcdaeb8b6b6a077e77c16d2383e94510956');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14652,6 +15024,11 @@ BEGIN
 
     -- ===================== value_changed =====================
     -- Checks if a field value has changed compared to $old.
+    -- Reads $old without the rule ever naming it. build_record_logic_trigger in
+    -- 0180_computed_validation.sql decides whether to build $old by searching the
+    -- rule text for "$old" or for this operator's name, so any new operator that
+    -- reads $old implicitly has to be added to that search or its rules will
+    -- silently see no previous row.
     -- When $old is missing or null in data, always returns true (new record).
     -- When $old is present, compares $old.<field> with current <field>.
     IF op = 'value_changed' THEN
@@ -14942,7 +15319,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '335cd5b7fc8102d153342b6cfd4e64a9532810287e173b80d713e28e9b008eb3');
+      VALUES ('_core.0210_raci', '602a44bbff494135298984ce3017bb2fab46cc11529bc4752e70a12e7bb5fc2a');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16422,7 +16799,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"93df8d7041c21c0c1ab779463eea58d30255b17c0750decd9feed5cd91e2ced0","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"3a2bb5eacb42eb0de55055006bf9eb687f943ee0d4f0e61e0d7ca09f0b935153","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"5a9a18742f79f5a0ca7934ad83ed2aab75f4c98b57b8219a03109808e354f76e","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"7286120722c86d94f6539f96ff70a9c681d3cee1de2e9b4ed07a3751f15f35f1","_core.0180_computed_validation":"4980430bb7ef94a63152a11a6aa92f45457b0bba3cca257830d36e90487c0ac0","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"335cd5b7fc8102d153342b6cfd4e64a9532810287e173b80d713e28e9b008eb3","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"8511c0020a65722248325772bf33c89faf7bfb2d89a67bd2762c13598fcdcd76","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"32e41d2e24cfa18550184ba7857d3328d6676112aad4782c9657c1199cede4bb","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"3ebda5b599b57f90f8b12d3775c3c9477dc529a8741516712019cbd82eee11e1","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"bee1317b02ec738787672baa0c9391abe5c88ca94d767aaa62326f769a54dcab","_core.0180_computed_validation":"41c6b4b29d8e129d4bd45b356059ffcdaeb8b6b6a077e77c16d2383e94510956","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"602a44bbff494135298984ce3017bb2fab46cc11529bc4752e70a12e7bb5fc2a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

@@ -204,13 +204,20 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
                 'compute_validate_' || OLD.table_name);
 
-            -- Drop old select_rule function (CASCADE drops the policy that uses it).
-            -- The AFTER trigger manage_select_rule_policy will rebuild it under the new name.
+            -- Drop both select_rule overloads (CASCADE drops the policies that use
+            -- them). The AFTER trigger manage_select_rule_policy rebuilds them under
+            -- the new name. The signatures pair the OLD function name with the NEW
+            -- row type on purpose: the physical table was renamed a few lines above,
+            -- so the composite type already answers to NEW.table_name while the
+            -- functions still carry the old name.
+            EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE',
+                'select_rule_' || OLD.table_name, NEW.table_name);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, NEW.table_name);
 
             -- Rename queue event triggers on the entity table.
-            -- Pattern: queue_<queue_name>_<handler>_on_<old_table>
+            -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
+            -- event the mapping covers.
             FOR v_old_name IN
                 SELECT t.tgname
                 FROM pg_trigger t

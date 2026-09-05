@@ -43,6 +43,8 @@ DECLARE
     v_message TEXT;
     v_has_computed BOOLEAN;
     v_writeback TEXT;
+    v_all_logic TEXT;
+    v_extra_ctx TEXT := '';
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -70,6 +72,39 @@ BEGIN
     END IF;
 
     v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
+
+    -- $old is built only for entities whose rules read it: it serializes the
+    -- whole previous row on every UPDATE and DELETE, for rules that mostly never
+    -- look at it. $mode is a lowercased TG_OP and costs nothing, so it is always
+    -- present - and it is the variable that guards DELETE, where a missing value
+    -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
+    -- blocking the delete.
+    --
+    -- The $old test is a substring search over the raw rule text rather than a
+    -- lookup of a "$old" key, because a reference is usually a path -
+    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
+    -- value the rule needs. Three forms count as a reference:
+    --   * the name appearing anywhere, which covers every literal path;
+    --   * value_changed, which never names $old but reads the key itself and
+    --     returns true whenever it is absent, so an entity using it would
+    --     silently start reporting every field as changed;
+    --   * a var whose argument is an object rather than a string. The
+    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
+    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
+    --     the text. Such a rule cannot be searched, so any entity using one gets
+    --     the full context.
+    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
+                   COALESCE(v_entity.validation_rules::text, '');
+
+    IF v_all_logic LIKE '%$old%'
+       OR v_all_logic LIKE '%value_changed%'
+       OR v_all_logic LIKE '%"var": {%' THEN
+        v_extra_ctx := v_extra_ctx || $CTX$,
+        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
+    END IF;
+
+    v_extra_ctx := v_extra_ctx || $CTX$,
+        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -179,9 +214,7 @@ BEGIN
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
                        ELSE to_jsonb(v_uid_text::int)
-                   END,
-        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END,
-        '$mode',    to_jsonb(lower(TG_OP))
+                   END%s
     );
 %s
     -- DELETE keeps no computed output; the validation rules above may still abort it.
@@ -191,7 +224,7 @@ BEGIN
 %s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_block, v_writeback);
+$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
 
     EXECUTE v_body;
 
@@ -271,11 +304,56 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- STEP 3: Per-row SELECT policy generator (select_rule)
 -- =====================================================
 -- When an entity has a non-empty select_rule (a JsonLogic object), this
--- function generates a helper function and replaces the default
--- <table>_select_policy with one that evaluates the rule per row.
--- The generated function converts the row to JSONB, injects reserved
--- variables ($today, $now, $user_id — there is no $old/$mode for a read),
+-- function generates two helper functions and rebuilds the SELECT, UPDATE and
+-- DELETE policies so each row is filtered by the rule. The two-argument helper
+-- merges the row with a statement context handed to it; the one-argument helper
+-- resolves that context itself. Reserved variables are
+-- ($today, $now, $user_id — there is no $old/$mode for a read),
 -- evaluates the JsonLogic rule, and returns true only when the result is truthy.
+
+-- The reserved JsonLogic variables that do not vary within a statement. RLS
+-- quals reach this through an uncorrelated sub-select so the planner turns it
+-- into an InitPlan and evaluates it once per statement instead of once per row;
+-- 0445_test_policy_initplan_form.sql pins that shape against a well-meaning
+-- edit to a bare call.
+--
+-- rbac.uid() is called directly and first. It is what refuses a session with no
+-- valid claims, and this function is the only refusal on the select_rule read
+-- path: that policy's USING clause carries no permission conjunct, and the
+-- generated predicate swallows every error from rule evaluation. Reaching uid()
+-- indirectly is not equivalent - rbac.ensure_context_initialized() returns early
+-- on an already-initialized session without calling it, so the gate would hold
+-- only on the first statement of a transaction.
+--
+-- The user id comes from rbac.user_id() rather than from app.current_user_id.
+-- That setting is client-writable in a direct SQL session, and every other
+-- reader in the codebase reaches the identity through the rbac helpers so that
+-- hardening them hardens all of it at once; a raw read here would be the one
+-- reader left behind. rbac.user_id() also raises 28000 for a subject with no
+-- users row, which is the answer the other RLS paths give.
+CREATE OR REPLACE FUNCTION public.jl_request_context()
+RETURNS JSONB AS $$
+DECLARE
+    v_uid INTEGER;
+BEGIN
+    PERFORM rbac.uid();
+    v_uid := rbac.user_id();
+    RETURN jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        -- An unresolved user is jsonb null, never SQL NULL: a NULL here would
+        -- make the whole || merge in the caller NULL and silently empty the
+        -- rule's data, so every rule would see a row with no columns.
+        '$user_id', CASE WHEN v_uid IS NULL THEN 'null'::jsonb ELSE to_jsonb(v_uid) END
+    );
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_request_context() IS
+'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -288,8 +366,11 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop the function if it exists
+        -- Entity is being deleted — drop both overloads if they exist. A
+        -- DROP that names only one signature is a silent no-op for the other,
+        -- and the CASCADE that removes the dependent policies rides on it.
         v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
         RETURN;
     END IF;
@@ -302,14 +383,17 @@ BEGIN
     v_fn_name := 'select_rule_' || p_table_name;
     v_policy_name := p_table_name || '_select_policy';
 
-    -- Always drop old function (CASCADE removes anything depending on it)
+    -- Always drop both overloads before rebuilding (CASCADE removes anything
+    -- depending on them). Dropping only one leaves the other behind and the
+    -- CREATE below then fails with a duplicate-function error.
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
 
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
 
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table (P1). Test 0445 pins it.
+    -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
     -- If select_rule is empty, restore the default permission-only policies (read = view
     -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
@@ -329,24 +413,31 @@ BEGIN
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
 
-    -- Build the per-row evaluation function
+    -- Build the per-row evaluation function in two overloads.
+    --
+    -- The two-argument form takes the statement-constant context as a parameter
+    -- so the policies can hoist it out of the per-row loop. It answers rule
+    -- questions for anyone able to supply a context, which is unavoidable: an
+    -- RLS qual runs with the querying role's privileges, so semantius_user must
+    -- hold EXECUTE. It returns no row data - the caller already holds the row it
+    -- passes in, and RLS still filters any relation being scanned. The
+    -- permission operators resolve against the session rather than against
+    -- $user_id, so a forged context cannot widen what a caller may see. It does
+    -- merge the context over the row, so a caller can shadow a column and aim an
+    -- operator such as has_consultation at a record it cannot read; the answer
+    -- is one boolean, never its contents.
+    --
+    -- The one-argument form supplies the context itself and is the entry point
+    -- for callers outside a policy, get_record_by_id in 0070_dd_functions.sql
+    -- among them. It carries the authentication gate for those callers, which is
+    -- why it must not be reduced to a convenience wrapper that skips it.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
-    v_uid_text text;
 BEGIN
-    PERFORM rbac.ensure_context_initialized();
-    v_uid_text := current_setting('app.current_user_id', true);
-    v_data := to_jsonb(p_row) || jsonb_build_object(
-        '$today',   to_jsonb(CURRENT_DATE),
-        '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        '$user_id', CASE
-                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
-                   END
-    );
+    v_data := to_jsonb(p_row) || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -357,38 +448,53 @@ BEGIN
     RETURN jl_truthy(v_result);
 END;
 $SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit);
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+    SELECT public.%I(p_row, public.jl_request_context());
+$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
 
     EXECUTE v_body;
 
-    -- Revoke PUBLIC execute on the generated function (security best practice).
-    -- Without this revoke the function is callable by any database role, which
-    -- violates the project's no-public-execute invariant (0060_test_security.sql).
-    -- Grant EXECUTE to semantius_user so the RLS policy can call the function.
+    -- Both overloads need their own grants and comment: privileges and comments
+    -- attach to a signature, not to a name, so an overload left out is callable
+    -- by any role and undocumented. 0060_test_security.sql and
+    -- 0240_test_no_unsafe_functions.sql sweep for exactly that.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
+        v_fn_name, p_table_name,
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
+
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
         v_fn_name, p_table_name,
-        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s". Generated by build_select_rule_policy.', p_table_name));
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
 
-    -- Create the new select policy using the generated function
+    -- The context sub-select is uncorrelated, so the planner lifts it to an
+    -- InitPlan and resolves the request once per statement rather than once per
+    -- scanned row. It has to appear in all three policies: a USING clause is
+    -- evaluated per row for every UPDATE and DELETE as well, so a policy left
+    -- with a bare call keeps paying per row on the write path.
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*))',
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
         v_policy_name, p_table_name, v_fn_name, p_table_name);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
-    -- of statement shape, this closes the I2 bypass (bare / WHERE TRUE writes) that relying on
-    -- the SELECT policy alone left open. WITH CHECK stays edit_permission-only (D1/I3: no
-    -- post-image check_rule yet).
+    -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
+    -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
+    -- row out of its own rule.
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*)) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
         p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*))',
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
         p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -425,7 +531,9 @@ BEGIN
     END IF;
 
     IF TG_OP = 'DELETE' THEN
+        -- Both overloads, or the survivor blocks the next CREATE under this name.
         v_fn_name := 'select_rule_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
         RETURN OLD;
     END IF;

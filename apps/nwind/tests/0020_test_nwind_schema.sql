@@ -370,11 +370,35 @@ SELECT set_eq(
 );
 
 -- Test 53
-SELECT has_trigger('public', 'customers', 'audit_i_u_d', 'customers should have the audit_i_u_d trigger');
+SELECT is(
+    (SELECT array_agg(t.tgname::text ORDER BY t.tgname) FROM pg_trigger t
+     JOIN pg_class c ON t.tgrelid = c.oid
+     WHERE c.relname = 'customers' AND c.relnamespace = 'public'::regnamespace
+       AND starts_with(t.tgname::text, 'audit_')),
+    ARRAY['audit_d', 'audit_i', 'audit_i_u_d', 'audit_t'],
+    'customers should carry the full set of audit triggers'
+);
 -- Test 54
-SELECT has_trigger('public', 'products', 'audit_i_u_d', 'products should have the audit_i_u_d trigger');
+SELECT is(
+    (SELECT array_agg(t.tgname::text ORDER BY t.tgname) FROM pg_trigger t
+     JOIN pg_class c ON t.tgrelid = c.oid
+     WHERE c.relname = 'products' AND c.relnamespace = 'public'::regnamespace
+       AND starts_with(t.tgname::text, 'audit_')),
+    ARRAY['audit_d', 'audit_i', 'audit_i_u_d', 'audit_t'],
+    'products should carry the full set of audit triggers'
+);
 -- Test 55
-SELECT hasnt_trigger('public', 'orders', 'audit_i_u_d', 'orders should not have the audit_i_u_d trigger');
+-- Counted rather than named: an audited table carries four triggers, so naming
+-- only the row-level one would stay green while insert and delete logging ran.
+SELECT is(
+    (SELECT count(*)::int FROM pg_trigger t
+     JOIN pg_class c ON t.tgrelid = c.oid
+     WHERE c.relname = 'orders'
+       AND c.relnamespace = 'public'::regnamespace
+       AND starts_with(t.tgname::text, 'audit_')),
+    0,
+    'orders should have no audit triggers'
+);
 
 -- =====================================================
 -- COMPOSED LABELS

@@ -237,7 +237,10 @@ DECLARE
     v_record_pk TEXT;
     v_user_id INTEGER;
 BEGIN
-    -- Extract primary key from whichever record is available (NEW for INSERT/UPDATE, OLD for DELETE)
+    -- Only ever reached for UPDATE, where both images exist; the CHECK
+    -- constraints on audit_record_logs require both, which is why this event is
+    -- not folded into the statement-level triggers. COALESCE keeps the
+    -- expression total rather than relying on that.
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
 
@@ -270,8 +273,115 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
-'Row-level AFTER trigger function that logs INSERT, UPDATE, and DELETE operations
-to audit_record_logs. Captures the JWT user_id and primary key value.';
+'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
+Captures the JWT user_id and primary key value. INSERT and DELETE are logged by
+the statement-level functions in this schema.';
+
+-- INSERT and DELETE are logged one statement at a time. The work the row-level
+-- function repeats per row - the catalog lookup for the primary key columns and
+-- the resolution of the acting user - is constant for the whole statement, and
+-- the rows themselves arrive as a set that can be inserted with a single
+-- INSERT ... SELECT.
+--
+-- UPDATE is row-level. An update log entry carries the before
+-- and after image of the same row, and the CHECK constraints on
+-- audit_record_logs require both. A transition table is an unordered set whose
+-- only join key is the primary key - which is exactly what old_record_id exists
+-- to track changing. entities.table_name is a primary key that rename_dd_table
+-- rewrites, and entities is audited, so pairing the two images by key would
+-- silently attach the wrong before-image to a renamed row in a table whose whole
+-- purpose is evidence.
+--
+-- new_rows and old_rows below are transition tables: ephemeral named relations
+-- resolved from the query environment, not through search_path. They are the one
+-- kind of name that cannot be schema-qualified, which is why they appear bare in
+-- functions that otherwise qualify every identifier.
+
+CREATE OR REPLACE FUNCTION audit.insert_trigger()
+    RETURNS TRIGGER
+    SECURITY DEFINER
+    SET search_path = ''
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
+    v_user_id INTEGER = audit.current_user_id();
+BEGIN
+    INSERT INTO public.audit_record_logs(
+        record_id,
+        old_record_id,
+        record_pk,
+        op,
+        user_id,
+        table_oid,
+        table_schema,
+        table_name,
+        record,
+        old_record
+    )
+    SELECT
+        audit.to_record_id(TG_RELID, pkey_cols, to_jsonb(r)),
+        NULL,
+        audit.extract_record_pk(pkey_cols, to_jsonb(r)),
+        'INSERT'::audit.operation,
+        v_user_id,
+        TG_RELID,
+        TG_TABLE_SCHEMA,
+        TG_TABLE_NAME,
+        to_jsonb(r),
+        NULL
+    FROM new_rows r;
+
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.insert_trigger IS
+'Statement-level AFTER INSERT trigger function that logs every inserted row to
+audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+
+CREATE OR REPLACE FUNCTION audit.delete_trigger()
+    RETURNS TRIGGER
+    SECURITY DEFINER
+    SET search_path = ''
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
+    v_user_id INTEGER = audit.current_user_id();
+BEGIN
+    INSERT INTO public.audit_record_logs(
+        record_id,
+        old_record_id,
+        record_pk,
+        op,
+        user_id,
+        table_oid,
+        table_schema,
+        table_name,
+        record,
+        old_record
+    )
+    SELECT
+        NULL,
+        audit.to_record_id(TG_RELID, pkey_cols, to_jsonb(r)),
+        audit.extract_record_pk(pkey_cols, to_jsonb(r)),
+        'DELETE'::audit.operation,
+        v_user_id,
+        TG_RELID,
+        TG_TABLE_SCHEMA,
+        TG_TABLE_NAME,
+        NULL,
+        to_jsonb(r)
+    FROM old_rows r;
+
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.delete_trigger IS
+'Statement-level AFTER DELETE trigger function that logs every deleted row to
+audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     RETURNS TRIGGER
@@ -313,12 +423,38 @@ CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS)
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    statement_row TEXT = format('
+    -- The four trigger names are fixed literals rather than derived from the
+    -- table name. That is what makes renaming an audited table free: the
+    -- triggers follow the table and nothing has to be rebuilt.
+    --
+    -- audit_i and audit_d carry a REFERENCING clause, so they must be dropped
+    -- and recreated rather than replaced when their shape changes; CREATE
+    -- TRIGGER without OR REPLACE fails loudly on a name that already exists,
+    -- which is what the existence checks below are for.
+    statement_ins TEXT = format('
+        CREATE TRIGGER audit_i
+            AFTER INSERT
+            ON %s
+            REFERENCING NEW TABLE AS new_rows
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION audit.insert_trigger();',
+        $1
+    );
+    statement_upd TEXT = format('
         CREATE TRIGGER audit_i_u_d
-            AFTER INSERT OR UPDATE OR DELETE
+            AFTER UPDATE
             ON %s
             FOR EACH ROW
             EXECUTE FUNCTION audit.insert_update_delete_trigger();',
+        $1
+    );
+    statement_del TEXT = format('
+        CREATE TRIGGER audit_d
+            AFTER DELETE
+            ON %s
+            REFERENCING OLD TABLE AS old_rows
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION audit.delete_trigger();',
         $1
     );
     statement_stmt TEXT = format('
@@ -330,13 +466,43 @@ DECLARE
         $1
     );
     pkey_cols TEXT[] = audit.primary_key_columns($1);
+    v_has_row_trigger BOOLEAN;
 BEGIN
     IF pkey_cols = ARRAY[]::TEXT[] THEN
         RAISE EXCEPTION 'Table % cannot be audited because it has no primary key', $1;
     END IF;
 
-    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d') THEN
-        EXECUTE statement_row;
+    -- audit_i_u_d is the UPDATE trigger. A trigger of that name that also fires
+    -- on INSERT or DELETE would log those events a second time once audit_i and
+    -- audit_d are present, so it is dropped and rebuilt narrow rather than
+    -- accepted as already there. Bits 0x04 INSERT and 0x08 DELETE, tested
+    -- together: either one is enough to double-log.
+    SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d')
+      INTO v_has_row_trigger;
+
+    IF v_has_row_trigger AND EXISTS(
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = $1 AND tgname = 'audit_i_u_d'
+          AND (tgtype & 12) <> 0
+    ) THEN
+        EXECUTE format('DROP TRIGGER audit_i_u_d ON %s', $1);
+        v_has_row_trigger := FALSE;
+    END IF;
+
+    -- The checks below are name-only: a trigger already present is left exactly
+    -- as it is. Changing the shape of audit_i, audit_d or audit_t therefore
+    -- reaches only tables that do not yet carry it; an existing table needs
+    -- disable_tracking() first.
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i') THEN
+        EXECUTE statement_ins;
+    END IF;
+
+    IF NOT v_has_row_trigger THEN
+        EXECUTE statement_upd;
+    END IF;
+
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_d') THEN
+        EXECUTE statement_del;
     END IF;
 
     IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_t') THEN
@@ -346,7 +512,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.enable_tracking IS
-'Creates audit triggers (audit_i_u_d for row-level, audit_t for truncate) on the given table.
+'Creates audit triggers on the given table: audit_i and audit_d statement-level for
+INSERT and DELETE, audit_i_u_d row-level for UPDATE, audit_t for truncate.
 Raises an exception if the table has no primary key.';
 
 CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
@@ -357,22 +524,17 @@ CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    statement_row TEXT = format(
-        'DROP TRIGGER IF EXISTS audit_i_u_d ON %s;',
-        $1
-    );
-    statement_stmt TEXT = format(
-        'DROP TRIGGER IF EXISTS audit_t ON %s;',
-        $1
-    );
+    v_name TEXT;
 BEGIN
-    EXECUTE statement_row;
-    EXECUTE statement_stmt;
+    FOREACH v_name IN ARRAY ARRAY['audit_i', 'audit_i_u_d', 'audit_d', 'audit_t']
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %s', v_name, $1);
+    END LOOP;
 END;
 $$;
 
 COMMENT ON FUNCTION audit.disable_tracking IS
-'Removes audit triggers (audit_i_u_d, audit_t) from the given table.';
+'Removes all audit triggers (audit_i, audit_i_u_d, audit_d, audit_t) from the given table.';
 
 -- =====================================================
 -- STEP 7: DDL event trigger function and event trigger
@@ -527,7 +689,8 @@ VALUES
 -- Handles three scenarios:
 --   A) INSERT: enable audit on newly created managed tables
 --   B) UPDATE: toggle audit when audit_log changes, or when managed changes
---   C) Rename: audit triggers follow automatically (trigger names are stable: audit_i_u_d, audit_t)
+--   C) Rename: audit triggers follow automatically (trigger names are stable:
+--      audit_i, audit_i_u_d, audit_d, audit_t)
 
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
@@ -685,6 +848,8 @@ REVOKE EXECUTE ON FUNCTION audit.to_record_id(OID, TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;

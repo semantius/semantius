@@ -11,6 +11,9 @@
 #   3. readiness gate poll until the `pg_semantius` extension is present (the
 #                     pg_isready healthcheck can go green before the init scripts
 #                     finish, so we check pg_extension directly).
+#   3b. audit-column check   entities is audited and 0270 adds
+#                     entities.order_column inside the same install transaction;
+#                     verify every audit row written after that point carries it.
 #   4. migrate --apps nwind,test   migrate auto-prepends `_core`, which is
 #                     SKIPPED because the extension seeded `_versions`; only
 #                     `test`,`nwind` are deployed onto the extension's `_core`.
@@ -83,6 +86,46 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
   sleep 2
 done
 echo "Extension present."
+
+# The single-transaction install is the only place a column can be added to an
+# already-audited table between two writes to it without a commit in between:
+# entities is audited, and 0270 adds entities.order_column partway through. The
+# statement-level audit trigger reads the affected rows through a transition
+# table, and one cached plan in that function body serves every audited
+# relation, so a row-type descriptor that failed to re-resolve would drop the new
+# column from the logged record silently rather than failing. The pgTAP suite cannot see this - it runs in its
+# own transaction after the install, where the descriptor is fresh.
+# Rows logged before that ALTER TABLE legitimately lack the column, so the test
+# is the boundary rather than the total: once any audit row carries
+# order_column, every later one must carry it too. A stale descriptor shows up
+# as a row without the column logged after a row with it.
+echo "== [3b/5] Checking the audit record carries columns added mid-install =="
+late_missing="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
+  "SELECT count(*) FROM public.audit_record_logs
+    WHERE table_name = 'entities'
+      AND record IS NOT NULL
+      AND NOT record ? 'order_column'
+      AND id > (SELECT min(id) FROM public.audit_record_logs
+                 WHERE table_name = 'entities' AND record ? 'order_column')")"
+if [ -z "$late_missing" ]; then
+  echo "FAIL: could not read audit_record_logs; the order_column check did not run." >&2
+  exit 1
+fi
+if [ "$late_missing" != "0" ]; then
+  echo "FAIL: $late_missing audit rows for entities were logged without order_column" >&2
+  echo "after earlier rows already carried it. The audit trigger reused a row-type" >&2
+  echo "descriptor from before 0270." >&2
+  exit 1
+fi
+carrying="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
+  "SELECT count(*) FROM public.audit_record_logs
+    WHERE table_name = 'entities' AND record ? 'order_column'")"
+if [ "$carrying" = "0" ]; then
+  echo "FAIL: no audit row for entities carries order_column at all." >&2
+  echo "The check above would pass vacuously; audit logging is not running." >&2
+  exit 1
+fi
+echo "Audit records written after 0270 carry order_column ($carrying rows)."
 
 echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
 ( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$EXT_URL" )

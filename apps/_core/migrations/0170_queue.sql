@@ -229,16 +229,25 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
+    -- Messages are flushed in fixed windows rather than one array per statement.
+    -- pgmq.send_batch takes a jsonb[], and an array is a single value bound by
+    -- the 1 GB varlena limit: at roughly 190 bytes per message one array covers
+    -- a few million rows and then the statement fails outright. Flushing keeps
+    -- every array well under that bound, at the cost of one extra INSERT per
+    -- window. It does not bound the trigger's memory: the transition table
+    -- itself holds every affected row for the whole statement, in a tuplestore
+    -- that spills past work_mem.
+    c_batch_size CONSTANT INT := 1000;
     v_queue_name TEXT;
     v_id_field TEXT;
     v_event_type TEXT;
-    v_id_value JSONB;
-    v_row_jsonb JSONB;
+    v_msgs JSONB[] := ARRAY[]::JSONB[];
     v_msg JSONB;
 BEGIN
     -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
     -- Falls back to 'id' when the LEFT JOIN to entities returns no row (table not registered
     -- in the entity system). The entities.id_column column always has a value when the row exists.
+    -- queue_table_events.table_name is unique, so at most one mapping can match.
     SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
     INTO v_queue_name, v_id_field, v_event_type
     FROM queue_table_events qte
@@ -248,37 +257,81 @@ BEGIN
     LIMIT 1;
 
     IF v_queue_name IS NULL THEN
-        RETURN COALESCE(NEW, OLD);
+        RETURN NULL;
     END IF;
 
-    -- Extract the id value preserving its native JSON type (number, text, etc.)
+    -- new_rows and old_rows are the transition tables declared by the triggers
+    -- below. They are ephemeral named relations, resolved from the query
+    -- environment rather than through search_path, so they cannot be reached by
+    -- a schema-qualified name. Each branch only ever executes under the trigger
+    -- that declares the table it names: a DELETE trigger never reaches the
+    -- new_rows statement and vice versa.
+    --
+    -- event_type is the mapping's event_handler, not TG_OP: a consumer
+    -- subscribed to 'change' expects that label on every message, whichever DML
+    -- statement produced it.
     IF TG_OP = 'DELETE' THEN
-        v_row_jsonb := to_jsonb(OLD);
+        FOR v_msg IN
+            SELECT jsonb_build_object(
+                       'op', TG_OP,
+                       'ts', now(),
+                       'table', TG_TABLE_NAME,
+                       'id_field', v_id_field,
+                       'id_value', to_jsonb(r) -> v_id_field,
+                       'message_type', 'entity_event',
+                       'event_type', v_event_type
+                   )
+            FROM old_rows r
+        LOOP
+            v_msgs := array_append(v_msgs, v_msg);
+            IF array_length(v_msgs, 1) >= c_batch_size THEN
+                PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+                v_msgs := ARRAY[]::JSONB[];
+            END IF;
+        END LOOP;
     ELSE
-        v_row_jsonb := to_jsonb(NEW);
+        FOR v_msg IN
+            SELECT jsonb_build_object(
+                       'op', TG_OP,
+                       'ts', now(),
+                       'table', TG_TABLE_NAME,
+                       'id_field', v_id_field,
+                       'id_value', to_jsonb(r) -> v_id_field,
+                       'message_type', 'entity_event',
+                       'event_type', v_event_type
+                   )
+            FROM new_rows r
+        LOOP
+            v_msgs := array_append(v_msgs, v_msg);
+            IF array_length(v_msgs, 1) >= c_batch_size THEN
+                PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+                v_msgs := ARRAY[]::JSONB[];
+            END IF;
+        END LOOP;
     END IF;
-    v_id_value := v_row_jsonb -> v_id_field;
 
-    v_msg := jsonb_build_object(
-        'op', TG_OP,
-        'ts', now(),
-        'table', TG_TABLE_NAME,
-        'id_field', v_id_field,
-        'id_value', v_id_value,
-        'message_type', 'entity_event',
-        'event_type', v_event_type
-    );
+    -- A statement trigger also fires for a statement that touched no rows, and
+    -- pgmq refuses an empty batch, so the tail flush is guarded rather than
+    -- unconditional.
+    --
+    -- The single-message case takes pgmq.send instead: send_batch costs about
+    -- 10 microseconds more than send for one message, which is the whole
+    -- difference on a one-row write - the common shape for a REST caller. The
+    -- batch is what pays from a handful of rows up.
+    IF array_length(v_msgs, 1) = 1 THEN
+        PERFORM pgmq.send(v_queue_name, v_msgs[1]);
+    ELSIF array_length(v_msgs, 1) > 0 THEN
+        PERFORM pgmq.send_batch(v_queue_name, v_msgs);
+    END IF;
 
-    PERFORM pgmq.send(v_queue_name, v_msg);
-
-    RETURN COALESCE(NEW, OLD);
+    RETURN NULL;
 END;
 $$;
 
 -- Manage event trigger creation / removal
 
 COMMENT ON FUNCTION queue_build_record_json() IS
-'Per-row AFTER trigger function (installed on target tables by queue_table_events) that serializes the affected record to JSON and enqueues it as a pgmq message on the mapped queue.';
+'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that serializes every affected record to JSON and enqueues them as pgmq messages on the mapped queue, in batches.';
 
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
@@ -287,8 +340,8 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_trigger_name TEXT;
-    v_trigger_events TEXT;
     v_queue_name TEXT;
+    v_event TEXT;
 BEGIN
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
@@ -298,34 +351,54 @@ BEGIN
         RAISE EXCEPTION 'Parent queue not found for queue_id %', NEW.queue_id;
     END IF;
 
-    -- Determine which trigger events to fire
-    v_trigger_events := CASE NEW.event_handler
-        WHEN 'insert' THEN 'INSERT'
-        WHEN 'update' THEN 'UPDATE'
-        WHEN 'upsert' THEN 'INSERT OR UPDATE'
-        WHEN 'delete' THEN 'DELETE'
-        WHEN 'change' THEN 'INSERT OR UPDATE OR DELETE'
-    END;
+    -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
+    -- on a trigger defined for more than one event and the transition table is
+    -- what makes the enqueue statement-level. So 'upsert' installs two triggers
+    -- and 'change' three.
+    --
+    -- The name carries the event, not the handler:
+    -- queue_<queue>_<event>_on_<table>. For a single-event handler the two words
+    -- coincide. The name must end in _on_<table>, because 0140_dd_rename.sql
+    -- renames these triggers by matching that suffix and swapping the new table
+    -- name onto the end. The handler itself is not lost: it is read back from
+    -- queue_table_events when a message is built.
+    FOREACH v_event IN ARRAY (CASE NEW.event_handler
+        WHEN 'insert' THEN ARRAY['INSERT']
+        WHEN 'update' THEN ARRAY['UPDATE']
+        WHEN 'upsert' THEN ARRAY['INSERT', 'UPDATE']
+        WHEN 'delete' THEN ARRAY['DELETE']
+        WHEN 'change' THEN ARRAY['INSERT', 'UPDATE', 'DELETE']
+    END)
+    LOOP
+        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
 
-    v_trigger_name := 'queue_' || v_queue_name || '_' || NEW.event_handler || '_on_' || NEW.table_name;
-
-    -- Create the trigger on the target table
-    EXECUTE format(
-        'CREATE OR REPLACE TRIGGER %I
-            AFTER %s ON %I
-            FOR EACH ROW
-            EXECUTE FUNCTION queue_build_record_json()',
-        v_trigger_name,
-        v_trigger_events,
-        NEW.table_name
-    );
+        -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
+        -- survive an aborted install, and dropping first makes the install
+        -- idempotent for the events this handler covers. It cannot repair a
+        -- handler that changed in place - there is no AFTER UPDATE trigger on
+        -- queue_table_events, so an event_handler edit reinstalls nothing.
+        -- queue_event_after_delete compensates by dropping every event name
+        -- rather than the handler's own.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, NEW.table_name);
+        EXECUTE format(
+            'CREATE TRIGGER %I
+                AFTER %s ON %I
+                REFERENCING %s
+                FOR EACH STATEMENT
+                EXECUTE FUNCTION queue_build_record_json()',
+            v_trigger_name,
+            v_event,
+            NEW.table_name,
+            CASE WHEN v_event = 'DELETE' THEN 'OLD TABLE AS old_rows' ELSE 'NEW TABLE AS new_rows' END
+        );
+    END LOOP;
 
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION queue_event_after_insert() IS
-'Trigger function that installs the per-table queue_build_record_json trigger on the mapped table when a queue_table_events mapping is inserted.';
+'Trigger function that installs one statement-level queue_build_record_json trigger per DML event on the mapped table when a queue_table_events mapping is inserted.';
 
 CREATE TRIGGER queue_event_after_insert_trigger
     AFTER INSERT ON queue_table_events
@@ -338,8 +411,8 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_trigger_name TEXT;
     v_queue_name TEXT;
+    v_event TEXT;
 BEGIN
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
@@ -350,12 +423,26 @@ BEGIN
         RETURN OLD;
     END IF;
 
-    v_trigger_name := 'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name;
+    -- Every event name, not just the ones this handler covers: a mapping whose
+    -- event_handler was narrowed after install still owns the triggers created
+    -- for the wider set, and a mapping deleted without them leaves a table
+    -- enqueuing to a queue it is no longer mapped to.
+    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
+    LOOP
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS %I ON %I',
+            'queue_' || v_queue_name || '_' || v_event || '_on_' || OLD.table_name,
+            OLD.table_name
+        );
+    END LOOP;
 
-    -- Drop the trigger on the target table (ignore if missing)
+    -- The handler-named trigger from before the per-event split. Harmless when
+    -- the handler is single-event (the loop above already dropped that name);
+    -- necessary for 'upsert' and 'change', which never had a name of their own
+    -- in the event set.
     EXECUTE format(
         'DROP TRIGGER IF EXISTS %I ON %I',
-        v_trigger_name,
+        'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name,
         OLD.table_name
     );
 
@@ -364,7 +451,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION queue_event_after_delete() IS
-'Trigger function that drops the per-table queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
+'Trigger function that drops every queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
 
 CREATE TRIGGER queue_event_after_delete_trigger
     AFTER DELETE ON queue_table_events

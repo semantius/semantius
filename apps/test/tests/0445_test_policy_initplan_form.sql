@@ -18,18 +18,28 @@
 --   enable_dd_table            (0145, managed FALSE -> TRUE)
 -- enable_dd_table and update_entity_policies hand SELECT/UPDATE/DELETE to build_select_rule_policy,
 -- so of their own emissions only the INSERT policy reaches the catalog; a bare form in one of the
--- shadowed emissions is dead code and is not detected here (verified by mutation on 2026-09-03).
+-- shadowed emissions is dead code and is not detected here (confirmed by mutating each generator in turn).
+--
+-- The same rule and the same reasoning cover public.jl_request_context(), the statement-constant
+-- JsonLogic context that the select_rule policies pass into the per-row predicate. A bare call
+-- there resolves the request once per scanned row, which is the cost the two-argument predicate
+-- exists to avoid.
 --
 -- Detection: pg_policies renders the sub-select form as
 --     ( SELECT rbac.has_permission('x'::text) AS has_permission)
--- Strip every `SELECT rbac.has_...(` occurrence from qual and with_check; any `rbac.has_...(`
--- left over is a bare, per-row call. The positive assertions (count of InitPlan-form policies)
--- keep the sweep from passing vacuously on a table that lost its permission check altogether.
+-- Strip every `SELECT rbac.has_...(` or `SELECT jl_request_context(` occurrence from qual and
+-- with_check; any such call left over is a bare, per-row call. The strip pattern allows parens
+-- between SELECT and the call, because a caller that casts or indexes the result - for example
+-- (SELECT (jl_request_context() ->> '$user_id')::int) - deparses with one or two of them, and a
+-- pattern without that allowance would skip the strip and then report the residue as a failure.
+-- The name is matched unqualified: pg_get_expr renders public functions without the schema.
+-- The positive assertions (count of InitPlan-form policies) keep the sweep from passing vacuously
+-- on a table that lost its permission check altogether.
 --
 -- Fixtures: user3 = Administrator. No DDL is issued directly (the request role cannot).
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(14);
 
 SELECT authenticate_as('user3');
 
@@ -41,10 +51,10 @@ SELECT is(
                        ORDER BY schemaname, tablename, policyname)
      FROM pg_policies
      WHERE regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'installed catalog: no policy calls rbac.has_permission() outside a sub-select');
+    'installed catalog: no policy calls rbac.has_permission() or jl_request_context() outside a sub-select');
 
 -- ---------------------------------------------------------------------------
 -- Part 2: the generators
@@ -61,10 +71,10 @@ SELECT is(
      FROM pg_policies
      WHERE tablename = 'p1_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'create_dd_table: no bare rbac.has_permission() in the generated policies');
+    'create_dd_table: no bare rbac.has_permission() or jl_request_context() in the generated policies');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
@@ -83,10 +93,10 @@ SELECT is(
      FROM pg_policies
      WHERE tablename = 'p1_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'edit_permission change: no bare rbac.has_permission() in the rebuilt policies');
+    'edit_permission change: no bare per-row call in the rebuilt policies');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
@@ -106,10 +116,10 @@ SELECT is(
      FROM pg_policies
      WHERE tablename = 'p1_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'select_rule set: no bare rbac.has_permission() next to the per-row rule function');
+    'select_rule set: no bare per-row call next to the rule function');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
@@ -120,6 +130,23 @@ SELECT is(
     2,
     'select_rule set: UPDATE and DELETE combine the InitPlan-form permission check with the rule function');
 
+-- The positive control for the jl_request_context half of the sweep: all three rule-branch
+-- policies must reach the context through a sub-select. Without a count the strip-and-search
+-- above passes just as well on policies that stopped calling it at all.
+SELECT is(
+    (SELECT count(*)::int FROM pg_policies
+     WHERE tablename = 'p1_initplan'
+       AND qual ~ 'SELECT \(*jl_request_context\('),
+    3,
+    'select_rule set: SELECT, UPDATE and DELETE all resolve the request context through a sub-select');
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_policies
+     WHERE tablename = 'p1_initplan'
+       AND qual ~ 'select_rule_p1_initplan\(.*jl_request_context'),
+    3,
+    'select_rule set: the context is passed into the rule predicate rather than resolved inside it');
+
 -- build_select_rule_policy, permission-only branch again (rule removed)
 UPDATE entities SET select_rule = '{}'::jsonb WHERE table_name = 'p1_initplan';
 
@@ -128,10 +155,10 @@ SELECT is(
      FROM pg_policies
      WHERE tablename = 'p1_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'select_rule cleared: no bare rbac.has_permission() in the restored policies');
+    'select_rule cleared: no bare per-row call in the restored policies');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
@@ -154,10 +181,10 @@ SELECT is(
      FROM pg_policies
      WHERE tablename = 'p1_unmanaged'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'enable_dd_table: no bare rbac.has_permission() in the policies of a managed-toggled entity');
+    'enable_dd_table: no bare per-row call in the policies of a managed-toggled entity');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
@@ -175,10 +202,10 @@ SELECT is(
                        ORDER BY schemaname, tablename, policyname)
      FROM pg_policies
      WHERE regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
-                          'SELECT rbac\.has_(any_)?permission\(', '', 'g')
-           ~ 'rbac\.has_(any_)?permission\('),
+                          'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
+           ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
     NULL::text,
-    'final sweep: no policy anywhere calls rbac.has_permission() outside a sub-select');
+    'final sweep: no policy anywhere calls rbac.has_permission() or jl_request_context() outside a sub-select');
 
 SELECT * FROM finish();
 ROLLBACK;

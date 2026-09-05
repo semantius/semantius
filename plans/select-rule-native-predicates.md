@@ -19,7 +19,7 @@ split on 2026-09-04.
 
 | Row | Effect of this plan |
 |---|---|
-| **P2** | **This is the row this plan exists to close**, either way it goes. On a GO: satisfy part (b) of the done-when — "100k-row scan under a compilable rule at about 20 ms, rule columns indexable" — noting that only shape 1 *variant 1* becomes indexable; variant 2 is fast but not. On a NO-GO: close it as **scope-changed**, recording the measured post-`perf-per-statement` baseline, that the general "compile JsonLogic" fix was rejected, and the accepted limit that entities with a `select_rule` do not scale to full scans. Part (a) was already satisfied by `plans/perf-per-statement.md` (P11). |
+| **P2** | **This is the row this plan exists to close**, either way it goes. On a GO: satisfy part (b) of the done-when — "100k-row scan under a compilable rule at about 20 ms, rule columns indexable" — noting that only shape 1 *variant 1* becomes indexable; variant 2 is fast but not. On a NO-GO: close it as **scope-changed**, recording the measured post-`perf-per-statement` baseline, that the general "compile JsonLogic" fix was rejected, and the accepted limit that entities with a `select_rule` do not scale to full scans. Part (a) was already satisfied by `plans/perf-per-statement.md` (P13, renumbered from P11 on 2026-09-05). |
 
 **Touches without owning.**
 

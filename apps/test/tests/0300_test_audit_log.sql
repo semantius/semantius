@@ -11,9 +11,10 @@
 --   8. record_pk is captured for easy lookup
 --   9. audit tables registered in entities/fields metadata
 --  10. _core tables have audit enabled
+--  11. an upsert logs INSERT and UPDATE across the two trigger shapes
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(39);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -235,15 +236,17 @@ SELECT is(
 );
 
 -- Verify audit triggers are removed
-SELECT ok(
-    NOT EXISTS (
-        SELECT 1 FROM pg_trigger t
+-- Every audit trigger, not just the row-level one: an audited table carries
+-- four, and naming only one turns this control green while insert and delete
+-- logging carries on.
+SELECT is(
+    (SELECT count(*)::int FROM pg_trigger t
         JOIN pg_class c ON t.tgrelid = c.oid
         WHERE c.relname = 'audit_test_items'
           AND c.relnamespace = 'public'::regnamespace
-          AND t.tgname = 'audit_i_u_d'
-    ),
-    'audit_i_u_d trigger should NOT exist after disabling audit_log'
+          AND starts_with(t.tgname::text, 'audit_')),
+    0,
+    'no audit trigger should exist after disabling audit_log'
 );
 
 SELECT ok(
@@ -460,15 +463,33 @@ SELECT is(
 );
 
 -- Verify audit triggers exist on _core tables
-SELECT ok(
-    EXISTS (
-        SELECT 1 FROM pg_trigger t
+SELECT is(
+    (SELECT array_agg(t.tgname::text ORDER BY t.tgname) FROM pg_trigger t
         JOIN pg_class c ON t.tgrelid = c.oid
         WHERE c.relname = 'users'
           AND c.relnamespace = 'public'::regnamespace
-          AND t.tgname = 'audit_i_u_d'
-    ),
-    'users (_core) table should have audit_i_u_d trigger'
+          AND starts_with(t.tgname::text, 'audit_')),
+    ARRAY['audit_d', 'audit_i', 'audit_i_u_d', 'audit_t'],
+    'users (_core) table should have the full set of audit triggers'
+);
+
+-- An upsert splits across the two shapes: the update half is logged row by row
+-- as it executes, the insert half once at end of statement. Both must land, and
+-- with the right op.
+INSERT INTO users (external_id, email, display_name)
+VALUES ('audit-upsert-probe', 'upsert@probe.test', 'Upsert Probe')
+ON CONFLICT (external_id) DO UPDATE SET display_name = EXCLUDED.display_name;
+
+INSERT INTO users (external_id, email, display_name)
+VALUES ('audit-upsert-probe', 'upsert@probe.test', 'Upsert Probe Two')
+ON CONFLICT (external_id) DO UPDATE SET display_name = EXCLUDED.display_name;
+
+SELECT is(
+    (SELECT array_agg(op::text ORDER BY op::text) FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'audit-upsert-probe'),
+    ARRAY['INSERT', 'UPDATE'],
+    'an upsert logs one INSERT and one UPDATE across the two trigger shapes'
 );
 
 -- =====================================================

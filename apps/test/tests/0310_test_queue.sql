@@ -8,7 +8,7 @@
 -- (queue_table_events.table_name is unique), so it is never mapped here.
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(42);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -305,12 +305,26 @@ INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
 SELECT id, 'region change event', 'regions', 'change'
 FROM queues WHERE queue_name = 'test_q2';
 
+-- A multi-event handler installs one trigger per event, because a trigger that
+-- carries a transition table may only be defined for a single event. The
+-- handler name does not appear in any of them; the event does.
+SELECT is(
+    (SELECT array_agg(tgname::text ORDER BY tgname)
+     FROM pg_trigger
+     WHERE tgrelid = 'public.regions'::regclass
+       AND starts_with(tgname::text, 'queue_test_q2_')),
+    ARRAY['queue_test_q2_delete_on_regions',
+          'queue_test_q2_insert_on_regions',
+          'queue_test_q2_update_on_regions'],
+    'Change event handler should create one trigger per event on regions'
+);
+
 SELECT ok(
-    (SELECT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q2_change_on_regions'
-    )),
-    'Change event handler should create trigger on regions'
+    (SELECT bool_and((tgtype & 1) = 0)
+     FROM pg_trigger
+     WHERE tgrelid = 'public.regions'::regclass
+       AND starts_with(tgname::text, 'queue_test_q2_')),
+    'Queue triggers should be statement-level, not row-level'
 );
 
 -- Test 31: Insert should trigger (change = insert + update + delete)
@@ -347,12 +361,13 @@ SELECT ok(
 -- Test 34: Delete event handler should drop trigger
 DELETE FROM queue_table_events WHERE table_name = 'categories';
 
-SELECT ok(
-    (SELECT NOT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'queue_test_q1_insert_on_categories'
-    )),
-    'Deleting event handler should remove trigger from categories'
+SELECT is(
+    (SELECT count(*)
+     FROM pg_trigger
+     WHERE tgrelid = 'public.categories'::regclass
+       AND starts_with(tgname::text, 'queue_')),
+    0::bigint,
+    'Deleting event handler should remove every queue trigger from categories'
 );
 
 -- =====================================================

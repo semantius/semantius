@@ -357,3 +357,166 @@ the `0240` assertion true on a tree that predates this change. The two are
 complementary: `.gitattributes` keeps carriage returns out of the source so
 nobody can type one into a character class by accident, `toLf` keeps them out of
 the database whatever the source turned out to be.
+
+## P13 and P4 (2026-09-05): the statement-constant work moved out of the per-row path
+
+Two rows, one change, closed together because they are the two halves of it:
+P13 hoisted the request context out of the generated RLS predicate, P4 moved the
+audit and queue triggers off FOR EACH ROW.
+
+The rows as they stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P13 | High | migration | `0180_computed_validation.sql` (`build_select_rule_policy`) | The generated `select_rule_<t>` predicate calls `ensure_context_initialized()` and rebuilds `$today`/`$now`/`$user_id` once per row — on the read path (`0180:340-349`) and on both write paths, since the same helper is embedded in the UPDATE/DELETE quals (`0180:387-392`). 14 µs of the ~68 µs per-row total. | Resolve it once per statement: a `jl_request_context()` helper reached through an uncorrelated sub-select so the planner makes it an InitPlan, passed into a two-argument form of the generated predicate. Split out of P2 on 2026-09-04. **Owned by `plans/perf-per-statement.md`**. | The context is resolved once per statement, not once per row — asserted structurally, because a timing figure alone cannot distinguish the two — and one rule row costs about 54 µs, from about 68. |
+| P4 | High | migration | `0150` (audit), `0170` (queue), `0180` generated validators | Three FOR EACH ROW triggers each do statement-constant work per row (`primary_key_columns` catalog query, `pgmq.send` dynamic SQL, JsonLogic evaluation). INSERT 10k rows: plain 65 ms; audit 1.5-2.0 s; queue 0.8-1.0 s; validation 0.7-1.1 s; all three 4.25 s. Floors: set-based audit insert 497 ms, `pgmq.send_batch(10k)` 114 ms. | Statement-level triggers with transition tables: one `INSERT ... SELECT` for audit rows, one `pgmq.send_batch(queue, array_agg(...))` for queue events; build `$old`/`$now` only when the rule references them. **Owned by `plans/perf-per-statement.md`**, including the `$old`/`$now` conditional build. | 10k-row INSERT with all three triggers at about 1.0-1.3 s (from 4.25 s). Reachable only if the interpreter work lands first; it did on 2026-09-05 and took about **30%** off a node (29.0-30.8%, median 30.3), the lower edge of the estimated 30-50% (see P12), so the validator component improves by correspondingly less than this row assumed. Re-derive the target before treating it as measured. |
+
+Both are closed **restated**, because both done-whens were arithmetic against
+baselines that P3 and P12 had already cut. The endpoints below were re-measured
+on 2026-09-05; the originals stay above so the drift is visible rather than
+quietly overwritten.
+
+### P13 - the context is resolved once per statement
+
+Structural, which is what the row insisted on: `public.jl_request_context()` is
+reached through an uncorrelated sub-select in all three generated policies, and
+the planner lifts it to an InitPlan. `EXPLAIN (ANALYZE, VERBOSE)` on a 500-row
+rule-bearing table shows the InitPlan at `loops=1` for SELECT, UPDATE and DELETE
+alike, and the scan filter reads `select_rule_x(x.*, (InitPlan N).col1)`. UPDATE
+carries three InitPlans because the SELECT policy applies alongside the UPDATE
+policy and the planner does not merge them - a constant per statement, not per
+row.
+
+**The assertions bind.** A test that passes both before and after a fix is
+worthless, and this row's wording exists to guard against exactly that, so the
+pins were broken deliberately: emitting a bare call fails `0445` #6 and #8 and
+`0447` #16; restoring the whole pre-change one-argument generator verbatim from
+git fails `0445` #8-#9 and `0447` #9, #10, #11, #13, #14, #16. A caution for
+anyone repeating that: the pgTAP harness sets `search_path = pgtap, public`, so
+an unqualified `CREATE OR REPLACE FUNCTION` in a mutation lands in `pgtap` and
+mutates nothing.
+
+**Timing, re-measured.** Same transaction, interleaved, 100k rows, the
+pre-change predicate body recreated verbatim alongside the shipped one:
+
+| form | µs/row |
+|---|---|
+| context rebuilt per row | 20.95 |
+| context hoisted to an InitPlan | 17.21 |
+
+**-17.9%.** The row asked for "about 54 µs, from about 68". Neither figure
+survives: 68 traces to the original P2 measurement taken *before* P3 and P12
+landed, and 54 was 68 minus 14. The proportion is what carried over, and it
+matches the owning plan's own estimate of 10-13%.
+
+**Scope.** P13 covers the generated `select_rule_<t>` predicate and the policies
+that call it. The BEFORE ROW compute/validate trigger still resolves its context
+per row and is deliberately untouched - a trigger has no InitPlan to hoist into,
+so there is nothing to do there. Read globally, "the context is resolved once per
+statement" is a claim about the policies only.
+
+**The largest win is one the row never asked for.** In a PostgreSQL 18 OAuth
+bearer session `ensure_context_initialized` re-derives on every call rather than
+reading the transaction cache, so a rule-bearing scan went from roughly a
+millisecond *per row* to a millisecond *per statement*.
+
+### P4 - audit and queue moved to statement level
+
+10k-row INSERT into a fresh table carrying all three triggers, both arms
+alternating inside one transaction with only the trigger mechanism swapped:
+
+| | run A | run B |
+|---|---|---|
+| row-level triggers | 1.62 s | 1.60 s |
+| statement-level | 0.70 s | 0.66 s |
+
+**A 57% cut, reproduced twice.** A separate measurement across two databases
+built from the two code states gave 2.3-2.5 s -> 0.89-1.14 s; the absolutes
+differ with catalog size and cache warmth, the ratio does not (39-46% against
+43%).
+
+Per family, 10k rows, against a managed-table floor of 26 ms:
+
+| family | row-level | statement-level |
+|---|---|---|
+| audit | 894 ms | 317 ms |
+| queue | 336 ms | 128 ms |
+| validator | 396 ms | 422 ms |
+
+Trigger invocations on 2000 rows, which is the structural evidence rather than
+the timing: INSERT goes from audit 2000 / queue 2000 to audit **1** / queue
+**1**, and DELETE likewise. UPDATE keeps its per-row audit trigger by design.
+
+**The row's own baseline is not reproducible.** It cites 4.25 s against a 65 ms
+plain-table floor; this host's floor is 10-31 ms, so it is several times faster
+and the 1.0-1.3 s band would be cleared partly by hardware. Applying the measured
+57% to 4.25 s lands near 1.8 s, above the band - but 4.25 s is itself a
+pre-P3/P12 number, so that arithmetic settles nothing either. The row closes on
+the measured before and after, not on its stated band.
+
+### What P4 named and this change did not solve
+
+The row names three per-row costs. Two are gone:
+
+- the `primary_key_columns` catalog query, now a DECLARE-section default
+  evaluated once per statement - **except on UPDATE**, where `audit_i_u_d` stays
+  row-level so the query stays per row;
+- the `pgmq.send` dynamic SQL, now one `send_batch` per window of 1000. At
+  128 ms per 10k rows this is essentially the 114 ms floor the row itself cites.
+
+The third is untouched: **`evaluate_json_logic` still runs once per row**, and
+the validator is now the single largest component of the remaining cost, about
+396 ms of the ~700 ms all-three total. Only the `$old`/`$mode` context build
+became conditional, and on the INSERT benchmark this row is stated against that
+is a wash (419 vs 422 ms), because `$old` is null there anyway. Making the
+interpreter per-statement is not possible in a BEFORE ROW trigger; not running it
+at all for recognizable rule shapes is **P2**.
+
+**The residual inside the validator, for whoever picks it up.** Per call on this
+host: `ensure_context_initialized` 1.93 µs, `uid` 3.63, `user_id` 7.51,
+`user_id_or_null` 11.57, `jl_request_context` 13.78. The owning plan costed a
+substitution of `user_id_or_null` for a context helper at ~260 ms per 10k rows
+and dropped it after measuring; the measurement understated how wrong the idea
+was, because the helper is *dearer per call* than the lookup it would replace -
+that step would have made the validator slower. What is genuinely available is
+replacing `user_id_or_null` with `ensure_context_initialized` plus a settings
+read, worth roughly 9.6 µs/row, about 96 ms at 10k, some 14% of the post-change
+total. It needs its own measurement and its own decision.
+
+### Accepted, and recorded here rather than discovered later
+
+| What | Why it is accepted |
+|---|---|
+| An upsert's audit rows no longer interleave by id. `INSERT ... ON CONFLICT DO UPDATE` writes its UPDATE rows during execution and its INSERT rows at end of statement. | Content is preserved and both ops are logged; only the ordering within one statement changes. Pinned by `0300_test_audit_log.sql`. |
+| Audit rows for a *nested* statement carry lower ids than the rows for the statement that caused them, because `ts` defaults to `now()` (transaction start) and a row trigger fires before a statement trigger. | Reordering the evidence table means changing `ts` to `clock_timestamp()`, a schema change with its own trade-offs. Recorded, not fixed. |
+| `enable_tracking` skips a trigger that already exists by name, so changing the shape of `audit_i`, `audit_d` or `audit_t` reaches only tables that do not yet carry it. | Fresh installs only; this project ships no upgrade scripts. An existing table needs `disable_tracking()` first, and the function says so. |
+| A statement trigger on a *leaf* partition does not fire for rows routed through the root. | Audit the root. The limitation an earlier draft was going to record - that transition tables are rejected on partitions - is **false** for statement triggers, and was removed rather than written down. |
+| Two to three times more `audit_ddl_logs` rows per managed table, because `enable_tracking` now issues four `CREATE TRIGGER`s and the queue up to three. | Partly offsets `plans/audit-ddl-noise.md`. Scoping the event trigger further is a separate change. |
+| `plpgsql_check` reports six new never-read variables that are in fact live. It cannot resolve a transition table, so it skips the statements that read them. | Inherent to statically checking transition tables. Tracked under **Q5**, which now says so. |
+
+### Two defects found and fixed inside this change
+
+- **A fail-open in the conditional `$old`/`$mode` build.** The first
+  implementation decided whether to build them by searching the rule text for
+  the variable name. The interpreter evaluates a `var`'s argument, so
+  `{"var":{"cat":["$mo","de"]}}` resolves to `$mode` with the name nowhere in
+  the text, and a delete guard such as `{"!=":[{"var":"$mode"},"delete"]}`
+  silently began permitting deletes. `$mode` is now always built, and an
+  object-valued `var` counts as an `$old` reference. Pinned by four assertions in
+  `0448_test_statement_triggers.sql`.
+- **A pre-existing leak in queue teardown.** The old delete path dropped only the
+  trigger named for the mapping's current handler, so narrowing a handler from
+  `change` to `delete` and then deleting the mapping stranded a live trigger
+  enqueuing to a queue it was no longer mapped to. Every event name is now
+  dropped.
+
+### Pinned by
+
+`0447_test_request_context.sql` (16 assertions, new),
+`0448_test_statement_triggers.sql` (25, new),
+`0445_test_policy_initplan_form.sql` (extended to sweep for a bare
+`jl_request_context`), `0300_test_audit_log.sql`, `0310_test_queue.sql`,
+`apps/nwind/tests/0020_test_nwind_schema.sql`, and a check in
+`pgdocker/pg-ext-retest.sh` that audit rows written after `0270` carry
+`order_column` - the single-transaction install being the only place a column is
+added to an audited table between two writes to it.
