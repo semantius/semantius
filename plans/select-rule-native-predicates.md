@@ -1,5 +1,26 @@
 # Plan: native predicates for select_rule — and whether to build them at all
 
+> **Superseded 2026-09-05. Do not execute this plan.** Its go/no-go was decided
+> against a measurement (recorded in `plans/ext-solved-items.md` under P2): the
+> problem is real and worse than this file assumed, but the *mechanism* it
+> prescribes — a registry of recognizers matching generic rule shapes — was
+> rejected in favour of **named operators** in the JsonLogic dialect. The work
+> continues as open item **P14**.
+>
+> This file is kept because its analysis is what P14 is built on, in particular:
+> the rejection of a general JsonLogic-to-SQL compiler and the four verified
+> divergences behind it; the `fields` lifecycle hook, which P14 needs unchanged;
+> the auth-gate reasoning under "Rules every recognizer obeys" rule 2; and the
+> catalog-type check of rule 3.
+>
+> **Its line numbers into `0180_computed_validation.sql` and `0210_raci.sql` are
+> stale** — both files moved under `perf-hot-paths.md` and `perf-per-statement.md`
+> after this was written. Re-derive before citing. Two claims are also now dead:
+> the "keep the cast outside the sub-select" note under Shape 1, because
+> `0445_test_policy_initplan_form.sql:31-34` now explicitly allows parens between
+> `SELECT` and the call, and the 0445 row in "Existing tests this change updates"
+> that depended on it.
+
 Written 2026-09-04. One of three plans that replaced a single oversized one.
 Siblings: `plans/perf-hot-paths.md` and
 `plans/perf-per-statement.md`, both of which land first.

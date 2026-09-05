@@ -520,3 +520,109 @@ total. It needs its own measurement and its own decision.
 `pgdocker/pg-ext-retest.sh` that audit rows written after `0270` carry
 `order_column` - the single-transaction install being the only place a column is
 added to an audited table between two writes to it.
+
+## P2 (2026-09-05): scope-changed — shape recognition rejected, named operators adopted
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P2 | High | migration | `0180_computed_validation.sql` (`build_select_rule_policy`) | Even with the request context hoisted (P13), the generated per-row predicate still builds `to_jsonb(row)` and runs `evaluate_json_logic` for every row scanned, and is opaque to the planner, so a rule column can never be used as an index condition. | Recognize known rule *shapes* and emit an equivalent native SQL predicate into all three policies, keeping the generated function as the fallback for anything unrecognized. A general JsonLogic-to-SQL compiler was considered and rejected. **Owned by `plans/select-rule-native-predicates.md`**, which opens with a go/no-go. | 100k-row scan under a recognized shape at about 20 ms with the rule column used as an index condition — or the row closed as scope-changed against the measured post-P13 baseline, which is **17.21 us per rule row** (from 20.95 before the context was hoisted), with the accepted scale limit recorded. |
+
+**Closed as scope-changed, not as done.** The problem is real and confirmed by
+measurement; the *fix* the row prescribed was rejected on review. The work itself
+continues under **P14**, by a different mechanism. `plans/select-rule-native-predicates.md`
+is superseded and marked as such rather than deleted, because its rejection
+analysis is the reason P14 looks the way it does.
+
+### The go/no-go measurement the plan asked for
+
+Taken 2026-09-05 on `postgres18-cli` (PG18, post-P13 schema), 100k-row table,
+`user_id` over 50 users so the caller owns 2,000 rows (2%). The helper was a
+byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
+`user_bookmarks` rule. Everything ran inside one rolled-back transaction; second
+of two runs; `EXPLAIN (ANALYZE, TIMING OFF)`.
+
+| Query | Interpreted (today) | Native | Native + index |
+|---|---|---|---|
+| Full scan, variant 1 `{"==":[{"var":"col"},{"var":"$user_id"}]}` | **4,693 ms** | **7.9 ms** | **1.1 ms** |
+| `count(*)`, variant 1 | 4,546 ms | 8.8 ms | 0.8 ms |
+| Full scan, variant 2 `{"or":[{"has_permission":...},...]}`, non-holder | 5,404 ms | 8.2 ms | 6.7 ms (no Index Cond) |
+| Full scan, variant 2, permission holder | 2,229 ms | 6.0 ms | — |
+| `LIMIT 20`, page 1 | 33 ms | 0.2 ms | — |
+| `OFFSET 1980 LIMIT 20` | **3,182 ms** | 6.8 ms | — |
+| `ORDER BY title LIMIT 20` | **3,344 ms** | 8.2 ms | — |
+| Floor, `USING (true)` | 4.6 ms | — | — |
+
+Four things the measurement settled:
+
+1. **The baseline did not fall the way the plan assumed.** The plan expected
+   P3/P12/P13 to have taken this to 2.5-3 s and framed its trade-off against
+   that. It is still **~4.7 s**: the per-row cost is dominated by the SECURITY
+   DEFINER PL/pgSQL frame and `to_jsonb(p_row)`, which none of those three
+   touched. End-to-end this is **~45 µs per row** against the 17.21 µs recorded
+   in P13's closure, which measured the interpreter and not the frame around it.
+2. **There is no cheaper mitigation.** With an index on the rule column present,
+   the interpreted predicate still took **4,204 ms** and the index was ignored -
+   `Seq Scan ... Filter: select_rule_bench_bm(...)`. Indexing, partitioning and
+   ANALYZE are all inert against an opaque predicate.
+3. **Both of the plan's variant-specific claims were right.** Variant 1 native
+   becomes a real `Bitmap Index Scan ... Index Cond`. Variant 2 native with the
+   same index present stays a sequential scan, as the plan predicted from
+   `generate_bitmap_or_paths`.
+4. **The plan's pagination argument was backwards.** It reasoned that under
+   PostgREST everything is paginated, so only a full scan or `count(*)` is
+   pathological. Page 1 is indeed cheap (33 ms), but **any sorted page, or any
+   page past the first, costs ~3.2 s**, because a sort must see every visible row
+   before returning twenty. The exposure is the ordinary UI grid, not a rare
+   admin query.
+
+### Why shape recognition was rejected
+
+The plan's mechanism was a registry of recognizers, each matching one literal
+rule shape by jsonb template equality, emitting native SQL for a match and
+falling back to the interpreter otherwise. Rejected in favour of **named
+operators** — a domain operator such as `is_owner`, implemented once in the
+interpreter and emitted natively by the policy builder, on the model of the eight
+custom operators the dialect already carries (`has_permission`,
+`require_permission`, `set_record`, `value_changed`, `is_raci_actor`,
+`has_consultation`, `is_match`, `throw_error`).
+
+- **Almost the whole cost of the plan was proving equivalence**, and that burden
+  exists only because a generic expression inherits the generic operators'
+  coercion rules. The template-equality matching, the near-miss controls, the
+  three-way differential, and the md5 drift tripwire over `jl_loose_eq` /
+  `jl_to_number` / the `==` and `var` branches were all in service of proving
+  that two independently-written predicates agree on cases nobody chose. A named
+  operator is defined once and both implementations derive from that definition.
+- **The plan's own deferred shape is the evidence.** It identified temporal
+  validity (`{">=":[{"var":"col"},{"var":"$today"}]}`) as the obvious second
+  shape and then deferred it, entirely because `>=` coerces both sides through
+  `jl_to_number` — text rendering, `extract(epoch FROM txt::timestamp)`, and 0
+  for null. A named `not_expired` operator resolving the column against
+  `pg_attribute` has none of that. The shape was hard only because of the
+  approach.
+- **Performance becomes visible rather than accidental.** Under recognition,
+  whether an entity is fast depends on whether its rule happens to match a
+  template the author cannot see; rewording it silently costs 500x. A named
+  operator is written on purpose.
+- **The backwards-compatibility argument for recognition is thin here.** Exactly
+  one rule ships (`user_bookmarks`, `0280:45`); the four variant-2 uses are test
+  fixtures created and rolled back inside tests and do not exist in an
+  installation.
+
+### What this closure does not solve
+
+The problem itself is untouched: an entity with a `select_rule` still degrades
+linearly and unboundedly with row count, with no mitigation available to whoever
+hits it. That is **P14**. Everything in the superseded plan about the column
+lifecycle still applies to it and is not optional — naming a column inside an RLS
+policy means `delete_dd_field`'s `DROP COLUMN ... CASCADE` (`0070:1164`) drops
+the entity's policies and leaves RLS enabled with none, which returns zero rows
+to everyone and raises nothing.
+
+Two interpreter defects were found while probing the coercion path for this
+decision and are filed separately as **B20** and **B21**.
+
+Method and candidate-selection practice are written up in
+[docs/jsonlogic-optimization-candidates.md](../docs/jsonlogic-optimization-candidates.md).
