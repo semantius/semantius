@@ -39,7 +39,8 @@ gets its own dated section in `plans/ext-solved-items.md`.
    below; see `plans/ext-solved-items.md`. The sections that follow are kept
    for the reasoning, not as work.
 2. **S7**, the API-key primitive. Its own change: it is an authentication
-   function and the wrong choice is expensive.
+   function and the wrong choice is expensive. **Done 2026-09-05**, fix A; see
+   `plans/ext-solved-items.md`.
 3. **S8**, the first-user bootstrap. Its own change: it is a race, it
    invalidates an existing test, and its pin cannot live in pgTAP.
 

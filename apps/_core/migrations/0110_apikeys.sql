@@ -171,10 +171,20 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Called by semantius_user for API key authentication.';
+'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
 
--- Grant to semantius_user so it can be used for API key auth flows
-GRANT EXECUTE ON FUNCTION public.validate_api_key(TEXT) TO semantius_user;
+-- Not reachable by the request role, and not by PUBLIC either, where it was
+-- executable. It is the primitive that establishes an identity, so it cannot
+-- carry an rbac.uid() check the way every other definer in this schema does,
+-- and that leaves it with no defense of its own: it runs bcrypt at cost 10 on
+-- every call, which is an unauthenticated CPU amplifier, and it returns before
+-- crypt() when the key_id is unknown, which is a timing oracle separating live
+-- key ids from dead ones. Nothing calls it - not this repository outside the
+-- definition, not the app tiers - and the API-key tests reach it with RESET
+-- ROLE. If an entry point ever needs it, that entry point is a SECURITY DEFINER
+-- function, not a grant to semantius_user.
+REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 
 -- =====================================================
 -- LIST API KEYS FUNCTION

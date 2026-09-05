@@ -20,7 +20,7 @@
 --       is the thing 2.3 exists to avoid.
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(10);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -76,8 +76,6 @@ SELECT is(
             JOIN pg_depend d ON d.refobjid = e.oid AND d.classid = 'pg_catalog.pg_proc'::regclass AND d.objid = p.oid
             WHERE e.extname = 'pgcrypto'
         )
-        -- public.validate_api_key is intentionally public executable
-        AND NOT (n.nspname = 'public' AND p.proname = 'validate_api_key')
     ),
     NULL::text,
     'No functions in public, rbac, common and audit schemas should be executable by public role'
@@ -137,6 +135,11 @@ SELECT is(
 SELECT ok(
     NOT pg_catalog.has_function_privilege('semantius_user', 'common.cache_get(text)', 'EXECUTE'),
     'the request role cannot call the cache primitives (common.cache_get)'
+);
+
+SELECT ok(
+    NOT pg_catalog.has_function_privilege('semantius_user', 'public.validate_api_key(text)', 'EXECUTE'),
+    'the request role cannot run the API-key validator'
 );
 
 SELECT ok(

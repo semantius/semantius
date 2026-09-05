@@ -957,3 +957,52 @@ One thing that run taught, worth knowing before reading a red lifecycle: step
 `--coverage` run leaves `plpgsql_check` behind on the CLI container and step 10
 fails on it forever after. Dropping the extension from that database is the
 fix, not a change to the script.
+
+---
+
+## S7 (2026-09-05): `public.validate_api_key(text)` is revoked, not guarded
+
+The row said the function was granted to `semantius_user` although its own
+header said it must not be - `0110_apikeys.sql` claimed "NOT accessible via
+PostgREST (no GRANT to semantius_user)" fourteen lines above the GRANT. It was
+also executable by PUBLIC, and it was the single hard-coded exception in guard
+test 2.2.
+
+Two fixes were on the table (`plans/security-grants-and-guards.md`): revoke it,
+or keep it callable behind an `rbac.uid()` check with a constant-time miss path.
+The owner chose to revoke, which is what the whole tree already assumed.
+
+**Why a guard was the wrong shape here.** This is the function that establishes
+an identity, so it cannot check one; an `rbac.uid()` gate would only narrow the
+caller from "anyone" to "any authenticated session", and both of the things that
+make it dangerous survive that narrowing:
+
+- it runs bcrypt at cost 10 on every call with a well-formed key, which is a CPU
+  amplifier one RPC per request wide;
+- the `key_id` lookup returns before `crypt()`, so rejecting an unknown key id
+  is measurably faster than rejecting a wrong secret for a known one. That is a
+  timing oracle over which key ids exist, and closing it means restructuring the
+  function to hash against a dummy on the miss path.
+
+**Why nothing breaks.** No caller exists: not in this repository outside the
+definition, and not in `semantius-cloud`, `semantius-site`, `oauth-hono-mcp`,
+`postgrest-mcp` or `saaszilla`. `0260_test_apikeys.sql` already reached it with
+`RESET ROLE` and already carried the comment "not granted to semantius_user",
+which was aspirational until now. If an entry point ever needs it, the entry
+point is a SECURITY DEFINER function, not a grant.
+
+### Pins
+
+- Guard test 2.2 in `0060_test_security.sql` loses its exception, so
+  `validate_api_key` is now covered by the same rule as every other function in
+  `public`. It stays in test 2.3's exclusion list: it is still a definer with no
+  `rbac.uid()`, and that is by construction.
+- `0060` also asserts the grant is gone from the catalog, and
+  `0260_test_apikeys.sql` asserts the call raises 42501 - as user3, the
+  administrator, because this is a missing grant and not a missing permission.
+
+### Proof
+
+`pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh` after
+`deno task extension 0.5.0-beta1`: **2,227 passing on both paths**, up from
+2,225 by exactly the two new assertions.

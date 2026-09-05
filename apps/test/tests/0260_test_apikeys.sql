@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(31);
+SELECT plan(32);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -242,7 +242,9 @@ SELECT ok(
     'last_used_at should be NULL before first validation'
 );
 
--- Validate the key (as superuser since validate_api_key has no semantius_user grant restriction)
+-- Validate the key. Every call to validate_api_key in this file runs with
+-- RESET ROLE for one reason: it is an internal authentication primitive with no
+-- grant to the request role and none to PUBLIC.
 DO $$
 BEGIN
     PERFORM validate_api_key(current_setting('test.last_used_key', true));
@@ -252,6 +254,26 @@ END $$;
 SELECT ok(
     (SELECT last_used_at IS NOT NULL FROM _apikeys WHERE key_id = current_setting('test.last_used_key_id', true)),
     'last_used_at should be updated after validate_api_key succeeds'
+);
+
+-- =====================================================
+-- TEST: validate_api_key is not reachable by the request role
+-- =====================================================
+-- It cannot carry an rbac.uid() check - it is what establishes an identity -
+-- so a grant would hand any session, authenticated or not, a bcrypt call at
+-- cost 10 per request and a timing oracle: the key_id lookup returns before
+-- crypt(), so a known key id takes measurably longer to reject than an unknown
+-- one. Asserted as user3, the administrator, because this is a missing grant
+-- rather than a missing permission.
+
+SELECT authenticate_as('user3');
+
+-- Test 17b
+SELECT throws_ok(
+    $$SELECT validate_api_key('sk-seed001002-ab12cd340123456789abcdef01234567')$$,
+    '42501',
+    NULL,
+    'validate_api_key should not be callable by the request role'
 );
 
 -- =====================================================
