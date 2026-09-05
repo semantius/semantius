@@ -444,6 +444,7 @@ BEGIN
     
     -- Check if user has the permission (including hierarchy)
     -- Using recursive CTE to follow the hierarchy
+    v_has_permission := EXISTS (
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
         SELECT DISTINCT p.id AS permission_id
@@ -472,10 +473,9 @@ BEGIN
         FROM permission_tree pt
         JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
     )
-    SELECT EXISTS (
-        SELECT 1 FROM permission_tree
-        WHERE permission_id = v_permission_id
-    ) INTO v_has_permission;
+    SELECT 1 FROM permission_tree
+    WHERE permission_id = v_permission_id
+    );
     
     -- If user doesn't have the permission, return false immediately
     IF NOT v_has_permission THEN

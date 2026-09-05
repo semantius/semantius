@@ -235,11 +235,11 @@ BEGIN
 
         -- updated_at maintenance trigger
         EXECUTE format(
-            'CREATE TRIGGER update_%I_updated_at
+            'CREATE TRIGGER %I
                 BEFORE UPDATE ON %I
                 FOR EACH ROW
                 EXECUTE FUNCTION common.update_updated_at_column()',
-            NEW.table_name, NEW.table_name
+            'update_' || NEW.table_name || '_updated_at', NEW.table_name
         );
 
         -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
@@ -247,29 +247,29 @@ BEGIN
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
-            'CREATE POLICY %I_select_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR SELECT TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.view_permission
+            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_insert_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR INSERT TO semantius_user
                 WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_update_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR UPDATE TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))
                 WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
+            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_delete_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR DELETE TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
         );
 
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
@@ -750,7 +750,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $fn$
 DECLARE
-    v_id_col      TEXT;
     v_label_col   TEXT;
     v_spine       TEXT;
     v_rowtype     TEXT;
@@ -774,8 +773,8 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT id_column, label_column, NULLIF(label_parent, '')
-      INTO v_id_col, v_label_col, v_spine
+    SELECT label_column, NULLIF(label_parent, '')
+      INTO v_label_col, v_spine
       FROM entities WHERE table_name = p_table_name;
 
     v_saved := current_setting('check_function_bodies');

@@ -291,12 +291,12 @@ BEGIN
     -- "no other user has last_seen" and all become admin. Residual (accepted LOW): two users
     -- created concurrently both WITH last_seen, neither committed, can still both qualify — closing
     -- that fully needs an advisory lock / unique partial index on the admin assignment.
-    SELECT NEW.last_seen IS NOT NULL
+    v_is_first_user := NEW.last_seen IS NOT NULL
        AND NOT EXISTS (
         SELECT 1 FROM users
         WHERE id != NEW.id
         AND last_seen IS NOT NULL
-    ) INTO v_is_first_user;
+    );
     
     IF v_is_first_user THEN
         -- Assign Administrator role (role ID 2) to the first user

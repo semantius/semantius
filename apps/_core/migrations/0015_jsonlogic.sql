@@ -19,7 +19,7 @@ CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
 DECLARE
     txt_val text;
 BEGIN
-    IF val IS NULL THEN RETURN 0; END IF;
+    IF val IS NULL THEN RETURN 0::numeric; END IF;
 
     CASE jsonb_typeof(val)
         WHEN 'number' THEN
@@ -39,12 +39,12 @@ BEGIN
             BEGIN
                 RETURN extract(epoch FROM txt_val::timestamp)::numeric;
             EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow THEN
-                RETURN 0;
+                RETURN 0::numeric;
             END;
 
-        WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1 ELSE 0 END;
-        WHEN 'null' THEN RETURN 0;
-        ELSE RETURN 0;
+        WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1::numeric ELSE 0::numeric END;
+        WHEN 'null' THEN RETURN 0::numeric;
+        ELSE RETURN 0::numeric;
     END CASE;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
@@ -93,7 +93,7 @@ DECLARE
     op text;
     vals jsonb;
     arr_len int;
-    i int;
+    pos int;
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
@@ -108,12 +108,10 @@ DECLARE
     -- for missing
     missing_arr jsonb;
     keys_arr jsonb;
-    key_val text;
     looked_up jsonb;
     -- for merge
     merge_result jsonb;
     elem jsonb;
-    j int;
     -- for substr
     src text;
     start_pos int;
@@ -189,16 +187,16 @@ BEGIN
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
-        i := 0;
-        WHILE i < arr_len - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(vals -> i, data)) THEN
-                RETURN evaluate_json_logic(vals -> (i + 1), data);
+        pos := 0;
+        WHILE pos < arr_len - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(vals -> pos, data)) THEN
+                RETURN evaluate_json_logic(vals -> (pos + 1), data);
             END IF;
-            i := i + 2;
+            pos := pos + 2;
         END LOOP;
         -- Remaining single element = else clause
-        IF arr_len = i + 1 THEN
-            RETURN evaluate_json_logic(vals -> i, data);
+        IF arr_len = pos + 1 THEN
+            RETURN evaluate_json_logic(vals -> pos, data);
         END IF;
         RETURN 'null'::jsonb;
     END IF;
@@ -406,7 +404,6 @@ BEGIN
         END IF;
         missing_arr := '[]'::jsonb;
         FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
-            key_val := keys_arr ->> i;
             looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
             IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
                 missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);

@@ -34,7 +34,6 @@ DECLARE
     v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
     v_body TEXT;
     v_rules_block TEXT := '';
-    v_idx INT;
     v_item JSONB;
     v_name TEXT;
     v_path_sql TEXT;

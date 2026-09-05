@@ -557,7 +557,7 @@ RETURNS JSON AS $$
 DECLARE
     v_table_name TEXT;
     v_table_record RECORD;
-    v_schemas JSON[] := '{}';
+    v_schemas JSON[] := ARRAY[]::JSON[];
     v_schema JSON;
 BEGIN
     PERFORM rbac.uid();

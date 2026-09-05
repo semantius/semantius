@@ -127,7 +127,7 @@ BEGIN
 
             -- Rename all FK constraints named <old_table>_<field>_fkey
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -142,7 +142,7 @@ BEGIN
 
             -- Rename all FK indexes named idx_<old_table>_<field>
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -154,7 +154,7 @@ BEGIN
 
             -- Rename all check constraints named <old_table>_<field>_check
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -175,7 +175,7 @@ BEGIN
             -- branch needed. (Matched by name rather than contype so it does not
             -- depend on the PG18-specific contype value 'n'.)
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -189,7 +189,7 @@ BEGIN
 
             -- Rename all unique indexes named <old_table>_<field>_unique
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -219,7 +219,7 @@ BEGIN
             -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
             -- event the mapping covers.
             FOR v_old_name IN
-                SELECT t.tgname
+                SELECT t.tgname::text
                 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
                 WHERE c.relname = NEW.table_name

@@ -14,7 +14,7 @@
 CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
 DECLARE
-    v_scale SMALLINT := COALESCE(p_precision, 2);
+    v_scale SMALLINT := COALESCE(p_precision, 2::SMALLINT);
 BEGIN
     RETURN CASE p_format
         -- Integer formats
@@ -321,11 +321,11 @@ BEGIN
 
     -- Add updated_at trigger using common schema function
     EXECUTE format(
-        'CREATE TRIGGER update_%I_updated_at
+        'CREATE TRIGGER %I
             BEFORE UPDATE ON %I
             FOR EACH ROW
             EXECUTE FUNCTION common.update_updated_at_column()',
-        NEW.table_name,
+        'update_' || NEW.table_name || '_updated_at',
         NEW.table_name
     );
     
@@ -337,11 +337,11 @@ BEGIN
     -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_select_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR SELECT
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_select_policy',
         NEW.table_name,
         NEW.view_permission
     );
@@ -349,11 +349,11 @@ BEGIN
     
     -- Create RLS policies for INSERT (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_insert_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR INSERT
             TO semantius_user
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_insert_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -361,12 +361,12 @@ BEGIN
     
     -- Create RLS policies for UPDATE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_update_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR UPDATE
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_update_policy',
         NEW.table_name,
         NEW.edit_permission,
         NEW.edit_permission
@@ -375,11 +375,11 @@ BEGIN
     
     -- Create RLS policies for DELETE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_delete_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR DELETE
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_delete_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -1113,7 +1113,7 @@ DECLARE
 BEGIN
     -- Check if the parent table still exists in entities table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
-    SELECT EXISTS(SELECT 1 FROM entities WHERE table_name = OLD.table_name) INTO v_table_exists;
+    v_table_exists := EXISTS (SELECT 1 FROM entities WHERE table_name = OLD.table_name);
     
     IF NOT v_table_exists THEN
         -- Table is being deleted, allow cascade deletion of all fields including core fields
@@ -1295,10 +1295,10 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Check if the table actually exists in the database
-    SELECT EXISTS (
+    v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = p_table_name
-    ) INTO v_table_exists;
+    );
     
     IF NOT v_table_exists THEN
 
@@ -1399,14 +1399,14 @@ BEGIN
     -- never matches what is built above and the guard would never fire.
     v_new_fingerprint := 'fts:' || md5(v_search_expr);
 
-    SELECT EXISTS (
+    v_index_exists := EXISTS (
         SELECT 1
         FROM pg_class i
         JOIN pg_namespace n ON n.oid = i.relnamespace
         WHERE n.nspname = 'public'
           AND i.relname = v_index_name
           AND i.relkind = 'i'
-    ) INTO v_index_exists;
+    );
 
     IF v_index_exists AND v_current_fingerprint IS NOT DISTINCT FROM v_new_fingerprint THEN
         RETURN;
@@ -1465,11 +1465,11 @@ BEGIN
     -- during migrations when there is no JWT context.
 
     -- Check if any fields in this table are searchable
-    SELECT EXISTS (
+    v_has_searchable_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND searchable = TRUE
-    ) INTO v_has_searchable_fields;
+    );
 
     -- Update the searchable flag on the entities record
     UPDATE entities 
@@ -1642,11 +1642,11 @@ BEGIN
     -- If searchable was changed, recompute it from fields and override the value
     IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
         -- Compute the correct value from fields
-        SELECT EXISTS (
+        v_computed_searchable := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND searchable = TRUE
-        ) INTO v_computed_searchable;
+        );
         
         -- Override any manual change with the computed value
         NEW.searchable := v_computed_searchable;
@@ -1686,11 +1686,11 @@ BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    SELECT EXISTS (
+    v_has_parent_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND format = 'parent'
-    ) INTO v_has_parent_fields;
+    );
     
     UPDATE entities 
     SET is_child = v_has_parent_fields
@@ -1755,11 +1755,11 @@ DECLARE
     v_computed_is_child BOOLEAN;
 BEGIN
     IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
-        SELECT EXISTS (
+        v_computed_is_child := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND format = 'parent'
-        ) INTO v_computed_is_child;
+        );
 
         NEW.is_child := v_computed_is_child;
     END IF;

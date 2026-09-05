@@ -593,7 +593,7 @@ CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
 DECLARE
     txt_val text;
 BEGIN
-    IF val IS NULL THEN RETURN 0; END IF;
+    IF val IS NULL THEN RETURN 0::numeric; END IF;
 
     CASE jsonb_typeof(val)
         WHEN 'number' THEN
@@ -613,12 +613,12 @@ BEGIN
             BEGIN
                 RETURN extract(epoch FROM txt_val::timestamp)::numeric;
             EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow THEN
-                RETURN 0;
+                RETURN 0::numeric;
             END;
 
-        WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1 ELSE 0 END;
-        WHEN 'null' THEN RETURN 0;
-        ELSE RETURN 0;
+        WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1::numeric ELSE 0::numeric END;
+        WHEN 'null' THEN RETURN 0::numeric;
+        ELSE RETURN 0::numeric;
     END CASE;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
@@ -667,7 +667,7 @@ DECLARE
     op text;
     vals jsonb;
     arr_len int;
-    i int;
+    pos int;
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
@@ -682,12 +682,10 @@ DECLARE
     -- for missing
     missing_arr jsonb;
     keys_arr jsonb;
-    key_val text;
     looked_up jsonb;
     -- for merge
     merge_result jsonb;
     elem jsonb;
-    j int;
     -- for substr
     src text;
     start_pos int;
@@ -763,16 +761,16 @@ BEGIN
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
-        i := 0;
-        WHILE i < arr_len - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(vals -> i, data)) THEN
-                RETURN evaluate_json_logic(vals -> (i + 1), data);
+        pos := 0;
+        WHILE pos < arr_len - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(vals -> pos, data)) THEN
+                RETURN evaluate_json_logic(vals -> (pos + 1), data);
             END IF;
-            i := i + 2;
+            pos := pos + 2;
         END LOOP;
         -- Remaining single element = else clause
-        IF arr_len = i + 1 THEN
-            RETURN evaluate_json_logic(vals -> i, data);
+        IF arr_len = pos + 1 THEN
+            RETURN evaluate_json_logic(vals -> pos, data);
         END IF;
         RETURN 'null'::jsonb;
     END IF;
@@ -980,7 +978,6 @@ BEGIN
         END IF;
         missing_arr := '[]'::jsonb;
         FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
-            key_val := keys_arr ->> i;
             looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
             IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
                 missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);
@@ -1368,7 +1365,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '8511c0020a65722248325772bf33c89faf7bfb2d89a67bd2762c13598fcdcd76');
+      VALUES ('_core.0015_jsonlogic', '0a54d0101fa3f5c1f7ffc9ff4c28caf56665b06d48495d78b0a5870f4fbc5d4c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -2175,6 +2172,7 @@ BEGIN
     
     -- Check if user has the permission (including hierarchy)
     -- Using recursive CTE to follow the hierarchy
+    v_has_permission := EXISTS (
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
         SELECT DISTINCT p.id AS permission_id
@@ -2203,10 +2201,9 @@ BEGIN
         FROM permission_tree pt
         JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
     )
-    SELECT EXISTS (
-        SELECT 1 FROM permission_tree
-        WHERE permission_id = v_permission_id
-    ) INTO v_has_permission;
+    SELECT 1 FROM permission_tree
+    WHERE permission_id = v_permission_id
+    );
     
     -- If user doesn't have the permission, return false immediately
     IF NOT v_has_permission THEN
@@ -2851,7 +2848,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19');
+      VALUES ('_core.0030_rbac_functions', 'c20d4c04ea4840c42b84686ea28799321f966feb2da4f7a9390796f593025f67');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3246,12 +3243,12 @@ BEGIN
     -- "no other user has last_seen" and all become admin. Residual (accepted LOW): two users
     -- created concurrently both WITH last_seen, neither committed, can still both qualify — closing
     -- that fully needs an advisory lock / unique partial index on the admin assignment.
-    SELECT NEW.last_seen IS NOT NULL
+    v_is_first_user := NEW.last_seen IS NOT NULL
        AND NOT EXISTS (
         SELECT 1 FROM users
         WHERE id != NEW.id
         AND last_seen IS NOT NULL
-    ) INTO v_is_first_user;
+    );
     
     IF v_is_first_user THEN
         -- Assign Administrator role (role ID 2) to the first user
@@ -3400,7 +3397,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', 'd3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0');
+      VALUES ('_core.0050_rbac_rls', 'b550a736a36d91317c30b6c991975d7dd6ced3cc6b91ae005a3d829221f22d31');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4143,7 +4140,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
 CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
 DECLARE
-    v_scale SMALLINT := COALESCE(p_precision, 2);
+    v_scale SMALLINT := COALESCE(p_precision, 2::SMALLINT);
 BEGIN
     RETURN CASE p_format
         -- Integer formats
@@ -4450,11 +4447,11 @@ BEGIN
 
     -- Add updated_at trigger using common schema function
     EXECUTE format(
-        'CREATE TRIGGER update_%I_updated_at
+        'CREATE TRIGGER %I
             BEFORE UPDATE ON %I
             FOR EACH ROW
             EXECUTE FUNCTION common.update_updated_at_column()',
-        NEW.table_name,
+        'update_' || NEW.table_name || '_updated_at',
         NEW.table_name
     );
     
@@ -4466,11 +4463,11 @@ BEGIN
     -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_select_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR SELECT
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_select_policy',
         NEW.table_name,
         NEW.view_permission
     );
@@ -4478,11 +4475,11 @@ BEGIN
     
     -- Create RLS policies for INSERT (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_insert_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR INSERT
             TO semantius_user
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_insert_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -4490,12 +4487,12 @@ BEGIN
     
     -- Create RLS policies for UPDATE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_update_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR UPDATE
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_update_policy',
         NEW.table_name,
         NEW.edit_permission,
         NEW.edit_permission
@@ -4504,11 +4501,11 @@ BEGIN
     
     -- Create RLS policies for DELETE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_delete_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR DELETE
             TO semantius_user
             USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name,
+        NEW.table_name || '_delete_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -5242,7 +5239,7 @@ DECLARE
 BEGIN
     -- Check if the parent table still exists in entities table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
-    SELECT EXISTS(SELECT 1 FROM entities WHERE table_name = OLD.table_name) INTO v_table_exists;
+    v_table_exists := EXISTS (SELECT 1 FROM entities WHERE table_name = OLD.table_name);
     
     IF NOT v_table_exists THEN
         -- Table is being deleted, allow cascade deletion of all fields including core fields
@@ -5424,10 +5421,10 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Check if the table actually exists in the database
-    SELECT EXISTS (
+    v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = p_table_name
-    ) INTO v_table_exists;
+    );
     
     IF NOT v_table_exists THEN
 
@@ -5528,14 +5525,14 @@ BEGIN
     -- never matches what is built above and the guard would never fire.
     v_new_fingerprint := 'fts:' || md5(v_search_expr);
 
-    SELECT EXISTS (
+    v_index_exists := EXISTS (
         SELECT 1
         FROM pg_class i
         JOIN pg_namespace n ON n.oid = i.relnamespace
         WHERE n.nspname = 'public'
           AND i.relname = v_index_name
           AND i.relkind = 'i'
-    ) INTO v_index_exists;
+    );
 
     IF v_index_exists AND v_current_fingerprint IS NOT DISTINCT FROM v_new_fingerprint THEN
         RETURN;
@@ -5594,11 +5591,11 @@ BEGIN
     -- during migrations when there is no JWT context.
 
     -- Check if any fields in this table are searchable
-    SELECT EXISTS (
+    v_has_searchable_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND searchable = TRUE
-    ) INTO v_has_searchable_fields;
+    );
 
     -- Update the searchable flag on the entities record
     UPDATE entities 
@@ -5771,11 +5768,11 @@ BEGIN
     -- If searchable was changed, recompute it from fields and override the value
     IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
         -- Compute the correct value from fields
-        SELECT EXISTS (
+        v_computed_searchable := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND searchable = TRUE
-        ) INTO v_computed_searchable;
+        );
         
         -- Override any manual change with the computed value
         NEW.searchable := v_computed_searchable;
@@ -5815,11 +5812,11 @@ BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    SELECT EXISTS (
+    v_has_parent_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND format = 'parent'
-    ) INTO v_has_parent_fields;
+    );
     
     UPDATE entities 
     SET is_child = v_has_parent_fields
@@ -5884,11 +5881,11 @@ DECLARE
     v_computed_is_child BOOLEAN;
 BEGIN
     IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
-        SELECT EXISTS (
+        v_computed_is_child := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND format = 'parent'
-        ) INTO v_computed_is_child;
+        );
 
         NEW.is_child := v_computed_is_child;
     END IF;
@@ -6022,7 +6019,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', 'c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9');
+      VALUES ('_core.0070_dd_functions', 'b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -6648,7 +6645,7 @@ RETURNS JSON AS $$
 DECLARE
     v_table_name TEXT;
     v_table_record RECORD;
-    v_schemas JSON[] := '{}';
+    v_schemas JSON[] := ARRAY[]::JSON[];
     v_schema JSON;
 BEGIN
     PERFORM rbac.uid();
@@ -6874,7 +6871,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a');
+      VALUES ('_core.0080_public_functions', 'ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7589,7 +7586,7 @@ BEGIN
 
             -- Rename all FK constraints named <old_table>_<field>_fkey
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -7604,7 +7601,7 @@ BEGIN
 
             -- Rename all FK indexes named idx_<old_table>_<field>
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -7616,7 +7613,7 @@ BEGIN
 
             -- Rename all check constraints named <old_table>_<field>_check
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -7637,7 +7634,7 @@ BEGIN
             -- branch needed. (Matched by name rather than contype so it does not
             -- depend on the PG18-specific contype value 'n'.)
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -7651,7 +7648,7 @@ BEGIN
 
             -- Rename all unique indexes named <old_table>_<field>_unique
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -7681,7 +7678,7 @@ BEGIN
             -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
             -- event the mapping covers.
             FOR v_old_name IN
-                SELECT t.tgname
+                SELECT t.tgname::text
                 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
                 WHERE c.relname = NEW.table_name
@@ -8330,7 +8327,7 @@ $pgsem__core_0140_dd_rename$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '32e41d2e24cfa18550184ba7857d3328d6676112aad4782c9657c1199cede4bb');
+      VALUES ('_core.0140_dd_rename', '2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8576,11 +8573,11 @@ BEGIN
 
         -- updated_at maintenance trigger
         EXECUTE format(
-            'CREATE TRIGGER update_%I_updated_at
+            'CREATE TRIGGER %I
                 BEFORE UPDATE ON %I
                 FOR EACH ROW
                 EXECUTE FUNCTION common.update_updated_at_column()',
-            NEW.table_name, NEW.table_name
+            'update_' || NEW.table_name || '_updated_at', NEW.table_name
         );
 
         -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
@@ -8588,29 +8585,29 @@ BEGIN
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
-            'CREATE POLICY %I_select_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR SELECT TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.view_permission
+            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_insert_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR INSERT TO semantius_user
                 WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_update_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR UPDATE TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))
                 WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
+            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_delete_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR DELETE TO semantius_user
                 USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
         );
 
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
@@ -9091,7 +9088,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $fn$
 DECLARE
-    v_id_col      TEXT;
     v_label_col   TEXT;
     v_spine       TEXT;
     v_rowtype     TEXT;
@@ -9115,8 +9111,8 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT id_column, label_column, NULLIF(label_parent, '')
-      INTO v_id_col, v_label_col, v_spine
+    SELECT label_column, NULLIF(label_parent, '')
+      INTO v_label_col, v_spine
       FROM entities WHERE table_name = p_table_name;
 
     v_saved := current_setting('check_function_bodies');
@@ -9475,7 +9471,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', 'b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb');
+      VALUES ('_core.0145_managed_enable', 'ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9963,8 +9959,7 @@ BEGIN
     -- audit_d are present, so it is dropped and rebuilt narrow rather than
     -- accepted as already there. Bits 0x04 INSERT and 0x08 DELETE, tested
     -- together: either one is enough to double-log.
-    SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d')
-      INTO v_has_row_trigger;
+    v_has_row_trigger := EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d');
 
     IF v_has_row_trigger AND EXISTS(
         SELECT 1 FROM pg_trigger
@@ -10357,7 +10352,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '3ebda5b599b57f90f8b12d3775c3c9477dc529a8741516712019cbd82eee11e1');
+      VALUES ('_core.0150_audit_log', '40ed079db2acbd1e741a1d4d1c172643a966d0c605f30ee4b14341aa532c3b4f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13120,7 +13115,7 @@ BEGIN
     PERFORM rbac.uid();
     PERFORM public.queue_authorize(p_queue_name, TRUE);
 
-    SELECT pgmq.archive(p_queue_name, p_msg_id) INTO v_result;
+    v_result := pgmq.archive(p_queue_name, p_msg_id);
 
     RETURN COALESCE(v_result, FALSE);
 END;
@@ -13148,7 +13143,7 @@ BEGIN
     PERFORM rbac.uid();
     PERFORM public.queue_authorize(p_queue_name, TRUE);
 
-    SELECT pgmq.delete(p_queue_name, p_msg_id) INTO v_result;
+    v_result := pgmq.delete(p_queue_name, p_msg_id);
 
     RETURN COALESCE(v_result, FALSE);
 END;
@@ -13175,7 +13170,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', 'bee1317b02ec738787672baa0c9391abe5c88ca94d767aaa62326f769a54dcab');
+      VALUES ('_core.0170_queue', 'c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13220,7 +13215,6 @@ DECLARE
     v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
     v_body TEXT;
     v_rules_block TEXT := '';
-    v_idx INT;
     v_item JSONB;
     v_name TEXT;
     v_path_sql TEXT;
@@ -13774,7 +13768,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', '41c6b4b29d8e129d4bd45b356059ffcdaeb8b6b6a077e77c16d2383e94510956');
+      VALUES ('_core.0180_computed_validation', 'bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14434,7 +14428,7 @@ DECLARE
     op text;
     vals jsonb;
     arr_len int;
-    i int;
+    pos int;
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
@@ -14449,12 +14443,10 @@ DECLARE
     -- for missing
     missing_arr jsonb;
     keys_arr jsonb;
-    key_val text;
     looked_up jsonb;
     -- for merge
     merge_result jsonb;
     elem jsonb;
-    j int;
     -- for substr
     src text;
     start_pos int;
@@ -14530,16 +14522,16 @@ BEGIN
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
-        i := 0;
-        WHILE i < arr_len - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(vals -> i, data)) THEN
-                RETURN evaluate_json_logic(vals -> (i + 1), data);
+        pos := 0;
+        WHILE pos < arr_len - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(vals -> pos, data)) THEN
+                RETURN evaluate_json_logic(vals -> (pos + 1), data);
             END IF;
-            i := i + 2;
+            pos := pos + 2;
         END LOOP;
         -- Remaining single element = else clause
-        IF arr_len = i + 1 THEN
-            RETURN evaluate_json_logic(vals -> i, data);
+        IF arr_len = pos + 1 THEN
+            RETURN evaluate_json_logic(vals -> pos, data);
         END IF;
         RETURN 'null'::jsonb;
     END IF;
@@ -14747,7 +14739,6 @@ BEGIN
         END IF;
         missing_arr := '[]'::jsonb;
         FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
-            key_val := keys_arr ->> i;
             looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
             IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
                 missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);
@@ -15206,8 +15197,6 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
-    v_trigger_name TEXT;
-    v_needs        BOOLEAN;
 BEGIN
     -- Determine affected entity (handle UPDATE that changes entity)
     IF TG_OP = 'UPDATE' AND OLD.entity IS DISTINCT FROM NEW.entity THEN
@@ -15243,17 +15232,17 @@ BEGIN
     v_trigger_name := 'raci_emit_on_' || p_entity;
 
     -- Check if any process_gates row for this entity needs the trigger
-    SELECT EXISTS (
+    v_needs := EXISTS (
         SELECT 1 FROM process_gates
         WHERE  entity = p_entity AND emits_events = TRUE
-    ) INTO v_needs;
+    );
 
     -- Check whether the physical table exists (skip for unregistered tables)
-    SELECT EXISTS (
+    v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE  table_schema = 'public'
           AND  table_name   = p_entity
-    ) INTO v_table_exists;
+    );
 
     IF NOT v_table_exists THEN
         RETURN;
@@ -15319,7 +15308,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '602a44bbff494135298984ce3017bb2fab46cc11529bc4752e70a12e7bb5fc2a');
+      VALUES ('_core.0210_raci', '93f589dbfa892c6ca18b4f73d11ec3d4832a04b77011dd5df1ec272502b580d5');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15819,7 +15808,7 @@ BEGIN
     IF v_val IS NULL OR v_val = 0 THEN
         IF TG_TABLE_NAME = 'fields' THEN
             -- Per table_name: a new field lands after that entity's existing fields.
-            SELECT COALESCE(MAX(field_order), 0) + 10
+            SELECT (COALESCE(MAX(field_order), 0) + 10)::BIGINT
             INTO v_next
             FROM fields
             WHERE field_order < 900000
@@ -15955,7 +15944,7 @@ $pgsem__core_0270_entity_order_column$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0270_entity_order_column', 'fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882');
+      VALUES ('_core.0270_entity_order_column', '5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16799,7 +16788,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"8511c0020a65722248325772bf33c89faf7bfb2d89a67bd2762c13598fcdcd76","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"1d9745a78dbf2bfc8e57ffd0059c511fdda98a048c8cc9d714ce3c2ae65a3e19","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"d3732905a83fce64401cc38e1d30e51e00670f06206a182ac9108c74fe8273d0","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"c640eba6f7bf71cf47f3746d6a28729518066b4007165b87653498e2963ac0e9","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8f7752114b961a8ea9387d083e2fa0cfadb8ee7af41cf9ad6b1af89d0a4ec56a","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"32e41d2e24cfa18550184ba7857d3328d6676112aad4782c9657c1199cede4bb","_core.0145_managed_enable":"b0015bfdff14d5e2d953367169bb2e0fcdca22c667b31f06537379711e5698eb","_core.0150_audit_log":"3ebda5b599b57f90f8b12d3775c3c9477dc529a8741516712019cbd82eee11e1","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"bee1317b02ec738787672baa0c9391abe5c88ca94d767aaa62326f769a54dcab","_core.0180_computed_validation":"41c6b4b29d8e129d4bd45b356059ffcdaeb8b6b6a077e77c16d2383e94510956","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"602a44bbff494135298984ce3017bb2fab46cc11529bc4752e70a12e7bb5fc2a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"fa2a3d7732a47302f99668fd48f4c99273bd4f6060692cc9384234809f54c882","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"ba16fb76b7d5594e1506a7454cfddf90d32170be05343e459dd6ed5a906727b2","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"eb0ec501e36fa68b790cf25822731bca384fa68bcb21516aa4111d10128b0bd2","_core.0015_jsonlogic":"0a54d0101fa3f5c1f7ffc9ff4c28caf56665b06d48495d78b0a5870f4fbc5d4c","_core.0020_rbac_schema":"27b33a16a1af278cca267348bbdc1c5e9a9bf20e24e7542c95755f7d983635dd","_core.0030_rbac_functions":"c20d4c04ea4840c42b84686ea28799321f966feb2da4f7a9390796f593025f67","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"b550a736a36d91317c30b6c991975d7dd6ced3cc6b91ae005a3d829221f22d31","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"626327ec953c472792c4af5470391e39c2d307e7aa6d4b1e8f6041574823a710","_core.0110_apikeys":"fd2b3dd0d9a921628c4d59ffcb65274e0f43f556e4b15094d77e7b77bfb94ea0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"40ed079db2acbd1e741a1d4d1c172643a966d0c605f30ee4b14341aa532c3b4f","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"cf261d6c5f2c39e304c8c1dbfd98a17225cbb64f942941a436d9246759202f1e","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"93f589dbfa892c6ca18b4f73d11ec3d4832a04b77011dd5df1ec272502b580d5","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

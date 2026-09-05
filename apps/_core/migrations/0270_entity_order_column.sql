@@ -77,7 +77,7 @@ BEGIN
     IF v_val IS NULL OR v_val = 0 THEN
         IF TG_TABLE_NAME = 'fields' THEN
             -- Per table_name: a new field lands after that entity's existing fields.
-            SELECT COALESCE(MAX(field_order), 0) + 10
+            SELECT (COALESCE(MAX(field_order), 0) + 10)::BIGINT
             INTO v_next
             FROM fields
             WHERE field_order < 900000

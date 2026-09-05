@@ -601,7 +601,7 @@ BEGIN
     PERFORM rbac.uid();
     PERFORM public.queue_authorize(p_queue_name, TRUE);
 
-    SELECT pgmq.archive(p_queue_name, p_msg_id) INTO v_result;
+    v_result := pgmq.archive(p_queue_name, p_msg_id);
 
     RETURN COALESCE(v_result, FALSE);
 END;
@@ -629,7 +629,7 @@ BEGIN
     PERFORM rbac.uid();
     PERFORM public.queue_authorize(p_queue_name, TRUE);
 
-    SELECT pgmq.delete(p_queue_name, p_msg_id) INTO v_result;
+    v_result := pgmq.delete(p_queue_name, p_msg_id);
 
     RETURN COALESCE(v_result, FALSE);
 END;

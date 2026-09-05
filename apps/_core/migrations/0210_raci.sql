@@ -383,7 +383,7 @@ DECLARE
     op text;
     vals jsonb;
     arr_len int;
-    i int;
+    pos int;
     current_val jsonb;
     a jsonb; b jsonb; c jsonb;
     num_a numeric; num_b numeric; num_c numeric;
@@ -398,12 +398,10 @@ DECLARE
     -- for missing
     missing_arr jsonb;
     keys_arr jsonb;
-    key_val text;
     looked_up jsonb;
     -- for merge
     merge_result jsonb;
     elem jsonb;
-    j int;
     -- for substr
     src text;
     start_pos int;
@@ -479,16 +477,16 @@ BEGIN
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
-        i := 0;
-        WHILE i < arr_len - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(vals -> i, data)) THEN
-                RETURN evaluate_json_logic(vals -> (i + 1), data);
+        pos := 0;
+        WHILE pos < arr_len - 1 LOOP
+            IF jl_truthy(evaluate_json_logic(vals -> pos, data)) THEN
+                RETURN evaluate_json_logic(vals -> (pos + 1), data);
             END IF;
-            i := i + 2;
+            pos := pos + 2;
         END LOOP;
         -- Remaining single element = else clause
-        IF arr_len = i + 1 THEN
-            RETURN evaluate_json_logic(vals -> i, data);
+        IF arr_len = pos + 1 THEN
+            RETURN evaluate_json_logic(vals -> pos, data);
         END IF;
         RETURN 'null'::jsonb;
     END IF;
@@ -696,7 +694,6 @@ BEGIN
         END IF;
         missing_arr := '[]'::jsonb;
         FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
-            key_val := keys_arr ->> i;
             looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
             IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
                 missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);
@@ -1155,8 +1152,6 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
-    v_trigger_name TEXT;
-    v_needs        BOOLEAN;
 BEGIN
     -- Determine affected entity (handle UPDATE that changes entity)
     IF TG_OP = 'UPDATE' AND OLD.entity IS DISTINCT FROM NEW.entity THEN
@@ -1192,17 +1187,17 @@ BEGIN
     v_trigger_name := 'raci_emit_on_' || p_entity;
 
     -- Check if any process_gates row for this entity needs the trigger
-    SELECT EXISTS (
+    v_needs := EXISTS (
         SELECT 1 FROM process_gates
         WHERE  entity = p_entity AND emits_events = TRUE
-    ) INTO v_needs;
+    );
 
     -- Check whether the physical table exists (skip for unregistered tables)
-    SELECT EXISTS (
+    v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE  table_schema = 'public'
           AND  table_name   = p_entity
-    ) INTO v_table_exists;
+    );
 
     IF NOT v_table_exists THEN
         RETURN;

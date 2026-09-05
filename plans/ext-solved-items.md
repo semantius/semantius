@@ -641,3 +641,78 @@ decision and are filed separately as **B20** and **B21**.
 
 Method and candidate-selection practice are written up in
 [docs/jsonlogic-optimization-candidates.md](../docs/jsonlogic-optimization-candidates.md).
+
+---
+
+## Q1 and Q4, and the Semantius halves of Q2, Q3 and Q5 (2026-09-05): the linter noise in our own code
+
+The rows as they stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| Q1 | Low | migration | `create_dd_table`, `enable_dd_table` | 2 linter false positives, `syntax error at or near "%I"`: the linter tries to parse a `format()` template with `%I` placeholders, and they hide real errors in those two functions. | Build the template so the linter can parse it (or split the statement) and re-lint both functions. | plpgsql_check parses both functions. |
+| Q2 | Low | migration | `delete_dd_field` and 14 more | 15 `SELECT expr INTO variable` where a plain assignment avoids SPI. Was 16; `rbac.uid`'s `SELECT system_user INTO` became an assignment on 2026-09-05 with P3. Not re-linted since - the count is decremented by the one site fixed, not re-derived. | Assignments. | The 15 warnings are gone. |
+| Q3 | Low | migration | `rename_dd_table` (6), `jl_to_number` (5), pgmq `read_*_with_poll`/`purge_queue` (4), `format_to_data_type`, `auto_set_order_value` | 18 implicit casts. | Explicit casts. | The 18 warnings are gone. |
+| Q4 | Low | migration | `evaluate_json_logic`, the DD engine | 23 shadowed loop variables `i`/`j`/`v_idx`; harmless but unlintable. | Rename. | The 23 warnings are gone. |
+| Q5 | Low | migration | `rename_dd_table`, pgmq `drop_queue`, and others | Unused or never-read variables. The count is unknown: the row said 12, then 11, and neither was re-linted. A sweep of `public`/`rbac`/`audit`/`common`/`pgmq` with `plpgsql_check` 2.10 gives 25 findings with `extra_warnings => true` and 7 without, so the old counts cannot be reconciled and arithmetic on them is worthless. Two known movements: `has_permission`'s `v_external_id` became live with P3, and `queue_event_after_insert`'s `v_trigger_events` went with the per-event trigger fan-out. **Six of the findings are false positives that the statement-level triggers create**: `plpgsql_check` cannot resolve a transition table, so it skips the statements that read `pkey_cols`, `v_user_id`, `v_id_field` and `v_event_type` and reports them as never read. Those four variables are live. | Re-lint first and write the exact invocation and the count into this row, so the next reader is not derived from a third number. Then remove the real ones, leaving the transition-table false positives with a comment saying why they stay. | A recorded linter invocation reports only the six transition-table findings, each explained in place. |
+
+**Q1 and Q4 are closed. Q2, Q3 and Q5 are restated as pgmq-only**, because
+every finding that remains under them is in the vendored copy of pgmq v1.11.1
+(`0160_pgmq.sql`), which is kept byte-identical to upstream so that the next
+re-vendor is a copy and not a merge. Nothing in that file was touched. The
+owner's decision on 2026-09-05: fix our own findings to be clean, and do **not**
+add a plpgsql_check gate to CI, because style warnings are not a signal worth
+failing a build on. Consequently there is no pinning test for this change, by
+decision rather than by omission; the proof is the before/after lint below and
+the two green harnesses.
+
+Before starting, all five rows were re-linted rather than trusted, because
+their counts had been decremented by hand (Q2 said 15, Q5 said "12, then 11").
+The recorded invocation, plpgsql_check 2.10 on PostgreSQL 18 (`postgres18-cli`,
+`appdb`, migrate path):
+
+```sql
+extensions.plpgsql_check_function_tb(p.oid, relid => <a table bound to the
+  trigger, or 0>, security_warnings => true, performance_warnings => true,
+  extra_warnings => true, compatibility_warnings => true)
+```
+
+over every PL/pgSQL function in `public`, `rbac`, `audit`, `common` and `pgmq`.
+Trigger functions with no bound table are reported as unlinted rather than
+skipped silently.
+
+| Row | Row said | Re-lint found | Of which Semantius | Of which pgmq |
+|---|---|---|---|---|
+| Q1 | 2 | 2 | 2 | 0 |
+| Q2 | 15 | 17 | 14 | 3 |
+| Q3 | 18 | 19 | 15 | 4 |
+| Q4 | 23 | 23 | 23 | 0 |
+| Q5 | "12, then 11" | 19 | 6 | 13 |
+
+Q5's "six transition-table false positives" did not exist under this
+invocation: the six statement-level trigger functions abort the linter with
+`relation "new_rows" does not exist` before any variable is checked, so they
+are unlinted, not mis-reported. They moved to **Q6**.
+
+### What changed, by row
+
+| Row | Change | Where |
+|---|---|---|
+| Q1 | The trigger and policy names were built with a placeholder *inside* an identifier (`update_%I_updated_at`, `%I_select_policy`), which plpgsql_check cannot expand. The full name is now built in SQL and passed as one `%I`: `'update_' \|\| NEW.table_name \|\| '_updated_at'`, `NEW.table_name \|\| '_select_policy'`. Ten sites, not the two the row counted: the linter stops at the first error per function, so the eight policy templates were hidden behind the two trigger templates. Not a latent bug: `entities.valid_table_name` pins table names to `^[a-z_][a-z0-9_]*$`, so `%I` never quoted the fragment. Both functions lint clean now. | `0070_dd_functions.sql` (`create_dd_table`), `0145_managed_enable.sql` (`enable_dd_table`) |
+| Q4 | `evaluate_json_logic` declared `i` and `j` and then used `i` twice over: as a hand-stepped counter in the `if`/`?:` branch and as the variable of twenty FOR loops, each of which auto-declares its own `i` and shadows the outer one. The counter is now `pos`, the outer `i` and `j` declarations are gone, and the FOR loops own their variables. `build_record_logic_trigger` had the same shape with `v_idx`; its declaration is gone. Both interpreter copies edited identically. | `0015_jsonlogic.sql`, `0210_raci.sql` (both `evaluate_json_logic`), `0180_computed_validation.sql` |
+| Q5 | Six dead variables removed: `key_val` (assigned, never read) and `j` in the interpreter, `v_idx` in `build_record_logic_trigger`, `v_trigger_name` and `v_needs` declared in `raci_gates_manage_emit_trigger` but only ever used by the helper it calls, `v_id_col` selected into and never read in `rebuild_entity_label_functions`. | `0015`, `0210`, `0180`, `0145` |
+| Q2 | Fourteen `SELECT expr INTO v` became `v := expr`. Eleven are `EXISTS (...)` checks, two wrap a `pgmq.archive`/`pgmq.delete` call, one is the recursive-CTE permission lookup in `rbac.user_has_permission`, where the `WITH RECURSIVE` moved inside the `EXISTS (...)`, the form the same function already used for its scope check. No speed gain was expected or claimed: none of these is a simple expression the PL/pgSQL fast path could take. | `0030_rbac_functions.sql`, `0050_rbac_rls.sql`, `0070_dd_functions.sql` (7), `0150_audit_log.sql`, `0170_queue.sql` (2), `0210_raci.sql` (2) |
+| Q3 | Fifteen implicit casts made explicit: five integer literals returned from the `numeric` function `jl_to_number`, six `name`-typed catalog columns read into the `text` loop variable of `rename_dd_table`, `2::SMALLINT` in `format_to_data_type`, `::BIGINT` on the next-order computation in `auto_set_order_value`, `ARRAY[]::JSON[]` for the empty array in `get_schemas`. | `0015`, `0140_dd_rename.sql`, `0070`, `0270_entity_order_column.sql`, `0080_public_functions.sql` |
+
+### Proof
+
+- Re-lint after the change, same invocation: **0** findings of any Q kind
+  outside `pgmq`. Outside `pgmq` the linter now reports 40 findings, down from
+  99, and every one belongs to another row: 23 STABLE/VOLATILE (**P7**, **P8**),
+  8 `format(%I/%L)` sites it calls unsanitized (covered by S1's audit of every
+  dynamic-SQL site), 2 dynamic-SQL results it cannot type, and the 7 unlinted
+  trigger functions in **Q6**. The 32 `pgmq` findings are unchanged.
+- `pgdocker/pg-cli-retest.sh`: 2,175 passing. `pgdocker/pg-ext-retest.sh`
+  after `deno task extension 0.5.0-beta1`: 2,175 passing.
+- `deno task bundle-sql` regenerated the three bundle copies; they are
+  git-ignored (B18), so they do not appear in the diff.

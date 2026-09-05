@@ -477,8 +477,7 @@ BEGIN
     -- audit_d are present, so it is dropped and rebuilt narrow rather than
     -- accepted as already there. Bits 0x04 INSERT and 0x08 DELETE, tested
     -- together: either one is enough to double-log.
-    SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d')
-      INTO v_has_row_trigger;
+    v_has_row_trigger := EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid = $1 AND tgname = 'audit_i_u_d');
 
     IF v_has_row_trigger AND EXISTS(
         SELECT 1 FROM pg_trigger
