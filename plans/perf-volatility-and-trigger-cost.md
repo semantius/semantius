@@ -149,8 +149,8 @@ of truth for the model, so a hand-written constraint that disagrees with it is
 the thing that is wrong. Paired with it: **agents get a generated identifier**
 (a prefix plus a random suffix) rather than an empty `external_id`, so the case
 the two index shapes disagree about stops existing. That second half is an
-identity-model change, not an index cleanup - track it separately, and do it
-before or with this change, not after.
+identity-model change, not an index cleanup, and is now tracked as **S20** -
+Medium, because until it lands the empty string is a legal shared identity.
 
 Two consequences follow that are not style questions, and both must be handled
 in the same change:
@@ -446,7 +446,8 @@ non-idempotent write removed. Not delivered, and the record must say so:
 
 Two review findings are real and are **not** closed by this change:
 
-- **`0050_rbac_rls.sql:47`** - `modules_select_policy` is
+- **`0050_rbac_rls.sql:47`** (the test half is now tracked as **R10**) -
+  `modules_select_policy` is
   `(select rbac.has_any_permission('admin', view_permission))`. The column
   reference makes the sub-select correlated, so it is a SubPlan evaluated per row
   rather than an InitPlan. **Closed as not worth fixing, 2026-09-06**: an
@@ -486,9 +487,11 @@ write, on a path the planner does not fold. The trade is real - eight P8 warning
 become eight P7-shaped ones - so P8's "the 8 warnings are gone" is not
 deliverable either way.
 
-**Decided 2026-09-06: label them**, on the same reasoning as option B, and close
-P8 restated - the RPCs answer `GET`, the eight warnings are accepted. `GET` is
-the point of the row; the warning count never was.
+**Decided 2026-09-06: label them.** The row closes **against its original
+wording**, not restated. plpgsql_check does not chase into called functions - it
+already reports these eight as "VOLATILE but read-only", which is why they are P8
+and not P7 - so labeling them removes those eight warnings and adds none. Both of
+the row's clauses are met: the warnings go, and the RPCs answer `GET`.
 
 **One check before labeling each function: does it touch a table.** The writes
 that make this a judgment call are all `set_config(..., true)` - transaction-local
