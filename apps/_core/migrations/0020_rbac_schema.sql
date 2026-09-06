@@ -148,7 +148,13 @@ REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
 -- Users: External users from JWT
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    external_id TEXT UNIQUE NOT NULL DEFAULT '',
+    -- Uniqueness is not declared here. The data dictionary owns it: 0190 sets
+    -- fields.unique_value for this column, which builds users_external_id_unique
+    -- as a partial index excluding NULL and ''. A UNIQUE constraint here would be
+    -- a second, total index over the same column with different semantics, and
+    -- the two would disagree about the empty string. Callers upserting on this
+    -- column must repeat the index predicate so PostgreSQL can infer the arbiter.
+    external_id TEXT NOT NULL DEFAULT '',
     email TEXT DEFAULT '',
     display_name TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
@@ -291,7 +297,6 @@ CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 -- INDEXES - Users
 -- =====================================================
 
-CREATE INDEX idx_users_external_id ON users(external_id);
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_enabled ON users(is_disabled) WHERE is_disabled = FALSE;
 CREATE INDEX idx_users_disabled ON users(is_disabled) WHERE is_disabled = TRUE;

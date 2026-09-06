@@ -47,7 +47,9 @@ BEGIN
 
     INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
     VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
-    ON CONFLICT (external_id) DO UPDATE
+    -- See rbac.upsert_user_from_jwt: the arbiter is the dictionary's partial
+    -- unique index, so the predicate has to be repeated for inference to work.
+    ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
     SET last_seen = CURRENT_TIMESTAMP,
         email = COALESCE(EXCLUDED.email, users.email),
         display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),

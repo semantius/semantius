@@ -136,9 +136,24 @@ as an entity later at `0060:380`. The third index exists because `0190:15` set t
 flag to *describe* the constraint and the dictionary read it as an instruction to
 *build* one.
 
+**Done 2026-09-06.** `users.external_id` now carries exactly one index, the
+dictionary's. Both harnesses green at 2,247 assertions; the live catalog shows
+`users_external_id_unique` alone, and `rbac.upsert_user_from_jwt` called twice
+for one subject returns the same row. The other seven duplicates in this change
+are not done.
+
 **Owner's decision, 2026-09-06: one index, and the dictionary's is the one that
-stays.** Two consequences follow that are not style questions, and both must be
-handled in the same change:
+stays.** The principle is that the physical table must match what
+`unique_value = TRUE` in the dictionary produces - the dictionary is the source
+of truth for the model, so a hand-written constraint that disagrees with it is
+the thing that is wrong. Paired with it: **agents get a generated identifier**
+(a prefix plus a random suffix) rather than an empty `external_id`, so the case
+the two index shapes disagree about stops existing. That second half is an
+identity-model change, not an index cleanup - track it separately, and do it
+before or with this change, not after.
+
+Two consequences follow that are not style questions, and both must be handled
+in the same change:
 
 1. **The dictionary's index is partial and the constraint is not.** The column is
    `NOT NULL DEFAULT ''`, so today exactly one row may carry `external_id = ''`.
@@ -434,10 +449,16 @@ Two review findings are real and are **not** closed by this change:
 - **`0050_rbac_rls.sql:47`** - `modules_select_policy` is
   `(select rbac.has_any_permission('admin', view_permission))`. The column
   reference makes the sub-select correlated, so it is a SubPlan evaluated per row
-  rather than an InitPlan, and `0445_test_policy_initplan_form.sql` passes it
-  because it matches the syntactic form only. Warm that is 0.025 ms per row and
-  nobody notices; in bearer mode it is about 1 ms per row. **Owned by no row.**
-  File it, or fold it into this change deliberately.
+  rather than an InitPlan. **Closed as not worth fixing, 2026-09-06**: an
+  installation carries under 20 modules, so the whole policy costs about 0.5 ms
+  warm and 20 ms in bearer mode, on a table nobody scans in a loop.
+
+  What is worth fixing is the test. `0445_test_policy_initplan_form.sql` is named
+  for the InitPlan form and reads as a guarantee that policies evaluate once per
+  statement; it actually checks only that the call sits inside a sub-select. This
+  policy passes it while doing the thing the name forbids. Either rename the test
+  to what it checks, or make it distinguish a correlated sub-select from an
+  uncorrelated one. A test that overpromises is worse than no test.
 - **Bearer mode pays every per-row site cold** - `0015_jsonlogic.sql:675`,
   `0210_raci.sql:961`, `:1048`, `:1060`. Known and accepted
   (`docs/bearer-mode-status.md:106-107`); option B neither helps nor worsens it.
@@ -465,16 +486,20 @@ write, on a path the planner does not fold. The trade is real - eight P8 warning
 become eight P7-shaped ones - so P8's "the 8 warnings are gone" is not
 deliverable either way.
 
-**Question for the owner, and change 4 does not start before it is answered:**
+**Decided 2026-09-06: label them**, on the same reasoning as option B, and close
+P8 restated - the RPCs answer `GET`, the eight warnings are accepted. `GET` is
+the point of the row; the warning count never was.
 
-1. **Label them anyway**, on the same reasoning as option B, and close P8
-   restated: the RPCs answer `GET`, the warnings are accepted. This is the only
-   option that delivers what the row is actually for.
-2. **Close P8 as accepted without labeling.** The RPCs keep being served by
-   POST, which works today; nothing changes; the row records why.
-
-I would take 1: PostgREST serving these over `GET` is a real capability, and the
-warning count was never the point of the row.
+**One check before labeling each function: does it touch a table.** The writes
+that make this a judgment call are all `set_config(..., true)` - transaction-local
+settings, discarded at commit, and legal inside the read-only transaction a `GET`
+runs in. Verified on 2026-09-06 that none of `get_schema`, `get_schemas`,
+`get_user_cubes`, `get_module_cubes`, `get_user_modules` or `list_api_keys`
+writes a row. **`public.get_userinfo` does** - it upserts the user - so it is not
+in P8's list and must stay `VOLATILE`. Neither of the two things `STABLE` licenses
+bites here: evaluate-once-and-reuse needs repeated calls inside one query, and
+plan-time folding needs `col <op> fn(const)`, while an RPC arrives as a
+targetlist entry, which is never estimated.
 
 **Pin, corrected.** The earlier pin -
 `BEGIN READ ONLY; SELECT public.get_schema('...'); ROLLBACK;` - proves nothing:
@@ -489,136 +514,69 @@ function is `s` - plus one live `GET` through PostgREST in
 
 ## Change 5: P9, the per-entity loops
 
-The row was graded "fine at 33 entities", and at 33 entities it is. The
-measurement in change 0 says **0.87 ms per entity** warm, effectively all of it
-inside `build_schema_for_table`.
+`get_user_cubes()` rebuilds every entity's schema from scratch on every call,
+three queries per entity. Measured 2026-09-06 (change 0): **0.87 ms per entity**
+warm, effectively all of it inside `build_schema_for_table`. At 33 entities that
+is 29 ms; at 250, about 220 ms.
 
-**At 250 entities that is about 220 ms warm.** The cold figure does not
-extrapolate from a single entity count - see the caveat under change 0 - so treat
-"roughly 280 ms cold" as a floor, not an estimate. Postponing was the earlier
-recommendation and it is **withdrawn**: the owner confirmed 250 entities, about
-ten real modules, as the realistic high end in production, and a fifth of a
-second per call is felt in a UI.
+**Target, set by the owner 2026-09-06: under 150 ms at 250 entities**, which is
+under 0.6 ms per entity - a 1.45x improvement on today. That is a modest ask, and
+it decides the fix.
 
-**The row's "done when" needed restating and has been**, in
-`plans/pg_semantius-open-items.md`: an absolute target - `get_user_cubes()` under
-about 30 ms warm at 250 entities - not a per-entity one, because the point of the
-fix is to make the call independent of the entity count.
+### The fix is the set-based rewrite. There is no cache
 
-`get_module_cubes` (`0080:681`) re-selecting the entity it is already iterating
+The row offered two routes and they are not equally priced:
+
+- **One set-based query** instead of the per-entity loop with three queries each.
+  It removes the round trips and nothing else. The row's own estimate was 0.3 ms
+  per entity - 75 ms at 250, comfortably inside the target.
+- **A cache** keyed on a model version. Faster still, and it drags in three
+  problems the rewrite does not have: what invalidates it (`modules.version` does
+  not move on a `fields` change today), staleness across module boundaries (an
+  entity's schema embeds the referenced entity's labels and id/label columns from
+  whatever module those live in, plus its list of children), and where it lives
+  (`common._cache` requires a TTL and is `UNLOGGED`, so a fresh install or
+  restore starts empty and stays empty until someone edits a module).
+
+**Chosen: the rewrite.** A cache is only worth those three problems if the
+rewrite misses the target, and on the numbers it should not. Measure after the
+rewrite; revisit only if it does.
+
+`get_module_cubes` (`0080:681`) re-selects the entity it is already iterating
 (`0080:712-714`: the loop yields table *names*, then re-reads the `entities` row
-for each) is a bug-shaped inefficiency, independent of everything below, and can
-be fixed on its own in minutes. `get_user_cubes` (`0080:741`) does not have it -
-its loop already yields full `entities` records.
+for each). Fix that first - it is minutes, and it is a bug rather than a scaling
+question. `get_user_cubes` (`0080:741`) does not have it.
 
-### What is settled: the cache may not leak
+### What does not change
 
-The owner's answer, 2026-09-06. That rules out any shape where a cached entry can
-be served to a caller the gate would have refused, and it also resolves change
-4's collision, because the shape that does not leak is the shape that does not
-write on read:
+`build_schema_for_table` refuses a caller without the entity's `view_permission`
+at `0080:231` - the b9 fix, pinned by
+`0341_test_read_helper_completeness.sql:47-57`. The rewrite must keep that gate
+per caller. It is roughly 6% of the cost (a warm check is 0.025 ms,
+`docs/bearer-mode-status.md:99-104`), so there is nothing to gain by touching it
+and a read bypass to lose.
 
-- **Populate outside the read path**, so `get_schema` and `get_user_cubes` only
-  ever read and stay servable over `GET`.
-- **Re-run the gate on every read.** `build_schema_for_table` refuses a caller
-  without the entity's `view_permission` at `0080:231` - the b9 fix, pinned by
-  `0341_test_read_helper_completeness.sql:47-57`. The cache removes the
-  *building*, never the *checking*.
-- **A miss builds live**, so a stale or absent entry is slow, never wrong.
+### Still worth doing: the `fields` bump on `modules.version`
 
-Good news from the third review: the caller-dependent part is small. Everything
-between `0080:236` and `0080:479` reads only `entities` and `fields`; the only
-caller-dependent things are the raises at `0080:209` (`rbac.uid()`), `0080:231`
-(the gate) and `0080:156` inside `get_schema_children`. **The whole built schema
-is permission-invariant**, so "cache everything, re-run the gate" is
-straightforward.
+Decided 2026-09-06, and it stands on its own now that the cache is not being
+built. `0282_module_version.sql:130-155` puts bump triggers on `modules`,
+`entities`, `roles`, `permissions` and `processes` - **not on `fields`**. A field
+edit moves the version only as a side effect of the unconditional
+`UPDATE entities` in `update_table_searchable_flag` (`0070:1475`) and
+`update_table_is_child_flag` (`0070:1695`), which change 2(a) removes.
 
-### What is not settled: invalidation. This is the blocker
+So `modules.version` claims to mean "the model changed" and does not. Add an
+explicit `AFTER INSERT OR UPDATE OR DELETE ON fields` trigger resolving the module
+through `entities.module_id` by `table_name` (`fields` has no `module_id`), and
+land it **before** change 2(a). It is a correctness fix for every consumer of that
+version, not a cache dependency.
 
-**`modules.version` does not move when a field changes.** `0282_module_version.sql:130-155`
-puts bump triggers on `modules`, `entities`, `roles`, `permissions` and
-`processes`. **There is no trigger on `fields`**, and `fields` has no
-`module_id`. A field edit bumps the version only *by accident*, because
-`update_table_searchable_flag` (`0070_dd_functions.sql:1475`) and
-`update_table_is_child_flag` (`0070:1695`) issue an unconditional
-`UPDATE entities`, which fires `bump_module_version_on_entities`.
+### Pin
 
-**Change 2(a) removes exactly that.** Adding `AND <flag> IS DISTINCT FROM v` to
-those two statements is the first thing this plan does, and it kills the only
-path by which a field edit reaches `modules.version`. `build_schema_for_table` is
-built almost entirely from `fields` (`0080:275-277`). So as ordered, change 2
-would make change 5's cache go stale on the commonest model change there is.
-
-Three more gaps, all found by review rather than by design:
-
-- **The key is per module; the schema reads other modules.** `0080:266-272` joins
-  `entities t ON f.reference_table = t.table_name` for the referenced entity's
-  labels and id/label columns, and `get_schema_children` (`0080:151-177`) scans
-  every table that references this one. Editing module B's labels, or adding a
-  `parent` field in B pointing at A, changes A's schema without bumping A's
-  version.
-- **"Populate on the bump" has no caller that can build.**
-  `build_schema_for_table` opens with `PERFORM rbac.uid()` (`0080:209`) and then
-  the gate; the bump triggers run during migrations and DDL where there is no JWT
-  context - the DD helpers say so in as many words (`0070:1464-1465`,
-  `0070:1686-1687`). A populate path needs a second, gate-free builder that does
-  not exist. And `bump_module_version_from_related` is `AFTER ... FOR EACH ROW`
-  on `entities` (`0282:140-143`), so a naive hook rebuilds every schema in the
-  module once per changed row.
-- **`common._cache` cannot hold this as it stands.** `common.cache_set` requires
-  an `expires_minutes` (`0012_create_cache.sql:41-53`) - there is no
-  non-expiring entry - and the table is `UNLOGGED` (`0012:7`), so it is truncated
-  on crash and not replicated. Combined with "populate on the bump, never on a
-  read", a fresh install, a restore, a replica or a crash leaves the cache empty
-  until someone edits a module. The steady-state production case would get no
-  cache at all.
-
-### Decided 2026-09-06: `modules.version` bumps on field changes too
-
-The owner's answer: a `fields` change must increment the version. So the fix is
-an explicit bump trigger on `fields`, not the accidental `UPDATE entities` that
-carries it today.
-
-**It is a fix in its own right, independent of the cache.** `modules.version` is
-supposed to mean "the model changed"; today a field edit moves it only as a side
-effect of a no-op flag update, which means any consumer of that version - not
-just this cache - is already being told the wrong thing whenever that side effect
-does not fire. Change 2(a) would make that permanent. Do the trigger first,
-**before** change 2(a) removes the accidental path, so the two never overlap in a
-state where field edits are invisible.
-
-Shape: `AFTER INSERT OR UPDATE OR DELETE ON fields`, resolving the module through
-`entities.module_id` by `table_name`, since `fields` has no `module_id` of its
-own. Statement-level with transition tables if it is written alongside change 2's
-trigger work; row-level matches the existing `bump_module_version_from_related`
-(`0282:139-155`) and is the smaller change.
-
-**Two things this does not settle**, and they stay open:
-
-- **Cross-module staleness.** A schema is built from other modules' rows too:
-  `0080:266-272` joins the referenced entity for its labels and id/label columns,
-  and `get_schema_children` (`0080:151-177`) scans every table that references
-  this one. A field or label edit in module B changes module A's schema and bumps
-  only B's version. Either the key covers the referenced modules' versions as
-  well, or the cache is knowingly stale across module boundaries. **Decide before
-  building.**
-- **The empty-cache case.** `common._cache` requires a TTL and is `UNLOGGED`
-  (`0012:7`, `:41-53`), so a fresh install, restore, replica or crash starts
-  empty. With population only on the bump, that state persists until someone
-  edits a module. Either populate lazily on the first miss - which reintroduces a
-  write on the read path and collides with change 4 - or warm it at migration
-  end. **Decide before building.**
-
-**Change 5 is still coupled to change 2** and they are ordered together below.
-
-### One measurement is already answerable
-
-Change 0 asks how much of the 0.87 ms per entity is the gate rather than the
-building. It can be estimated from figures already in the tree: a warm check is
-0.025 ms (`docs/bearer-mode-status.md:99-104`), and 33 entities at roughly two
-checks each is about 1.7 ms of 28.7 ms - **about 6%**. The gate is not the cost;
-the building is. Confirm it cheaply if at all, and do not spend a measurement
-window on it.
+`get_user_cubes()` under 150 ms at 250 entities, measured the way change 0
+measured 33; the per-caller gate still refusing an entity the caller cannot view,
+asserted against `0341_test_read_helper_completeness.sql`'s existing case; and
+`modules.version` moving on a `fields` insert, update and delete.
 
 
 ## Order, and why

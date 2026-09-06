@@ -312,7 +312,11 @@ BEGIN
 
     INSERT INTO users (external_id, email, last_seen)
     VALUES (p_external_id, p_email, CURRENT_TIMESTAMP)
-    ON CONFLICT (external_id) DO UPDATE
+    -- The predicate is not decoration: the only unique index on external_id is
+    -- the dictionary's partial one, and PostgreSQL infers an arbiter index only
+    -- from a predicate that matches. Without it this raises "no unique or
+    -- exclusion constraint matching the ON CONFLICT specification".
+    ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
     SET last_seen = CURRENT_TIMESTAMP,
         email = COALESCE(EXCLUDED.email, users.email)
     RETURNING id INTO v_user_id;

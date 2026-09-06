@@ -479,11 +479,11 @@ SELECT is(
 -- with the right op.
 INSERT INTO users (external_id, email, display_name)
 VALUES ('audit-upsert-probe', 'upsert@probe.test', 'Upsert Probe')
-ON CONFLICT (external_id) DO UPDATE SET display_name = EXCLUDED.display_name;
+ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE SET display_name = EXCLUDED.display_name;
 
 INSERT INTO users (external_id, email, display_name)
 VALUES ('audit-upsert-probe', 'upsert@probe.test', 'Upsert Probe Two')
-ON CONFLICT (external_id) DO UPDATE SET display_name = EXCLUDED.display_name;
+ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE SET display_name = EXCLUDED.display_name;
 
 SELECT is(
     (SELECT array_agg(op::text ORDER BY op::text) FROM audit_record_logs

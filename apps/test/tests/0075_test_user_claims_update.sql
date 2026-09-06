@@ -3,7 +3,7 @@
 -- updated when a user calls get_userinfo() with new JWT claims
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(13);
 
 -- =====================================================
 -- TEST: Claims are stored on first call
@@ -124,17 +124,39 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST: external_id UNIQUE constraint exists
+-- TEST: external_id uniqueness is enforced, and by the dictionary
 -- =====================================================
+-- The table declares no UNIQUE constraint on this column. The dictionary owns
+-- it: fields.unique_value builds users_external_id_unique as a partial index
+-- excluding NULL and the empty string. A second, total constraint would
+-- disagree with it about '' and give upserts two possible arbiters.
 RESET ROLE;
+SELECT is(
+    (SELECT count(*)::int FROM pg_indexes
+     WHERE tablename = 'users' AND indexdef LIKE '%(external_id)%'),
+    1,
+    'exactly one index covers users.external_id'
+);
+
 SELECT ok(
     (SELECT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE tablename = 'users'
+          AND indexname = 'users_external_id_unique'
+          AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+          AND indexdef LIKE '%external_id IS NOT NULL%'
+    )),
+    'the dictionary partial unique index on users.external_id is the one that enforces it'
+);
+
+SELECT ok(
+    NOT (SELECT EXISTS (
         SELECT 1 FROM information_schema.table_constraints
         WHERE table_name = 'users'
           AND constraint_type = 'UNIQUE'
           AND constraint_name LIKE '%external_id%'
     )),
-    'users table should have a UNIQUE constraint on external_id'
+    'the table declares no competing UNIQUE constraint on external_id'
 );
 
 SELECT * FROM finish();
