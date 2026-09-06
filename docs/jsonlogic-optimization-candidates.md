@@ -1,6 +1,6 @@
 # Finding JsonLogic optimization candidates
 
-Last updated 2026-09-05.
+Last updated 2026-09-06.
 
 Semantius stores row-visibility, computed-column and validation rules as
 JsonLogic in the data dictionary, and evaluates them with the interpreter in
@@ -22,6 +22,41 @@ see the P2 closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md).
 
 ---
 
+## Status: postponed, and what would change that
+
+This was tracked as open item **P14** (successor to **P2**) until 2026-09-06,
+when it was **closed as postponed**. Nothing about the problem changed. It is
+owned by no plan, and this document is now its only record.
+
+Postponed because **nothing is slow today and no caller can reach it.** Exactly
+one entity ships a `select_rule` - `user_bookmarks`
+(`0280_user_bookmarks.sql:45`), a per-user bookmarks table that will not grow.
+The other rule shapes measured alongside it on 2026-09-05 - recorded in full in
+the P2 closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md) - are
+test fixtures created and rolled back inside tests; they do not exist in an
+installation.
+
+P14 carried Medium, not the High it inherited from P2. That grade came from the
+release review of 2026-09-02 in a different context, and a row nobody can reach
+does not outrank the reachable security rows that sat at Medium beside it (S5,
+S8, S9, all since closed).
+
+**What makes this urgent is the first `select_rule` on an entity that grows.**
+From that point the degradation is silent, unbounded and has no workaround: it
+is linear in row count, it never raises, and an index on the rule column is
+ignored. Treat that as the trigger to pick this up - not a slow-query report,
+which arrives long after.
+
+When it is picked up, it is done when both hold:
+
+- a 100k-row scan under a named operator runs in about **20 ms or better**, with
+  the rule column used as an index condition; and
+- `delete_dd_field` on a column named in a policy leaves the policies intact,
+  pinned by a test capable of failing (constraint 3 under "When you add one" is
+  why this is part of the definition of done and not a detail).
+
+---
+
 ## What the cost actually looks like
 
 Two generated functions carry every rule, one pair per entity:
@@ -34,17 +69,36 @@ Two generated functions carry every rule, one pair per entity:
 Because the name carries the table, **per-function statistics give you a
 per-entity ranking for free**. That is the whole basis of the method below.
 
-Order of magnitude, measured 2026-09-05 on a 100k-row table with a
-`{"==": [{"var":"user_id"}, {"var":"$user_id"}]}` rule:
+Measured 2026-09-05 on `postgres18-cli` (PG18, post-P13 schema): a 100k-row
+table, `user_id` spread over 50 users so the caller owns 2,000 rows (2%), rule
+`{"==": [{"var":"user_id"}, {"var":"$user_id"}]}`. The helper was a
+byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
+`user_bookmarks` rule; one rolled-back transaction, second of two runs,
+`EXPLAIN (ANALYZE, TIMING OFF)`.
 
-| | Full scan |
-|---|---|
-| Interpreted (today) | ~4,700 ms |
-| Native, no index | ~8 ms |
-| Native, indexed column | ~1 ms |
+| Query | Interpreted (today) | Native | Native + index |
+|---|---|---|---|
+| Full scan | **4,693 ms** | 7.9 ms | 1.1 ms |
+| `count(*)` | 4,546 ms | 8.8 ms | 0.8 ms |
+| `LIMIT 20`, page 1 | 33 ms | 0.2 ms | — |
+| `OFFSET 1980 LIMIT 20` | **3,182 ms** | 6.8 ms | — |
+| `ORDER BY title LIMIT 20` | **3,344 ms** | 8.2 ms | — |
+| Floor, `USING (true)` | 4.6 ms | — | — |
+
+End-to-end that is about **45 µs per row**, against the 17.21 µs recorded in
+P13's closure — which measured the interpreter, not the SECURITY DEFINER
+PL/pgSQL frame and the `to_jsonb(p_row)` around it. P3, P12 and P13 did not
+touch either, which is why the baseline is still ~4.7 s.
+
+**Pagination does not save you.** Page 1 is genuinely cheap, but any *sorted*
+page, and any page past the first, costs ~3.2 s: a sort must see every visible
+row before it can return twenty. The exposure is the ordinary UI grid, not a
+rare admin query.
 
 An index on the rule column changes nothing while the rule is interpreted —
-measured at 4,204 ms with the index present and ignored. There is no cheaper
+measured at 4,204 ms with the index present and ignored
+(`Seq Scan ... Filter: select_rule_<t>(...)`). Indexing, partitioning and
+`ANALYZE` are all inert against an opaque predicate. There is no cheaper
 mitigation than a named operator.
 
 ---
@@ -250,7 +304,7 @@ makes the gate intrinsic instead.
 fires on the first tuple the scan filters, or before the first tuple when the
 predicate is an index condition (runtime index keys are evaluated in
 `ExecReScanIndexScan`, even on an empty table). On any plan that yields zero
-tuples neither fires — which is exactly today's behaviour, where
+tuples neither fires — which is exactly today's behavior, where
 `select_rule_<t>()` is never called either. Consequence to accept: the same query
 on the same data can answer 42501 or zero rows depending on the plan chosen,
 **so a gate test must insert a row first** or it proves nothing.
@@ -262,7 +316,7 @@ consequence, not a gap to close later.
 
 Check `pg_attribute.atttypid` against an explicit allowlist. Do **not** derive
 the type from the field's `format`: `format_to_data_type` (`0070_dd_functions.sql:14-54`)
-falls through to `TEXT` for anything it does not recognise, and a native
+falls through to `TEXT` for anything it does not recognize, and a native
 `text = int` has no operator — so `CREATE POLICY` would fail *inside* a `fields`
 trigger, at DDL time, where it is worst. A `boolean` column diverges for a
 different reason (`jl_loose_eq` coerces it through `jl_to_number`,
@@ -296,7 +350,7 @@ same shape, not a novel construct — with the `entities.select_rule <> '{}'` ga
 
 Renaming a column named by an operator is **not** covered by this: nothing
 rewrites `entities.select_rule` on a field rename. Assert the accepted
-behaviour — the comparison fails closed — rather than pretending it round-trips.
+behavior — the comparison fails closed — rather than pretending it round-trips.
 
 Budget about ten extra DDL events per field on rule-bearing entities; open item
 **P5** tracks that cost.

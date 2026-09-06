@@ -32,7 +32,7 @@ were step-by-step instructions and design notes for work now in the tree, and ev
 name them in their original text; that text is a historical record and is left as
 it was written. Git history has the files if the archaeology is ever wanted.
 
-Last updated: 2026-09-05.
+Last updated: 2026-09-06.
 
 ## The 0.5.0 rebuild (2026-09-03): where every item stands
 
@@ -596,7 +596,7 @@ Four things the measurement settled:
 
 The plan's mechanism was a registry of recognizers, each matching one literal
 rule shape by jsonb template equality, emitting native SQL for a match and
-falling back to the interpreter otherwise. Rejected in favour of **named
+falling back to the interpreter otherwise. Rejected in favor of **named
 operators** — a domain operator such as `is_owner`, implemented once in the
 interpreter and emitted natively by the policy builder, on the model of the eight
 custom operators the dialect already carries (`has_permission`,
@@ -1138,3 +1138,65 @@ again.
 2,227 by the five new assertions in 0110 and the thirteen in 0091.
 `pgdocker/pg-ext-lifecycle.sh`: **112 passed, 0 failed**, up from 105 by the
 seven checks of step 1e.
+
+---
+
+## P14 (2026-09-06): postponed - the problem stands, the record moved to the docs page
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P14 | Medium | migration | `0210_raci.sql` / `0015_jsonlogic.sql` (`evaluate_json_logic`), `0180_computed_validation.sql` (`build_select_rule_policy`) | Successor to **P2**, which was closed as scope-changed on 2026-09-05. The generated per-row predicate builds `to_jsonb(row)` and runs the interpreter for every row scanned, and is opaque to the planner: a rule column can never be an index condition, and an index on it is ignored. Measured 2026-09-05 on 100k rows: full scan **4,693 ms**, `count(*)` 4,546 ms, `ORDER BY ... LIMIT 20` **3,344 ms**, `OFFSET 1980 LIMIT 20` **3,182 ms**; with an index on the rule column present and unused, 4,204 ms. Native equivalents are 7.9 ms, and 1.1 ms indexed. Only `user_bookmarks` carries a rule today - a per-user bookmarks table that will not grow - so **nothing is slow now and no caller can reach this**. Priority is Medium, not the High it inherited from P2 on 2026-09-05: that grade came from the 2026-09-02 release review in a different context, and a row nobody can reach does not outrank the reachable security rows (S5, S8, S9) sitting at Medium. **What raises it to High is the first `select_rule` on an entity that grows**, because from that point the degradation is silent, unbounded and has no workaround - an index on the rule column is ignored. | Add **named operators** to the dialect - a domain operator such as `is_owner`, implemented once in the interpreter and emitted as native SQL by `build_select_rule_policy` - on the model of the eight custom operators already present (`has_permission`, `set_record`, `is_raci_actor`, ...). Shape recognition over generic expressions was considered and rejected (reasoning in `plans/ext-solved-items.md` under P2); a general JsonLogic-to-SQL compiler was rejected before that. **Not owned by any current plan yet.** The four constraints any implementation must respect - the auth gate must be intrinsic to the operator, the column type must come from `pg_attribute` and not from `format`, the three-arm `fields` lifecycle hook, and why a general compiler is not the answer - are written up in `docs/jsonlogic-optimization-candidates.md` under "When you add one", together with how to pick the next operator on evidence. The lifecycle hook is not optional: naming a column in an RLS policy means `delete_dd_field`'s `DROP COLUMN ... CASCADE` (`0070:1164`) drops all three policies and leaves RLS enabled with none, hiding every row silently. | A 100k-row scan under a named operator at about 20 ms or better with the rule column used as an index condition; `delete_dd_field` on a column named in a policy leaves the policies intact, pinned by a failing-capable test. |
+
+**Closed as postponed, not as done, and not as scope-changed.** Nothing was
+measured again and nothing was decided differently: the problem, the mechanism,
+the rejected alternatives and the four implementation constraints all stand
+exactly as P2's closure left them the day before. What changed is only that the
+work is no longer tracked as an open item.
+
+### Why it is acceptable to stop tracking it
+
+Not reachable, and not urgent by any measure available today:
+
+- Exactly one entity ships a `select_rule` - `user_bookmarks`
+  (`0280_user_bookmarks.sql:45`), a per-user bookmarks table that will not grow.
+  The variant-2 rules in the measurements are test fixtures created and rolled
+  back inside tests; they do not exist in an installation.
+- So no caller can reach the slow path, and nothing is slow now.
+- P14 already sat at Medium rather than the High it inherited from P2, for the
+  same reason.
+
+What is *not* claimed: that the problem is smaller than P2 measured it, or that
+a mitigation exists. There is none - an index on the rule column is ignored while
+the predicate is interpreted.
+
+### Where it went
+
+Everything the row carried is now in
+[docs/jsonlogic-optimization-candidates.md](../docs/jsonlogic-optimization-candidates.md),
+which was already the home of the four constraints and of the
+candidate-selection method, and is now the item's sole record. Folded in on
+closure:
+
+- the shipped rule shape's measurements in full, including the pagination rows
+  (`count(*)` 4,546 ms, `ORDER BY ... LIMIT 20` **3,344 ms**,
+  `OFFSET 1980 LIMIT 20` **3,182 ms**, page 1 at 33 ms) and the ~45 us per row
+  end-to-end figure - the page previously carried only the full-scan order of
+  magnitude. The variant-2 rows stay here, in the go/no-go table above, because
+  they measure a fixture that exists in no installation
+- the current reachability: one rule, on a table that will not grow
+- the priority reasoning, and **the trigger that makes it urgent again**: the
+  first `select_rule` on an entity that grows, because from that point the
+  degradation is silent, unbounded and unmitigable
+- the definition of done: a 100k-row scan at about 20 ms or better with the rule
+  column used as an index condition, and `delete_dd_field` leaving the policies
+  intact under a failing-capable test
+- that it is owned by no plan
+
+### The one thing to watch
+
+The trigger is not a slow-query report; by the time one arrives the entity has
+already grown. It is the moment someone sets a `select_rule` on an entity that
+is not a per-user table. **P5** in the open items carries the forward reference
+to the DDL cost this work would add if it is ever built.
