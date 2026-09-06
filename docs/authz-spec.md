@@ -2,12 +2,14 @@
 
 **Status:** FROZEN v2. Incorporates the stage-2 adversary panel findings and decisions
 D1–D11. Amendments require explicit review (note the change in this header).
+**Amended 2026-09-06 (references):** two pointers into a deleted plan file were replaced by the
+status they were pointing at. No invariant, decision or premise changed. This file is permanent
+and may not cite anything under `plans/`, which is disposable by design.
 **Amended 2026-06-12:** I6 corrected — the label-column rename restriction was *intentionally
 lifted*; renaming the label column is a feature, not a DD-integrity violation.
 **Amended 2026-06-12 (b-impl):** b1/b2/b4 implemented & validated — the read bypass, the I2/A4
 write-delete bypass, and the `user_process_raci` view leak are FIXED. The `/rpc/evaluate_json_logic`
-revoke was declined (read bypass closed at the helper instead). Live status →
-`plans/authz-remediation-plan.md` §7.
+revoke was declined (read bypass closed at the helper instead).
 **Amended 2026-06-12 (b5/b8):** I7 FIXED — the record-logic trigger gained a DELETE arm with
 `$mode`/`$old`; validation_rules now govern deletes (test `0337`). I-roles backstopped by a
 catalog guard (`0336`): no public RLS policy targets a role ≠ `semantius_user`; every public
@@ -22,8 +24,13 @@ deterministically on the managed F→T toggle (`0145`, test `0338`). b6 — `cre
 carry `ctype` (`0060`/`0070`/`0145`/`0240`, test `0339`), completing the `core = ctype <> ''`
 identity for the timestamps. b9 — read-helper completeness FIXED: `build_schema_for_table`
 self-gates by view_permission, `has_consultation` is caller-scoped, first-user bootstrap over-grant
-closed (test `0341`). Live status → `plans/authz-remediation-plan.md` §7.
-**Amended 2026-09-05 (S8):** I5's bootstrap exception is re-keyed. The gate is no longer
+closed (test `0341`).
+**Amended 2026-06-12 (b complete):** the whole remediation batch b1-b9 is done and validated,
+including the client-artifact regeneration (drizzle, kysely and docgen rebuilt from a clean
+`_core`-only database, and the extension reissued as a fresh-install-only build because the
+generated upgrade script was a no-op). Pinned by tests `0336` (b8), `0337` (b5), `0338` (b3),
+`0339` (b6 and the b7 audit), `0341` (b9) and `0342` (the b7 ctype lock and protection).
+**Amended 2026-09-05 (first-user bootstrap):** I5's bootstrap exception is re-keyed. The gate is no longer
 "no other user has a `last_seen`" but "no user holds role 2", taken under
 `pg_advisory_xact_lock`. The old form was a heuristic that drifted: pre-provisioned users keep
 `last_seen` NULL forever, so once the administrator was itself pre-provisioned or its `last_seen`

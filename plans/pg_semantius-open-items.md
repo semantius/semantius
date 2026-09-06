@@ -92,7 +92,7 @@ day; renumbered 2026-09-05.
 - Every fix lands with its pinning test in the same change. The suite must
   stay green on both install layouts: `pgdocker/pg-cli-retest.sh` (migrate
   path) and `pgdocker/pg-ext-retest.sh` (`CREATE EXTENSION` path); add
-  `--coverage` for the report in `docs/pg_semantius-test-coverage.md`.
+  `--coverage` for the coverage report; `docs/test-coverage.md` says how to run it and how to read it.
 - Regenerate the extension with `deno task extension <version>` and the
   `packages/*/migrations-bundle.ts` copies with `scripts/bundle-sql.ts`
   before anything ships.
@@ -283,4 +283,4 @@ and 2.10.4 all fail).
   `pg_event_trigger`, `pg_default_acl`, `proconfig` search_path check.
 - Linter: `extensions.plpgsql_check_function_tb(oid, relid => <first bound table>, security_warnings => true, performance_warnings => true, extra_warnings => true, compatibility_warnings => true)` over all PL/pgSQL members of the extension.
 - Performance: `EXPLAIN (ANALYZE, BUFFERS)` and `\timing` inside `BEGIN ... ROLLBACK` as owner or after `pgtap.authenticate_as('user2')`; per-call costs from `pg_stat_xact_user_functions` with `track_functions = all`; 100k/10k-row ephemeral entities created through the data dictionary.
-- Coverage: `deno task test --coverage` (plpgsql_check profiler plus `pg_stat_user_functions`), report and ratchet in `docs/pg_semantius-test-coverage.md`.
+- Coverage: `./pgdocker/pg-cli-retest.sh --coverage` (plpgsql_check profiler plus `pg_stat_user_functions`); reports land in `coverage/`, and `docs/test-coverage.md` says how to read them.

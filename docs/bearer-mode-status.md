@@ -66,13 +66,15 @@ Every later check reads those settings back. Custom settings have no owner:
 whoever holds the session can overwrite them, and `has_permission` cannot tell
 a value written by rbac from one written by the client. Behind PostgREST or an
 app server that is harmless, because the client never runs SQL. In session
-mode an attacker with SQL access can already rewrite the `sub` claim (release
-review S14), so the cache adds nothing for them. In a bearer session the
+mode an attacker with SQL access can already rewrite the `sub` claim - in a
+session-mode deployment the request role controls `request.jwt.claim.*` - so the
+cache adds nothing for them. In a bearer session the
 client does run SQL while the identity is pinned, so the cache was the one
 remaining way to escalate: a correctly identified user1 could write `admin`
-into `app.user_permissions`. This is release review finding S2. For regular
-configurations, PostgREST and app-server sessions, S2 is solved: the cache is
-unreachable there. What remains is bearer-only and is tracked in this file.
+into `app.user_permissions`. That is the client-writable permission cache, found
+by the release review of 2026-09-02. For regular configurations - PostgREST and
+app-server sessions - it is solved, because the cache is unreachable there. What
+remains is bearer-only and is tracked in this file.
 
 What changed on 2026-09-03:
 
@@ -83,7 +85,7 @@ What changed on 2026-09-03:
   `pg_semantius: OAuth bearer session detected; the transaction-scoped
   permission cache is disabled because app.* settings are client-writable in
   direct SQL sessions. Permissions are re-resolved on every check until the
-  cache is hardened for bearer auth (release review S2).`
+  cache is hardened for bearer auth.`
 - The two readers that took `app.current_user_id` raw, `audit.current_user_id()`
   and the generated compute/validate trigger, now derive the id through
   `rbac.user_id_or_null()`, so a hand-written setting never reaches `$user_id`
@@ -273,7 +275,8 @@ In `ensure_context_initialized`, replace the shortcut
 ```
 
 Failing closed on `invalid` matters for scopes: a tampered cache that merely
-triggered a rebuild would come back without scopes, which is the S12 trick in
+triggered a rebuild would come back without scopes, which is the scope-clearing
+trick in
 a new costume. The legitimate ways the context changes inside a transaction
 all go through `write_context` and stay valid. The test harness's
 `authenticate_as` clears the settings when it switches users; it must clear
@@ -282,11 +285,17 @@ all go through `write_context` and stay valid. The test harness's
 With the checksum in place, `rbac.is_bearer_session()` stays for `whoami` and
 the WARNING goes away: bearer sessions use the cache like everyone else.
 
-### 5. Scopes inside the signature (release review S12)
+### 5. Scopes inside the signature
+
+`app.oauth_scopes` is a client-settable GUC like the rest of `app.*`, so a
+session that can run SQL can blank it and walk out of its own confinement -
+which the checkers read as "no scopes", meaning no restriction. Putting the list
+inside the signature is what makes the confinement binding.
 
 Scopes are part of the signed payload, comma-delimited everywhere. Change the
 space-delimited lookup in `user_has_permission` to a comma. `set_request_context`
-was removed on 2026-09-03 (release review S3), so scopes need a new definer
+was removed on 2026-09-03, because it let a caller assert any identity, so
+scopes need a new definer
 entry point, say `rbac.set_request_scopes(p_oauth_scopes)`, that takes no
 identity parameter: normalize the list (split on comma or space, trim, sort,
 join with comma) and apply a narrow-only rule: if the current
@@ -294,7 +303,7 @@ context is `valid` and already carries scopes, the new set is the
 intersection, never a replacement. A scoped session can then neither clear
 nor widen its confinement.
 
-### 6. Identity binding (release review S3)
+### 6. Identity binding
 
 Done on 2026-09-03 by removal: `set_request_context` no longer exists in
 `0030` or `0190` (nothing called it). The scope entry point of step 5 must
@@ -309,7 +318,7 @@ statement. `rbac.user_id_or_null()` stays for triggers and audit.
 ### 8. Cost
 
 One primary-key lookup on `_settings` plus one HMAC per check, a few
-microseconds. Pay for it with release review P3: remove the duplicated
+microseconds. Pay for it by removing the duplicated
 `PERFORM rbac.uid()` in each checker, read `system_user` as an expression
 instead of `SELECT ... INTO`, and fetch `jwt_aud` and the secret in one
 `_settings` query.
@@ -376,7 +385,8 @@ Trade-offs against A:
 - Needs `postgresql.conf` access and a compiled artifact per PostgreSQL major.
   That is the same constraint bearer mode already has, so for a self-hosted
   appliance it is the better design.
-- Impossible on Neon and Supabase, where S2 is unreachable anyway because
+- Impossible on Neon and Supabase, where the forgeable cache is unreachable
+  anyway because
   PostgREST never lets the client run SQL. So a product that must run there
   either ships A everywhere or maintains both paths.
 - Nothing to rotate, nothing to sign, no `_settings` dependency, no replay

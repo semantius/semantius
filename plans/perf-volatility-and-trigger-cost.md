@@ -619,7 +619,7 @@ record exists somewhere durable.
 |---|---|---|
 | all | `plans/ext-solved-items.md` | one dated section per change, with the original row text, what changed, and what proves it |
 | all | `plans/pg_semantius-open-items.md` | delete the closed rows, add the IDs to the gap list at `:6`, add a closure bullet, move the date |
-| all | `docs/pg_semantius-test-coverage.md` | regenerate with `--coverage` after **each** change lands, not once at the end - every one of them adds or extends a test |
+| all | none - run `./pgdocker/pg-cli-retest.sh --coverage` after each change and compare against the previous run. `docs/test-coverage.md` says how to read it; it holds no numbers, so there is nothing to regenerate |
 | 0 | this file | the re-measured baselines, written down before any SQL is edited |
 | 1 (P10) | `SECURITY.md`, and the `0020` / `0190` comments | `users.external_id` becomes partially unique: many rows may carry `''`. That is a data-integrity rule change and belongs where someone reasoning about identity will find it |
 | 2 (P5) | `docs/jsonlogic-optimization-candidates.md` | its "budget about ten extra DDL events per field" note names P5; if P5's trigger shape changes, that paragraph follows |

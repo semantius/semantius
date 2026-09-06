@@ -10,9 +10,11 @@ Both review passes (security/testing + completeness) are incorporated.
 
 This document is the **contract**: what core now stores, in core's *real* terms (which differ from the
 platform-plan's abstraction in two places — read §2 first), how to stamp it, what core validates, and
-what core does **not** do. It supersedes the migration-numbering in
-`plans/provenance-in-core-plan.md` (the column set and tests there still stand; only the "add a new
-migration" mechanic is replaced by "edit the base migrations").
+what core does **not** do. The column set is in §3 below and the tests are named in §4 and §6a; this file is the
+authoritative contract for both. The one thing that changed since the work was planned is the
+mechanic: columns are added by **editing the base migrations**, not by adding a new numbered
+migration - the project is in prototyping mode, where there are no upgrade scripts and a fresh
+install is the only install.
 
 ---
 
@@ -109,7 +111,7 @@ freeform `modules.settings` JSONB. Core adds nothing and constrains nothing — 
 them as plain JSON.
 
 ### 3.5 `lifecycle_states` registry (D3) — **DEFERRED, not in v0.1.2**
-Per the plan author's ruling (§8 Q5): do **not** ship a standalone table. The lifecycle slice will
+Per the ruling in §8 item 5: do **not** ship a standalone table. The lifecycle slice will
 **extend `process_gates`** when the RACI-in-platform work lands. The §3.1–§3.3 columns ship in v0.1.2
 without it. The shape below is retained for that future work only.
 
@@ -183,7 +185,7 @@ PostgREST exposes the new columns automatically — no PostgREST config in this 
 - NOT NULL + empty defaults on all 8.
 - Core-column protection: each new field is `ctype='core'`, so it cannot be renamed/deleted and its
   `ctype` cannot be cleared by a tenant admin.
-- **Write-once on the three scalar join-key codes (D2 — ruled "enforce in core", §8 Q2).**
+- **Write-once on the three scalar join-key codes (D2 — ruled "enforce in core", §8 item 2).**
   `catalog_entity_code`, `catalog_field_code`, `catalog_module_code` reject a value-changing UPDATE
   once non-empty, via a `validation_rules` entry on the owning entity (`entities`/`fields`/`modules`)
   — the proven `roles.origin` path, rejection = SQLSTATE `23514`. `'' → value` backfill and INSERT
@@ -213,8 +215,8 @@ PostgREST exposes the new columns automatically — no PostgREST config in this 
   trigger — the codes remain core-enforced regardless.
 
 **NOT enforced by core (intentional):**
-- **`entity_type` derivation (D9 ladder).** Core only stores + range-checks (§8 Q3 confirmed).
-- **`pattern_flags` key vocabulary.** Core accepts any object (§8 Q4 confirmed).
+- **`entity_type` derivation (D9 ladder).** Core only stores + range-checks (§8 item 3 confirmed).
+- **`pattern_flags` key vocabulary.** Core accepts any object (§8 item 4 confirmed).
 - **`catalog_role_code` mutability.** Left mutable — no consumer yet (D5), so no write-once rule. Add
   one if/when a persona-mapping consumer appears. `canonical_owner_module` is a soft pointer, also not
   write-once (a placeholder's owner may legitimately resolve/change).
@@ -277,7 +279,7 @@ protection (`P0001` on delete, `42501` on ctype clear).
    (a referencing field's `reference_table` auto-updates on rename); a provenance-flavoured assertion
    joining via `catalog_field_code` can be added for explicitness.
 
-**C. Topologies & identity invariants (added per the plan author's Q6):**
+**C. Topologies & identity invariants (§8 item 6):**
 6. **Multi-recurrence disambiguation (the most important guarantee).** 3 entities all
    `catalog_entity_code='vendors'` in 3 modules; the step-2 query scoped to one domain
    (`… AND module_id IN (SELECT id FROM modules WHERE catalog_module_code = ANY(:slice))`) returns

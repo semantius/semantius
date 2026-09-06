@@ -17,29 +17,35 @@ This document is about deciding *which* operator to add next on evidence rather
 than on hunch. It is a periodic review, not something to automate or to run
 continuously.
 
-For why the general "compile any JsonLogic expression to SQL" route was rejected,
-see the P2 closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md).
+Two other routes were designed and rejected before this one. Both reasons are
+written out under "Do not write a general compiler" below, so this page stands
+on its own.
 
 ---
 
 ## Status: postponed, and what would change that
 
-This was tracked as open item **P14** (successor to **P2**) until 2026-09-06,
-when it was **closed as postponed**. Nothing about the problem changed. It is
-owned by no plan, and this document is now its only record.
+This was tracked as an open item until 2026-09-06, when it was **postponed by
+decision**. Nothing about the problem changed. It is owned by no plan, and this
+document is its only record.
 
 Postponed because **nothing is slow today and no caller can reach it.** Exactly
 one entity ships a `select_rule` - `user_bookmarks`
 (`0280_user_bookmarks.sql:45`), a per-user bookmarks table that will not grow.
-The other rule shapes measured alongside it on 2026-09-05 - recorded in full in
-the P2 closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md) - are
-test fixtures created and rolled back inside tests; they do not exist in an
-installation.
+The other rule shapes measured alongside it on 2026-09-05 - four uses of
+`{"or":[{"has_permission":...},...]}` - are test fixtures created and rolled
+back inside tests; they do not exist in an installation. Their numbers are not
+reproduced here because they measure a shape nobody ships: a full scan cost
+5,404 ms interpreted for a non-holder and 2,229 ms for a permission holder,
+against 8.2 ms and 6.0 ms native, and the native form stayed a sequential scan
+with an index present because an `OR` needs every arm index-matchable.
 
-P14 carried Medium, not the High it inherited from P2. That grade came from the
-release review of 2026-09-02 in a different context, and a row nobody can reach
-does not outrank the reachable security rows that sat at Medium beside it (S5,
-S8, S9, all since closed).
+It was graded Medium rather than the High it had carried since the release
+review of 2026-09-02. That grade was set in a different context, and a problem
+nobody can reach does not outrank the reachable security work that sat at Medium
+beside it - the audit tables writable by the request role, the first-user
+bootstrap that could elect a second administrator, and reading another user's
+permissions, all since fixed.
 
 **What makes this urgent is the first `select_rule` on an entity that grows.**
 From that point the degradation is silent, unbounded and has no workaround: it
@@ -69,7 +75,8 @@ Two generated functions carry every rule, one pair per entity:
 Because the name carries the table, **per-function statistics give you a
 per-entity ranking for free**. That is the whole basis of the method below.
 
-Measured 2026-09-05 on `postgres18-cli` (PG18, post-P13 schema): a 100k-row
+Measured 2026-09-05 on `postgres18-cli`, on a schema where the request context
+had already been hoisted to one resolution per statement: a 100k-row
 table, `user_id` spread over 50 users so the caller owns 2,000 rows (2%), rule
 `{"==": [{"var":"user_id"}, {"var":"$user_id"}]}`. The helper was a
 byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
@@ -85,10 +92,12 @@ byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
 | `ORDER BY title LIMIT 20` | **3,344 ms** | 8.2 ms | — |
 | Floor, `USING (true)` | 4.6 ms | — | — |
 
-End-to-end that is about **45 µs per row**, against the 17.21 µs recorded in
-P13's closure — which measured the interpreter, not the SECURITY DEFINER
-PL/pgSQL frame and the `to_jsonb(p_row)` around it. P3, P12 and P13 did not
-touch either, which is why the baseline is still ~4.7 s.
+End-to-end that is about **45 µs per row**, against 17.21 µs for the rule
+evaluation alone — the difference is the SECURITY DEFINER PL/pgSQL frame and the
+`to_jsonb(p_row)` around it. Three earlier optimizations (a cheaper warm
+permission check, an interpreter that no longer queries the database to read a
+JSON key, and the hoisted request context) touched neither, which is why the
+baseline is still ~4.7 s.
 
 **Pagination does not save you.** Page 1 is genuinely cheap, but any *sorted*
 page, and any page past the first, costs ~3.2 s: a sort must see every visible
@@ -250,9 +259,9 @@ Beyond the three signals, prefer a shape that:
    timestamp coercion. A named `not_expired` operator resolves the column against
    `pg_attribute` and compares dates as dates. The generic path is faithful to
    the reference since 2026-09-05 (two strings compare as text, and a
-   non-numeric string no longer raises; B20 and B21 in
-   `plans/ext-solved-items.md`), but it still cannot know that a column is a
-   date, which is the point.
+   non-numeric string no longer raises, both fixed 2026-09-05 and pinned by
+   corpus cases 290 to 311), but it still cannot know that a column is a date,
+   which is the point.
 
 ## Confirming the win before committing
 
@@ -352,15 +361,38 @@ Renaming a column named by an operator is **not** covered by this: nothing
 rewrites `entities.select_rule` on a field rename. Assert the accepted
 behavior — the comparison fails closed — rather than pretending it round-trips.
 
-Budget about ten extra DDL events per field on rule-bearing entities; open item
-**P5** tracks that cost.
+Budget about ten extra DDL events per field on rule-bearing entities. That cost
+lands on top of what adding a field already triggers - a full label-function
+rebuild and an `entities` UPDATE that cascades through the entity trigger stack -
+so measure it there before assuming the budget is affordable.
 
-### 4. Do not write a general compiler
+### 4. Do not write a general compiler, and do not recognize shapes either
+
+**Shape recognition was the second rejected route**: a registry of recognizers,
+each matching one literal rule shape by jsonb template equality, emitting native
+SQL on a match and falling back to the interpreter otherwise. Four reasons it
+lost to named operators, recorded 2026-09-05:
+
+- **Almost the whole cost was proving equivalence**, and that burden exists only
+  because a generic expression inherits the generic operators' coercion rules.
+  Template matching, near-miss controls, a three-way differential and an md5
+  drift tripwire over `jl_loose_eq` / `jl_to_number` were all in service of
+  proving that two independently written predicates agree on cases nobody chose.
+- **Its own deferred shape was the evidence.** Temporal validity
+  (`{">=":[{"var":"col"},{"var":"$today"}]}`) was identified as the obvious
+  second shape and then deferred, entirely because `>=` coerces both sides
+  through `jl_to_number`. A named `not_expired` operator has none of that. The
+  shape was hard only because of the approach.
+- **Performance becomes visible rather than accidental.** Under recognition,
+  whether an entity is fast depends on whether its rule happens to match a
+  template the author cannot see; rewording it silently costs 500x.
+- **The backwards-compatibility argument is thin here.** Exactly one rule ships.
 
 A general JsonLogic-to-SQL translator was designed and rejected twice. It is a
 second implementation of a 44-operator language whose definition is split across
 `0015_jsonlogic.sql` and the `CREATE OR REPLACE` in `0210_raci.sql`, so the two
 drift silently, and review passes kept finding semantic divergences between the
 interpreter and the obvious SQL mapping. Named operators exist precisely so that
-neither side has to reverse-engineer the other. The full reasoning is in the P2
-closure in [plans/ext-solved-items.md](../plans/ext-solved-items.md).
+neither side has to reverse-engineer the other: an operator is defined once and
+both implementations derive from that definition, instead of two independently
+written predicates having to be proven equal on cases nobody chose.

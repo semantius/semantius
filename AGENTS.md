@@ -22,18 +22,36 @@ This document provides essential information for AI agents working with the Sema
   - **Do not defer the reasoning to a document or a tracking id.** `see
     docs/foo.md`, `(open item P3)`, `(release review S2)` are pointers, not
     explanations, and a reader who has only this file is left with nothing. Plan
-    ids are worse than merely indirect: they dangle by construction, because a
-    closed item is *deleted* from `plans/pg_semantius-open-items.md`. Write the
-    reasoning into the comment. Cross-references to other SQL or test files
+    ids and plan filenames are worse than merely indirect: they dangle by
+    construction, because a closed item is *deleted* from
+    `plans/pg_semantius-open-items.md` and the plan file itself is deleted with
+    it. Write the reasoning into the comment. This is the comment-level case of
+    the lifetime rule above, which applies to every file, not only to code.
+    Cross-references to other SQL or test files
     (`pinned by 0405_test_rbac_helpers.sql`) are fine - they live in the
     repository and survive.
   - **Describe the code, not the change that produced it.** "One expression
     instead of two queries", "no longer calls uid() twice", "the old count(*)
     test kept this" all narrate a diff against something no future reader can
     see. Say what the code does and why, in the present tense. Git holds the
-    history and `plans/ext-solved-items.md` holds the rationale for the change.
+    history, and it is the only thing that does - anything under `plans/` is
+    disposable, so a comment must never send the reader there.
   - **The same applies to text the user sees.** An internal tracking id inside a
     `RAISE` message or a CLI error means nothing to the operator reading it.
+- **`docs/` is permanent, `plans/` is disposable, and nothing in `docs/` may
+  point into `plans/`.** The folder a file sits in states its lifetime. Every
+  plan is deleted once it owns no open row, rows are deleted from
+  `plans/pg_semantius-open-items.md` when they close, and
+  `plans/ext-solved-items.md` is a hand-off note that exists so those rows can
+  be deleted quickly - it is not an archive and it goes too. The archive is git.
+  So the reasoning that must survive gets **written out** into a `docs/` page, a
+  code comment or a test - copied, never linked. `see plans/...` in a permanent
+  file, a migration or a comment is a dangling reference by construction. The
+  one pointer that is allowed runs the other way and cleans up after itself: an
+  *open* row names its owning plan in the Fix column, and the row dies with the
+  plan. Quoting a plan's name inside preserved historical text is fine; it
+  records what was true rather than pointing at what still exists.
+
 - **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
 
 ## Project Overview
