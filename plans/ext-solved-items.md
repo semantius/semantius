@@ -818,8 +818,7 @@ search_path` (would also have cleared the 75 linter warnings).
 
 What changed: nothing in the migrations. Guard test
 `0240_test_no_unsafe_functions.sql` keeps `pgmq` in its exclusion lists and
-now says in a comment that this is a decision, not an oversight. The
-reasoning also lives in `plans/security-grants-and-guards.md` under Q7. If
+now says in a comment that this is a decision, not an oversight. If
 the reachability changes, because `pgmq` is added to `PGRST_DB_SCHEMAS` or
 the request role gains SELECT on queue tables, this decision has to be
 revisited.
@@ -828,7 +827,7 @@ revisited.
 
 ## S5, S6, S9, S10, S11 (2026-09-05): the mechanical five, plus three of the same shape
 
-Five rows from `plans/security-grants-and-guards.md`, all closed by a REVOKE, a
+Five rows, all closed by a REVOKE, a
 `SECURITY DEFINER` flip on a trigger function, or a self-or-admin guard. The
 plan's decisions are recorded there; this is what shipped, and the three
 findings that turned out to matter more than the rows themselves.
@@ -970,7 +969,7 @@ PostgREST (no GRANT to semantius_user)" fourteen lines above the GRANT. It was
 also executable by PUBLIC, and it was the single hard-coded exception in guard
 test 2.2.
 
-Two fixes were on the table (`plans/security-grants-and-guards.md`): revoke it,
+Two fixes were on the table: revoke it,
 or keep it callable behind an `rbac.uid()` check with a constant-time miss path.
 The owner chose to revoke, which is what the whole tree already assumed.
 
@@ -1198,5 +1197,329 @@ closure:
 
 The trigger is not a slow-query report; by the time one arrives the entity has
 already grown. It is the moment someone sets a `select_rule` on an entity that
-is not a per-user table. **P5** in the open items carries the forward reference
-to the DDL cost this work would add if it is ever built.
+is not a per-user table. The DDL cost this work would add - about ten events per
+field on a rule-bearing entity - is carried in
+[docs/jsonlogic-optimization-candidates.md](../docs/jsonlogic-optimization-candidates.md),
+against the post-P5 base of two.
+
+## P5, P7, P8, P9 and P10 (2026-09-06): the cost of a field, the volatility contract, and the per-entity loops
+
+Five rows closed together because they share one substrate - the trigger stack
+that fires on a `fields` write, and the `STABLE` permission readers every read
+path goes through. Measured first, then changed: four of the five were graded on
+numbers from a schema that P3, P11, P12 and P13 had already changed, and one of
+those numbers turned out to be off by a factor of two.
+
+All measurements below are on `postgres18-cli` (PostgreSQL 18, the pgdocker dev
+image), inside rolled-back transactions, as `user3` (Administrator, so no entity
+is skipped by the permission test). Both harnesses green at **2,275 assertions**
+(`pgdocker/pg-cli-retest.sh` and `pgdocker/pg-ext-retest.sh`), up from 2,247.
+
+### What the re-measurement found, before any SQL changed
+
+| What | Graded at | Measured 2026-09-06 |
+|---|---|---|
+| P5: one field insert, warm | 5 ms, 3 audit rows, 6 DDL events, 8 NOTIFYs | **5.8-6.9 ms**, 3 audit rows, 4 DDL events, 7 NOTIFYs |
+| P7: `WHERE rbac.has_permission('x')` over 20k rows, hoisted | 5 ms | **1.8 ms** |
+| P7: the same, row-dependent argument | 532 ms | **34 ms** |
+| P7: the same through an RLS policy | not measured | **1.3 ms** (already an InitPlan) |
+| P9: `get_user_cubes()` at 250 entities, warm | about 220 ms, extrapolated from 0.87 ms per entity at 33 | **170 ms**, which is 0.47 ms per entity |
+
+Two of those changed what was then done. P5 was *worse* than its grade, not
+better. And P9's per-entity cost is roughly half what the target was set
+against, so the full set-based rewrite the plan chose was cut down to what the
+profile actually justified. The cold-path caveat the plan raised is answered
+too: cold and warm differ by about 15 ms at 250 entities as at 34, so that gap
+is a fixed per-backend plan-compilation cost and does not scale with entity
+count.
+
+A note on measuring P9: driven from `psql`, `get_user_cubes()` at 250 entities
+reads 130-200 ms, because the client also serializes 250 JSON documents. The
+figures here are from a `DO` block timing the call inside the server, which is
+the function's own cost. Both numbers are real; they answer different questions.
+
+### P10: the duplicate indexes
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P10 | Low | migration | `0020_rbac_schema.sql` (indexes) | Redundant indexes: `users.external_id` has three, `permissions.permission_name`, `roles.role_name`, `roles.slug` two each; `user_roles(user_id)`, `role_permissions(role_id)`, `user_permissions(user_id)`, `permission_hierarchy(including)` duplicate the leading column of their composite unique index. Nothing lacks an index; the recursive permission CTE runs in 0.6 ms with index-only scans. | Drop the duplicates, enumerating them from the catalog rather than from this row. **Owned by `plans/2026-09-06-1250-p-rows.md`** (change 1). `users.external_id` is **done 2026-09-06**: the table no longer declares its own `UNIQUE`, `idx_users_external_id` is gone, and the dictionary's partial unique index is the only one left, with the index predicate added to the four `ON CONFLICT (external_id)` sites so PostgreSQL can still infer the arbiter. Seven duplicates remain. | The duplicates are gone; the permission CTE still uses index-only scans. |
+
+**Closed as done.** `users.external_id` was settled on 2026-09-06 before this
+batch. The other seven the row names are gone, and so is an eighth the row does
+not name but the catalog does - `idx_modules_name`, the same shape in the same
+file. Enumerated from `pg_index` rather than from the row, as the Fix asked:
+
+| Dropped | Because |
+|---|---|
+| `idx_modules_name` | `modules_module_name_key` covers `module_name` |
+| `idx_permissions_name` | `permissions_permission_name_key` |
+| `idx_roles_name` | `roles_role_name_key` |
+| `idx_roles_slug` | `roles_slug_key` |
+| `idx_user_roles_user` | leading column of `UNIQUE (user_id, role_id)` |
+| `idx_role_permissions_role` | leading column of `UNIQUE (role_id, permission_id)` |
+| `idx_user_permissions_user` | leading column of `UNIQUE (user_id, permission_id)` |
+| `idx_permission_hierarchy_including` | leading column of `UNIQUE (including, included)` |
+
+The row's risk clause - a narrow index is not automatically redundant against a
+composite one - was checked rather than assumed. `EXPLAIN (ANALYZE)` of the
+recursive permission CTE before and after: 0.576 ms against 0.669 ms, and the
+plan does not degrade but *improves*, `role_permissions` going from an Index
+Scan to an Index Only Scan because the composite carries `permission_id` as
+well. With the duplicates put back, `user_roles` is read sequentially.
+
+**Pinned by a new `apps/test/tests/0450_test_rbac_indexes.sql`** (9 assertions).
+It sweeps `pg_index` for the shape rather than naming index names, so a
+duplicate reintroduced under any name fails it; it asserts the unique indexes
+that make them redundant are still present, so the sweep cannot pass vacuously;
+and it reads the CTE's plan and asserts no junction table is scanned
+sequentially. Verified failing-capable: recreating `idx_user_roles_user` fails
+three of the nine.
+
+**Three duplicates of the same shape are left in place, deliberately**, because
+they live in files this row does not cover: `idx_fields_table` (`0060`),
+`idx_process_gates_process_id` and `idx_raci_assignments_process_id` (`0210`).
+Dropping all eleven was measured and changes nothing either way. The sweep in
+0450 is scoped to the eight tables `0020_rbac_schema.sql` creates, so it does
+not silently bless the other three either.
+
+**The data-integrity change that came with the `external_id` half is now stated
+where someone reasoning about identity will find it**: `SECURITY.md` under "What
+is not", and comments at `0020_rbac_schema.sql` and `0190_user_name_claims.sql`.
+Many rows may carry `external_id = ''`, where a total `UNIQUE` allowed one. It
+is tracked as **S20** until agents get generated identifiers. `get_schema()`
+still reports `unique_value: true` for that column, which is a half-truth a
+client enforcing uniqueness from the schema will be wrong about for the empty
+string; that is recorded in the `0190` comment rather than fixed.
+
+### P5: the cost of adding a field
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P5 | Medium | migration | `0070` (`fields` triggers), `0145` (`rebuild_entity_label_functions`) | Every `fields` insert triggers a full label-function rebuild and an `entities` UPDATE (usually a no-op) that cascades into a dozen `entities` triggers and a `modules` UPDATE. 30-field entity: 150 ms (5 ms/field); per 31 fields: 31 rebuilds, 186 DDL events, 518 event-trigger firings, 253 NOTIFYs, 93 audit rows. | `UPDATE entities ... WHERE searchable IS DISTINCT FROM v`; skip the rebuild for fields that are neither reference/parent nor the label column (trigger WHEN clause); statement-level rebuild with transition tables for bulk inserts. **Owned by `plans/2026-09-06-1250-p-rows.md`**, change 2: start with the two-line `IS DISTINCT FROM` guard and stop as soon as the target is met. The postponed named-operator work (`docs/jsonlogic-optimization-candidates.md`, formerly **P14**) would *add* about ten DDL events per field on rule-bearing entities (a three-arm `fields` trigger keeping the policies in step with the column), so account for that here if it is ever built. | About 1.5 ms per field (from 5 ms); audit rows per field 1 (from 3). |
+
+**Closed as done, and the "done when" is met with one deliberate exception.**
+Per-field cost went from **5.8-6.9 ms to 1.9-2.4 ms**, and audit rows per field
+from 3 to 1 - both better than the row asked for. The shipped figure is
+**2.3-2.8 ms and 2 audit rows**, because the second half of this batch adds a
+`modules.version` bump on every `fields` write (see P9 below). That bump is a
+correctness fix, it costs about 0.4 ms and one audit row per field, and it
+replaces a version bump that used to happen by accident through the very
+`entities` UPDATE that (a) removes. The row's "1 audit row" was written without
+knowing the version bump had to be kept on purpose.
+
+Two of the row's three sub-fixes were enough; the third was not built.
+
+**(a) The no-op `entities` UPDATE.** `update_table_searchable_flag` and
+`update_table_is_child_flag` (`0070_dd_functions.sql`) now carry
+`AND <flag> IS DISTINCT FROM <value>`. The flag is recomputed on every field
+write and is almost always already correct, and the UPDATE was firing the audit
+trigger, the PostgREST notify trigger and the module version bump, and cascading
+into a `modules` UPDATE with a trigger stack of its own.
+
+**(b) The label rebuild.** The row proposed a trigger `WHEN` clause; that cannot
+work, because `label_column` lives on `entities` and a `WHEN` clause may not
+query another table. The gate is an early `RETURN NULL` inside
+`dd_label_fn_sync_field()` (`0145_managed_enable.sql`) instead, on `INSERT`
+only - `DELETE` and `UPDATE` are a different question nobody asked. It is
+derived from what `rebuild_entity_label_functions` reads, not from a guess, and
+five kinds of inserted field still rebuild:
+
+- a `reference`/`parent` field (adds an `<fk>_label` companion, and a junction leg);
+- the entity's `label_column` (turns the local term from `NULL` into the column);
+- the field named by `label_parent`;
+- **any field on an entity with two or more parent legs**, because
+  `dd_is_junction()` reads every field and one payload field flips the `_label`
+  body from the combined legs to the local term. Testing for the legs rather
+  than re-deriving the heuristic over-rebuilds for a stamped junction, which
+  costs nothing and cannot be wrong;
+- **a field whose name collides with an `<fk>_label` companion**, because the
+  generator skips a companion when a real column owns that name, so the function
+  it now shadows has to go. `reserve_field_namespace()` reserves only names
+  starting with `_`, so `customer_id_label` is a legal field name.
+
+The last two are what a "reference or label column" gate would have missed, and
+missing one fails silently: a stale `<fk>_label` keeps answering with the old
+body and nothing raises.
+
+**(c) Statement-level rebuild with transition tables: not built.** It only pays
+on bulk inserts, (a) and (b) met the target, and it would add a seventh trigger
+function the linter cannot parse (**Q6**).
+
+**Pinned by** `0370_test_composed_labels.sql` (five new assertions: a plain
+scalar field does not move the `_label` function's OID and the composed label
+still answers; a reference field does move it and its companion exists; a plain
+field on a two-leg junction does; a colliding field drops the companion) and
+`0448_test_statement_triggers.sql` (three new: two audit rows per plain field,
+none of them on `entities`, and no label-rebuild DDL). The OID is the check
+rather than the output, because a rebuild drops and recreates.
+
+### P7: the STABLE functions that write
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P7 | Medium | migration | `rbac.uid`, `has_permission`, `has_any_permission`, `get_current_user_permissions`, `user_id`, `whoami`, `is_raci_actor`, `has_consultation`, `public.jl_request_context`, generated `select_rule_*` | Declared STABLE but they write GUCs via `ensure_context_initialized`/`set_config`. The planner may evaluate them at plan time (side effects, a missing-JWT error during `EXPLAIN`/prepare) and their SQL sees the outer statement's snapshot (the workaround in `0080` exists because of this). 13 linter warnings. Hoisting is desirable: `WHERE rbac.has_permission('x')` over 20k rows is 5 ms hoisted vs 532 ms row-dependent. | Keep STABLE but move the writes into one VOLATILE `rbac.normalize_claims()`/`ensure_context_initialized()` called from a single place; the STABLE readers only read. **Owned by `plans/2026-09-06-1250-p-rows.md`** (change 3). Settled there on 2026-09-06 as **option B**: the readers keep their lazy write, and no `rbac.begin_request()` is built. Making them pure needs something to build the context at the start of each request, and the primary deployment target - Neon's managed Data API - runs no code of ours per request and exposes no `db-pre-request`, so it would run permanently cold: about 1 ms per check instead of 0.025 ms, and per row wherever the interpreter's `has_permission` operator appears. What is left is a reproduction, re-scoping the one write that outlives its transaction (`0030:380`), and writing the contract down. `public.jl_request_context` is a member: it is STABLE and reaches `ensure_context_initialized` through `rbac.user_id()`, and it is called from every generated `select_rule` policy through an uncorrelated sub-select, so a plan-time evaluation would hit it too. This previously named the hot-paths plan as its owner, which does not and never did add a STABLE function - corrected 2026-09-05; that plan has since landed and been deleted. | Restated 2026-09-06 with the option-B decision: no plan-time side effects on any reachable path (`EXPLAIN` of a policy-guarded query without claims no longer raises), and `app.bearer_cache_notice` no longer outlives its transaction. The 13 linter warnings are **accepted, not fixed** - the readers keep their lazy write, because Neon's Data API has no per-request seam to build the cache from. The `0080` workaround stays: it is a snapshot problem, not a volatility one. |
+
+**Closed as restated on 2026-09-06, under option B - the readers keep their lazy
+write.** Delivered: the one write that outlived its transaction is gone, the
+plan-time clause is met and now proved rather than assumed, and the contract is
+written down in three places.
+
+**The reproduction fires - synthetically.** With `track_functions = 'pl'`, an
+`EXPLAIN` (no execution) of `SELECT * FROM t WHERE id = rbac.user_id()`
+increments `rbac.user_id`, `rbac.uid` and `rbac.ensure_context_initialized` in
+`pg_stat_xact_user_functions`. So does `LIMIT rbac.user_id()`, and so does
+`WHERE label LIKE (rbac.uid() || '%')`. The planner really does execute these
+functions while estimating; the mechanism is not theoretical.
+
+**No reachable path has that shape.** The same probe over `SELECT`, `INSERT`,
+`UPDATE` and `DELETE` on `user_bookmarks` - the one table whose policy set
+contains `user_id = rbac.user_id()` - moves no counter, because that expression
+is a `WITH CHECK`, and a `WITH CHECK` is a per-row test after the fact, never a
+scan qual, so no estimator sees it. Every other policy wraps its call in a
+sub-select. `EXPLAIN` of a policy-guarded query in a session with **no claims at
+all** plans without raising, and so does the generic plan at the sixth `EXECUTE`
+of a `PREPARE`.
+
+**The one write that had to move.** `app.bearer_cache_notice`
+(`0030_rbac_functions.sql`) was written with `is_local => false`, so the "already
+warned" flag survived its transaction. It is transaction-local now. The
+consequence is real and is recorded rather than glossed: in a bearer session the
+warning is emitted once per **transaction** instead of once per session, which
+in an autocommit client means once per statement.
+`pgdocker/test_bearer_cache.ts` asserts both halves against a real OAUTHBEARER
+session - one notice for two checks inside one transaction, a fresh one in the
+next - and `docs/bearer-mode-status.md` records the change of scope.
+
+That harness also had a protocol bug this change exposed: it threw on an
+`ErrorResponse` without draining to `ReadyForQuery`, so after the deliberate
+`require_permission` failure every later query read the *previous* statement's
+response. Fixed there.
+
+`apps/test/migrations/0020_ext.sql` writes `app.*` with `is_local => false` too.
+That is the test harness setting up a session, not a defect, and
+`0451_test_volatility_contract.sql` asserts it deliberately so a later reader
+does not "fix" it.
+
+**The contract is written down** above `rbac.uid()` and
+`rbac.ensure_context_initialized()` in `0030_rbac_functions.sql`, with the
+one-paragraph version in `AGENTS.md` and the trust half sharpened in
+`SECURITY.md`: what they write (transaction-local GUCs, never a row), why they
+are `STABLE` anyway (34 ms against 1.8 ms over 20k rows), what the label costs
+(plan-time evaluation, and the shape that reaches it), why the writes are not
+moved into a `VOLATILE` per-request entry point (Neon's Data API has no seam),
+and what a cold session costs (about 1 ms against 0.025 ms warm).
+
+**Not delivered, and the record says so:**
+
+- **The 13 linter warnings stay**, accepted rather than fixed.
+- **The `0080`/`0190` workaround stays.** It is a snapshot problem, not a
+  volatility one: a `STABLE` function reads the calling statement's snapshot and
+  cannot see the user row `get_userinfo()` just created.
+- **`modules_select_policy` stays a correlated sub-select** (`0050_rbac_rls.sql`),
+  closed as not worth fixing: under 20 modules, about 0.5 ms warm. The test that
+  overpromises about it is **R10**, and it is still open.
+- **Bearer mode still pays every per-row site cold.** Known and accepted.
+
+**Pinned by a new `apps/test/tests/0451_test_volatility_contract.sql`**
+(8 assertions): no function in `rbac`/`public`/`audit`/`common` writes a
+session-scoped setting; `pgtap.authenticate_as` does, deliberately; no policy
+`USING` clause calls a subject reader next to a column; a policy-guarded
+`EXPLAIN` with no claims lives; **and the foldable shape raises**, which is what
+keeps the assertion above from being vacuous.
+
+### P8: labeling the read-only RPCs STABLE
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P8 | Low | migration | `0080` RPCs, `rbac.get_user_permissions`, `list_api_keys`, `require_*` | VOLATILE but read-only (8 linter warnings). PostgREST serves only STABLE/IMMUTABLE RPCs via GET in read-only transactions. | Label STABLE, so PostgREST serves them over `GET` rather than POST only. **Owned by `plans/2026-09-06-1250-p-rows.md`** (change 4). Every function named here reaches `set_config` through `rbac.uid`/`has_permission` - `rbac.get_user_permissions` included, through the self-or-admin guard at `0030:821-828` - so the label is accepted rather than made true, on the same reasoning as P7's option B: the writes are transaction-local settings, legal in a read-only transaction, and neither hoisting nor plan-time folding reaches an RPC call. `public.get_userinfo` upserts a row and stays VOLATILE. Decided 2026-09-06. The row closes **against its original wording**, not restated: plpgsql_check does not chase into called functions - it already calls these eight "VOLATILE but read-only" - so labeling them removes those eight warnings and adds none. | The 8 warnings are gone; the RPCs answer GET. |
+
+**Closed against its original wording, as the row's Fix column already said it
+would.** Nine functions are `STABLE` now: `public.get_schema`, `get_schemas`,
+`get_user_cubes`, `get_module_cubes`, `get_user_modules`, `list_api_keys`, and
+`rbac.require_permission`, `require_any_permission`, `get_user_permissions`.
+`public.get_userinfo` stays `VOLATILE`: it upserts the user row.
+
+`get_user_modules` is defined twice - `0080_public_functions.sql` and again in
+`0284_module_slug_provision.sql`, which replaces the body. Both carry the label;
+labeling only the first would have been silently overwritten.
+
+Each was checked for a row write before labeling. Everything they reach is
+`set_config(..., true)`, which is legal inside the read-only transaction a `GET`
+runs in, and neither thing `STABLE` licenses bites: evaluate-once-and-reuse
+needs repeated calls inside one query, and plan-time folding needs
+`col <op> fn(const)`, while an RPC arrives as a targetlist entry.
+
+**The pin is a catalog assertion plus a live GET.** What PostgREST's GET gate
+reads is `pg_proc.provolatile`, so `0451_test_volatility_contract.sql` asserts
+each named function is `s` and that `get_userinfo` is `v`. The end-to-end half
+went into `docker-compose/api-test.sh` as step 7 rather than
+`pgdocker/pg-ext-lifecycle.sh`, which runs a bare PostgreSQL container with no
+PostgREST in front of it: four RPCs must answer `GET`, and `get_userinfo` must
+still answer 405.
+
+### P9: the per-entity loops
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| P9 | Medium | migration | `0080_public_functions.sql` (`get_user_cubes`, `get_module_cubes`, `get_schema`) | Per-entity loops with three SPI queries each; `get_module_cubes` re-selects the entity it iterates. Measured 2026-09-06 on the live 33-entity database, warm, as an Administrator who sees every entity: `get_user_cubes()` **28.7-29.8 ms** (85 ms cold), which is **0.87 ms per entity**, effectively all of it inside `build_schema_for_table`; `get_schema` 1.8 ms warm. The shape is a per-entity loop so the warm cost should scale linearly, but that is inferred from one entity count, not measured across two. Fine at 33 entities, and the owner confirmed on 2026-09-06 that **250 entities - about ten real modules - is the realistic high end in production**, where the warm call would cost about 220 ms. The cold figure (85 ms at 33) does not extrapolate from a single point and is unmeasured at scale. | One set-based query instead of the per-entity loop with three queries each - **not** a cache. The target is under 150 ms at 250 entities (owner, 2026-09-06), which is under 0.6 ms per entity against 0.87 today, and the rewrite alone should reach roughly 0.3. A cache would be faster still but brings invalidation, cross-module staleness and storage problems the rewrite does not have; revisit only if the rewrite misses. `build_schema_for_table`'s per-caller gate (`0080:231`) stays on every read - it is about 6% of the cost and a read bypass to lose. `get_module_cubes` re-selecting the entity it already iterates (`0080:712-714`) is separable and worth minutes. Separately and independently: `modules.version` does not move on a `fields` change today, only as a side effect of a no-op `UPDATE entities` that change 2 removes, so an explicit `fields` bump trigger lands first - a correctness fix for every consumer of that version. `get_module_cubes` re-selecting the entity it already iterates (`0080:712-714`) is separable and can be fixed on its own. **Owned by `plans/2026-09-06-1250-p-rows.md`** (change 5). | `get_user_cubes()` under 150 ms at 250 entities, measured the way change 0 measured 33, with `build_schema_for_table`'s per-caller gate still enforced on every read; and `modules.version` moving on a `fields` insert, update and delete. |
+
+**Closed as done. The target is met, and the cache the row rejected was not
+built - but neither was a full set-based rewrite, because the profile did not
+justify one.** `get_user_cubes()` at 250 entities: **170 ms before, 119-139 ms
+after**, against a target of 150. The 220 ms the target was set against did not
+reproduce; the honest baseline was 170.
+
+Where the time went, profiled with `track_functions = 'pl'` at 250 entities:
+`build_schema_for_table` 104 ms of 170 in self time, `get_schema_children`
+42 ms, `format_to_json_type` 14 ms, and `rbac.has_permission` **2.5 ms for 500
+calls**. That last number retired an assumption: the row estimated the
+per-caller permission gate at about 6% of the cost, and it is under 1.5%. There
+was never anything to gain by touching it, and the read bypass stays unbuilt.
+
+Three changes, in the order they pay:
+
+1. **`build_schema_for_table` builds its result in one statement instead of
+   four.** The required-fields list and the final `json_build_object` were
+   separate SPI statements; they are CTEs and sub-selects of the statement that
+   already scans the same rows now. On a 250-entity call that is 500 fewer plan
+   lookups and round trips through SPI. Self time fell from 104 ms to 74-86 ms.
+   One implementation still serves `get_schema`, `get_schemas` and both cube
+   RPCs, which is the property the b9 self-gate depends on.
+2. **`get_module_cubes` stopped re-reading `entities` per iteration**
+   (`0080_public_functions.sql`). The driving query yielded table *names* and the
+   loop read the row back for its `view_permission`. It yields the row now.
+   Minutes of work, and a bug rather than a scaling question, exactly as the row
+   said.
+3. **`get_user_cubes` selects two columns rather than the whole row.**
+   Performance-neutral when measured on its own; kept because it says what the
+   loop needs.
+
+**The `fields` bump on `modules.version` landed first, as its own correctness
+fix.** `0282_module_version.sql` put bump triggers on `modules`, `entities`,
+`roles`, `permissions` and `processes` - not on `fields`. A field edit moved the
+version only as a side effect of the unconditional `UPDATE entities` that P5's
+change (a) removes, so without this the two changes together would have made
+field edits invisible to every consumer of that version.
+`bump_module_version_from_fields()` resolves the module through
+`entities.table_name`, because `fields` carries no `module_id`; resolving to
+nothing is not an error, since a cascading entity DELETE removes the entities row
+first and the entity's own DELETE has already bumped.
+
+**Pinned by** `0385_test_module_version.sql` (three new assertions: a `fields`
+insert, update and delete each move the version) and, for the per-caller gate,
+the existing case in `0341_test_read_helper_completeness.sql`, which still
+passes. **There is no timing assertion in the suite**, deliberately: a wall-clock
+threshold on a shared runner is a flaky test, and the measurement above is the
+record. Re-measure with a `DO` block timing `get_user_cubes()` inside the server,
+against 217 probe entities of five fields each created in a rolled-back
+transaction.

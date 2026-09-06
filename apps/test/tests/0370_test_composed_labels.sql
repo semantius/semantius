@@ -3,7 +3,7 @@
 -- §6 currency, junctions, §5.4 discovery, §9 name reservation, §10 validation.
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(35);
 
 -- =====================================================
 -- SETUP: build a candidate -> application -> interview -> scorecard identity chain
@@ -227,6 +227,78 @@ SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'left_id' WHERE table_name = 'lt_link'$$,
     '23514', NULL,
     'F11: label_parent set on a junction entity is rejected');
+
+-- =====================================================
+-- K. The label rebuild is skipped for a field that cannot change a body
+-- =====================================================
+-- rebuild_entity_label_functions drops and recreates _label plus one function
+-- per reference field, and every one of those is a DDL event. Most fields
+-- cannot change any of those bodies, so dd_label_fn_sync_field() skips the
+-- rebuild for them on INSERT. Skipping one that WAS needed fails silently - a
+-- stale <fk>_label keeps answering with the old body - so each case below
+-- checks the identity of the generated function, not just its output: a
+-- rebuild drops and recreates, so the OID moves.
+--
+-- Two of the gate's five branches are not separate tests here. label_parent:
+-- validate_label_parent only accepts a reference/parent field as a spine, so
+-- inserting one is already the reference case. label_column: the data
+-- dictionary creates the label field together with the entity and refuses to
+-- delete it afterwards, so that branch fires on every entity creation - every
+-- composition assertion above depends on it.
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('lt_gate', 'lt_gate', 'Gate', 'Gates', 'label rebuild gate probe', 1, 'public:read', 'admin', 'id', 'label');
+INSERT INTO lt_gate (label) VALUES ('gate one');
+
+CREATE TEMP TABLE lt_oid(tag text, oid oid);
+INSERT INTO lt_oid VALUES ('start', to_regprocedure('public._label(public.lt_gate)')::oid);
+
+-- A plain scalar field: no body reads it, so no rebuild.
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('lt_gate', 'note', 'Note', 'string', 30);
+
+SELECT is(
+    to_regprocedure('public._label(public.lt_gate)')::oid,
+    (SELECT oid FROM lt_oid WHERE tag = 'start'),
+    'K1: a plain scalar field does not rebuild the label functions');
+
+SELECT is(
+    (SELECT public._label(g) FROM lt_gate g WHERE g.label = 'gate one'),
+    'gate one',
+    'K1: and the composed label still answers');
+
+-- A reference field adds an <fk>_label companion, so it must rebuild.
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('lt_gate', 'cand_id', 'Candidate', 'reference', 40, 'lt_candidates', 'clear');
+
+SELECT isnt(
+    to_regprocedure('public._label(public.lt_gate)')::oid,
+    (SELECT oid FROM lt_oid WHERE tag = 'start'),
+    'K2: a reference field rebuilds, and its cand_id_label companion exists: '
+        || COALESCE(to_regprocedure('public.cand_id_label(public.lt_gate)')::text, 'MISSING'));
+
+-- A junction is recognized by a heuristic that reads EVERY field, so one plain
+-- payload field flips the _label body from the combined parent legs to the
+-- local term. lt_link has two parent legs.
+INSERT INTO lt_oid VALUES ('link', to_regprocedure('public._label(public.lt_link)')::oid);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('lt_link', 'note', 'Note', 'string', 40);
+
+SELECT isnt(
+    to_regprocedure('public._label(public.lt_link)')::oid,
+    (SELECT oid FROM lt_oid WHERE tag = 'link'),
+    'K3: a plain field on an entity with two parent legs rebuilds');
+
+-- A field whose name collides with an <fk>_label companion: a real column wins,
+-- so the function it would shadow has to go.
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('lt_gate', 'cand_id_label', 'Candidate Label', 'string', 50);
+
+SELECT is(
+    to_regprocedure('public.cand_id_label(public.lt_gate)')::text,
+    NULL,
+    'K4: a field colliding with an <fk>_label companion rebuilds and drops it');
 
 -- =====================================================
 -- C/J. Security: viewer-relative labels, no parent leak (as user1, who lacks 'admin')

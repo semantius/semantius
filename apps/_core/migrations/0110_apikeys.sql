@@ -236,7 +236,8 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes nothing, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';

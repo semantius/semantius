@@ -106,7 +106,12 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
 -- Normalizes Supabase format to Neon format for all downstream code
--- STABLE: result is cached per transaction, so safe to call from every function
+-- STABLE, and it writes - transaction-local GUCs only, never a row. So does
+-- rbac.ensure_context_initialized(), which every STABLE reader calls. STABLE
+-- also lets the planner run the call while estimating selectivity, so never
+-- write `col <op> rbac.uid()` in a policy USING clause or a view: EXPLAIN would
+-- raise on a session with no claims. Pinned by
+-- 0451_test_volatility_contract.sql.
 CREATE OR REPLACE FUNCTION rbac.uid()
 RETURNS TEXT AS $$
 DECLARE
@@ -347,7 +352,7 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
--- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
+-- VOLATILE, and the only writer the STABLE readers reach. Writes no row.
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
 -- request role can overwrite, and nothing here can tell a value written by rbac
@@ -377,11 +382,12 @@ BEGIN
     -- calling it costs a real function call on every permission check. The
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
-        -- Permission cache disabled: say so once per session (server log and client).
+        -- Once per transaction: the flag is transaction-local, because a
+        -- session-scoped write is the one side effect a ROLLBACK cannot undo.
         PERFORM rbac.uid();
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
             RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
-            PERFORM set_config('app.bearer_cache_notice', 'sent', false);
+            PERFORM set_config('app.bearer_cache_notice', 'sent', true);
         END IF;
     ELSE
         -- Warm path. See rbac.has_permission for why the subject is compared;
@@ -704,7 +710,8 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE so PostgREST serves it over GET; raising is not a side effect.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -806,7 +813,8 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE, as rbac.require_permission.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -870,7 +878,8 @@ BEGIN
     FROM permission_tree pt
     ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE: reads only.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Returns all effective permissions for a user, including implied permissions.';

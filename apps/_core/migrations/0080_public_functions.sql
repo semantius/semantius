@@ -23,7 +23,8 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+-- STABLE: writes no row, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_modules IS 
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
@@ -199,9 +200,6 @@ CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
-    v_properties JSON;
-    v_required_fields JSON;
-    v_children JSON;
     v_result JSON;
     v_cache_version TEXT;
     v_db_version    TEXT;
@@ -432,18 +430,10 @@ BEGIN
         FROM properties_with_defaults
         UNION ALL
         SELECT field_name, sort_order, property_value FROM label_props
-    )
-    SELECT COALESCE(
-        json_object_agg(field_name, property_value ORDER BY sort_order),
-        '{}'::json
-    )
-    INTO v_properties
-    FROM all_props;
-    
-    -- Build required fields array (fields where nullability is false based on format)
-    -- Exclude the id_column since it's auto-generated and not required for INSERT
-    -- Exclude created_at and updated_at since they are auto-maintained by triggers
-    WITH required_fields AS (
+    ),
+    -- Keep this a CTE, not a statement of its own: the function runs once per
+    -- entity, so every extra statement costs an SPI round trip per entity.
+    required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
@@ -454,31 +444,24 @@ BEGIN
           AND format != 'json'
         ORDER BY field_order
     )
-    SELECT COALESCE(
-        json_agg(field_name),
-        '[]'::json
-    )
-    INTO v_required_fields
-    FROM required_fields;
-    
-    -- Get children (fields in other tables that reference this table with format='parent')
-    v_children := public.get_schema_children(p_table_name);
-
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
-    v_result := json_build_object(
+    -- children: fields in other tables that reference this one with format='parent'.
+    SELECT json_build_object(
         '$schema', 'https://semantius.com/meta/sem-schema/v1',
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
         'table', row_to_json(v_table_record),
         'type', 'object',
-        'properties', v_properties,
-        'required', v_required_fields,
-        'children', v_children,
+        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                                FROM all_props), '{}'::json),
+        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
+        'children', public.get_schema_children(p_table_name),
         'additionalProperties', false
-    );
-    
+    )
+    INTO v_result;
+
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -532,7 +515,8 @@ BEGIN
 
     RETURN public.build_schema_for_table(p_table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
@@ -592,7 +576,8 @@ BEGIN
 
     RETURN array_to_json(v_schemas);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schemas IS 
 'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
@@ -681,47 +666,47 @@ GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
 RETURNS SETOF JSON AS $$
 DECLARE
-    v_table_name TEXT;
     v_table_record RECORD;
     v_schema JSON;
 BEGIN
     PERFORM rbac.uid();
 
-    FOR v_table_name IN
-        SELECT DISTINCT name
-        FROM (
+    -- Yields the entity row, not just its name, so the loop needs no second
+    -- lookup; the join is also the existence test for reference_table.
+    FOR v_table_record IN
+        SELECT DISTINCT e.table_name, e.view_permission
+        FROM entities e
+        WHERE e.table_name IN (
             -- All entities belonging to the module
-            SELECT e.table_name AS name
-            FROM entities e
-            JOIN modules m ON m.id = e.module_id
+            SELECT me.table_name
+            FROM entities me
+            JOIN modules m ON m.id = me.module_id
             WHERE m.module_slug = p_module_name
 
             UNION
 
             -- All entities referenced via reference_table from fields of module entities
-            SELECT f.reference_table AS name
+            SELECT f.reference_table
             FROM fields f
-            JOIN entities e ON e.table_name = f.table_name
-            JOIN modules m ON m.id = e.module_id
+            JOIN entities fe ON fe.table_name = f.table_name
+            JOIN modules m ON m.id = fe.module_id
             WHERE m.module_slug = p_module_name
               AND f.reference_table != ''
-        ) AS names
-        ORDER BY name
+        )
+        ORDER BY e.table_name
     LOOP
-        -- Check if the table exists and the user has view permission; skip otherwise
-        SELECT * INTO v_table_record
-        FROM entities
-        WHERE table_name = v_table_name;
-
-        IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
-            v_schema := public.build_schema_for_table(v_table_name);
+        -- build_schema_for_table checks again: it is self-gating as an RPC of
+        -- its own, and the repeat is a cached lookup.
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;
             END IF;
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
@@ -747,9 +732,9 @@ BEGIN
     PERFORM rbac.uid();
 
     FOR v_table_record IN
-        SELECT *
-        FROM entities
-        ORDER BY table_name
+        SELECT e.table_name, e.view_permission
+        FROM entities e
+        ORDER BY e.table_name
     LOOP
         IF rbac.has_permission(v_table_record.view_permission) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
@@ -759,7 +744,8 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';

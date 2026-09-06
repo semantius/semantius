@@ -361,10 +361,16 @@ Renaming a column named by an operator is **not** covered by this: nothing
 rewrites `entities.select_rule` on a field rename. Assert the accepted
 behavior — the comparison fails closed — rather than pretending it round-trips.
 
-Budget about ten extra DDL events per field on rule-bearing entities. That cost
-lands on top of what adding a field already triggers - a full label-function
-rebuild and an `entities` UPDATE that cascades through the entity trigger stack -
-so measure it there before assuming the budget is affordable.
+Budget about ten extra DDL events per field on rule-bearing entities, and note
+that the base it lands on has moved. Adding a plain scalar field used to trigger
+a full label-function rebuild and an unconditional `entities` UPDATE that
+cascaded through the entity trigger stack; since 2026-09-06 it does neither. The
+rebuild is skipped for a field that cannot change a generated body, and the two
+flag updates only write when the flag actually changes, so a field insert costs
+about 1.9 ms and two DDL events - the `ALTER TABLE ... ADD COLUMN` and the
+schema reload - instead of about 5.8 ms and four. Ten more would be a five-fold
+increase against that base, not the marginal addition it looked like against the
+old one. Measure before assuming the budget is affordable.
 
 ### 4. Do not write a general compiler, and do not recognize shapes either
 

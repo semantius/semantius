@@ -1051,6 +1051,29 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+    -- Skip the rebuild when the new field cannot change a generated body: it
+    -- emits DDL per reference field, on every field insert. Miss a case and
+    -- nothing raises - a stale <fk>_label keeps answering with the old body.
+    -- The parent-leg count is dd_is_junction(), which reads every field.
+    -- Pinned by 0370_test_composed_labels.sql.
+    IF TG_OP = 'INSERT' AND NOT (
+            dd_is_fk_format(NEW.format)
+         OR EXISTS (SELECT 1 FROM entities e
+                     WHERE e.table_name = NEW.table_name
+                       AND (e.label_column = NEW.field_name
+                         OR NULLIF(e.label_parent, '') = NEW.field_name))
+         OR (SELECT count(*) FROM fields f
+              WHERE f.table_name = NEW.table_name
+                AND f.format = 'parent') >= 2
+         OR EXISTS (SELECT 1 FROM fields f
+                     WHERE f.table_name = NEW.table_name
+                       AND dd_is_fk_format(f.format)
+                       AND f.reference_table <> ''
+                       AND f.field_name || '_label' = NEW.field_name))
+    THEN
+        RETURN NULL;
+    END IF;
+
     PERFORM rebuild_entity_label_functions(COALESCE(NEW.table_name, OLD.table_name));
     RETURN NULL;
 END;
@@ -1059,7 +1082,7 @@ $$;
 COMMENT ON FUNCTION dd_label_fn_sync_entity() IS
 'Trigger function that regenerates the entity''s _label / <fk>_label computed-column functions after an entities row changes, by calling rebuild_entity_label_functions.';
 COMMENT ON FUNCTION dd_label_fn_sync_field() IS
-'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions.';
+'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions. An INSERT that cannot change a generated body skips the rebuild.';
 
 CREATE TRIGGER zzz_label_fn_entity_insert_trigger
     AFTER INSERT ON entities

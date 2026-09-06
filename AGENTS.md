@@ -38,6 +38,17 @@ This document provides essential information for AI agents working with the Sema
     disposable, so a comment must never send the reader there.
   - **The same applies to text the user sees.** An internal tracking id inside a
     `RAISE` message or a CLI error means nothing to the operator reading it.
+- **A plan file is named `plans/YYYY-MM-DD-HHMM-<topic>.md`**, stamped with the
+  local time it was written, **and there is normally exactly one open plan.** The
+  stamp is what tells you which iteration you are looking at without opening
+  anything; a topic name alone does not, and a date alone stops working the first
+  time two plans are written on one day - which happened on 2026-09-06, the day
+  the convention was introduced. `plans/pg_semantius-open-items.md` (the list) and
+  `plans/ext-solved-items.md` (the hand-off note) are the two standing files and
+  keep their names. **A plan that owns no open row is deleted, not archived** -
+  it has no readers left, and leaving it there is how the folder stops saying
+  what is actually being worked on.
+
 - **`docs/` is permanent, `plans/` is disposable, and nothing in `docs/` may
   point into `plans/`.** The folder a file sits in states its lifetime. Every
   plan is deleted once it owns no open row, rows are deleted from
@@ -134,6 +145,40 @@ It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
 - Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the newest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing install - `migrate()` skips by migration name - which is accepted and documented, not a bug
 - Infrastructure defined in `apps/_core/` folder
 - Automated testing using pgTAP framework
+
+### The volatility contract
+
+The permission readers - `rbac.uid`, `user_id`, `has_permission`,
+`has_any_permission`, `get_current_user_permissions`, `whoami`,
+`public.jl_request_context`, `is_raci_actor`, `has_consultation`, the generated
+`select_rule_*` - are declared `STABLE` **and they write**, through
+`rbac.ensure_context_initialized`. Read the comment above `rbac.uid()` in
+`0030_rbac_functions.sql` before changing any of them; the short version:
+
+- **They write only GUCs, and only with `is_local => true`.** Transaction-local
+  settings are discarded at commit or rollback and are legal inside the
+  read-only transaction a PostgREST `GET` runs in. No function on a read path
+  writes a row. `public.get_userinfo()` upserts the user row, which is why it
+  alone stays `VOLATILE`; the other read-only RPCs are `STABLE` so PostgREST
+  serves them over `GET`.
+- **The label is what makes a permission check affordable.** It lets the planner
+  hoist the check into a once-per-statement InitPlan. Without it,
+  `WHERE rbac.has_permission('x')` over 20k rows costs 34 ms instead of 1.8 ms,
+  and every RLS policy pays that per row.
+- **`STABLE` also means the planner may run it.** `estimate_expression_value()`
+  executes `STABLE` calls while estimating selectivity, before the executor
+  starts. The shape that reaches an estimator is `col <op> stable_fn(<const>)`,
+  so never write `USING (user_id = rbac.user_id())` in a policy or
+  `WHERE col = rbac.uid()` in a view: an `EXPLAIN` would run the permission
+  machinery and raise on a session with no claims. A sub-select
+  (`USING ((SELECT rbac.has_permission('x'))))`) is the form that is safe, and a
+  `WITH CHECK` expression is never a scan qual so it is exempt.
+- **The writes are not moved into a `VOLATILE` per-request entry point**, because
+  the primary deployment target - Neon's managed Data API - runs no code of ours
+  per request and has no `db-pre-request` hook, so every check would run
+  permanently cold.
+
+`apps/test/tests/0451_test_volatility_contract.sql` pins all of it.
 
 ### Project Structure
 ```

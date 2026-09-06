@@ -185,10 +185,13 @@ END;
 $$;
 
 -- =====================================================
--- STEP 5: get_user_modules() (current 0080 body)
+-- STEP 5: get_user_modules() (current 0080_public_functions.sql body)
 -- =====================================================
 -- Older databases still run the pre-rename body that builds the object by hand
 -- and emits "alias"; to_jsonb(m) returns every current column, incl. module_slug.
+--
+-- This CREATE OR REPLACE runs later than the one in 0080_public_functions.sql
+-- and silently wins, so a change made only there is lost.
 
 CREATE OR REPLACE FUNCTION public.get_user_modules()
 RETURNS JSONB AS $$
@@ -200,7 +203,7 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_modules IS
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';

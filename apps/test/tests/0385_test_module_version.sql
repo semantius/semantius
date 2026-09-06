@@ -3,7 +3,7 @@
 -- when modules or related tables are modified.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(19);
 
 -- =====================================================
 -- SETUP: Use superuser context for DDL operations
@@ -214,6 +214,55 @@ DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
 END $$;
 
 SELECT pass('Delete from processes increments module version');
+
+-- =====================================================
+-- TEST: fields changes bump the module version
+-- =====================================================
+-- A field is part of the model: it is what get_schema() and the cube RPCs
+-- return, so a field edit has to move the version or every consumer polling it
+-- misses schema changes. fields carries no module_id, so its trigger resolves
+-- the module through entities.table_name - which is also why this needs its own
+-- test rather than riding on the entities one.
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'mv_field_entity', 'item', 'Item', 'Items',
+    'Version test entity for fields',
+    (SELECT id FROM modules WHERE module_name = 'MV Test Module'),
+    'public:read', 'admin', 'id', 'label'
+);
+
+DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
+    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
+    INSERT INTO fields (table_name, field_name, title, format, field_order)
+    VALUES ('mv_field_entity', 'mv_probe', 'MV Probe', 'string', 30);
+    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
+    ASSERT v_after > v_before, format('fields INSERT: expected version > %s, got %s', v_before, v_after);
+END $$;
+
+SELECT pass('Insert into fields increments module version');
+
+DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
+    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
+    UPDATE fields SET title = 'MV Probe Renamed'
+    WHERE table_name = 'mv_field_entity' AND field_name = 'mv_probe';
+    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
+    ASSERT v_after > v_before, format('fields UPDATE: expected version > %s, got %s', v_before, v_after);
+END $$;
+
+SELECT pass('Update to fields increments module version');
+
+DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
+    SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
+    DELETE FROM fields WHERE table_name = 'mv_field_entity' AND field_name = 'mv_probe';
+    SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
+    ASSERT v_after > v_before, format('fields DELETE: expected version > %s, got %s', v_before, v_after);
+END $$;
+
+SELECT pass('Delete from fields increments module version');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -11,7 +11,8 @@
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
 
--- Mark external_id as unique in data dictionary (matches the UNIQUE constraint on the table)
+-- Mark external_id as unique in the data dictionary. This is what BUILDS the
+-- only unique index on the column, and it is partial: it excludes ''.
 UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
 
 -- Add data dictionary entries for the new fields

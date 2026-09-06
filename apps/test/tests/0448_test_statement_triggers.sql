@@ -22,7 +22,7 @@
 -- queue_table_events.table_name is never seen by both at once.
 BEGIN;
 
-SELECT plan(25);
+SELECT plan(28);
 
 SELECT authenticate_as('user3');
 
@@ -364,6 +364,51 @@ SELECT is(
        AND p.prosrc LIKE '%$old%'),
     0,
     'an entity whose rules never read $old does not build it'
+);
+
+-- =====================================================
+-- GROUP 6: what one field insert costs
+-- =====================================================
+-- Adding a field to an entity used to cost three audit rows, a full rebuild of
+-- the entity's label functions and an unconditional entities UPDATE whose only
+-- effect was to fire a dozen more triggers. What is left is the irreducible
+-- part plus one deliberate extra: the fields row itself, and the modules row
+-- whose version has to move because a field is part of the model. The counts
+-- below are the standing check on that - they fail if either the label rebuild
+-- or the no-op entities UPDATE comes back.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, audit_log)
+VALUES ('field_cost', 'field_cost_item', 'Field Cost', 'Field Costs',
+    'per-field trigger cost probe', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+
+CREATE TEMP TABLE field_cost_base AS
+SELECT (SELECT count(*) FROM audit_record_logs)                    AS records,
+       (SELECT count(*) FROM audit_record_logs WHERE table_name = 'entities') AS entity_rows,
+       (SELECT count(*) FROM audit_ddl_logs)                       AS ddl;
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('field_cost', 'plain_one', 'Plain One', 'string', 30);
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs) - (SELECT records::int FROM field_cost_base),
+    2,
+    'a plain field insert writes two audit rows: the field, and the module version bump'
+);
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'entities')
+        - (SELECT entity_rows::int FROM field_cost_base),
+    0,
+    'a plain field insert does not touch the entities row'
+);
+
+-- The two DDL events are the ALTER TABLE that adds the column and the schema
+-- reload that follows it. A label rebuild would add several more.
+SELECT cmp_ok(
+    (SELECT count(*)::int FROM audit_ddl_logs) - (SELECT ddl::int FROM field_cost_base),
+    '<=',
+    2,
+    'a plain field insert emits no label-rebuild DDL'
 );
 
 SELECT * FROM finish();

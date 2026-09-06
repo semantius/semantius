@@ -14,8 +14,12 @@
  *      user_permissions = 'admin,user:manage', current_user_id = 1003.
  *   3. Assert has_permission('admin') is still false, user_id() is still the
  *      real id, the admin-only `roles` table stays empty, require_permission
- *      raises 42501, whoami reports the cache as disabled, and the one-time
- *      WARNING was emitted exactly once for the session.
+ *      raises 42501, whoami reports the cache as disabled, and the WARNING is
+ *      emitted exactly once per TRANSACTION - not once per session. The flag
+ *      that suppresses the repeat is a transaction-local setting on purpose:
+ *      the readers that reach it are STABLE, and a session-scoped write there
+ *      is a side effect that a ROLLBACK cannot undo. One notice per request is
+ *      the price of that.
  *
  * Exit 0 = secure. Exit 1 = a check failed. Requires `_core` and the test
  * identities deployed in the target database.
@@ -83,6 +87,7 @@ async function query(conn: Deno.Conn, sql: string) {
   await writeAll(conn, msg);
   const rows: (string | null)[][] = [];
   const notices: string[] = [];
+  let error: Error | null = null;
   for (let i = 0; i < 500; i++) {
     const { type, payload } = await readMsg(conn);
     if (type === 0x44) rows.push(parseDataRow(payload)); // 'D' DataRow
@@ -90,10 +95,14 @@ async function query(conn: Deno.Conn, sql: string) {
       const f = fields(payload);
       notices.push(`${f.S}: ${f.M}`);
     } else if (type === 0x45) { // 'E' ErrorResponse
+      // Remember it and keep reading. Throwing here would leave the pending
+      // ReadyForQuery in the socket, and the next query would read THAT as its
+      // own response - silently handing one caller's result to the next.
       const f = fields(payload);
-      throw new Error(`${f.C} ${f.M}`);
+      error = new Error(`${f.C} ${f.M}`);
     } else if (type === 0x5a) break; // 'Z' ReadyForQuery
   }
+  if (error) throw error;
   return { rows, notices };
 }
 
@@ -166,8 +175,26 @@ async function main(): Promise<number> {
   check("require_permission(admin) raises 42501", req.startsWith("42501"), req);
 
   const warnings = notices.filter((n) => n.includes("permission cache is disabled"));
-  check("one-time WARNING emitted exactly once per session", warnings.length === 1, `count=${warnings.length}`);
+  check("the bearer WARNING is emitted", warnings.length >= 1, `count=${warnings.length}`);
   if (warnings[0]) console.log(`    ${warnings[0]}`);
+
+  // Scope of the notice. Two checks in ONE transaction must produce exactly one
+  // warning (the flag suppresses the repeat), and a later statement in its own
+  // transaction must produce another (the flag did not outlive the first).
+  const inTx = await query(
+    conn,
+    "BEGIN; SELECT rbac.has_permission('admin'); SELECT rbac.has_permission('user:read'); COMMIT;",
+  );
+  const txWarnings = inTx.notices.filter((n) => n.includes("permission cache is disabled"));
+  check("two checks in one transaction warn once", txWarnings.length === 1, `count=${txWarnings.length}`);
+
+  const afterTx = await query(conn, "SELECT rbac.has_permission('admin')");
+  const afterWarnings = afterTx.notices.filter((n) => n.includes("permission cache is disabled"));
+  check(
+    "the notice does not outlive its transaction",
+    afterWarnings.length === 1,
+    `count=${afterWarnings.length}`,
+  );
 
   conn.close();
   console.log(

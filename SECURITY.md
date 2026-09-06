@@ -76,12 +76,22 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   through PostgREST or an app server you control, never hand the request role
   to end users, and set `jwt_aud` in `_settings` so tokens minted for another
   audience are rejected.
-- **The transaction-scoped context cache is client-writable.** The `app.*`
-  settings written by `rbac.ensure_context_initialized()` are ordinary
-  settings. Behind PostgREST or an app server the client never runs SQL, so
-  they are out of reach. In a PostgreSQL 18 OAuth bearer session the client
-  does run SQL, and there the cache is disabled and permissions are derived on
-  every check.
+- **The transaction-scoped context cache is client-writable, and it stays
+  that way.** The `app.*` settings written by
+  `rbac.ensure_context_initialized()` are ordinary settings. Behind PostgREST
+  or an app server the client never runs SQL, so they are out of reach. In a
+  PostgreSQL 18 OAuth bearer session the client does run SQL, and there the
+  cache is disabled and permissions are derived on every check. The obvious
+  hardening - build the context once per request in a `VOLATILE` entry point
+  and leave the readers pure - is **not** what happens, because it needs a
+  per-request seam. The primary deployment target is Neon's managed Data API,
+  which is Neon's own PostgREST: no code of ours runs per request there and
+  there is no `db-pre-request` hook, so every permission check would run
+  permanently cold - about 1 ms instead of 0.025 ms, and once per *row*
+  wherever the JsonLogic `has_permission` operator appears. The readers keep
+  their lazy write instead. Everything they write is transaction-local, so a
+  rolled-back request leaves nothing behind; the full contract is in the
+  comment above `rbac.uid()`.
 - **Bearer mode is experimental.** PostgreSQL 18 OAuth bearer authentication
   with `pg_oidc_validator` is a development configuration, not a deployment
   target. Its status and the remaining hardening are in
@@ -97,6 +107,16 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   data access on future tables in `public`. Tables created through the data
   dictionary always get their policies; tables created outside it need their
   own.
+- **Many principals may share an empty `external_id`.** `users` holds users
+  and agents, and `external_id` is `NOT NULL DEFAULT ''`. Uniqueness on that
+  column is enforced by one index, the data dictionary's, and it is *partial*:
+  it excludes `NULL` and the empty string. A pre-provisioned principal with no
+  external identity yet is therefore a legal and repeatable state, where a
+  total constraint allowed exactly one such row. Nothing creates one today -
+  both upsert paths reject an empty `external_id` - but every identity-derived
+  guard in the schema keys on this column, so two principals sharing `''` would
+  share an identity. Giving agents a generated identifier, and then refusing the
+  empty string outright, is the way out.
 - **An API key is its owner.** A key authenticates as the user it belongs to
   and carries every permission that user holds; there is no per-key scope.
   Keep an administrator's key where you keep the administrator's password.

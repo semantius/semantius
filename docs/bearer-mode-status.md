@@ -81,11 +81,22 @@ What changed on 2026-09-03:
 - `rbac.is_bearer_session()` returns true when `system_user LIKE 'oauth:%'`.
 - `rbac.ensure_context_initialized()` skips its "already initialized" shortcut
   in bearer sessions and re-derives the context on every call. It raises one
-  WARNING per session:
+  WARNING per **transaction**:
   `pg_semantius: OAuth bearer session detected; the transaction-scoped
   permission cache is disabled because app.* settings are client-writable in
-  direct SQL sessions. Permissions are re-resolved on every check until the
-  cache is hardened for bearer auth.`
+  direct SQL sessions. Permissions are re-resolved on every check, which is
+  correct but slower.`
+
+  It was once per session until 2026-09-06. The flag that suppresses the
+  repeat is written with `is_local => true` now, and the change of scope is the
+  point rather than a side effect: the readers that reach this code are
+  declared `STABLE`, and PostgreSQL executes `STABLE` calls while estimating
+  selectivity, so a session-scoped write there can happen during planning and
+  survives a transaction that never ran. In an autocommit bearer session the
+  notice therefore appears once per statement rather than once at connect; a
+  client that runs a transaction per request sees it once per request.
+  `pgdocker/test_bearer_cache.ts` asserts both halves - one notice for two
+  checks inside one transaction, and a fresh notice in the next.
 - The two readers that took `app.current_user_id` raw, `audit.current_user_id()`
   and the generated compute/validate trigger, now derive the id through
   `rbac.user_id_or_null()`, so a hand-written setting never reaches `$user_id`

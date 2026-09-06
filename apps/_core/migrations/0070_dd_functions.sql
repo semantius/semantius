@@ -1471,10 +1471,12 @@ BEGIN
           AND searchable = TRUE
     );
 
-    -- Update the searchable flag on the entities record
-    UPDATE entities 
+    -- IS DISTINCT FROM is not a micro-optimization: this runs on every field
+    -- write, and a no-op entities UPDATE still fires its whole trigger stack.
+    UPDATE entities
     SET searchable = v_has_searchable_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND searchable IS DISTINCT FROM v_has_searchable_fields;
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -1692,9 +1694,11 @@ BEGIN
           AND format = 'parent'
     );
     
-    UPDATE entities 
+    -- Gated like update_table_searchable_flag above.
+    UPDATE entities
     SET is_child = v_has_parent_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND is_child IS DISTINCT FROM v_has_parent_fields;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 

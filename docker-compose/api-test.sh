@@ -7,6 +7,10 @@
 #   4. POST an RPC WITH the token   -> JWKS verify + SET ROLE authenticated + rbac.uid(); shows identity.
 #   5. GET a table WITH the token   -> real rows via RLS.
 #   6. GET a table WITHOUT a token  -> anon cannot read data (expect 401).
+#   7. GET an RPC WITH the token    -> PostgREST serves a read-only function over
+#      GET only when pg_proc.provolatile says STABLE or IMMUTABLE; a VOLATILE one
+#      answers 405. Nothing inside the database can check this, which is why it
+#      is here and not in the pgTAP suite.
 #
 # Needs a running stack from github.com/semantius/semantius-self-hosted (default:
 # a sibling checkout; override with SELF_HOSTED_DIR) — its .env supplies the ports.
@@ -78,7 +82,19 @@ echo "== 6. GET /users WITHOUT token (expect 401 — anon cannot read data) =="
 code="$(_status "${API}/users?limit=1")"
 echo "   /users (anon) HTTP ${code}  $([ "$code" = 401 ] && echo '(locked down OK)' || echo '(expected 401)')"
 
+echo "== 7. GET the read-only RPCs WITH token (STABLE -> served over GET) =="
+# get_userinfo is the control: it upserts the user row, so it is VOLATILE and
+# must stay POST-only. If it ever starts answering GET, something labeled a
+# writer as read-only.
+for fn in get_user_cubes get_schemas get_user_modules list_api_keys; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "${API}/rpc/${fn}")"
+  echo "   GET /rpc/${fn} HTTP ${code}  $([ "$code" != 405 ] && echo '(served)' || echo '(405 — still VOLATILE)')"
+done
+code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "${API}/rpc/get_userinfo")"
+echo "   GET /rpc/get_userinfo HTTP ${code}  $([ "$code" = 405 ] && echo '(POST-only, correct: it writes)' || echo '(expected 405)')"
+
 echo
 echo "Done. Expected: front door / + /rest/ + /gateway/rest/ + /api-docs/ 200 and a whitespace"
 echo "VITE_CONTROL_PLANE_URL; spec 200; get_userinfo(auth) 200 + data;"
-echo "/users(auth) 200 + rows; /users(anon) 401."
+echo "/users(auth) 200 + rows; /users(anon) 401; the read-only RPCs served over GET"
+echo "and get_userinfo 405."

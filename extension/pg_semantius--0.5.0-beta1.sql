@@ -1685,25 +1685,19 @@ CREATE TRIGGER update_users_updated_at
     FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
 
 -- =====================================================
--- INDEXES - Modules
+-- INDEXES
 -- =====================================================
+-- A column a unique index already covers - whole key or leading columns of a
+-- composite - gets no plain index of its own. Swept by
+-- 0450_test_rbac_indexes.sql.
 
-CREATE INDEX idx_modules_name ON modules(module_name);
-
--- =====================================================
--- INDEXES - Permissions
--- =====================================================
-
-CREATE INDEX idx_permissions_name ON permissions(permission_name);
 CREATE INDEX idx_permissions_module ON permissions(module_id);
 
 -- =====================================================
 -- INDEXES - Roles
 -- =====================================================
 
-CREATE INDEX idx_roles_name ON roles(role_name);
 CREATE INDEX idx_roles_module ON roles(module_id);
-CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
 CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 
@@ -1711,7 +1705,6 @@ CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 -- INDEXES - User Permissions
 -- =====================================================
 
-CREATE INDEX idx_user_permissions_user ON user_permissions(user_id);
 CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
 CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
@@ -1727,7 +1720,6 @@ CREATE INDEX idx_users_disabled ON users(is_disabled) WHERE is_disabled = TRUE;
 -- INDEXES - User Roles
 -- =====================================================
 
-CREATE INDEX idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX idx_user_roles_role ON user_roles(role_id);
 CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 
@@ -1735,7 +1727,6 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_including ON permission_hierarchy(including_permission_id);
 CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
 
 -- =====================================================
@@ -1747,12 +1738,7 @@ CREATE INDEX idx_modules_admin_permission ON modules(admin_permission_id);
 CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
 CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
 CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);
-
--- =====================================================
--- INDEXES - Roles slug
--- =====================================================
-
-CREATE INDEX idx_roles_slug ON roles(slug);$pgsem__core_0020_rbac_schema$;
+$pgsem__core_0020_rbac_schema$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
       GET STACKED DIAGNOSTICS
@@ -1768,7 +1754,7 @@ CREATE INDEX idx_roles_slug ON roles(slug);$pgsem__core_0020_rbac_schema$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', 'ee7bf0ea409509cf6b5f80168eacd5001995547470cc6454b7e67700b9863555');
+      VALUES ('_core.0020_rbac_schema', '4d890ef455f60ab6feb38090a90f63502bab45f7baec4c8a0ccfe12e4efb2f01');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1885,7 +1871,12 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
 -- Normalizes Supabase format to Neon format for all downstream code
--- STABLE: result is cached per transaction, so safe to call from every function
+-- STABLE, and it writes - transaction-local GUCs only, never a row. So does
+-- rbac.ensure_context_initialized(), which every STABLE reader calls. STABLE
+-- also lets the planner run the call while estimating selectivity, so never
+-- write `col <op> rbac.uid()` in a policy USING clause or a view: EXPLAIN would
+-- raise on a session with no claims. Pinned by
+-- 0451_test_volatility_contract.sql.
 CREATE OR REPLACE FUNCTION rbac.uid()
 RETURNS TEXT AS $$
 DECLARE
@@ -2126,7 +2117,7 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
--- READ-ONLY: Does not modify database, compatible with PostgREST GET requests
+-- VOLATILE, and the only writer the STABLE readers reach. Writes no row.
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
 -- request role can overwrite, and nothing here can tell a value written by rbac
@@ -2156,11 +2147,12 @@ BEGIN
     -- calling it costs a real function call on every permission check. The
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
-        -- Permission cache disabled: say so once per session (server log and client).
+        -- Once per transaction: the flag is transaction-local, because a
+        -- session-scoped write is the one side effect a ROLLBACK cannot undo.
         PERFORM rbac.uid();
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
             RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
-            PERFORM set_config('app.bearer_cache_notice', 'sent', false);
+            PERFORM set_config('app.bearer_cache_notice', 'sent', true);
         END IF;
     ELSE
         -- Warm path. See rbac.has_permission for why the subject is compared;
@@ -2483,7 +2475,8 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE so PostgREST serves it over GET; raising is not a side effect.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -2585,7 +2578,8 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE, as rbac.require_permission.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -2649,7 +2643,8 @@ BEGIN
     FROM permission_tree pt
     ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = rbac, public;
+-- STABLE: reads only.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Returns all effective permissions for a user, including implied permissions.';
@@ -2955,7 +2950,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '68e24081805928cf85962de11026d1b5313285dd1fa0ab62e829bbc4ac2a6864');
+      VALUES ('_core.0030_rbac_functions', '0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -5850,10 +5845,12 @@ BEGIN
           AND searchable = TRUE
     );
 
-    -- Update the searchable flag on the entities record
-    UPDATE entities 
+    -- IS DISTINCT FROM is not a micro-optimization: this runs on every field
+    -- write, and a no-op entities UPDATE still fires its whole trigger stack.
+    UPDATE entities
     SET searchable = v_has_searchable_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND searchable IS DISTINCT FROM v_has_searchable_fields;
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -6071,9 +6068,11 @@ BEGIN
           AND format = 'parent'
     );
     
-    UPDATE entities 
+    -- Gated like update_table_searchable_flag above.
+    UPDATE entities
     SET is_child = v_has_parent_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND is_child IS DISTINCT FROM v_has_parent_fields;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -6272,7 +6271,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', 'b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2');
+      VALUES ('_core.0070_dd_functions', '321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -6364,7 +6363,8 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+-- STABLE: writes no row, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_modules IS 
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
@@ -6540,9 +6540,6 @@ CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_record RECORD;
-    v_properties JSON;
-    v_required_fields JSON;
-    v_children JSON;
     v_result JSON;
     v_cache_version TEXT;
     v_db_version    TEXT;
@@ -6773,18 +6770,10 @@ BEGIN
         FROM properties_with_defaults
         UNION ALL
         SELECT field_name, sort_order, property_value FROM label_props
-    )
-    SELECT COALESCE(
-        json_object_agg(field_name, property_value ORDER BY sort_order),
-        '{}'::json
-    )
-    INTO v_properties
-    FROM all_props;
-    
-    -- Build required fields array (fields where nullability is false based on format)
-    -- Exclude the id_column since it's auto-generated and not required for INSERT
-    -- Exclude created_at and updated_at since they are auto-maintained by triggers
-    WITH required_fields AS (
+    ),
+    -- Keep this a CTE, not a statement of its own: the function runs once per
+    -- entity, so every extra statement costs an SPI round trip per entity.
+    required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
@@ -6795,31 +6784,24 @@ BEGIN
           AND format != 'json'
         ORDER BY field_order
     )
-    SELECT COALESCE(
-        json_agg(field_name),
-        '[]'::json
-    )
-    INTO v_required_fields
-    FROM required_fields;
-    
-    -- Get children (fields in other tables that reference this table with format='parent')
-    v_children := public.get_schema_children(p_table_name);
-
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
-    v_result := json_build_object(
+    -- children: fields in other tables that reference this one with format='parent'.
+    SELECT json_build_object(
         '$schema', 'https://semantius.com/meta/sem-schema/v1',
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
         'table', row_to_json(v_table_record),
         'type', 'object',
-        'properties', v_properties,
-        'required', v_required_fields,
-        'children', v_children,
+        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                                FROM all_props), '{}'::json),
+        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
+        'children', public.get_schema_children(p_table_name),
         'additionalProperties', false
-    );
-    
+    )
+    INTO v_result;
+
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -6873,7 +6855,8 @@ BEGIN
 
     RETURN public.build_schema_for_table(p_table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
@@ -6933,7 +6916,8 @@ BEGIN
 
     RETURN array_to_json(v_schemas);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schemas IS 
 'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
@@ -7022,47 +7006,47 @@ GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
 RETURNS SETOF JSON AS $$
 DECLARE
-    v_table_name TEXT;
     v_table_record RECORD;
     v_schema JSON;
 BEGIN
     PERFORM rbac.uid();
 
-    FOR v_table_name IN
-        SELECT DISTINCT name
-        FROM (
+    -- Yields the entity row, not just its name, so the loop needs no second
+    -- lookup; the join is also the existence test for reference_table.
+    FOR v_table_record IN
+        SELECT DISTINCT e.table_name, e.view_permission
+        FROM entities e
+        WHERE e.table_name IN (
             -- All entities belonging to the module
-            SELECT e.table_name AS name
-            FROM entities e
-            JOIN modules m ON m.id = e.module_id
+            SELECT me.table_name
+            FROM entities me
+            JOIN modules m ON m.id = me.module_id
             WHERE m.module_slug = p_module_name
 
             UNION
 
             -- All entities referenced via reference_table from fields of module entities
-            SELECT f.reference_table AS name
+            SELECT f.reference_table
             FROM fields f
-            JOIN entities e ON e.table_name = f.table_name
-            JOIN modules m ON m.id = e.module_id
+            JOIN entities fe ON fe.table_name = f.table_name
+            JOIN modules m ON m.id = fe.module_id
             WHERE m.module_slug = p_module_name
               AND f.reference_table != ''
-        ) AS names
-        ORDER BY name
+        )
+        ORDER BY e.table_name
     LOOP
-        -- Check if the table exists and the user has view permission; skip otherwise
-        SELECT * INTO v_table_record
-        FROM entities
-        WHERE table_name = v_table_name;
-
-        IF FOUND AND rbac.has_permission(v_table_record.view_permission) THEN
-            v_schema := public.build_schema_for_table(v_table_name);
+        -- build_schema_for_table checks again: it is self-gating as an RPC of
+        -- its own, and the repeat is a cached lookup.
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;
             END IF;
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
@@ -7088,9 +7072,9 @@ BEGIN
     PERFORM rbac.uid();
 
     FOR v_table_record IN
-        SELECT *
-        FROM entities
-        ORDER BY table_name
+        SELECT e.table_name, e.view_permission
+        FROM entities e
+        ORDER BY e.table_name
     LOOP
         IF rbac.has_permission(v_table_record.view_permission) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
@@ -7100,7 +7084,8 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
@@ -7124,7 +7109,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', 'ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d');
+      VALUES ('_core.0080_public_functions', '8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7608,7 +7593,8 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: writes nothing, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
@@ -7680,7 +7666,7 @@ $pgsem__core_0110_apikeys$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0110_apikeys', 'f8ee6efd639645c165cf68eeac34859a7c27d0de845dddcb76e0ae4a23d877f0');
+      VALUES ('_core.0110_apikeys', '29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9679,6 +9665,29 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+    -- Skip the rebuild when the new field cannot change a generated body: it
+    -- emits DDL per reference field, on every field insert. Miss a case and
+    -- nothing raises - a stale <fk>_label keeps answering with the old body.
+    -- The parent-leg count is dd_is_junction(), which reads every field.
+    -- Pinned by 0370_test_composed_labels.sql.
+    IF TG_OP = 'INSERT' AND NOT (
+            dd_is_fk_format(NEW.format)
+         OR EXISTS (SELECT 1 FROM entities e
+                     WHERE e.table_name = NEW.table_name
+                       AND (e.label_column = NEW.field_name
+                         OR NULLIF(e.label_parent, '') = NEW.field_name))
+         OR (SELECT count(*) FROM fields f
+              WHERE f.table_name = NEW.table_name
+                AND f.format = 'parent') >= 2
+         OR EXISTS (SELECT 1 FROM fields f
+                     WHERE f.table_name = NEW.table_name
+                       AND dd_is_fk_format(f.format)
+                       AND f.reference_table <> ''
+                       AND f.field_name || '_label' = NEW.field_name))
+    THEN
+        RETURN NULL;
+    END IF;
+
     PERFORM rebuild_entity_label_functions(COALESCE(NEW.table_name, OLD.table_name));
     RETURN NULL;
 END;
@@ -9687,7 +9696,7 @@ $$;
 COMMENT ON FUNCTION dd_label_fn_sync_entity() IS
 'Trigger function that regenerates the entity''s _label / <fk>_label computed-column functions after an entities row changes, by calling rebuild_entity_label_functions.';
 COMMENT ON FUNCTION dd_label_fn_sync_field() IS
-'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions.';
+'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions. An INSERT that cannot change a generated body skips the rebuild.';
 
 CREATE TRIGGER zzz_label_fn_entity_insert_trigger
     AFTER INSERT ON entities
@@ -9761,7 +9770,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', 'ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919');
+      VALUES ('_core.0145_managed_enable', '0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14085,7 +14094,8 @@ $pgsem__core_0180_computed_validation$;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
 
--- Mark external_id as unique in data dictionary (matches the UNIQUE constraint on the table)
+-- Mark external_id as unique in the data dictionary. This is what BUILDS the
+-- only unique index on the column, and it is partial: it excludes ''.
 UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
 
 -- Add data dictionary entries for the new fields
@@ -14281,7 +14291,7 @@ $pgsem__core_0190_user_name_claims$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0190_user_name_claims', '91c31250b56b5198d495de1604f667ad918372cb053aca791141e1c06a5ea50f');
+      VALUES ('_core.0190_user_name_claims', '5f2da4d7c472d55b7954a03383ee9ea3b5ef4ab9bc322bb4ee940011ec21c42f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16528,10 +16538,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version_from_fields
+-- =====================================================
+-- Same job as bump_module_version_from_related, for the one module-scoped table
+-- with no module_id: fields resolves its module through entities.table_name.
+-- Resolving to nothing is not an error - a cascading entity DELETE removes the
+-- entities row first, and its own DELETE has already bumped.
+
+CREATE OR REPLACE FUNCTION bump_module_version_from_fields()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_module_id INTEGER;
+    v_old_module_id INTEGER;
+BEGIN
+    IF TG_OP <> 'DELETE' THEN
+        SELECT e.module_id INTO v_module_id FROM entities e WHERE e.table_name = NEW.table_name;
+    END IF;
+    IF TG_OP <> 'INSERT' THEN
+        SELECT e.module_id INTO v_old_module_id FROM entities e WHERE e.table_name = OLD.table_name;
+    END IF;
+
+    -- The UPDATE below writes modules, whose own AFTER trigger would otherwise
+    -- bump a second time.
+    IF current_setting('app.bumping_module_version', TRUE) IS DISTINCT FROM 'true' THEN
+        PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+        UPDATE modules
+        SET version = version + 1,
+            version_date = CURRENT_TIMESTAMP
+        WHERE id = v_module_id
+           OR id = v_old_module_id;
+
+        PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
 COMMENT ON FUNCTION bump_module_version() IS
 'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
 COMMENT ON FUNCTION bump_module_version_from_related() IS
 'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, using app.bumping_module_version to avoid recursive double-bumps.';
+COMMENT ON FUNCTION bump_module_version_from_fields() IS
+'Trigger function on fields that bumps the owning module''s version, resolving the module through entities.table_name because fields has no module_id. A field edit changes what get_schema() returns, so it is a model change.';
 
 -- =====================================================
 -- TRIGGERS ON MODULES TABLE
@@ -16566,9 +16620,15 @@ CREATE TRIGGER bump_module_version_on_processes
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
+CREATE TRIGGER bump_module_version_on_fields
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_fields();
+
 -- Revoke default PUBLIC execute on trigger functions
 REVOKE EXECUTE ON FUNCTION bump_module_version() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION bump_module_version_from_related() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;
 $pgsem__core_0282_module_version$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -16585,7 +16645,7 @@ $pgsem__core_0282_module_version$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0282_module_version', 'a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1');
+      VALUES ('_core.0282_module_version', '70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16781,10 +16841,13 @@ END;
 $$;
 
 -- =====================================================
--- STEP 5: get_user_modules() (current 0080 body)
+-- STEP 5: get_user_modules() (current 0080_public_functions.sql body)
 -- =====================================================
 -- Older databases still run the pre-rename body that builds the object by hand
 -- and emits "alias"; to_jsonb(m) returns every current column, incl. module_slug.
+--
+-- This CREATE OR REPLACE runs later than the one in 0080_public_functions.sql
+-- and silently wins, so a change made only there is lost.
 
 CREATE OR REPLACE FUNCTION public.get_user_modules()
 RETURNS JSONB AS $$
@@ -16796,7 +16859,7 @@ BEGIN
         '[]'::jsonb
     );
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION public.get_user_modules IS
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
@@ -16819,7 +16882,7 @@ $pgsem__core_0284_module_slug_provision$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0284_module_slug_provision', 'a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28');
+      VALUES ('_core.0284_module_slug_provision', '2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17099,7 +17162,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"ee7bf0ea409509cf6b5f80168eacd5001995547470cc6454b7e67700b9863555","_core.0030_rbac_functions":"68e24081805928cf85962de11026d1b5313285dd1fa0ab62e829bbc4ac2a6864","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"b3ab1f7b0ddeba1d3899c2a285233faf7e42ff83fba54a9c526daaff680546d2","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"ceca1ea9bc429b08a744f467da2755a67e20bdfe3a30cc689cb78cf6e3f9448d","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"f8ee6efd639645c165cf68eeac34859a7c27d0de845dddcb76e0ae4a23d877f0","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"ea2d6f9c8fff8e57434cde3a25f54eceb0a794d3ea974566424b77a2ccf05919","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"91c31250b56b5198d495de1604f667ad918372cb053aca791141e1c06a5ea50f","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"a72956dfddf35c6cd94858f495016c198796da1a78d7f4dd01e4d1bebcc422b1","_core.0284_module_slug_provision":"a91b4a550aceeab4efda704bca391ba99ed9b4096cf4034adee371fc2cfcbd28","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"4d890ef455f60ab6feb38090a90f63502bab45f7baec4c8a0ccfe12e4efb2f01","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"5f2da4d7c472d55b7954a03383ee9ea3b5ef4ab9bc322bb4ee940011ec21c42f","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

@@ -263,25 +263,19 @@ CREATE TRIGGER update_users_updated_at
     FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
 
 -- =====================================================
--- INDEXES - Modules
+-- INDEXES
 -- =====================================================
+-- A column a unique index already covers - whole key or leading columns of a
+-- composite - gets no plain index of its own. Swept by
+-- 0450_test_rbac_indexes.sql.
 
-CREATE INDEX idx_modules_name ON modules(module_name);
-
--- =====================================================
--- INDEXES - Permissions
--- =====================================================
-
-CREATE INDEX idx_permissions_name ON permissions(permission_name);
 CREATE INDEX idx_permissions_module ON permissions(module_id);
 
 -- =====================================================
 -- INDEXES - Roles
 -- =====================================================
 
-CREATE INDEX idx_roles_name ON roles(role_name);
 CREATE INDEX idx_roles_module ON roles(module_id);
-CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
 CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 
@@ -289,7 +283,6 @@ CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 -- INDEXES - User Permissions
 -- =====================================================
 
-CREATE INDEX idx_user_permissions_user ON user_permissions(user_id);
 CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
 CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
@@ -305,7 +298,6 @@ CREATE INDEX idx_users_disabled ON users(is_disabled) WHERE is_disabled = TRUE;
 -- INDEXES - User Roles
 -- =====================================================
 
-CREATE INDEX idx_user_roles_user ON user_roles(user_id);
 CREATE INDEX idx_user_roles_role ON user_roles(role_id);
 CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 
@@ -313,7 +305,6 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_including ON permission_hierarchy(including_permission_id);
 CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
 
 -- =====================================================
@@ -325,9 +316,3 @@ CREATE INDEX idx_modules_admin_permission ON modules(admin_permission_id);
 CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
 CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
 CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);
-
--- =====================================================
--- INDEXES - Roles slug
--- =====================================================
-
-CREATE INDEX idx_roles_slug ON roles(slug);
