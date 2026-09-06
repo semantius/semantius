@@ -5,14 +5,17 @@
 -- JWT claims given_name and family_name are now stored
 -- as first_name and last_name in the users table.
 -- JWT name claim is stored as display_name (column already exists).
--- sub (external_id) is already UNIQUE NOT NULL.
+-- sub (external_id) is NOT NULL and never empty (0020), and unique through
+-- the dictionary index built below.
 
 -- Add columns
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
 
 -- Mark external_id as unique in the data dictionary. This is what BUILDS the
--- only unique index on the column, and it is partial: it excludes ''.
+-- only unique index on the column, and it is partial: it excludes ''. Since
+-- 0020 refuses the empty string, the index is total in effect, and the
+-- unique_value: true that get_schema() reports for this column is accurate.
 UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
 
 -- Add data dictionary entries for the new fields

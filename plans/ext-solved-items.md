@@ -1288,7 +1288,8 @@ not silently bless the other three either.
 where someone reasoning about identity will find it**: `SECURITY.md` under "What
 is not", and comments at `0020_rbac_schema.sql` and `0190_user_name_claims.sql`.
 Many rows may carry `external_id = ''`, where a total `UNIQUE` allowed one. It
-is tracked as **S20** until agents get generated identifiers. `get_schema()`
+was tracked as **S20** until agents got generated identifiers later the same
+day (see the S20 section below). `get_schema()`
 still reports `unique_value: true` for that column, which is a half-truth a
 client enforcing uniqueness from the schema will be wrong about for the empty
 string; that is recorded in the `0190` comment rather than fixed.
@@ -1523,3 +1524,70 @@ threshold on a shared runner is a flaky test, and the measurement above is the
 record. Re-measure with a `DO` block timing `get_user_cubes()` inside the server,
 against 217 probe entities of five fields each created in a rolled-back
 transaction.
+
+## S20 (2026-09-06): every principal carries an identity, generated when none is supplied
+
+The row as it stood in the open items:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S20 | Medium | migration | `0020_rbac_schema.sql` (`users.external_id`), wherever agents are provisioned | `users` holds "users and agents" (`0020:161`) and `external_id` is `NOT NULL DEFAULT ''`, so an agent with no external identity is representable as the empty string. Since 2026-09-06 the column's only unique index is the dictionary's partial one, which excludes `''`, so **many such rows are now possible where exactly one was before**. Nothing creates one today - both upserts reject an empty `external_id` (`0030:309-311`, `0190:44-46`) and the live database has none - so this is a latent hole, not a live defect. It is Medium rather than Low because every identity-derived guard in the schema keys on `external_id`, and two principals sharing `''` would share an identity. | Give agents a generated identifier - a fixed prefix and a random suffix - at the point they are provisioned, and make `external_id` reject the empty string outright once nothing depends on it. Decided in principle by the owner on 2026-09-06; not owned by any plan. | No row can carry `external_id = ''`, asserted by a failing-capable test, and every agent carries a distinct generated identifier. |
+
+**Closed as done, with the row's reasoning corrected.** The row was opened at
+14:44 on 2026-09-06 as a residue of the P10 index cleanup earlier that day,
+which dropped the table's own `UNIQUE` on `users.external_id` and left the
+dictionary's partial index, which ignores `''`, as the only one. Its Problem
+text said that "two principals sharing `''` would share an identity". They
+would not: `rbac.uid()` refuses an empty `sub`, the warm-cache shortcut rejects
+an empty cached id, and every lookup keyed on `external_id` returns nothing for
+an empty argument before it queries. No session could ever resolve to a blank
+row. What the blank state actually was: a `users` row that no session could
+act as, holding roles and keys nobody could use - dead data, and after the
+index change repeatable dead data. Medium was not justified on those grounds.
+
+The reason it still needed fixing is the one the owner gave the same day: an
+API key is validated to a `users.id`, and the app tier mints a JWT from that id
+whose `sub` is the row's `external_id`. A blank one yields a token that
+`rbac.uid()` rejects, so an agent provisioned without an identity could hold a
+key and never use it.
+
+What changed:
+
+- `0020_rbac_schema.sql`: `external_id` lost its `DEFAULT ''` and refuses an
+  empty or blank value, `CONSTRAINT users_external_id_not_empty CHECK
+  (btrim(external_id) <> '')`. A user row saved without an identity now fails
+  on NOT NULL, and one saved with an empty identity on the check. With that,
+  the dictionary's partial unique index is total in effect, and the
+  `unique_value: true` that `get_schema()` reports for the column is accurate
+  again.
+- `0210_raci.sql`, next to the `is_agent` column it keys on: a BEFORE INSERT
+  trigger, `assign_agent_external_id_trigger`, gives an agent inserted without
+  an `external_id`, or with an empty one, a generated `agent:<uuid>`. Users are
+  left alone: their identity is the provider's `sub`, supplied through
+  `get_userinfo()`, and nothing may invent one for them. INSERT only, by
+  decision: regenerating on UPDATE would rotate an agent's identity on an
+  ordinary save and invalidate every token minted for it, so blanking is
+  refused instead. A first cut put a generated default on the column itself,
+  for every row; the owner rejected that the same day, because a user must
+  bring an identity and only an agent may be given one.
+- The `ON CONFLICT (external_id) WHERE ...` predicates at the two upsert sites
+  are unchanged; the index is still partial and arbiter inference still needs
+  them.
+
+Also touched: the comments in `0020` and `0190`, the field description in
+`0060`, and the SECURITY.md bullet that had documented the blank state as a
+legal one.
+
+**Pinned by** GROUP 3 of `0450_test_rbac_indexes.sql`, rewritten from two
+assertions to seven: a user with an empty `external_id` is refused (23514), a
+user without one is refused (23502), an existing identity cannot be blanked
+(23514); three agents inserted without an identity or with an empty one all
+match `^agent:<uuid>$` and differ from each other, an agent inserted with one
+keeps it, and a non-empty value is still unique (23505). Both harnesses green
+at 2,287 assertions (`pg-cli-retest.sh` and `pg-ext-retest.sh`, 2026-09-06).
+Verified failing-capable both ways in the Path A container: with
+`users_external_id_not_empty` dropped, exactly the two 23514 assertions fail
+("caught: no exception") and the other twelve pass; with
+`assign_agent_external_id_trigger` disabled, the file aborts at the first agent
+insert on the NOT NULL constraint and reports 0 passing. With both restored,
+all fourteen pass.

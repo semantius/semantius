@@ -107,16 +107,16 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   data access on future tables in `public`. Tables created through the data
   dictionary always get their policies; tables created outside it need their
   own.
-- **Many principals may share an empty `external_id`.** `users` holds users
-  and agents, and `external_id` is `NOT NULL DEFAULT ''`. Uniqueness on that
-  column is enforced by one index, the data dictionary's, and it is *partial*:
-  it excludes `NULL` and the empty string. A pre-provisioned principal with no
-  external identity yet is therefore a legal and repeatable state, where a
-  total constraint allowed exactly one such row. Nothing creates one today -
-  both upsert paths reject an empty `external_id` - but every identity-derived
-  guard in the schema keys on this column, so two principals sharing `''` would
-  share an identity. Giving agents a generated identifier, and then refusing the
-  empty string outright, is the way out.
+- **Every principal carries a non-empty `external_id`, and that is its
+  identity.** A session is a JWT, and the caller is the `users` row whose
+  `external_id` equals the `sub` claim, for users and agents alike; an API key
+  resolves to a user id, and the JWT minted from it carries that row's
+  `external_id` as `sub`. A user brings theirs from the authentication
+  provider and is refused without one. An agent (`is_agent`) saved without one
+  gets a generated `agent:<uuid>` from a trigger. The column refuses the empty
+  string for both (`users_external_id_not_empty`). Uniqueness is enforced by
+  the data dictionary's partial unique index, which excludes `NULL` and `''`;
+  with the empty string refused, it is total in effect.
 - **An API key is its owner.** A key authenticates as the user it belongs to
   and carries every permission that user holds; there is no per-key scope.
   Keep an administrator's key where you keep the administrator's password.

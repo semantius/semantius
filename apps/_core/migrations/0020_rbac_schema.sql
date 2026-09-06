@@ -145,27 +145,39 @@ COMMENT ON TRIGGER auto_set_role_slug_trigger ON roles IS
 -- Revoke default PUBLIC execute on trigger function
 REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
 
--- Users: External users from JWT
+-- Users and agents. A session is a JWT, and the caller is the row whose
+-- external_id equals the sub claim.
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
+    -- external_id is the identity, so every principal needs one - agents
+    -- included: an API key resolves to users.id, and the JWT minted from it
+    -- carries this column as its sub. A user brings theirs from the
+    -- authentication provider (get_userinfo upserts on it); there is no
+    -- default, so a user row saved without one is refused. An agent (is_agent,
+    -- 0210) saved without one, or with an empty one, gets a generated identity
+    -- from the trigger in 0210: 'agent:' plus a random UUID. An empty or blank
+    -- string is refused for both (users_external_id_not_empty, below), so no
+    -- row can exist that no session could ever act as.
+    --
     -- Uniqueness is not declared here. The data dictionary owns it: 0190 sets
     -- fields.unique_value for this column, which builds users_external_id_unique
-    -- as a partial index excluding NULL and ''. A UNIQUE constraint here would be
-    -- a second, total index over the same column with different semantics, and
-    -- the two would disagree about the empty string. Callers upserting on this
-    -- column must repeat the index predicate so PostgreSQL can infer the arbiter.
-    external_id TEXT NOT NULL DEFAULT '',
+    -- as a partial index excluding NULL and ''. With the empty string refused
+    -- that index is total in effect. A UNIQUE constraint here would be a second
+    -- index over the same column. Callers upserting on this column must repeat
+    -- the index predicate so PostgreSQL can infer the arbiter.
+    external_id TEXT NOT NULL,
     email TEXT DEFAULT '',
     display_name TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    last_seen TIMESTAMPTZ
+    last_seen TIMESTAMPTZ,
+    CONSTRAINT users_external_id_not_empty CHECK (btrim(external_id) <> '')
 );
 
 COMMENT ON TABLE users IS 'Users and agents';
-COMMENT ON COLUMN users.external_id IS 'External identifier from authentication provider (e.g., Auth0, Firebase)';
+COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>. Never empty.';
 
 -- User-Role mapping
 CREATE TABLE user_roles (

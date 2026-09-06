@@ -1567,27 +1567,39 @@ COMMENT ON TRIGGER auto_set_role_slug_trigger ON roles IS
 -- Revoke default PUBLIC execute on trigger function
 REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
 
--- Users: External users from JWT
+-- Users and agents. A session is a JWT, and the caller is the row whose
+-- external_id equals the sub claim.
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
+    -- external_id is the identity, so every principal needs one - agents
+    -- included: an API key resolves to users.id, and the JWT minted from it
+    -- carries this column as its sub. A user brings theirs from the
+    -- authentication provider (get_userinfo upserts on it); there is no
+    -- default, so a user row saved without one is refused. An agent (is_agent,
+    -- 0210) saved without one, or with an empty one, gets a generated identity
+    -- from the trigger in 0210: 'agent:' plus a random UUID. An empty or blank
+    -- string is refused for both (users_external_id_not_empty, below), so no
+    -- row can exist that no session could ever act as.
+    --
     -- Uniqueness is not declared here. The data dictionary owns it: 0190 sets
     -- fields.unique_value for this column, which builds users_external_id_unique
-    -- as a partial index excluding NULL and ''. A UNIQUE constraint here would be
-    -- a second, total index over the same column with different semantics, and
-    -- the two would disagree about the empty string. Callers upserting on this
-    -- column must repeat the index predicate so PostgreSQL can infer the arbiter.
-    external_id TEXT NOT NULL DEFAULT '',
+    -- as a partial index excluding NULL and ''. With the empty string refused
+    -- that index is total in effect. A UNIQUE constraint here would be a second
+    -- index over the same column. Callers upserting on this column must repeat
+    -- the index predicate so PostgreSQL can infer the arbiter.
+    external_id TEXT NOT NULL,
     email TEXT DEFAULT '',
     display_name TEXT DEFAULT '',
     is_disabled BOOLEAN DEFAULT FALSE,
     settings JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    last_seen TIMESTAMPTZ
+    last_seen TIMESTAMPTZ,
+    CONSTRAINT users_external_id_not_empty CHECK (btrim(external_id) <> '')
 );
 
 COMMENT ON TABLE users IS 'Users and agents';
-COMMENT ON COLUMN users.external_id IS 'External identifier from authentication provider (e.g., Auth0, Firebase)';
+COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>. Never empty.';
 
 -- User-Role mapping
 CREATE TABLE user_roles (
@@ -1754,7 +1766,7 @@ $pgsem__core_0020_rbac_schema$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', '4d890ef455f60ab6feb38090a90f63502bab45f7baec4c8a0ccfe12e4efb2f01');
+      VALUES ('_core.0020_rbac_schema', '9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4222,7 +4234,7 @@ WHERE table_name = 'entities' AND field_name = 'entity_type';
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
     ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-    ('users', 'external_id', 'External Id', 'External identifier from authentication provider', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', ''),
+    ('users', 'external_id', 'External Id', 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', ''),
     ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', ''),
     ('users', 'display_name', 'Display Name', '', 'text', FALSE, 25, 'default', 'default', 'core', TRUE, '', ''),
     ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, 30, 'default', 'default', 'core', FALSE, '', ''),
@@ -4363,7 +4375,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf');
+      VALUES ('_core.0060_dd_schema', '43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14088,14 +14100,17 @@ $pgsem__core_0180_computed_validation$;
 -- JWT claims given_name and family_name are now stored
 -- as first_name and last_name in the users table.
 -- JWT name claim is stored as display_name (column already exists).
--- sub (external_id) is already UNIQUE NOT NULL.
+-- sub (external_id) is NOT NULL and never empty (0020), and unique through
+-- the dictionary index built below.
 
 -- Add columns
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
 
 -- Mark external_id as unique in the data dictionary. This is what BUILDS the
--- only unique index on the column, and it is partial: it excludes ''.
+-- only unique index on the column, and it is partial: it excludes ''. Since
+-- 0020 refuses the empty string, the index is total in effect, and the
+-- unique_value: true that get_schema() reports for this column is accurate.
 UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
 
 -- Add data dictionary entries for the new fields
@@ -14291,7 +14306,7 @@ $pgsem__core_0190_user_name_claims$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0190_user_name_claims', '5f2da4d7c472d55b7954a03383ee9ea3b5ef4ab9bc322bb4ee940011ec21c42f');
+      VALUES ('_core.0190_user_name_claims', '3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14387,6 +14402,39 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FAL
 
 COMMENT ON COLUMN users.is_agent IS
 'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
+
+-- An agent never authenticates at an identity provider, so nothing supplies
+-- its external_id - and external_id is the identity: an API key resolves to
+-- users.id, and the JWT minted from it carries this column as its sub. An
+-- agent inserted without one, or with an empty one, gets a generated identity
+-- here. A user gets nothing: a user's identity is the provider's sub, supplied
+-- through get_userinfo(), and a user row saved without one is refused by NOT
+-- NULL and users_external_id_not_empty (0020). INSERT only, on purpose:
+-- regenerating on UPDATE would rotate an agent's identity on an ordinary save
+-- and invalidate every token minted for it, so blanking it is refused instead.
+CREATE OR REPLACE FUNCTION assign_agent_external_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_agent AND (NEW.external_id IS NULL OR btrim(NEW.external_id) = '') THEN
+        NEW.external_id := 'agent:' || gen_random_uuid()::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION assign_agent_external_id IS
+'Trigger function: gives an agent (is_agent) inserted without an external_id, or with an empty one, a generated agent:<uuid>. Users are left alone and refused by the column constraints.';
+
+CREATE TRIGGER assign_agent_external_id_trigger
+    BEFORE INSERT ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION assign_agent_external_id();
+
+COMMENT ON TRIGGER assign_agent_external_id_trigger ON users IS
+'Generates agent:<uuid> as external_id for an agent inserted without one.';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
 
 -- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (
@@ -15629,7 +15677,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', 'ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a');
+      VALUES ('_core.0210_raci', 'e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17162,7 +17210,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"4d890ef455f60ab6feb38090a90f63502bab45f7baec4c8a0ccfe12e4efb2f01","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"2baef8319eab27cd6db6e3d16288e374ec025600429db730fa198252f60201bf","_core.0070_dd_functions":"321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"5f2da4d7c472d55b7954a03383ee9ea3b5ef4ab9bc322bb4ee940011ec21c42f","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"ec5a9ec1173136c5d3b24aae73e8e801b64d487c893d2d57ff991ee9a4ff8a6a","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09","_core.0070_dd_functions":"321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

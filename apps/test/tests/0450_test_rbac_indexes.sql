@@ -15,14 +15,15 @@
 -- them sequentially - asserting a plan shape without that would be asserting
 -- whatever ANALYZE last saw.
 --
--- GROUP 3 states the uniqueness rule on users.external_id, which is a
+-- GROUP 3 states the identity rule on users.external_id, which is a
 -- data-integrity rule rather than an index detail: the only unique index on
--- that column is the dictionary's partial one, and it excludes the empty
--- string. So MANY rows may carry external_id = '' where a total UNIQUE
--- constraint allowed exactly one. That is deliberate - a pre-provisioned
--- principal with no external identity yet is a real state - and it is asserted
--- here so that changing it back is a visible decision. Nothing creates such a
--- row today: both upsert paths reject an empty external_id.
+-- that column is the dictionary's partial one, which excludes the empty
+-- string, so the table refuses the empty string outright (0020). A user must
+-- bring an identity - the provider's sub - and is refused without one; an
+-- agent (is_agent) saved without one gets agent:<uuid> from the 0210 trigger.
+-- Together these make the partial index total in effect and leave no row that
+-- no session could act as. Asserted here so that weakening any of it is a
+-- visible decision.
 --
 -- GROUP 4 is the regression that would otherwise reach production as a failed
 -- login. A bare ON CONFLICT (external_id) cannot infer a partial index, so the
@@ -33,7 +34,7 @@
 -- writes, plus audit triggers). The catalog sweep runs as the owner.
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(14);
 
 SELECT authenticate_as('user3');
 
@@ -162,15 +163,52 @@ SELECT ok(
 RESET enable_seqscan;
 
 -- =====================================================
--- GROUP 3: what the partial unique index allows
+-- GROUP 3: a user must bring an identity, an agent is given one
 -- =====================================================
-INSERT INTO users (external_id, email) VALUES ('', 'blank_a@example.com');
-INSERT INTO users (external_id, email) VALUES ('', 'blank_b@example.com');
+SELECT throws_ok(
+    $$ INSERT INTO users (external_id, email) VALUES ('', 'blank@example.com') $$,
+    '23514',
+    NULL,
+    'a user with an empty external_id is refused'
+);
+
+SELECT throws_ok(
+    $$ INSERT INTO users (email) VALUES ('nobody@example.com') $$,
+    '23502',
+    NULL,
+    'a user without an external_id is refused: nothing generates one'
+);
+
+SELECT throws_ok(
+    $$ UPDATE users SET external_id = '' WHERE external_id = 'user1' $$,
+    '23514',
+    NULL,
+    'an existing identity cannot be blanked'
+);
+
+INSERT INTO users (email, is_agent) VALUES ('agent_a@example.com', TRUE), ('agent_b@example.com', TRUE);
+INSERT INTO users (external_id, email, is_agent) VALUES ('', 'agent_c@example.com', TRUE);
+INSERT INTO users (external_id, email, is_agent) VALUES ('bot-7', 'agent_d@example.com', TRUE);
 
 SELECT is(
-    (SELECT count(*)::int FROM users WHERE external_id = ''),
-    2,
-    'many rows may carry an empty external_id: the unique index excludes it'
+    (SELECT count(*)::int FROM users
+     WHERE email IN ('agent_a@example.com', 'agent_b@example.com', 'agent_c@example.com')
+       AND external_id ~ '^agent:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    3,
+    'an agent saved without an external_id, or with an empty one, gets agent:<uuid>'
+);
+
+SELECT is(
+    (SELECT count(DISTINCT external_id)::int FROM users
+     WHERE email IN ('agent_a@example.com', 'agent_b@example.com', 'agent_c@example.com')),
+    3,
+    'generated agent identities differ'
+);
+
+SELECT is(
+    (SELECT external_id FROM users WHERE email = 'agent_d@example.com'),
+    'bot-7',
+    'an agent saved with an external_id keeps it'
 );
 
 SELECT throws_ok(

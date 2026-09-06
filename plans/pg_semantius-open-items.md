@@ -3,7 +3,7 @@
 One document, one list. Every open item is a row in the table below, sorted by
 priority. When an item is fixed, delete its row; git keeps the history. IDs come
 from the release review of 2026-09-02 and are never reused, so gaps (S1 to
-S11, S13, S15, P1 to P14, B1 to B10, B12 to B16, B19, B20, B21,
+S11, S13, S15, S20, P1 to P14, B1 to B10, B12 to B16, B19, B20, B21,
 Q1, Q4, Q7, R1 to R5, T1) mean fixed or dropped. The review, the readiness hand-off, and the separate blocker and
 next-action lists that used to sit above the detail tables were retired on
 2026-09-03; all of them are in git history under `plans/`.
@@ -189,10 +189,11 @@ day; renumbered 2026-09-05.
   and in `SECURITY.md`. Two things the batch did **not** deliver are recorded in
   the closure rather than quietly dropped: P7's 13 linter warnings stay
   (accepted, not fixed), and P8's "the 8 warnings are gone" was never
-  deliverable either way. Three residues are open: **S20** (an empty
-  `external_id` is now repeatable), **R10** (the test that overpromises about
-  `modules_select_policy`) and **Q6** (the trigger functions the linter cannot
-  parse). The plan that owned all five was deleted with them. Full record, with
+  deliverable either way. Two residues are open: **R10** (the test that
+  overpromises about `modules_select_policy`) and **Q6** (the trigger functions
+  the linter cannot parse). A third, **S20** (an empty `external_id` had become
+  repeatable), was closed the same day. The plan that owned all five was
+  deleted with them. Full record, with
   the before/after measurements and the profile, in
   `plans/ext-solved-items.md`.
 
@@ -211,7 +212,6 @@ file or shipped README, `tooling` to the harnesses and CI.
 
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
-| S20 | Medium | migration | `0020_rbac_schema.sql` (`users.external_id`), wherever agents are provisioned | `users` holds "users and agents" (`0020:161`) and `external_id` is `NOT NULL DEFAULT ''`, so an agent with no external identity is representable as the empty string. Since 2026-09-06 the column's only unique index is the dictionary's partial one, which excludes `''`, so **many such rows are now possible where exactly one was before**. Nothing creates one today - both upserts reject an empty `external_id` (`0030:309-311`, `0190:44-46`) and the live database has none - so this is a latent hole, not a live defect. It is Medium rather than Low because every identity-derived guard in the schema keys on `external_id`, and two principals sharing `''` would share an identity. | Give agents a generated identifier - a fixed prefix and a random suffix - at the point they are provisioned, and make `external_id` reject the empty string outright once nothing depends on it. Decided in principle by the owner on 2026-09-06; not owned by any plan. | No row can carry `external_id = ''`, asserted by a failing-capable test, and every agent carries a distinct generated identifier. |
 | B11 | Low | migration | `0010:37`, `0012:104` (the CURRENT_USER grants), `0050:20` (the BYPASSRLS gate) | Partly fixed 2026-09-03: both grants are now skipped when the installing role is a superuser, and 0050's `ASSERT` became a `RAISE EXCEPTION` (no `ASSERT` statement survives in the generated script, asserted by `pg-ext-lifecycle.sh`). The row's first alternative - "neither reaches the generated script" - is still unmet: both grants are present at `pg_semantius--0.5.0.sql:242` and `:531`, only runtime-guarded. | Either drop the grants from the generated script entirely, or accept the runtime guard and rewrite this row's done-when. Add a test that the BYPASSRLS `RAISE EXCEPTION` actually fires and that a superuser install skips the grants. | The BYPASSRLS gate has a test that fails when it is removed, and the grant-skip is asserted on a superuser install. |
 | B17 | Low | extension | `extension.ts` (`pruneOldFullInstalls`), `extension-release.yml` (packaging step) | An upgrade script whose endpoints are no longer in `versions.json` survives regeneration and is shipped. `pruneOldFullInstalls` deliberately keeps anything with a second `--` (`if (mid.includes("--")) continue;`), and the packaging step globs `cp extension/pg_semantius--*.sql`, so the archive can offer PostgreSQL an `ALTER EXTENSION ... UPDATE` path that the manifest knows nothing about. Verified by dropping a fabricated `pg_semantius--0.4.0--0.5.0.sql` into a copy of `extension/` and regenerating: the stale full install was removed, the orphan survived. Latent today - the 2026-09-03 manifest wipe is exactly how one is created. | Prune upgrade scripts whose `<from>` or `<to>` is absent from the manifest, or package from the manifest instead of a glob. | An orphaned upgrade script is deleted by the next generation, or never reaches the archive. |
 | B18 | Low | tooling | `packages/*/src/migrations-bundle.ts`, `scripts/bundle-sql.ts`, `.gitignore:149` | The three bundle copies are generated by hand (`RELEASE.md` asks for it) and nothing verifies them. `packages/triggerdev/src/migrations-bundle.ts` is **tracked** despite being ignored, and is stale: it still holds the pre-P11 row-level `handle_field_searchable_change` trigger and lacks 0290's `GRANT EXECUTE ON FUNCTION audit.current_user_id()`. The other two are untracked. The release workflow's porcelain guard is scoped `-- extension/` and cannot see any of this. | Decide whether the bundles are build output (untrack all three, generate on demand) or artifacts (track all three, regenerate in the release flow and extend the porcelain guard to cover them). | The tracked copy either matches a fresh `bundle-sql.ts` run or is not tracked. |

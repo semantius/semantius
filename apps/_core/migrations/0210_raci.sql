@@ -27,6 +27,39 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FAL
 COMMENT ON COLUMN users.is_agent IS
 'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
+-- An agent never authenticates at an identity provider, so nothing supplies
+-- its external_id - and external_id is the identity: an API key resolves to
+-- users.id, and the JWT minted from it carries this column as its sub. An
+-- agent inserted without one, or with an empty one, gets a generated identity
+-- here. A user gets nothing: a user's identity is the provider's sub, supplied
+-- through get_userinfo(), and a user row saved without one is refused by NOT
+-- NULL and users_external_id_not_empty (0020). INSERT only, on purpose:
+-- regenerating on UPDATE would rotate an agent's identity on an ordinary save
+-- and invalidate every token minted for it, so blanking it is refused instead.
+CREATE OR REPLACE FUNCTION assign_agent_external_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_agent AND (NEW.external_id IS NULL OR btrim(NEW.external_id) = '') THEN
+        NEW.external_id := 'agent:' || gen_random_uuid()::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION assign_agent_external_id IS
+'Trigger function: gives an agent (is_agent) inserted without an external_id, or with an empty one, a generated agent:<uuid>. Users are left alone and refused by the column constraints.';
+
+CREATE TRIGGER assign_agent_external_id_trigger
+    BEFORE INSERT ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION assign_agent_external_id();
+
+COMMENT ON TRIGGER assign_agent_external_id_trigger ON users IS
+'Generates agent:<uuid> as external_id for an agent inserted without one.';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
+
 -- Register is_agent in the data dictionary (physical column added above).
 INSERT INTO fields (
     table_name, field_name, title, format,
