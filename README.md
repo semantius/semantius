@@ -17,6 +17,15 @@ Each Deno package (`core`, `cli`) has its own `deno.json` — this is the standa
 Deno workspace pattern and is equivalent to how each npm package in a pnpm
 workspace has its own `package.json`.
 
+**Samples live in [`bearer-auth-experimental/examples/`](bearer-auth-experimental/examples/),
+not in `examples/`.** All of them were built around PostgreSQL 18 OAuth bearer
+authentication, which is **not ready for production** for our use cases — it runs
+on self-hosted PostgreSQL 18 only and no session pooler supports it
+([docs/bearer-mode-status.md](docs/bearer-mode-status.md)). The two samples with a
+database tier also run in `DB_AUTH_MODE=session`, which needs none of that
+machinery and is built for Neon and Supabase; that path rests entirely on app-tier
+discipline, and the folder's README says what that costs before you copy it.
+
 ---
 
 ## Prerequisites

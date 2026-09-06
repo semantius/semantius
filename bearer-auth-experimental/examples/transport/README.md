@@ -12,7 +12,7 @@ token here, and is the single place you'd swap for your real session-token sourc
 ## Why it exists
 
 PostgreSQL 18 added native OAuth via the SASL `OAUTHBEARER` mechanism, and the
-Semantius self-host stack uses it: in [`pg_hba.conf`](../../pgdocker/conf/pg_hba.conf)
+Semantius self-host stack uses it: in [`pg_hba.conf`](../../../pgdocker/conf/pg_hba.conf)
 the `authenticated` role is **`oauth`-only**. So:
 
 - **There is no "JWT in the connection string."** The bearer token is presented
@@ -25,7 +25,7 @@ the `authenticated` role is **`oauth`-only**. So:
 
 So this module speaks just enough of the PostgreSQL v3 wire protocol, by hand, to
 do the handshake and query. It is a Node port of the proven
-[`pgdocker/verify_oauth.ts`](../../pgdocker/verify_oauth.ts) (which uses the
+[`pgdocker/verify_oauth.ts`](../../../pgdocker/verify_oauth.ts) (which uses the
 *simple* query protocol; this adds the *extended* protocol so `$1, $2, …`
 parameters work).
 

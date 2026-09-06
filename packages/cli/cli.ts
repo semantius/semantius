@@ -217,9 +217,9 @@ EXAMPLES:
     deno task connect --env test
     deno task migrate --apps nwind --env staging
     deno task drizzlegen
-    deno task drizzlegen --output examples/drizzle/src/schema
+    deno task drizzlegen --output bearer-auth-experimental/examples/drizzle/src/schema
     deno task kyselygen
-    deno task kyselygen --output examples/kysely/src/types.ts
+    deno task kyselygen --output bearer-auth-experimental/examples/kysely/src/types.ts
   `);
 }
 

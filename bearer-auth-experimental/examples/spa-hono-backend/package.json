@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Decoupled resource-server counterpart to the Next.js sample: a standalone Hono API (Node) that validates/forwards a bearer token, opens a request-scoped transaction, injects claims, and runs RLS-enforced Drizzle queries. Vendors the SAME lib/db layer as examples/nextjs. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, Neon, and Supabase.",
+  "description": "Decoupled resource-server counterpart to the Next.js sample: a standalone Hono API (Node) that validates/forwards a bearer token, opens a request-scoped transaction, injects claims, and runs RLS-enforced Drizzle queries. Vendors the SAME lib/db layer as bearer-auth-experimental/examples/nextjs. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, and built for Neon and Supabase (untested there).",
   "engines": {
     "node": ">=20.12"
   },

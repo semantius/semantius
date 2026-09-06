@@ -24,7 +24,7 @@
  * non-required enums, mirroring public.effective_enum_values().
  *
  *   deno task kyselygen                                # -> ./kysely/types.ts
- *   deno task kyselygen --output examples/kysely/src/types.ts
+ *   deno task kyselygen --output bearer-auth-experimental/examples/kysely/src/types.ts
  */
 
 import { Client } from "@postgres";

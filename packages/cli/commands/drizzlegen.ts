@@ -15,7 +15,7 @@
  * the DB's TEXT + CHECK (not a native PG enum type).
  *
  *   deno task drizzlegen                                    # -> ./drizzle/schema
- *   deno task drizzlegen --output examples/drizzle/src/schema
+ *   deno task drizzlegen --output bearer-auth-experimental/examples/drizzle/src/schema
  */
 
 import { Client } from "@postgres";

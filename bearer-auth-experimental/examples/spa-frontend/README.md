@@ -2,13 +2,13 @@
 
 A browser **React + Vite SPA** that runs the **OAuth authorization-code + PKCE** flow
 (no client secret) in the browser via **`react-oauth2-code-pkce`**, and calls the
-standalone [`examples/spa-hono-backend`](../spa-hono-backend) Hono API with
+standalone [`bearer-auth-experimental/examples/spa-hono-backend`](../spa-hono-backend) Hono API with
 `Authorization: Bearer`. It has **no database dependency whatsoever** — no Drizzle,
 no node-postgres, no DB types. It defines its own minimal API DTOs (`src/types.ts`).
 
 This is the decoupled SPA half of the sample pair. The server-rendered BFF
-counterpart is [`examples/nextjs`](../nextjs); the resource server it talks to is
-[`examples/spa-hono-backend`](../spa-hono-backend), which is where the DB / RLS /
+counterpart is [`bearer-auth-experimental/examples/nextjs`](../nextjs); the resource server it talks to is
+[`bearer-auth-experimental/examples/spa-hono-backend`](../spa-hono-backend), which is where the DB / RLS /
 trust-model documentation lives.
 
 ---
@@ -125,7 +125,7 @@ This is the deliberate, honest tradeoff for a **decoupled** SPA:
 - **Why not a BFF (httpOnly cookie)?** It's more XSS-robust (no portable credential
   ever exists), but it **re-couples** the SPA to a stateful companion server and
   re-introduces cookies/CSRF — which defeats the point of a *decoupled* SPA + stateless
-  bearer API, and would just duplicate the [`examples/nextjs`](../nextjs) BFF model.
+  bearer API, and would just duplicate the [`bearer-auth-experimental/examples/nextjs`](../nextjs) BFF model.
   If you need that posture, use that sample.
 
 ---

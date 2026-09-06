@@ -5,10 +5,10 @@ server**: it takes an `Authorization: Bearer <token>` from the React SPA, opens 
 **request-scoped transaction**, injects the user's identity, and reads/writes
 through **Drizzle** so the database's **RLS/RBAC** enforces per-user access.
 
-This is the **decoupled** counterpart to [`examples/nextjs`](../nextjs) (the
+This is the **decoupled** counterpart to [`bearer-auth-experimental/examples/nextjs`](../nextjs) (the
 server-rendered BFF). It **vendors the exact same `lib/db/` layer** — only the
 auth-transport (bearer header, not cookies) and the presentation tier (a separate
-[`examples/spa-frontend`](../spa-frontend) React SPA) differ. The data/auth layer
+[`bearer-auth-experimental/examples/spa-frontend`](../spa-frontend) React SPA) differ. The data/auth layer
 is proven framework-agnostic by running unchanged here.
 
 The same code runs against three backends, selected by one env flag:
@@ -16,7 +16,7 @@ The same code runs against three backends, selected by one env flag:
 | `DB_AUTH_MODE` | Who authenticates the DB connection | Who verifies the JWT signature | Backends |
 |---|---|---|---|
 | `bearer` | the **end-user's token** (SASL OAUTHBEARER, PG18) | the **database** (`pg_oidc_validator`, RS256) | self-hosted PG18 / local pgdocker |
-| `session` | a shared **`semantius_authenticator`** login role (password) | the **app** (jose + remote JWKS) | Neon, Supabase, **and** local pgdocker |
+| `session` | a shared **`semantius_authenticator`** login role (password) | the **app** (jose + remote JWKS) | local pgdocker; built for Neon and Supabase, **not yet run against either** (see the validation table below) |
 
 > `DB_AUTH_MODE` selects *how the connection authenticates*, **not** the host. The
 > host is just a connection string.
@@ -58,13 +58,13 @@ React SPA (:3000)  ──Authorization: Bearer──▶  Hono API (:8788)  ─�
 ## Quick start
 
 ```bash
-cd examples/spa-hono-backend
+cd bearer-auth-experimental/examples/spa-hono-backend
 npm install
 cp .env.example .env       # edit .env (gitignored — never commit secrets)
 npm run dev                # tsx watch, http://localhost:8788
 ```
 
-Then start the SPA ([`examples/spa-frontend`](../spa-frontend)) on `:3000` and log
+Then start the SPA ([`bearer-auth-experimental/examples/spa-frontend`](../spa-frontend)) on `:3000` and log
 in there. To drive the API directly:
 
 ```bash
@@ -173,12 +173,12 @@ What the demo shows:
 
 ## The vendored `lib/db/` layer (same as the Next sample)
 
-`lib/db/` and `lib/dal/` are **copied byte-for-byte** from `examples/nextjs` (no
+`lib/db/` and `lib/dal/` are **copied byte-for-byte** from `bearer-auth-experimental/examples/nextjs` (no
 shared package — copy-paste portability is the accepted tradeoff; keep them in sync
 by hand). The schema under `lib/db/schema/` is generated from the catalog:
 
 ```bash
-deno task drizzlegen --output examples/spa-hono-backend/lib/db/schema
+deno task drizzlegen --output bearer-auth-experimental/examples/spa-hono-backend/lib/db/schema
 ```
 
 > Known generator quirk: FK fields whose target PK is `text` (e.g. `fields.table_name`,
@@ -190,7 +190,7 @@ src/
   server.ts              Hono app: CORS → contextStorage → routes; startup superuser guard
   middleware/session.ts  bearer-token extraction, jose verify (session), request-scoped tx
   routes/users.ts        GET /me (provision), GET /users (RLS read), PUT /me/display-name (write)
-lib/db/                  ← vendored, identical to examples/nextjs/lib/db
+lib/db/                  ← vendored, identical to bearer-auth-experimental/examples/nextjs/lib/db
   session.ts             AsyncLocalStorage + withSession() + getDb()
   adapter.ts             DbAdapter interface + SessionContext
   adapters/bearer.ts     OAUTHBEARER transport + pg-proxy; manual BEGIN/COMMIT; .end() in finally

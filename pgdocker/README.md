@@ -259,7 +259,7 @@ deno run --allow-net --allow-env --allow-read test_session_trust.ts --port 5433
 The mechanisms are correct (session mode is genuinely transaction-pooler-safe). But:
 
 - **`bearer` does not scale past ~`max_connections` concurrent users** — the transport
-  ([../examples/transport/src/pg-oauthbearer.ts](../examples/transport/src/pg-oauthbearer.ts))
+  ([../bearer-auth-experimental/examples/transport/src/pg-oauthbearer.ts](../bearer-auth-experimental/examples/transport/src/pg-oauthbearer.ts))
   is one connection per user/token, no pool, with ≥5 serialized round-trips per
   request; OAUTHBEARER can't be pooled (bound to one `sub`) and PgBouncer can't
   passthrough it. Treat `bearer` as demo / low-concurrency self-host.

@@ -1,6 +1,6 @@
 # Bearer mode status
 
-**Status: experimental. Not a deployment target.** Last updated 2026-09-03.
+**Status: experimental. Not a deployment target.** Last updated 2026-09-06.
 
 Bearer mode is the deployment where a client connects to PostgreSQL 18
 directly with an OAuth access token over SASL `OAUTHBEARER`, PostgreSQL
@@ -415,6 +415,13 @@ Ecosystem items that change the status above:
 
 ## Related
 
+- The samples that exercise this mode, all of them:
+  [bearer-auth-experimental/](../bearer-auth-experimental/). The `transport/`
+  client and three query-layer examples authenticate with the end-user's token
+  and have no session-mode fallback; of the three full-stack app samples, the two with a database tier
+  reach this mode through `DB_AUTH_MODE=bearer` and are also built to run in
+  `session` mode on Neon and Supabase - untested there so far, and resting
+  entirely on app-tier discipline. The folder's README says what that costs.
 - Authorization spec: [authz-spec.md](authz-spec.md), invariant I-perm.
 - pgdocker: [README.md](../pgdocker/README.md), sections "Identity comes from
   the validated session" and "Scalability & production caveats".

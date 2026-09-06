@@ -8,7 +8,7 @@ The same code runs unchanged against three backends, selected by one env flag:
 | `DB_AUTH_MODE` | Who authenticates the DB connection | Who verifies the JWT signature | Backends |
 |---|---|---|---|
 | `bearer` | the **end-user's token** (SASL OAUTHBEARER, PG18) | the **database** (`pg_oidc_validator`, RS256) | self-hosted PG18 / local pgdocker |
-| `session` | a shared **`semantius_authenticator`** login role (password) | the **app** (jose + remote JWKS) | Neon, Supabase, **and** local pgdocker |
+| `session` | a shared **`semantius_authenticator`** login role (password) | the **app** (jose + remote JWKS) | local pgdocker; built for Neon and Supabase, **not yet run against either** (see the validation table below) |
 
 > `DB_AUTH_MODE` selects *how the connection authenticates*, **not** the host. The
 > host is just a connection string.
@@ -36,7 +36,7 @@ sample (Hono API + React SPA) that **vendors the same `lib/db/` layer**.
 ## Quick start
 
 ```bash
-cd examples/nextjs
+cd bearer-auth-experimental/examples/nextjs
 npm install
 cp .env.example .env.local      # then edit .env.local (gitignored — never commit secrets)
 npm run dev                     # http://localhost:3000
@@ -215,7 +215,7 @@ lib/dal/users.ts  data access over getDb() (provision, listUsers, updateDisplayN
 The schema under `lib/db/schema/` is generated from the catalog. Refresh it with:
 
 ```bash
-deno task drizzlegen --output examples/nextjs/lib/db/schema
+deno task drizzlegen --output bearer-auth-experimental/examples/nextjs/lib/db/schema
 ```
 
 > Known generator quirk: FK fields whose target PK is `text` (e.g. `fields.table_name`,

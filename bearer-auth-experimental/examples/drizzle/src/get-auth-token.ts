@@ -1,4 +1,4 @@
-// VENDORED from examples/transport/src/get-auth-token.ts — the canonical copy.
+// VENDORED from bearer-auth-experimental/examples/transport/src/get-auth-token.ts — the canonical copy.
 // To update, re-copy it from there. This is a TEST token minter; replace the
 // body of getAuthToken() with your real session-token source in a real app.
 //

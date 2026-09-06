@@ -118,7 +118,7 @@ it (e.g. after changing entities/fields), run the CLI generator from the repo ro
 against a stack that has your catalog deployed:
 
 ```bash
-deno task drizzlegen --output examples/drizzle/src/schema
+deno task drizzlegen --output bearer-auth-experimental/examples/drizzle/src/schema
 ```
 
 It writes one file per module (named by `module_slug`) plus `index.ts`, covering

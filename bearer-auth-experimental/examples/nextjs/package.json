@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Vendor-agnostic Next.js (App Router) sample: OAuth (auth-code + PKCE, no secret) -> request-scoped transaction -> Drizzle under RLS. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, Neon, and Supabase.",
+  "description": "Vendor-agnostic Next.js (App Router) sample: OAuth (auth-code + PKCE, no secret) -> request-scoped transaction -> Drizzle under RLS. One flag (DB_AUTH_MODE = bearer | session) runs it unchanged against local PG18 OAUTHBEARER, and built for Neon and Supabase (untested there).",
   "engines": {
     "node": ">=20"
   },
