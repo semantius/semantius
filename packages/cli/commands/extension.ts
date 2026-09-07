@@ -42,7 +42,9 @@
  * prefix for system schemas. The extension keeps the `pg_semantius` name.
  */
 
+import { join } from "@std/path";
 import { getVersionsTableSql } from "@semantius/core";
+import { resolveAppDir, validateAppNames } from "../assets.ts";
 
 interface MigrationFile {
   name: string;
@@ -133,6 +135,7 @@ export async function extensionCommand(
     console.log("Provide comma-separated app names: app1,app2,app3");
     Deno.exit(1);
   }
+  validateAppNames(appList);
 
   console.info(`Bundling app(s): ${appList.join(", ")}`);
 
@@ -164,22 +167,13 @@ export async function extensionCommand(
   }[] = [];
 
   for (const app of appList) {
-    const appPath = `./apps/${app}`;
-    try {
-      const stat = await Deno.stat(appPath);
-      if (!stat.isDirectory) {
-        console.warn(`Path exists but is not a directory, skipping: ${app}`);
-        continue;
-      }
-    } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
-        console.warn(`App not found, skipping: ${app}`);
-        continue;
-      }
-      throw error;
+    const resolved = await resolveAppDir(app);
+    if (!resolved) {
+      console.warn(`App not found, skipping: ${app}`);
+      continue;
     }
 
-    const migrationFiles = await loadSqlFiles(app, "migrations");
+    const migrationFiles = await loadSqlFiles(resolved.dir, "migrations");
 
     if (migrationFiles.length === 0) {
       console.info(`No migration files found for ${app}`);
@@ -911,12 +905,12 @@ to install. Security model and reporting: see \`SECURITY.md\` in this archive.
 `;
 }
 
-/** Loads all .sql files from apps/{folderName}/{subfolder}/ sorted ascending. */
+/** Loads all .sql files from {appDir}/{subfolder}/ sorted ascending. */
 async function loadSqlFiles(
-  folderName: string,
+  appDir: string,
   subfolder: string,
 ): Promise<MigrationFile[]> {
-  const sqlPath = `./apps/${folderName}/${subfolder}`;
+  const sqlPath = join(appDir, subfolder);
 
   try {
     const sqlFileNames: string[] = [];
@@ -931,7 +925,7 @@ async function loadSqlFiles(
 
     const migrations: MigrationFile[] = [];
     for (const fileName of sqlFileNames) {
-      const filePath = `${sqlPath}/${fileName}`;
+      const filePath = join(sqlPath, fileName);
       const content = await Deno.readTextFile(filePath);
       migrations.push({
         name: fileName.replace(/\.sql$/, ""),

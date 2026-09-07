@@ -303,16 +303,39 @@ session that can run SQL can blank it and walk out of its own confinement -
 which the checkers read as "no scopes", meaning no restriction. Putting the list
 inside the signature is what makes the confinement binding.
 
-Scopes are part of the signed payload, comma-delimited everywhere. Change the
-space-delimited lookup in `user_has_permission` to a comma. `set_request_context`
-was removed on 2026-09-03, because it let a caller assert any identity, so
-scopes need a new definer
-entry point, say `rbac.set_request_scopes(p_oauth_scopes)`, that takes no
-identity parameter: normalize the list (split on comma or space, trim, sort,
-join with comma) and apply a narrow-only rule: if the current
-context is `valid` and already carries scopes, the new set is the
-intersection, never a replacement. A scoped session can then neither clear
-nor widen its confinement.
+This step is the sole record of open item **S12**, closed as postponed on
+2026-09-07 together with bearer mode itself (closure in
+`plans/ext-solved-items.md`). What is done, what is not, and why the gap is
+Low are written here so the row does not have to be reconstructed.
+
+**Done (2026-09-05): the delimiter half.** Separators are normalized rather
+than unified: any run of commas or whitespace separates, in all three GUC
+readers (`has_permission`, `has_any_permission`, `user_has_permission`) and in
+`validate_oauth_scopes`' request parameter, so `"a,b"`, `"a b"` and
+`" a ,, b "` are the same two scopes. That is stronger than the "one delimiter
+everywhere" this step originally asked for - it needs no writer to have
+normalized first, and it stays correct when the entry point below later
+normalizes on write. Before it, two readers split on commas and one on spaces,
+so a list written in the other convention silently confined the session to
+nothing. Pinned by `apps/test/tests/0405_test_rbac_helpers.sql` GROUP 6.
+
+**Not done: the binding half.** Scopes become part of the signed payload.
+`set_request_context` was removed on 2026-09-03, because it let a caller
+assert any identity, so scopes need a new definer entry point, say
+`rbac.set_request_scopes(p_oauth_scopes)`, that takes no identity parameter:
+normalize the list (split on comma or whitespace, trim, sort, join with
+comma) and apply a narrow-only rule: if the current context is `valid` and
+already carries scopes, the new set is the intersection, never a replacement.
+A scoped session can then neither clear nor widen its confinement. Done when
+a scoped session that clears the GUC, or calls the entry point with a wider
+list, still has the scoped-out permission denied.
+
+**Why the gap is Low, and DB-reachable only.** It cannot escalate: scopes only
+subtract, and the permission is matched against the caller's own set before
+the scope test runs, so the worst a session can do is walk back to the
+permissions its identity already holds. And only a session that runs SQL as
+the request role can set the GUC at all - PostgREST and app-server clients
+never can - which is the bearer-mode deployment this document describes.
 
 ### 6. Identity binding
 

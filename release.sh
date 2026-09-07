@@ -215,11 +215,29 @@ ok()  { echo "  ok    $*"; }
 
 echo
 STAGE="preflight"
-echo "== [1/8] Preflight =="
+echo "== [1/10] Preflight =="
 
 for t in deno docker git jq; do
   command -v "$t" >/dev/null 2>&1 && ok "$t present" || bad "$t is not installed"
 done
+
+# The pg_semantius binary this script builds and smoke-tests must come out of
+# the same compiler CI uses for the five it publishes; otherwise the one that
+# was tested here is not the one that ships. aarch64-pc-windows-msvc is a
+# `deno compile` target only from 2.9.3 on, which is what sets the floor.
+DENO_MIN="2.9.3"
+# `|| true` inside the substitution: under `set -e` a failing command in an
+# assignment kills the script at this line, which would abort the whole
+# preflight on a missing deno instead of accumulating it as one more FAIL.
+DENO_HAVE="$(deno --version 2>/dev/null | sed -nE '1s/^deno ([0-9][0-9.]*).*/\1/p' || true)"
+if [ -z "$DENO_HAVE" ]; then
+  bad "could not read the deno version"
+elif [ "$(semver_cmp "$DENO_HAVE" "$DENO_MIN")" = "-1" ]; then
+  bad "deno $DENO_HAVE cannot build every released target; $DENO_MIN or newer
+  is required. Upgrade with:  deno upgrade"
+else
+  ok "deno $DENO_HAVE (>= $DENO_MIN)"
+fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$BRANCH" = "HEAD" ]; then
@@ -303,24 +321,30 @@ cat >&2 <<EOF
 release.sh will release $NAME $TARGET ($MODE), in order:
 
   1. regenerate $EXT_DIR/ at $TARGET$NEW_VERSION_NOTE
-  2. regenerate the packages/*/src/migrations-bundle.ts copies (build output,
+  2. write $TARGET into packages/cli/deno.json and package.json - the CLI
+     reports its version from the first of those, and CI refuses a tag whose
+     copy disagrees
+  3. regenerate the packages/*/src/migrations-bundle.ts copies (build output,
      untracked; a smoke check that they still generate)
-  3. WIPE BOTH LOCAL DATABASES and run the full suite on each:
+  4. build the pg_semantius binary for THIS platform and check that it reports
+     $TARGET and that the SQL compiled into it matches the checkout (CI builds
+     and publishes the other four)
+  5. WIPE BOTH LOCAL DATABASES and run the full suite on each:
        pg-ext-retest.sh   docker compose down -v on semantius-ext (the data
                           volume is destroyed) and rebuilds the base image,
                           which compiles pg_oidc_validator from GitHub
        pg-cli-retest.sh   deno task retest --confirm, i.e. dropall on the CLI
                           stack, then migrate + pgTAP
        pg-ext-lifecycle.sh  install, dump/restore, drop, uninstall, refusals
-  4. build ghcr.io/semantius/postgres:$TARGET-pg<major> locally - no push, no
+  6. build ghcr.io/semantius/postgres:$TARGET-pg<major> locally - no push, no
      registry login, but it does retag your local :latest when $TARGET is the
      highest version
-  5. commit $EXT_DIR/, then regenerate a second time and require no diff - the
-     same porcelain guard CI runs, which is what proves the generator is
-     deterministic
-  6. tag v$TARGET and push $BRANCH and the tag to origin
+  7. commit $EXT_DIR/ and the two version files, then regenerate a second time
+     and require no diff - the same porcelain guard CI runs, which is what
+     proves the generator is deterministic
+  8. tag v$TARGET and push $BRANCH and the tag to origin
 
-  Step 6 is the point of no return. Nothing before it leaves this machine.
+  Step 8 is the point of no return. Nothing before it leaves this machine.
   Pushing the tag starts .github/workflows/extension-release.yml, which
   publishes the GitHub Release and the GHCR image.
 EOF
@@ -386,7 +410,7 @@ fi
 
 echo
 STAGE="generate"
-echo "== [2/8] Regenerating $EXT_DIR/ at $TARGET =="
+echo "== [2/10] Regenerating $EXT_DIR/ at $TARGET =="
 if [ "$ALLOW_EDITED" = "1" ]; then
   deno task extension "$TARGET" --allow-edited-migrations
 else
@@ -394,29 +418,91 @@ else
 fi
 
 echo
-echo "== [3/8] Regenerating the migrations bundles =="
+STAGE="version"
+echo "== [3/10] Writing the version =="
+# cli.ts imports packages/cli/deno.json, so `pg_semantius --version` is exactly
+# what that file says - a compiled binary has no other way to know which
+# release it is. Writing it in the run that also regenerates, tests, commits
+# and tags is what keeps the tag, the extension and the binary on one version.
+# CI refuses a tag whose committed copy disagrees.
+for vf in packages/cli/deno.json package.json; do
+  jq --arg v "$TARGET" '.version = $v' "$vf" > "$vf.tmp" \
+    || { rm -f "$vf.tmp"; die "could not rewrite $vf"; }
+  mv "$vf.tmp" "$vf"
+  echo "  $vf -> $TARGET"
+done
+# jq writes CRLF on Windows, where this script normally runs, while the
+# repository is LF throughout (.gitattributes). One reformat settles both that
+# and any indentation jq chose differently.
+deno fmt packages/cli/deno.json package.json >/dev/null
+deno fmt --check packages/cli/deno.json package.json >/dev/null \
+  || die "packages/cli/deno.json or package.json is still unformatted after the
+  version write; nothing was committed"
+
+echo
+echo "== [4/10] Regenerating the migrations bundles =="
 # Build output, not artifacts: untracked, and the header carries a generation
 # timestamp so the result is not reproducible. Run here only to prove they still
 # generate against the current migrations.
 deno task bundle-sql
+
+echo
+STAGE="cli binary"
+echo "== [5/10] Building and smoke-testing the host binary =="
+# Runs even under --skip-tests: this is not a database test. It is the check
+# that the release's other artifact - the self-contained CLI - still compiles
+# and carries the right SQL, and the only one of the five targets that can be
+# RUN here. CI builds all five and runs the Linux and Windows ones.
+#
+# A dedicated output directory so exactly one file lands in it: `deno task
+# build-cli` names the file after the host, and globbing dist/ would otherwise
+# pick up a stale binary from an earlier `build-cli:all`. dist/ is gitignored.
+SMOKE_OUT="dist/release-smoke"
+rm -rf "$SMOKE_OUT"
+deno task build-cli --out "$SMOKE_OUT"
+# `|| true`: without it `set -e` kills the script on the empty glob and the
+# die() below - the message that actually says what went wrong - never runs.
+HOST_BIN="$(ls "$SMOKE_OUT"/pg_semantius-* 2>/dev/null | head -1 || true)"
+[ -n "$HOST_BIN" ] || die "deno task build-cli produced no binary in $SMOKE_OUT"
+
+GOT_VERSION="$("$SCRIPT_DIR/$HOST_BIN" --version)"
+[ "$GOT_VERSION" = "$NAME $TARGET" ] \
+  || die "the binary reports \"$GOT_VERSION\", not \"$NAME $TARGET\".
+  packages/cli/deno.json is what it reads; CI would refuse this tag."
+echo "  $HOST_BIN reports $GOT_VERSION"
+
+# The binary reads the apps/ compiled INTO it, so it is exercised from a
+# directory that has none. Byte equality with the checkout's own output is what
+# proves the embedded SQL is this version's SQL and not a stale copy.
+SMOKE_DIR="$(mktemp -d)"
+deno task migrate --apps _core --script >/dev/null
+( cd "$SMOKE_DIR" && "$SCRIPT_DIR/$HOST_BIN" migrate --apps _core --script >/dev/null ) \
+  || { rm -rf "$SMOKE_DIR"; die "the binary failed to generate a migration script"; }
+if ! cmp -s migrate.sql "$SMOKE_DIR/migrate.sql"; then
+  rm -rf "$SMOKE_DIR"
+  die "the SQL embedded in the binary differs from apps/ in this checkout;
+  nothing was committed"
+fi
+rm -rf "$SMOKE_DIR" migrate.sql
+echo "  the embedded SQL matches apps/ in this checkout"
 
 # ==========================================================================
 # Phase 3 - verify locally
 # ==========================================================================
 if [ "$SKIP_TESTS" = "1" ]; then
   echo
-  echo "== [4/8] Tests SKIPPED (--skip-tests) =="
+  echo "== [6/10] Tests SKIPPED (--skip-tests) =="
 else
   echo
-  echo "== [4/8] Path B: extension install + pgTAP suite =="
+  echo "== [6/10] Path B: extension install + pgTAP suite =="
   ./pgdocker/pg-ext-retest.sh
 
   echo
-  echo "== [5/8] Path A: migrate install + pgTAP suite =="
+  echo "== [7/10] Path A: migrate install + pgTAP suite =="
   ./pgdocker/pg-cli-retest.sh
 
   echo
-  echo "== [6/8] Extension lifecycle =="
+  echo "== [8/10] Extension lifecycle =="
   # pg-ext-lifecycle.sh reports an unrunnable step as ok("skipped: ...") and
   # ok() increments the pass counter, so a missing container turns the
   # extension-vs-migrate equivalence check into a silent pass. Assert the
@@ -431,10 +517,10 @@ fi
 
 if [ "$NO_IMAGE" = "1" ]; then
   echo
-  echo "== [7/8] Local image build SKIPPED (--no-image) =="
+  echo "== [9/10] Local image build SKIPPED (--no-image) =="
 else
   echo
-  echo "== [7/8] Local image build (no push) =="
+  echo "== [9/10] Local image build (no push) =="
   ./docker-postgres/build.sh "$TARGET"
 fi
 
@@ -447,7 +533,7 @@ bash scripts/check-pgxn-meta.sh "$EXT_DIR/META.json"
 # ==========================================================================
 echo
 STAGE="commit"
-echo "== [8/8] Committing the build =="
+echo "== [10/10] Committing the build =="
 
 # Stage the manifest-derived file set, never `git add -A extension`: extension/
 # has no gitignore coverage, so -A would silently commit an orphaned upgrade
@@ -460,6 +546,10 @@ done < /tmp/release-manifest.$$
 rm -f /tmp/release-manifest.$$
 # Deletions inside extension/ (a pruned full install) are staged explicitly.
 git add -u -- "$EXT_DIR"
+# The version files travel with the build for the same reason the manifest
+# does: the tag has to point at a tree whose CLI reports the version being
+# released, or the build-cli job refuses to publish.
+git add -- packages/cli/deno.json package.json
 
 NOTHING_CHANGED=0
 if git diff --cached --quiet; then

@@ -73,6 +73,13 @@ Naming: a plain library name (`drizzle/`) is the typed, schema-driven flavor; a
 `spa-frontend/` + `spa-hono-backend/` are one decoupled sample (SPA + API), the
 counterpart to the `nextjs/` BFF.
 
+### What is not covered
+
+**No sample puts PostgREST or the Supabase client in front of the database** -
+including Neon's managed Data API, which is a PostgREST. The app-server half of
+the portable path is covered by the two `session`-mode samples; the
+API-in-front half is not. That gap is open.
+
 ## The session-mode caveat: for mature audiences
 
 `nextjs/` and `spa-hono-backend/` are the two samples with a database tier, and

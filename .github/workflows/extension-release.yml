@@ -28,14 +28,141 @@ permissions:
   packages: write   # push the DB image to GHCR
 
 jobs:
-  release:
+  # The pg_semantius binaries. A separate job so the five cross-compiles run
+  # while nothing else is waiting on them, and so the Windows smoke test below
+  # has an artifact to download.
+  build-cli:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # Pinned, not v2.x: aarch64-pc-windows-msvc is a compile target only
+          # from 2.9.3 on, and a floating runtime would silently change which
+          # compiler produced the published binaries.
+          deno-version: v2.9.6
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+
+      # cli.ts imports this file, so the version it reports is whatever was
+      # committed - not the tag. release.sh writes both; this is what makes a
+      # tag moved by hand fail loudly instead of shipping a binary that lies
+      # about which release it is.
+      - name: packages/cli/deno.json must carry the released version
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          IN_FILE="$(jq -r .version packages/cli/deno.json)"
+          if [ "$IN_FILE" != "$V" ]; then
+            echo "::error::packages/cli/deno.json says $IN_FILE but this release is $V; run ./release.sh $V, which writes the version and commits it"
+            exit 1
+          fi
+          echo "packages/cli/deno.json is at $V"
+
+      - name: Build every target
+        run: deno task build-cli:all
+
+      # The binary reads the SQL embedded in it, never the working directory,
+      # so it is smoke-tested from a directory that has no apps/ at all. Byte
+      # equality with the checkout's own output is what proves the embedded
+      # copy is the tagged SQL and not something stale.
+      - name: Smoke test (Linux)
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          chmod +x dist/pg_semantius-linux-x64
+          GOT="$(dist/pg_semantius-linux-x64 --version)"
+          [ "$GOT" = "pg_semantius $V" ] || { echo "::error::--version printed \"$GOT\", expected \"pg_semantius $V\""; exit 1; }
+
+          deno task migrate --apps _core --script >/dev/null
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          "$GITHUB_WORKSPACE/dist/pg_semantius-linux-x64" migrate --apps _core --script --verbose > verbose.log
+          if grep -q '(cwd)' verbose.log || [ "$(grep -c 'SQL apps root:' verbose.log)" != "1" ]; then
+            grep 'SQL apps root:' verbose.log
+            echo "::error::the binary must read only its embedded apps/ when the working directory has none"
+            exit 1
+          fi
+          cmp migrate.sql "$GITHUB_WORKSPACE/migrate.sql" \
+            || { echo "::error::the SQL embedded in the binary differs from the checkout's"; exit 1; }
+          echo "embedded SQL matches the checkout"
+          cp migrate.sql "$GITHUB_WORKSPACE/dist/migrate.sql"
+
+      # Bare names, no directory prefix: both installers look the asset up in
+      # this file by the exact name they downloaded.
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum pg_semantius-* > checksums.txt
+          cat checksums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist/
+          # The binaries are already compressed executables; re-compressing
+          # 400 MB of them costs minutes and saves nothing.
+          compression-level: 0
+
+  # The only place the cross-compiled Windows binary is ever run. A Windows
+  # executable built on Linux resolves its embedded files through a path shape
+  # nothing else in this repository exercises, and getting that wrong produces
+  # a binary that works everywhere it was tested and nowhere it was shipped.
+  smoke-windows:
+    needs: build-cli
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test (Windows)
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          GOT="$(dist/pg_semantius-windows-x64.exe --version)"
+          [ "$GOT" = "pg_semantius $V" ] || { echo "::error::--version printed \"$GOT\", expected \"pg_semantius $V\""; exit 1; }
+
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          "$GITHUB_WORKSPACE/dist/pg_semantius-windows-x64.exe" migrate --apps _core --script
+          cmp migrate.sql "$GITHUB_WORKSPACE/dist/migrate.sql" \
+            || { echo "::error::the Windows binary produced different SQL from the Linux one"; exit 1; }
+          echo "the Windows binary reads its embedded apps/ correctly"
+
+  release:
+    needs: [build-cli, smoke-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          # Same pin as build-cli, so one runtime produces the whole release.
+          deno-version: v2.9.6
 
       - name: Resolve version
         id: ver
@@ -159,12 +286,20 @@ jobs:
           echo "Built $DIST.zip:"
           unzip -l "$DIST.zip"
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.ver.outputs.version }}"
           TAG="v$V"
+          # The smoke test's output travels in the same artifact as the
+          # binaries; it is evidence, not a release asset.
+          rm -f dist/migrate.sql
           cat > notes.md <<EOF
           PostgreSQL extension build of **Semantius core v$V**.
 
@@ -182,17 +317,42 @@ jobs:
           \`CREATE EXTENSION\` creates only the cluster roles, the \`semantius\` schema and its functions; \`semantius.migrate()\` installs the core schema as ordinary objects, which is what makes a plain \`pg_dump\`, a single-pass \`pg_restore\` and a harmless \`DROP EXTENSION\` work.
 
           \`pg_semantius-$V.zip\` is also the PGXN distribution archive (contains META.json).
+
+          ## Install the CLI
+
+          A single self-contained \`pg_semantius\` executable. No Deno, no checkout; it carries the \`_core\`, \`nwind\` and \`test\` SQL of this release.
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/semantius/semantius/main/install.sh | bash
+          \`\`\`
+
+          \`\`\`powershell
+          irm https://raw.githubusercontent.com/semantius/semantius/main/install.ps1 | iex
+          \`\`\`
+
+          Or download one directly: \`pg_semantius-linux-x64\`, \`pg_semantius-linux-arm64\`, \`pg_semantius-darwin-arm64\` (Apple Silicon), \`pg_semantius-windows-x64.exe\`, \`pg_semantius-windows-arm64.exe\`; \`checksums.txt\` covers all five.
           EOF
           # Re-release support: drop any existing release for this tag so the
           # assets are replaced cleanly (gh release create fails if it exists).
           # Only the release + its assets are removed; the git tag is kept.
           gh release delete "$TAG" --yes || true
-          gh release create "$TAG" \
+          # Created as a DRAFT, then filled, then published. A draft never moves
+          # `releases/latest`, and both install one-liners resolve through that
+          # pointer - so an upload that fails halfway leaves the previous
+          # release installable instead of 404ing every `curl | bash`.
+          #
+          # This protects a NEW tag only. On the re-release path the delete
+          # above has already dropped the published release, so `latest` points
+          # at the previous tag - which carries no pg_semantius binaries - for
+          # the whole window. See RELEASE.md.
+          gh release create "$TAG" --draft \
             "pg_semantius-$V.zip" \
             "extension/pg_semantius--$V.sql" \
             extension/pg_semantius.control \
             --title "Semantius extension v$V" \
             --notes-file notes.md
+          gh release upload "$TAG" dist/pg_semantius-* dist/checksums.txt --clobber
+          gh release edit "$TAG" --draft=false
 
       # --- Publish the DB image (PostgreSQL 18 + extension) to GHCR -----------
       # The extension files were generated above, so the build context already

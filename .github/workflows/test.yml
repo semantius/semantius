@@ -37,7 +37,9 @@ jobs:
 
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # Same pin as extension-release.yml: a PR must be checked by the
+          # runtime that will build the release.
+          deno-version: v2.9.6
 
       # The version under test is whatever the committed control file says, so
       # a PR is checked against the build it actually contains.
@@ -118,3 +120,67 @@ jobs:
           name: coverage
           path: coverage/
           if-no-files-found: ignore
+
+  # The pg_semantius binary, built and run on both platforms that ship one from
+  # a runner. It is parallel to `test` rather than part of it: it needs no
+  # database and no Docker, so there is no reason for it to wait 45 minutes to
+  # report a broken build.
+  cli-binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    # bash on both: the Windows runner defaults to pwsh, and these steps use
+    # sed and cmp.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+
+      # Same source of truth as the `test` job: the committed control file.
+      - name: Resolve version
+        id: ver
+        run: |
+          V="$(sed -nE "s/^default_version = '(.*)'/\1/p" extension/pg_semantius.control)"
+          [ -n "$V" ] || { echo "could not read default_version from the control file" >&2; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Build the host binary
+        run: deno task build-cli
+
+      # Three things the release depends on and nothing else checks: the
+      # version the binary reports, the version the file it is read from
+      # carries, and that the SQL compiled into it is the SQL in the checkout.
+      - name: The binary reports the committed version
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          BIN="dist/pg_semantius-linux-x64"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN="dist/pg_semantius-windows-x64.exe"
+          else
+            chmod +x "$BIN"
+          fi
+          GOT="$("$BIN" --version)"
+          [ "$GOT" = "pg_semantius $V" ] || { echo "::error::--version printed \"$GOT\", expected \"pg_semantius $V\""; exit 1; }
+          IN_FILE="$(jq -r .version packages/cli/deno.json)"
+          [ "$IN_FILE" = "$V" ] || { echo "::error::packages/cli/deno.json says $IN_FILE, the control file says $V"; exit 1; }
+
+      - name: The embedded SQL equals the checkout's
+        run: |
+          BIN="$GITHUB_WORKSPACE/dist/pg_semantius-linux-x64"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN="$GITHUB_WORKSPACE/dist/pg_semantius-windows-x64.exe"
+          fi
+          deno task migrate --apps _core --script >/dev/null
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          "$BIN" migrate --apps _core --script
+          cmp migrate.sql "$GITHUB_WORKSPACE/migrate.sql" \
+            || { echo "::error::the SQL embedded in the binary differs from the checkout's"; exit 1; }

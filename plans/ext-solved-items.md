@@ -2159,3 +2159,41 @@ the schema RPC's `required` list and nothing the UI demands changed.
   the pre-existing dictionary model, the same as `raci_assignments.role_id`, and
   the queue columns get their `SET NOT NULL` after the field insert for exactly
   that reason.
+
+## S12 (2026-09-07): postponed with bearer mode, the record moved to the docs page
+
+The row as it stood when it was deleted:
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S12 | Low (DB) | migration | `0030_rbac_functions.sql` (`has_permission`, `has_any_permission`, `user_has_permission`) | `app.oauth_scopes` is a client-settable GUC: a scoped session can clear its own confinement. There is no definer entry point for scopes since `set_request_context` was removed. **The delimiter half is done (2026-09-05).** Separators are normalized rather than unified: any run of commas or whitespace separates, in all three GUC readers and in `validate_oauth_scopes`' request parameter, so `"a,b"`, `"a b"` and `" a ,, b "` are the same two scopes. That is stronger than the "one delimiter everywhere" the design asked for - it needs no writer to have normalized first, and it stays correct when `set_request_scopes` later normalizes on write. It cannot escalate: scopes only subtract, the permission is matched against the caller's own set before the scope test runs. Pinned by `0405` GROUP 6. | Store scopes inside the signed cache planned in `docs/bearer-mode-status.md`; a self-only `rbac.set_request_scopes(p_oauth_scopes)` with a narrow-only rule, see that document, step 5. The delimiter clause of that step is satisfied. | A scoped session that clears the GUC or calls the entry point with a wider list still has the scoped-out permission denied. |
+
+### What was decided
+
+Postponed, not fixed. The binding half of S12 - carrying the scope list inside
+the signed bearer cache behind a definer-only, narrow-only entry point - is
+step 5 of `docs/bearer-mode-status.md`, and that whole design is deferred
+together with bearer mode, which is experimental and not a deployment target.
+Keeping a row open whose only fix is a step of a deferred design duplicated the
+document without adding anything, and the owner decided on 2026-09-07 to make
+the document the sole record, the way P14 was moved into
+`docs/jsonlogic-optimization-candidates.md` on 2026-09-06.
+
+Step 5 of the document was rewritten in the same change, because it was stale:
+it still asked for the space-delimited lookup in `user_has_permission` to be
+changed to a comma, which P3 overtook on 2026-09-05 with separator
+normalization in all three readers. The step now carries the three things only
+this row had: the normalization that is done and its pin (`0405` GROUP 6), the
+escalation argument (scopes only subtract, and the permission is matched
+against the caller's own set before the scope test runs), and the row's
+definition of done.
+
+### What this closure does not solve
+
+The problem itself. A session that runs SQL as the request role can still blank
+`app.oauth_scopes` and read as unscoped; the worst it gets back is what its
+identity already holds. No PostgREST or app-server client can reach the GUC.
+The trigger for reopening is the day bearer mode stops being experimental, and
+the definition of done is unchanged: a scoped session that clears the GUC, or
+calls the entry point with a wider list, still has the scoped-out permission
+denied.

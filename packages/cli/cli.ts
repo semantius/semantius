@@ -17,6 +17,12 @@ import { retestCommand } from "./commands/retest.ts";
 import { testgenJsonlogicCommand } from "./commands/testgen_jsonlogic.ts";
 import { extensionCommand } from "./commands/extension.ts";
 import { red, yellow } from "@std/fmt/colors";
+import {
+  HELP_INVOCATION,
+  INVOCATION,
+  RUNNING_UNDER_DENO,
+} from "./invocation.ts";
+import denoJson from "./deno.json" with { type: "json" };
 
 const originalError = console.error;
 const originalWarn = console.warn;
@@ -53,22 +59,44 @@ interface CliArgs {
   _: string[];
 }
 
-// Read version from the CLI package's deno.json
-async function getVersion(): Promise<string> {
-  try {
-    // Resolve deno.json relative to this file (packages/cli/deno.json).
-    // Pass the file URL straight to readTextFile so it works cross-platform
-    // (URL.pathname yields a leading-slash "/C:/..." that fails on Windows).
-    const denoConfig = JSON.parse(
-      await Deno.readTextFile(new URL("./deno.json", import.meta.url)),
-    );
-    return denoConfig.version || "unknown";
-  } catch {
-    return "unknown";
-  }
-}
+/** The commands that open a database connection; see main(). */
+const DATABASE_COMMANDS = new Set([
+  "connect",
+  "test",
+  "migrate",
+  "dropall",
+  "reset",
+  "retest",
+  "docgen",
+  "drizzlegen",
+  "kyselygen",
+]);
 
-const VERSION = await getVersion();
+/**
+ * What this program calls itself, everywhere it names itself.
+ *
+ * NOT "Semantius CLI": `semantius-cli` is a different, unrelated product - an
+ * MCP client - whose executable is `semantius` and whose installer puts it in
+ * the same directory this one installs into. Two neighbors called "Semantius
+ * <something> CLI" reporting different versions read as one tool that failed
+ * to upgrade. This is the extension's name, the executable's name, and the
+ * name a user typed to get here, which is the only identity that cannot be
+ * confused with anything else.
+ */
+const PROGRAM = "pg_semantius";
+
+/** One line, for the help banner: what the program is for. */
+const TAGLINE =
+  "Deploy and test a Semantius database - migrations, RBAC and RLS policies,\n" +
+  "the pgTAP suite - and build the PostgreSQL extension.";
+
+/**
+ * The CLI version, inlined at compile time. A static import is what makes
+ * `deno compile` embed the file; reading it from disk at runtime only ever
+ * worked from a checkout, which is exactly what the binary exists to escape.
+ * `release.sh` writes this field, and CI refuses a tag that disagrees with it.
+ */
+const VERSION: string = denoJson.version;
 
 async function getDatabaseUrl(
   env: string = "local",
@@ -90,7 +118,17 @@ async function getDatabaseUrl(
   // Fall back to loading from .env.<env> file
   try {
     const envPath = `.env.${env}`;
-    const envVars = await load({ envPath });
+    // examplePath and defaultsPath are switched off rather than left at their
+    // defaults: load() otherwise reads ./.env.example and throws
+    // MissingEnvVarsError when it names a variable the environment does not
+    // define. This repository has exactly such a file, so the binary run from
+    // the checkout would fail on the example instead of on the .env it was
+    // asked for.
+    const envVars = await load({
+      envPath,
+      examplePath: null,
+      defaultsPath: null,
+    });
     const databaseUrl = envVars.DATABASE_URL;
 
     if (!databaseUrl) {
@@ -138,12 +176,62 @@ function parseCoverageOptions(args: CliArgs): CoverageOptions | undefined {
 }
 
 function showHelp(): void {
+  // init, lint and format all need a checkout - init scaffolds a Deno project,
+  // the other two shell out to the deno executable - so the compiled binary
+  // does not offer them. Listing a command that can only refuse is worse than
+  // not listing it at all.
+  const usage = RUNNING_UNDER_DENO
+    ? `    deno task [COMMAND] [OPTIONS]
+    deno task start [COMMAND] [OPTIONS]`
+    : `    pg_semantius [COMMAND] [OPTIONS]`;
+
+  const initCommand = RUNNING_UNDER_DENO
+    ? "    init             Initialize a new project\n"
+    : "";
+  const checkoutCommands = RUNNING_UNDER_DENO
+    ? "    lint             Run linter\n" +
+      "    format           Format code\n"
+    : "";
+
+  const examples = [
+    ...(RUNNING_UNDER_DENO ? ["init"] : []),
+    "connect --verbose",
+    "connect --database-url postgresql://user:pass@host:5432/db",
+    "test --tap",
+    "test --failfast",
+    "test 0010*",
+    "test 0015_test_jsonlogic.sql",
+    "test --coverage",
+    "test --coverage --coverage-min 80",
+    "migrate --apps app1,app2,app3 --verbose",
+    "migrate --apps nwind,_ddtest",
+    "migrate --apps nwind --script",
+    "migrate --apps nwind --database-url postgresql://user:pass@host:5432/db",
+    "extension 0.5.0",
+    "extension 0.5.0 --strict",
+    "extension 0.5.0 --output ./extension",
+    "dropall --verbose",
+    "dropall --confirm",
+    "dropall --script",
+    "reset --confirm",
+    "reset --confirm --verbose",
+    "retest --confirm",
+    "retest --confirm --failfast",
+    "retest --confirm --coverage",
+    "connect --env test",
+    "migrate --apps nwind --env staging",
+    "drizzlegen",
+    "drizzlegen --output bearer-auth-experimental/examples/drizzle/src/schema",
+    "kyselygen",
+    "kyselygen --output bearer-auth-experimental/examples/kysely/src/types.ts",
+  ].map((example) => `    ${INVOCATION} ${example}`).join("\n");
+
   console.log(`
-Semantius CLI v${VERSION}
+${PROGRAM} ${VERSION}
+${TAGLINE}
 
 USAGE:
-    deno task [COMMAND] [OPTIONS]
-    deno task start [COMMAND] [OPTIONS]
+${usage}
 
 OPTIONS:
     -h, --help              Show this help message
@@ -162,14 +250,10 @@ OPTIONS:
     --database-url <URL>    Database connection URL (overrides DATABASE_URL env variable and .env file)
 
 COMMANDS:
-    init             Initialize a new project
-    build            Build the project
-    connect          Test database connection
+${initCommand}    connect          Test database connection
     test             Run pgTAP tests
     test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 0010*)
-    lint             Run linter
-    format           Format code
-    migrate          Process and validate app folders (requires --apps parameter)
+${checkoutCommands}    migrate          Process and validate app folders (requires --apps parameter)
     extension <VER>  Generate the PostgreSQL extension (control + SQL) into
                      ./extension at an explicit version (e.g. 0.5.0). The version
                      is required. Regenerating the newest version in place is
@@ -189,83 +273,32 @@ COMMANDS:
     testgen_jsonlogic Generate 0015_test_jsonlogic.sql from 0015_test_jsonlogic.json
 
 EXAMPLES:
-    deno task init
-    deno task build --output ./dist
-    deno task connect --verbose
-    deno task connect --database-url postgresql://user:pass@host:5432/db
-    deno task test --tap
-    deno task test --failfast
-    deno task test 0010*
-    deno task test 0015_test_jsonlogic.sql
-    deno task test --coverage
-    deno task test --coverage --coverage-min 80
-    deno task migrate --apps app1,app2,app3 --verbose
-    deno task migrate --apps nwind,_ddtest
-    deno task migrate --apps nwind --script
-    deno task migrate --apps nwind --database-url postgresql://user:pass@host:5432/db
-    deno task extension 0.5.0
-    deno task extension 0.5.0 --strict
-    deno task extension 0.5.0 --output ./extension
-    deno task dropall --verbose
-    deno task dropall --confirm
-    deno task dropall --script
-    deno task reset --confirm
-    deno task reset --confirm --verbose
-    deno task retest --confirm
-    deno task retest --confirm --failfast
-    deno task retest --confirm --coverage
-    deno task connect --env test
-    deno task migrate --apps nwind --env staging
-    deno task drizzlegen
-    deno task drizzlegen --output bearer-auth-experimental/examples/drizzle/src/schema
-    deno task kyselygen
-    deno task kyselygen --output bearer-auth-experimental/examples/kysely/src/types.ts
+${examples}
   `);
 }
 
 function showVersion(): void {
-  console.log(`Semantius CLI v${VERSION}`);
+  console.log(`${PROGRAM} ${VERSION}`);
 }
 
-async function buildProject(outputDir: string = "./dist"): Promise<void> {
-  console.log(`🔨 Building project to ${outputDir}...`);
-
-  try {
-    // Ensure output directory exists
-    await Deno.mkdir(outputDir, { recursive: true });
-
-    // Compile the main application
-    const command = new Deno.Command("deno", {
-      args: [
-        "compile",
-        "--allow-read",
-        "--allow-write",
-        "--allow-env",
-        "--output",
-        `${outputDir}/semantius`,
-        "src/main.ts",
-      ],
-    });
-
-    const { code } = await command.output();
-
-    if (code === 0) {
-      console.log("✅ Build completed successfully!");
-      console.log(`📦 Executable created at: ${outputDir}/semantius`);
-    } else {
-      console.error("❌ Build failed!");
-      Deno.exit(1);
-    }
-  } catch (error) {
-    console.error(
-      "❌ Build error:",
-      error instanceof Error ? error.message : String(error),
-    );
-    Deno.exit(1);
-  }
+/**
+ * `lint` and `format` spawn the deno executable over the checkout's own
+ * source. Permissions are baked into a compiled binary, so the spawn would
+ * fail there with a NotCapable error naming a flag the user has no way to
+ * pass - and even with that permission there would be no source tree to lint.
+ * Refuse first, in words that say what to do instead.
+ */
+function requireCheckout(): void {
+  if (RUNNING_UNDER_DENO) return;
+  console.error(
+    "lint and format run deno lint / deno fmt on a checkout and are not part " +
+      "of the pg_semantius binary.",
+  );
+  Deno.exit(1);
 }
 
 async function lintProject(): Promise<void> {
+  requireCheckout();
   console.log("🔍 Running linter...");
 
   try {
@@ -341,9 +374,21 @@ async function main(): Promise<void> {
 
   // Get database URL for commands that need it.
   // --database-url flag takes priority over env file / DATABASE_URL env var.
-  // The "extension" command works purely off disk and needs no database.
+  //
+  // An allowlist, not "everything except extension": init, lint, format,
+  // testgen_jsonlogic, an unknown command and the bare help all used to be
+  // stopped by "DATABASE_URL not found" before they could say anything of
+  // their own, which is an answer to a question the user never asked.
+  // `migrate --script` builds its SQL from the migration files alone, so it
+  // drops out of the set as well - that is what lets the binary be smoke-
+  // tested, and used, with no database anywhere. `dropall --script` does NOT:
+  // it connects and introspects the live catalog to decide what to drop, so
+  // exempting it would skip --database-url entirely and let `new Client(
+  // undefined)` fall back to PGHOST/PGUSER - writing a drop script for a
+  // different database than the one that was configured.
+  const scriptOnly = args.script === true && command === "migrate";
   let databaseUrl: string | undefined;
-  if (command !== "extension") {
+  if (DATABASE_COMMANDS.has(String(command)) && !scriptOnly) {
     databaseUrl = await getDatabaseUrl(
       args.env || "local",
       args["database-url"],
@@ -353,10 +398,6 @@ async function main(): Promise<void> {
   switch (command) {
     case "init":
       await initProject();
-      break;
-
-    case "build":
-      await buildProject(args.output);
       break;
 
     case "connect":
@@ -381,6 +422,7 @@ async function main(): Promise<void> {
 
     case "format":
     case "fmt":
+      requireCheckout();
       await formatProject();
       break;
 
@@ -398,7 +440,7 @@ async function main(): Promise<void> {
       // and moved default_version backwards. See RELEASE.md.
       if (args._.length <= 1) {
         console.error(
-          "extension: a version is required, e.g. `deno task extension 0.5.0`.",
+          `extension: a version is required, e.g. \`${INVOCATION} extension 0.5.0\`.`,
         );
         console.error(
           "Regenerating the newest version in place is supported; see RELEASE.md.",
@@ -467,7 +509,7 @@ async function main(): Promise<void> {
     default:
       if (command) {
         console.error(`❌ Unknown command: ${command}`);
-        console.log("Run 'deno task start --help' for usage information.");
+        console.log(`Run '${HELP_INVOCATION} --help' for usage information.`);
         Deno.exit(1);
       } else {
         showHelp();

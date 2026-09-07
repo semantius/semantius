@@ -39,6 +39,9 @@
  */
 
 import type { Client } from "@postgres";
+import { join } from "@std/path";
+import { listApps, resolveAppDir } from "../assets.ts";
+import { INVOCATION } from "../invocation.ts";
 
 export interface CoverageOptions {
   enabled: boolean;
@@ -292,23 +295,15 @@ function lineAt(lineStarts: number[], index: number): number {
  * so prosrc is byte-identical to the dollar-quoted text in the file.
  */
 async function buildSourceIndex(): Promise<SourceFile[]> {
-  const apps: string[] = [];
-  try {
-    for await (const entry of Deno.readDir("./apps")) {
-      if (
-        entry.isDirectory && entry.name !== "_core" && entry.name !== "test"
-      ) {
-        apps.push(entry.name);
-      }
-    }
-  } catch {
-    return [];
-  }
-  apps.sort();
+  const apps = (await listApps()).filter(
+    (app) => app !== "_core" && app !== "test",
+  );
 
   const files: SourceFile[] = [];
   for (const app of ["_core", ...apps]) {
-    const dir = `./apps/${app}/migrations`;
+    const resolved = await resolveAppDir(app);
+    if (!resolved) continue;
+    const dir = join(resolved.dir, "migrations");
     const names: string[] = [];
     try {
       for await (const entry of Deno.readDir(dir)) {
@@ -319,7 +314,7 @@ async function buildSourceIndex(): Promise<SourceFile[]> {
     }
     names.sort();
     for (const name of names) {
-      const raw = await Deno.readTextFile(`${dir}/${name}`);
+      const raw = await Deno.readTextFile(join(dir, name));
       const text = raw.replace(/\r\n?/g, "\n");
       const lineStarts = [0];
       for (let i = 0; i < text.length; i++) {
@@ -338,6 +333,9 @@ async function buildSourceIndex(): Promise<SourceFile[]> {
         });
       }
       files.push({
+        // Repo-relative on purpose: an lcov consumer resolves this against the
+        // checkout, and the absolute path of an embedded copy names a
+        // temporary directory that is gone by the time a report is read.
         path: `apps/${app}/migrations/${name}`,
         text,
         lineStarts,
@@ -479,7 +477,7 @@ export class CoverageCollector {
         };
         if (ext.schema !== "extensions") {
           this.warn(
-            `plpgsql_check is installed in schema "${ext.schema}"; deno task dropall only skips the "extensions" schema`,
+            `plpgsql_check is installed in schema "${ext.schema}"; ${INVOCATION} dropall only skips the "extensions" schema`,
           );
         }
         // Calling into the extension loads its library into this session and

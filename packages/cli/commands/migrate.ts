@@ -4,12 +4,14 @@
  */
 
 import { Client } from "@postgres";
+import { join } from "@std/path";
 import {
   ensureVersionsTable,
   executeMigrations,
   getVersionsTableSql,
   type MigrationFile,
 } from "@semantius/core";
+import { resolveAppDir, validateAppNames } from "../assets.ts";
 
 export async function migrateCommand(
   apps: string,
@@ -70,6 +72,7 @@ export async function migrateCommand(
         console.log("Provide comma-separated app names: app1,app2,app3");
         Deno.exit(1);
       }
+      validateAppNames(appList);
 
       console.info(`Found ${appList.length} app(s) to process`);
 
@@ -81,25 +84,16 @@ export async function migrateCommand(
         processedApps.push(app);
         console.log(`Migrating: ${app}`);
 
-        const appPath = `./apps/${app}`;
-        try {
-          const stat = await Deno.stat(appPath);
-          if (stat.isDirectory) {
-            await migrateApp(app, databaseUrl, app);
-            console.info(`Migrated: ${app}`);
-            existingApps.push(app);
-          } else {
-            console.log(`Path exists but is not a directory: ${app}`);
-            missingApps.push(app);
-          }
-        } catch (error) {
-          if (error instanceof Deno.errors.NotFound) {
-            console.log(`Not found: ${app}`);
-            missingApps.push(app);
-          } else {
-            throw error;
-          }
+        const resolved = await resolveAppDir(app);
+        if (!resolved) {
+          console.log(`Not found: ${app}`);
+          missingApps.push(app);
+          continue;
         }
+
+        await migrateApp(app, databaseUrl, resolved.dir);
+        console.info(`Migrated: ${app}`);
+        existingApps.push(app);
       }
 
       // Summary
@@ -157,7 +151,7 @@ export async function migrateCommand(
 async function migrateApp(
   appName: string,
   databaseUrl: string,
-  folderName: string,
+  appDir: string,
 ): Promise<void> {
   console.info(`Connecting to database for app: ${appName}`);
 
@@ -171,7 +165,7 @@ async function migrateApp(
     await ensureVersionsTable(client);
 
     // Load SQL files from disk
-    const migrationFiles = await loadSqlFiles(folderName, "migrations");
+    const migrationFiles = await loadSqlFiles(appDir, "migrations");
 
     // Execute migrations using shared core function
     await executeMigrations(appName, migrationFiles, client);
@@ -218,7 +212,7 @@ async function migrateApp(
   }
 }
 
-/** Loads all .sql files from apps/{folderName}/{subfolder}/ sorted ascending. */
+/** Loads all .sql files from {appDir}/{subfolder}/ sorted ascending. */
 /** Migration text is normalized to LF before it reaches PostgreSQL. The .sql
  * files are CRLF in a Windows checkout and LF elsewhere, and a function body is
  * stored verbatim in pg_proc.prosrc - so without this, the same migration
@@ -233,10 +227,10 @@ function toLf(text: string): string {
 }
 
 async function loadSqlFiles(
-  folderName: string,
+  appDir: string,
   subfolder: string,
 ): Promise<MigrationFile[]> {
-  const sqlPath = `./apps/${folderName}/${subfolder}`;
+  const sqlPath = join(appDir, subfolder);
 
   try {
     const sqlFileNames: string[] = [];
@@ -251,7 +245,7 @@ async function loadSqlFiles(
 
     const migrations: MigrationFile[] = [];
     for (const fileName of sqlFileNames) {
-      const filePath = `${sqlPath}/${fileName}`;
+      const filePath = join(sqlPath, fileName);
       const content = toLf(await Deno.readTextFile(filePath));
       migrations.push({
         name: fileName.replace(/\.sql$/, ""),
@@ -296,6 +290,7 @@ async function generateMigrationScript(apps: string): Promise<void> {
     console.log("Provide comma-separated app names: app1,app2,app3");
     Deno.exit(1);
   }
+  validateAppNames(appList);
 
   console.info(`Found ${appList.length} app(s) to process`);
 
@@ -307,22 +302,13 @@ async function generateMigrationScript(apps: string): Promise<void> {
   for (const app of appList) {
     console.log(`Processing: ${app}`);
 
-    const appPath = `./apps/${app}`;
-    try {
-      const stat = await Deno.stat(appPath);
-      if (!stat.isDirectory) {
-        console.log(`Path exists but is not a directory: ${app}`);
-        continue;
-      }
-    } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
-        console.log(`Not found: ${app}`);
-        continue;
-      }
-      throw error;
+    const resolved = await resolveAppDir(app);
+    if (!resolved) {
+      console.log(`Not found: ${app}`);
+      continue;
     }
 
-    const migrationFiles = await loadSqlFiles(app, "migrations");
+    const migrationFiles = await loadSqlFiles(resolved.dir, "migrations");
 
     if (migrationFiles.length === 0) {
       console.info(`No migration files found for ${app}`);

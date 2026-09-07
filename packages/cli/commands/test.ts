@@ -5,8 +5,9 @@
 
 
 import { Client } from "@postgres";
-import { walk } from "@std/fs/walk";
-import { basename } from "@std/path";
+import { basename, join } from "@std/path";
+import { listApps, resolveAppDir } from "../assets.ts";
+import { INVOCATION } from "../invocation.ts";
 import {
   CoverageCollector,
   type CoverageOptions,
@@ -297,7 +298,7 @@ class PgTest {
     
     if (schemaCheck.rows.length === 0) {
       console.error("FATAL: pgtap schema not found");
-      console.error("Run: deno task migrate test");
+      console.error(`Run: ${INVOCATION} migrate --apps test`);
       console.error("This will install the pgtap testing framework");
       Deno.exit(1);
     }
@@ -391,10 +392,11 @@ class PgTest {
 
   /**
    * Run every *.sql file in each directory, directories in the given order.
-   * Files are collected and sorted explicitly: std walk yields Deno.readDir
-   * order, which is filesystem-dependent (hash order on ext4), while the suite
-   * relies on numeric prefixes (e.g. 0990_cleanup must run last in apps/test/tests).
-   * Missing directories are skipped.
+   * Files are collected and sorted explicitly: Deno.readDir yields filesystem
+   * order (hash order on ext4), while the suite relies on numeric prefixes
+   * (e.g. 0990_cleanup must run last in apps/test/tests). A tests/ directory is
+   * flat, so there is nothing to recurse into. Missing directories are
+   * skipped.
    */
   async runTests(testDirs: string[], filter?: string): Promise<TestRun> {
     const results: TestResult[] = [];
@@ -406,8 +408,10 @@ class PgTest {
     for (const testDir of testDirs) {
       const files: string[] = [];
       try {
-        for await (const entry of walk(testDir, { exts: [".sql"], includeDirs: false })) {
-          files.push(entry.path);
+        for await (const entry of Deno.readDir(testDir)) {
+          if (entry.isFile && entry.name.endsWith(".sql")) {
+            files.push(join(testDir, entry.name));
+          }
         }
       } catch (error) {
         if (error instanceof Deno.errors.NotFound) continue;
@@ -447,16 +451,12 @@ ${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
  * (e.g. apps/nwind/tests). Apps without a tests/ directory are ignored.
  */
 async function collectTestDirs(): Promise<string[]> {
-  const dirs = ["./apps/test/tests"];
-  const apps: string[] = [];
-  for await (const entry of Deno.readDir("./apps")) {
-    if (entry.isDirectory && entry.name !== "test") {
-      apps.push(entry.name);
-    }
-  }
-  apps.sort();
-  for (const app of apps) {
-    const dir = `./apps/${app}/tests`;
+  const others = (await listApps()).filter((app) => app !== "test");
+  const dirs: string[] = [];
+  for (const app of ["test", ...others]) {
+    const resolved = await resolveAppDir(app);
+    if (!resolved) continue;
+    const dir = join(resolved.dir, "tests");
     try {
       if ((await Deno.stat(dir)).isDirectory) {
         dirs.push(dir);

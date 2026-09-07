@@ -7,7 +7,8 @@
   "tasks": {
     "start": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts",
     "init": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts init",
-    "build": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts build",
+    "build-cli": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-cli.ts",
+    "build-cli:all": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build-cli.ts --all",
     "connect": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts connect",
     "test": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts test",
     "lint": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts lint",

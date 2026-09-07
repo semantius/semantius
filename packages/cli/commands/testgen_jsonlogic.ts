@@ -9,8 +9,12 @@
  *     result to the expected value.
  */
 
-const JSON_INPUT_PATH = "./apps/test/tests/0015_test_jsonlogic.json";
-const SQL_OUTPUT_PATH = "./apps/test/tests/0015_test_jsonlogic.sql";
+import { join } from "@std/path";
+import { resolveAppDir } from "../assets.ts";
+import { RUNNING_UNDER_DENO } from "../invocation.ts";
+
+const JSON_INPUT_NAME = "0015_test_jsonlogic.json";
+const SQL_OUTPUT_NAME = "0015_test_jsonlogic.sql";
 
 function sqlEscape(s: string): string {
   return s.replace(/'/g, "''");
@@ -21,26 +25,36 @@ function toJsonbLiteral(value: unknown): string {
 }
 
 export async function testgenJsonlogicCommand(): Promise<void> {
-  console.log(`Reading ${JSON_INPUT_PATH}...`);
+  const testApp = await resolveAppDir("test");
+  if (!testApp) {
+    console.error("apps/test was not found, so there is nothing to generate.");
+    Deno.exit(1);
+  }
+  const jsonInputPath = join(testApp.dir, "tests", JSON_INPUT_NAME);
+  const sqlOutputPath = join(testApp.dir, "tests", SQL_OUTPUT_NAME);
+
+  console.log(`Reading ${jsonInputPath}...`);
 
   let entries: unknown[];
   try {
-    const content = await Deno.readTextFile(JSON_INPUT_PATH);
+    const content = await Deno.readTextFile(jsonInputPath);
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) {
-      console.error(`Expected ${JSON_INPUT_PATH} to contain a JSON array`);
+      console.error(`Expected ${jsonInputPath} to contain a JSON array`);
       Deno.exit(1);
     }
     entries = parsed;
   } catch (error) {
     console.error(
-      `Failed to read ${JSON_INPUT_PATH}:`,
+      `Failed to read ${jsonInputPath}:`,
       error instanceof Error ? error.message : String(error),
     );
     Deno.exit(1);
   }
 
-  const testCount = entries.filter((e) => Array.isArray(e) && (e as unknown[]).length >= 3).length;
+  const testCount =
+    entries.filter((e) => Array.isArray(e) && (e as unknown[]).length >= 3)
+      .length;
 
   const lines: string[] = [];
   lines.push(
@@ -62,7 +76,9 @@ export async function testgenJsonlogicCommand(): Promise<void> {
     } else if (Array.isArray(entry)) {
       if (entry.length < 3) {
         console.warn(
-          `Skipping malformed test entry (expected [rule, data, result], got ${entry.length} element(s)): ${JSON.stringify(entry)}`,
+          `Skipping malformed test entry (expected [rule, data, result], got ${entry.length} element(s)): ${
+            JSON.stringify(entry)
+          }`,
         );
         continue;
       }
@@ -70,7 +86,9 @@ export async function testgenJsonlogicCommand(): Promise<void> {
       testNum++;
       lines.push(`SELECT is(`);
       lines.push(
-        `    evaluate_json_logic(${toJsonbLiteral(rule)}, ${toJsonbLiteral(data)}),`,
+        `    evaluate_json_logic(${toJsonbLiteral(rule)}, ${
+          toJsonbLiteral(data)
+        }),`,
       );
       lines.push(`    ${toJsonbLiteral(result)},`);
       lines.push(`    'test ${testNum}'`);
@@ -84,6 +102,27 @@ export async function testgenJsonlogicCommand(): Promise<void> {
 
   const sql = lines.join("\n");
 
-  await Deno.writeTextFile(SQL_OUTPUT_PATH, sql);
-  console.log(`Generated ${SQL_OUTPUT_PATH} with ${testCount} tests.`);
+  try {
+    await Deno.writeTextFile(sqlOutputPath, sql);
+  } catch (error) {
+    // The only writable copy of apps/test is one on disk. Inside the compiled
+    // binary it is read-only by construction, and this command regenerates a
+    // file that is committed to the repository anyway - so the answer is
+    // always "run it from a checkout", never "try somewhere else".
+    //
+    // The source label alone is not the test: a checkout collapses its two
+    // identical roots to one entry called "embedded", so keying on that would
+    // tell someone who IS in a checkout to go find one. Only a compiled binary
+    // has a read-only apps/.
+    if (!RUNNING_UNDER_DENO && testApp.source === "embedded") {
+      console.error(
+        `Cannot write ${sqlOutputPath}: the copy of apps/test that ships with ` +
+          `the CLI is read-only. Run this from a checkout of the repository, ` +
+          `where apps/test/tests/ is a real directory.`,
+      );
+      Deno.exit(1);
+    }
+    throw error;
+  }
+  console.log(`Generated ${sqlOutputPath} with ${testCount} tests.`);
 }

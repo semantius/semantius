@@ -1,12 +1,13 @@
 {
   "name": "semantius",
-  "version": "0.1.0",
+  "version": "0.5.0-beta1",
   "description": "Semantius Core - pnpm monorepo",
   "private": true,
   "scripts": {
     "start": "deno task start",
     "init": "deno task init",
-    "build": "deno task build",
+    "build-cli": "deno task build-cli",
+    "build-cli:all": "deno task build-cli:all",
     "connect": "deno task connect",
     "test": "deno task test",
     "lint": "deno task lint",

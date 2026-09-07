@@ -191,7 +191,26 @@ which resolves the version from the tag name and publishes:
 |---|---|
 | git history | the `v<ver>` tag |
 | GitHub Release | `pg_semantius-<ver>.zip` — the full install **plus the whole upgrade chain**, `META.json`, `.control`, `Makefile`, `README.md`, `CHANGES.md`, `SECURITY.md`, `LICENSE` — and the loose `.sql` and `.control` alongside it |
+| GitHub Release | the five `pg_semantius-<os>-<arch>[.exe]` CLI binaries and `checksums.txt`, which `install.sh` and `install.ps1` download by name |
 | GHCR | `postgres:<ver>-pg<major>`, `postgres:latest-pg<major>`, `postgres:latest` |
+
+`release.sh` also writes `<ver>` into `packages/cli/deno.json` and
+`package.json` and commits them with `extension/`. The CLI imports the first of
+those, so it is the only thing a compiled binary can report as its version —
+and the release job refuses to publish a tag whose committed copy says
+something else.
+
+A **new** tag's release is created as a draft, filled with every asset, and
+only then published. `releases/latest` does not move to a draft, so an upload
+that fails halfway leaves the previous release installable rather than breaking
+both install one-liners.
+
+**A re-release does not get that protection.** The job runs `gh release delete`
+first so the assets are replaced cleanly, and for the whole build-and-upload
+window `releases/latest` falls back to the previous tag - which has no
+`pg_semantius-*` binaries, so both install one-liners 404 until the new release
+is published. Re-releasing the newest version is supported and expected (see
+above); this is the cost of it.
 
 `<major>` is parsed from `docker-postgres/Dockerfile`'s `FROM` line, so a base
 bump moves the tag suffix with it. **A pre-release never moves `:latest` or

@@ -80,10 +80,12 @@ This document provides essential information for AI agents working with the Sema
 
 **CRITICAL**: Deno must be installed before running any commands.
 
-Install Deno (version 1.37+):
+Install Deno (2.9.3 or newer - `deno task build-cli` cross-compiles the released
+binaries and needs a `deno compile` target that arrived in 2.9.3; the workflows
+and `release.sh` pin the same floor):
 ```bash
 cd /tmp
-wget -q https://github.com/denoland/deno/releases/download/v1.45.5/deno-x86_64-unknown-linux-gnu.zip
+wget -q https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip
 unzip -q -o deno-x86_64-unknown-linux-gnu.zip
 sudo mv deno /usr/local/bin/deno
 deno --version
@@ -142,6 +144,7 @@ It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
 - All business logic implemented in PostgreSQL functions
 - Security enforced through RLS policies and custom RBAC
 - Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `0290_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
+- The CLI is documented in `CLI.md` (install, every command and flag, the `.env` profiles, what the destructive commands destroy); `README.md` is the overview and links to it. It also ships as a self-contained `pg_semantius` executable, built by `deno task build-cli` (this platform) / `deno task build-cli:all` (all five published targets) and attached to the same GitHub Release. It embeds `apps/` via `deno compile --include`, so nothing under `packages/cli/` may read SQL relative to the working directory - `packages/cli/assets.ts` is the only resolver, and `./apps/<name>` in the working directory shadows the embedded copy per app, out loud
 - Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the newest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing install - `migrate()` skips by migration name - which is accepted and documented, not a bug
 - Infrastructure defined in `apps/_core/` folder
 - Automated testing using pgTAP framework
