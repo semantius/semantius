@@ -17,6 +17,18 @@
 import { basename, resolve } from "https://deno.land/std@0.208.0/path/mod.ts";
 
 /**
+ * Asset name prefix for the compiled binaries.
+ *
+ * `-cli`, not plain `pg_semantius`: the same release page also carries the
+ * extension's `pg_semantius--<version>.sql`, `pg_semantius.control` and the
+ * PGXN archive `pg_semantius-<version>.zip`. Those three names are fixed by
+ * PostgreSQL and PGXN and cannot move, so the binaries are the side that
+ * disambiguates. Only the published asset name carries the suffix - the
+ * installers still land the file as `pg_semantius`, which is the command.
+ */
+const ASSET_PREFIX = "pg_semantius-cli";
+
+/**
  * Rust target triple -> published asset suffix. The suffixes are what the
  * installers download by name, so they are part of the release contract:
  * changing one breaks `install.sh` / `install.ps1` for everybody who already
@@ -75,7 +87,7 @@ TARGETS:
 ${
     Object.entries(TARGETS)
       .map(([triple, suffix]) =>
-        `    ${triple.padEnd(28)} pg_semantius-${suffix}`
+        `    ${triple.padEnd(28)} ${ASSET_PREFIX}-${suffix}`
       )
       .join("\n")
   }
@@ -172,7 +184,7 @@ async function main(): Promise<void> {
   );
 
   for (const triple of selected) {
-    const output = resolve(outPath, `pg_semantius-${TARGETS[triple]}`);
+    const output = resolve(outPath, `${ASSET_PREFIX}-${TARGETS[triple]}`);
     console.log(`\n== ${triple} -> ${basename(output)} ==`);
 
     // Permissions are baked in at compile time and cannot be granted later.

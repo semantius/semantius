@@ -147,6 +147,51 @@ slowly, which is why they are written down here rather than regenerated:
   REVOKEd from PUBLIC, and a `select_rule` policy would reduce its value
   comparisons to zero rows and pass vacuously.
 
+## Lint
+
+Coverage says which code ran. The linter says what is wrong with code whether it
+ran or not, and it is the only tool that sees a function no test reaches.
+
+```sh
+./pgdocker/pg-cli-retest.sh                 # a migrated database first
+deno task lint-sql --database-url postgresql://postgres:<pw>@localhost:5432/appdb
+```
+
+It runs `plpgsql_check` over every PL/pgSQL function in `public`, `common`,
+`rbac`, `audit` and `pgmq`, installing the extension into schema `extensions` if
+the server has it but the database does not. The report goes to stdout and to
+`coverage/lint.txt`, beside the coverage reports.
+
+**Why it passes arguments a bare invocation does not.** `plpgsql_check` refuses
+a trigger function outright without `relid` ("missing trigger relation"), and a
+statement-level trigger function that reads its transition tables reports
+`relation "new_rows" does not exist` unless it is told the names the trigger's
+`REFERENCING` clause declares. Both are things a bound trigger already knows, so
+the command reads them back out of `pg_trigger` rather than guessing - which is
+what brings the seven trigger functions a plain invocation cannot see into the
+report. What no binding supplies is in the `OVERRIDES` table at the top of
+`packages/cli/commands/lint_sql.ts`, each entry with its reason.
+
+**The skipped list is the point.** Any function the checker could not check at
+all is listed with the reason it raised. One skip is expected -
+`pgmq.notify_queue_listeners`, vendored and unbound by design - and anything
+else prints as `unexpected skip:` and wants either an override or a recorded
+reason. A function silently missing from the report is the failure mode this
+command exists to prevent.
+
+**It is not a gate.** The exit code is always 0. Style warnings do not fail
+builds here, and `pgmq` findings are counted apart from ours for the same reason
+coverage splits them: they are vendored, and closing them means editing code we
+re-vendor.
+
+**It leaves a footprint, and so does `--coverage`.** Installing `plpgsql_check`
+creates schema `extensions` in the database it ran against. `pg-ext-lifecycle.sh`
+step 10 compares a schema-only `pg_dump` of the CLI container against the
+extension container, so a database that has been linted or coverage-measured is
+no longer byte-identical to one that has not, and that step fails on the
+difference. Run the lifecycle script first, or drop the extension and its schema
+afterwards.
+
 ## When you add tests
 
 Re-run with `--coverage` and compare against the previous run. A drop in

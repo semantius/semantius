@@ -161,9 +161,9 @@ jobs:
       - name: The binary reports the committed version
         run: |
           V="${{ steps.ver.outputs.version }}"
-          BIN="dist/pg_semantius-linux-x64"
+          BIN="dist/pg_semantius-cli-linux-x64"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            BIN="dist/pg_semantius-windows-x64.exe"
+            BIN="dist/pg_semantius-cli-windows-x64.exe"
           else
             chmod +x "$BIN"
           fi
@@ -174,9 +174,9 @@ jobs:
 
       - name: The embedded SQL equals the checkout's
         run: |
-          BIN="$GITHUB_WORKSPACE/dist/pg_semantius-linux-x64"
+          BIN="$GITHUB_WORKSPACE/dist/pg_semantius-cli-linux-x64"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            BIN="$GITHUB_WORKSPACE/dist/pg_semantius-windows-x64.exe"
+            BIN="$GITHUB_WORKSPACE/dist/pg_semantius-cli-windows-x64.exe"
           fi
           deno task migrate --apps _core --script >/dev/null
           mkdir -p "$RUNNER_TEMP/smoke"

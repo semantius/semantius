@@ -2492,3 +2492,255 @@ whoever can run SQL as the request role can set any claim, `sub` included; the
 audience check is one more thing such a caller could satisfy anyway. It bounds
 tokens minted for another audience by an issuer you share, and nothing more.
 That is documented, not fixed, and the row was closed on that basis.
+
+## B11 (2026-09-07): the runtime guard is accepted, and the BYPASSRLS gate now has a test that fails without it
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| B11 | Low | migration | `0010:37`, `0012:104` (the CURRENT_USER grants), `0050:20` (the BYPASSRLS gate) | Partly fixed 2026-09-03: both grants are now skipped when the installing role is a superuser, and 0050's `ASSERT` became a `RAISE EXCEPTION` (no `ASSERT` statement survives in the generated script, asserted by `pg-ext-lifecycle.sh`). The row's first alternative - "neither reaches the generated script" - is still unmet: both grants are present at `pg_semantius--0.5.0.sql:242` and `:531`, only runtime-guarded. | **Decided 2026-09-07: accept the runtime guard.** The statements stay in the generated script, skipped when the installer is a superuser, which the extension path always is; stripping them would make the two install layouts differ in SQL and lifecycle step 10 would have to be taught the difference. What remains is the two assertions, which belong to the same lifecycle change as **R7**. | The BYPASSRLS gate has a test that fails when it is removed, and the grant-skip is asserted on a superuser install. |
+
+### The decision
+
+**Accept the runtime guard.** The two `CURRENT_USER` grants stay in the
+generated script, skipped at run time when the installing role is a superuser -
+which the extension path always is. Stripping them would make the two install
+layouts differ in SQL, and lifecycle step 10, which asserts the CLI-installed
+and extension-installed schemas are byte-identical, would have to be taught the
+difference. That is a worse trade than a guard that has been asserted since
+2026-09-03.
+
+### What changed
+
+Only the missing assertion. The row asked for two, and one already existed:
+
+- **The grant skip** is pinned by lifecycle sub-step 1b, which asserts on a
+  second-database install that `postgres` holds no `semantius_user` membership
+  and that schema `common` carries no extra installer grant. That is the shape
+  that catches `0012`'s grant without tripping over the owner entry `0290`
+  materializes. Sub-step 4b asserts after the uninstall recipe that the only
+  surviving membership is the one `DROP ROLE` would clear. Both predate this
+  change and are named here so the pin is on the record.
+- **The BYPASSRLS gate** had nothing. New lifecycle sub-step **8d**: a
+  *superuser without BYPASSRLS* installs the extension and calls `migrate()`.
+  A superuser bypasses RLS whatever the attribute says, but the gate at
+  `0050_rbac_rls.sql:17-24` reads the attribute, so that role is the one that
+  trips it - and it is the realistic case, because `NOBYPASSRLS` is the
+  `CREATE ROLE` default whatever else a role has and `postgres` in both harness
+  containers has the attribute only because `initdb` set it. No install had ever
+  reached this gate.
+
+The sub-step asserts four things: the 55000 refusal, that the hint names
+`ALTER ROLE gate_probe BYPASSRLS` (the identifier is unquoted, because
+`quote_ident` leaves a plain one alone), that **nothing was applied** - no
+`common`, `rbac`, `audit` or `pgmq` schema survives the refusal - and that the
+same role installs cleanly once the attribute is granted, which proves the gate
+was the only refusal in the way.
+
+The "nothing was applied" half is what makes it honest rather than decorative:
+`migrate()` `EXECUTE`s every migration inside one call, so a gate moved later in
+the file, or softened to a `NOTICE`, would leave schema `common` standing while
+the message assertion could still be made to pass.
+
+### What proves it
+
+`pgdocker/pg-ext-lifecycle.sh` step 8d, green in a full run on 2026-09-07 (123
+passed, 0 failed). **Seen failing**: with the gate's condition rewritten to
+`IF false THEN` in a scratch copy of the generated script and that copy staged
+into `postgres18-ext`, the refusal and hint assertions both find nothing and the
+install completes - `34 applied`, four core schemas present, against the
+sub-step's expected `0`.
+
+### What this closure does not solve
+
+The non-superuser branch of either guard. Both harness containers install as a
+superuser, so the path where the grants actually run, and the path where a
+non-superuser without BYPASSRLS is refused, are unasserted. Asserting them needs
+an installer role that is not a superuser, which no current harness can produce
+and which `CREATE EXTENSION` itself refuses (lifecycle 8c). The gate's behaviour
+on a managed platform - Supabase and Neon both hand out roles that already carry
+BYPASSRLS - is therefore still argued from the catalog, not tested.
+
+## R7 (2026-09-07): the three missing runtime assertions, and the fourth that already existed
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| R7 | Low | tooling | `pgdocker/pg-ext-lifecycle.sh` | Four runtime assertions the script does not make, each belonging to another row and each needing no new infrastructure: the BYPASSRLS `RAISE EXCEPTION` in `0050_rbac_rls.sql` actually firing, and a superuser install skipping the CURRENT_USER grants (both **B11**); `0160_pgmq.sql`'s own header guard on the CLI path, which `migrate()`'s pre-flight currently pre-empts (**B4**); and a repeatable assertion for LF normalization, which today rests only on the release job's diff guard (**B13**). Split out of the old R7 on 2026-09-05, which mixed these with two much more expensive families now tracked as **R8** and **R9**. | Add the four assertions to the existing script. They run in the container that is already up, so they belong on the per-PR path with the rest of the lifecycle. | Each of the four fails when the behavior it asserts is removed. |
+
+### What changed
+
+Three assertions added, one counted:
+
+- **The BYPASSRLS gate** (B11): lifecycle sub-step **8d**, above.
+- **`0160_pgmq.sql`'s own header guard on the CLI path** (B4): lifecycle
+  sub-step **7d**. Step 7 already proves `migrate()`'s pre-flight refuses a real
+  pgmq, but that pre-flight raises before any migration runs, so the guard
+  inside `0160` is never reached there - and on the CLI path nothing reached it
+  at all. 7d runs the raw migration with `psql -f` against a database that has
+  the stub pgmq extension installed, which is the CLI path in miniature: the
+  header `DO` block is the file's first statement. The grep is on
+  `installed in this database`, a phrase only `0160`'s message carries - the
+  pre-flight says `is installed;` - so the assertion cannot pass by way of the
+  refusal it exists to bypass. A second check asserts no `pgmq` schema was
+  created; the stub creates `pgmq_stub`, so that count is real.
+- **LF normalization** (B13): `packages/cli/commands/extension_test.ts`, the
+  first Deno test in the repository, run from lifecycle step 0. See below.
+- **The superuser grant skip** turned out to exist already, at lifecycle 1b.
+  Counted here, recorded under B11.
+
+### Why LF normalization is a unit test and not a byte grep
+
+`.gitattributes` is `* text=auto eol=lf`, so a fresh checkout is LF throughout
+and the generator produces CR-free output *with `toLf` deleted*. That LF
+checkout is exactly what CI, and therefore the release job's
+"committed build must equal the regenerated one" guard, builds from. A byte grep
+on the shipped files can never fail on the normalizer's removal; only a check
+that hands the normalizer CRLF itself can.
+
+So `toLf` and `sha256hex` are now exported from `extension.ts` and two
+`Deno.test`s pin them: that `sha256hex(toLf("a\r\nb\rc\r\n"))` equals the digest
+of the LF form (and that `toLf` is a no-op on text already LF, so the manifest
+values do not move), and that the checksum `extension/versions.json` records for
+`_core/0010_create_core` in its newest version equals
+`sha256hex(toLf(<file text>))`. The second pins what the manifest hashes:
+SHA-256 hex of the normalized text, no prefix, keyed `<app>/<name>` without the
+`.sql`. Lifecycle step 0 runs `deno test --allow-read
+packages/cli/commands/extension_test.ts` on the host and turns the exit code
+into one `ok`/`bad`.
+
+Two byte counts stay beside it, labelled as pins rather than as the assertion:
+no CR in the generated script, none in the control file. They are vacuous on an
+LF checkout and fail only if a CR reaches the shipped files by some other route.
+They are counted with `tr -cd`, not `grep $'\r'`: MSYS drops the carriage return
+on the way to `grep.exe`, leaving an empty pattern that matches every line - the
+first version of these two pins reported 17648 and 8 on files that contain no CR
+at all.
+
+### What proves it
+
+`pgdocker/pg-ext-lifecycle.sh`, full run 2026-09-07: 123 passed, 0 failed.
+**All three seen failing**, each by removing the behaviour it asserts:
+
+- 8d, gate condition rewritten to `IF false`: refusal and hint assertions find
+  nothing, install completes, four core schemas present.
+- 7d, `0160`'s header `DO` block replaced with a bare
+  `CREATE SCHEMA IF NOT EXISTS pgmq`: no refusal in the output and the `pgmq`
+  schema count is 1 against an expected 0.
+- Step 0, `toLf` reduced to `return text`: `deno test` fails with the two
+  digests printed side by side.
+
+### What this closure does not solve
+
+The CRLF working tree this repository is checked out into on the machine the
+change was made on. `.gitattributes` landed after those files were first
+checked out and git does not rewrite a working tree when an attribute changes,
+so 76 tracked files - 27 `.sql` and 4 `.sh` among them - still have CRLF
+locally while their blobs are LF and `git status` is clean. Nothing shipped is
+affected: the loaders normalize as they read, the generated files are CR-free,
+and a fresh clone is LF. It is a stale tree, not a repository state, and
+renormalizing it is a separate decision.
+
+## Q6 (2026-09-07): a lint command that passes the arguments a bound trigger would have supplied
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| Q6 | Low | tooling | `raci_emit_trigger_fn()`; `audit.insert_trigger`, `audit.delete_trigger`, `handle_field_searchable_insert/update/delete`, `queue_build_record_json`; pgmq `notify_queue_listeners()` | Seven Semantius trigger functions the linter never sees: `raci_emit_trigger_fn` because no trigger binds it in a fresh install, and the six statement-level trigger functions because plpgsql_check 2.10 stops at `relation "new_rows" does not exist` when no transition table is declared for the check. `pgmq.notify_queue_listeners` is vendored and unbound. | Bind `raci_emit_trigger_fn` in a test. For the six, pass `oldtable`/`newtable` to `plpgsql_check_function` (the arguments exist for this case; untried here), or accept and say so. | All seven appear in the lint report, or the acceptance is written into this row. |
+
+### The decision
+
+**Not a test binding - a repeatable invocation.** The row's first idea was to
+bind `raci_emit_trigger_fn` in a test. It already is bound in one:
+`0350_test_raci.sql` flips `emits_events` and `raci_install_or_drop_emit_trigger`
+creates the trigger, inside a transaction that rolls back. The linter runs
+against the installed schema, after the suite, where no trigger binds the
+function. A binding inside a test can never help the linter. What helps is the
+`relid` argument, which is what a bound trigger would have supplied - and for
+the statement-level functions the `oldtable`/`newtable` arguments, which are the
+names their `REFERENCING` clauses declare.
+
+And there was no lint script at all: the invocation lived in the appendix of the
+open-items list and was retyped by hand, so "appears in the lint report" had no
+repeatable meaning until the invocation became a file.
+
+### What changed
+
+- **`deno task lint-sql`**, a new command
+  (`packages/cli/commands/lint_sql.ts`, wired into `packages/cli/cli.ts` beside
+  the other database commands). It connects to a migrated database, installs
+  `plpgsql_check` into schema `extensions` if the server has it and the database
+  does not - the same way the coverage collector does - checks every PL/pgSQL
+  function in `public`, `common`, `rbac`, `audit` and `pgmq`, and writes the
+  report to stdout and to `coverage/lint.txt`.
+- **The arguments come from `pg_trigger`**, aggregated over *all* of a
+  function's bindings: `min(tgrelid)` for `relid`, `max(tgoldtable)` and
+  `max(tgnewtable)` for the transition tables. Aggregating rather than taking
+  one row matters - `handle_field_searchable_update` is bound with both names,
+  and a function bound many times may declare a different table per binding.
+- **An `OVERRIDES` table** at the top of the file for what no binding supplies,
+  each entry with its reason: `raci_emit_trigger_fn` gets
+  `relid => public.user_bookmarks` (its body reads only `TG_OP`,
+  `TG_TABLE_NAME` and `to_jsonb(OLD)`, so any rowtype type-checks it);
+  `queue_build_record_json` gets `oldtable => old_rows`, because every trigger
+  bound at install time is an INSERT trigger carrying only `tgnewtable` and the
+  DELETE binding that would supply `old_rows` exists only for entities that opt
+  in; `pgmq.notify_queue_listeners` is skipped, vendored and unbound by design.
+- **The skipped list is the report's point.** A function the checker raises on
+  is listed with the error it raised, and any skip not in `OVERRIDES` prints as
+  `unexpected skip:` with a line saying what to do about it. A function silently
+  missing from the report is the failure mode the command exists to prevent.
+- **Not a gate.** The exit code is always 0. Style warnings do not fail builds
+  here, and the file header says so.
+- `docs/test-coverage.md` gained a "Lint" section: how to run it, why the
+  transition-table arguments are there, what the skipped list means, and that it
+  is not a gate. The appendix "Linter" line in the open-items list now names the
+  command instead of an invocation to retype.
+
+### What proves it
+
+One run on the `postgres18-cli` database after `pg-cli-retest.sh`, plpgsql_check
+2.10, recorded here because the row asked for the count:
+
+- **checked: 193 of 194** PL/pgSQL functions.
+- **skipped: 1** - `pgmq.notify_queue_listeners`, the expected one, with its
+  reason. No unexpected skips.
+- **findings: 68**, of which **37 outside `pgmq`** and **31 in `pgmq`**.
+- All seven functions the row named are checked and **report nothing**:
+  `raci_emit_trigger_fn`, `audit.insert_trigger`, `audit.delete_trigger`,
+  `handle_field_searchable_insert/update/delete` and
+  `queue_build_record_json`. Without the arguments they are not findings-free -
+  they are unlintable: `plpgsql_check` raises `missing trigger relation` for the
+  first and returns `relation "old_rows" does not exist` for the last, which is
+  the behaviour the command was written around.
+
+The previous counts are superseded: 40 outside `pgmq` on 2026-09-05, never
+re-run after the 2026-09-06 volatility batch, is now 37. The `pgmq` figure reads
+31 here against the 32 recorded on 2026-09-06; the same 31 comes back from the
+old appendix invocation on this database, so the earlier number was measured
+somewhere this run did not reproduce. It changes nothing - the vendored findings
+are accepted whole, and the next re-vendor is still the only trigger for
+revisiting them.
+
+### What this closure does not solve
+
+The findings themselves. 37 outside `pgmq` stand exactly as they did: the
+STABLE/VOLATILE family settled under P7 and P8, the `format(%I/%L)` sites S1
+audited, and the dynamic-SQL results the checker cannot type. The command makes
+them repeatable to count, not smaller. Nor does it run anywhere automatically:
+it needs a migrated database, so it is a thing you run, like `--coverage`, not a
+thing CI does to you.
+
+It also leaves a footprint, and this was found the hard way: installing
+`plpgsql_check` creates schema `extensions` in the database it ran against, and
+lifecycle step 10 compares a schema-only `pg_dump` of the CLI container against
+the extension container, so the next lifecycle run after a lint reports
+`schemas differ`. `--coverage` has always had the same effect; nothing about it
+is new here. The order in `docs/test-coverage.md` is lifecycle first, or drop
+the extension and its schema afterwards. Widening step 10's filter to ignore
+`extensions` and `plpgsql_check` would make the harness order-independent and is
+the obvious next move, but it weakens an equivalence assertion, so it was left
+for the owner rather than folded into this closure.

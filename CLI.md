@@ -29,12 +29,19 @@ irm https://raw.githubusercontent.com/semantius/semantius/main/install.ps1 | iex
 
 | Asset | Platform |
 |---|---|
-| `pg_semantius-linux-x64` | Linux, x86-64 |
-| `pg_semantius-linux-arm64` | Linux, ARM64 |
-| `pg_semantius-darwin-arm64` | macOS, Apple Silicon |
-| `pg_semantius-windows-x64.exe` | Windows, x64 |
-| `pg_semantius-windows-arm64.exe` | Windows, ARM64 |
+| `pg_semantius-cli-linux-x64` | Linux, x86-64 |
+| `pg_semantius-cli-linux-arm64` | Linux, ARM64 |
+| `pg_semantius-cli-darwin-arm64` | macOS, Apple Silicon |
+| `pg_semantius-cli-windows-x64.exe` | Windows, x64 |
+| `pg_semantius-cli-windows-arm64.exe` | Windows, ARM64 |
 | `checksums.txt` | SHA-256 of all five |
+
+The `-cli-` in the name separates these from the extension's assets on the
+same release page — `pg_semantius--<version>.sql`, `pg_semantius.control` and
+the PGXN archive `pg_semantius-<version>.zip`, whose names PostgreSQL and PGXN
+fix and which therefore cannot move. The installed command is `pg_semantius`
+either way. Releases up to v0.5.0-beta1 published the binaries without the
+infix; both installers still accept those older names.
 
 There is no macOS x64 build; on an Intel Mac, run the CLI from a checkout.
 
@@ -76,8 +83,9 @@ deno task build-cli:all    # all five published targets
 ```
 
 The file is named after the platform it was built for, so `dist/` holds
-`pg_semantius-windows-x64.exe` on Windows, `pg_semantius-linux-x64` on Linux,
-and so on. `deno task build-cli --help` lists every name.
+`pg_semantius-cli-windows-x64.exe` on Windows,
+`pg_semantius-cli-linux-x64` on Linux, and so on.
+`deno task build-cli --help` lists every name.
 
 ### Running what you just built
 
@@ -85,16 +93,16 @@ and so on. `deno task build-cli --help` lists every name.
 repository root:
 
 ```bash
-./dist/pg_semantius-linux-x64 --version          # Linux / macOS
+./dist/pg_semantius-cli-linux-x64 --version          # Linux / macOS
 ```
 
 ```powershell
-.\dist\pg_semantius-windows-x64.exe --version    # Windows
+.\dist\pg_semantius-cli-windows-x64.exe --version    # Windows
 ```
 
 From anywhere else, give the full path —
-`C:\dev\semantius\dist\pg_semantius-windows-x64.exe`,
-`~/src/semantius/dist/pg_semantius-linux-x64`. Commands that read a
+`C:\dev\semantius\dist\pg_semantius-cli-windows-x64.exe`,
+`~/src/semantius/dist/pg_semantius-cli-linux-x64`. Commands that read a
 `.env.<name>` profile still resolve it against the _current_ directory, so run
 those from the repository root or pass `--database-url` instead.
 
@@ -103,11 +111,11 @@ destination, so a later `install.sh` / `install.ps1` replaces it cleanly:
 
 ```bash
 mkdir -p ~/.local/bin
-cp dist/pg_semantius-linux-x64 ~/.local/bin/pg_semantius
+cp dist/pg_semantius-cli-linux-x64 ~/.local/bin/pg_semantius
 ```
 
 ```powershell
-Copy-Item dist\pg_semantius-windows-x64.exe "$env:LOCALAPPDATA\Programs\Semantius\pg_semantius.exe"
+Copy-Item dist\pg_semantius-cli-windows-x64.exe "$env:LOCALAPPDATA\Programs\Semantius\pg_semantius.exe"
 ```
 
 On Windows that directory is created and added to PATH by `install.ps1`; if you

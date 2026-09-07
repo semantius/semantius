@@ -12,6 +12,7 @@
     "connect": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts connect",
     "test": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts test",
     "lint": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts lint",
+    "lint-sql": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts lint-sql",
     "fmt": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts format",
     "migrate": "deno run --allow-read --allow-write --allow-env --allow-net packages/cli/cli.ts migrate",
     "extension": "deno run --allow-read --allow-write --allow-env packages/cli/cli.ts extension",

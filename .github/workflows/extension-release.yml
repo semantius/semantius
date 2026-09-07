@@ -78,14 +78,14 @@ jobs:
       - name: Smoke test (Linux)
         run: |
           V="${{ steps.ver.outputs.version }}"
-          chmod +x dist/pg_semantius-linux-x64
-          GOT="$(dist/pg_semantius-linux-x64 --version)"
+          chmod +x dist/pg_semantius-cli-linux-x64
+          GOT="$(dist/pg_semantius-cli-linux-x64 --version)"
           [ "$GOT" = "pg_semantius $V" ] || { echo "::error::--version printed \"$GOT\", expected \"pg_semantius $V\""; exit 1; }
 
           deno task migrate --apps _core --script >/dev/null
           mkdir -p "$RUNNER_TEMP/smoke"
           cd "$RUNNER_TEMP/smoke"
-          "$GITHUB_WORKSPACE/dist/pg_semantius-linux-x64" migrate --apps _core --script --verbose > verbose.log
+          "$GITHUB_WORKSPACE/dist/pg_semantius-cli-linux-x64" migrate --apps _core --script --verbose > verbose.log
           if grep -q '(cwd)' verbose.log || [ "$(grep -c 'SQL apps root:' verbose.log)" != "1" ]; then
             grep 'SQL apps root:' verbose.log
             echo "::error::the binary must read only its embedded apps/ when the working directory has none"
@@ -101,7 +101,7 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum pg_semantius-* > checksums.txt
+          sha256sum pg_semantius-cli-* > checksums.txt
           cat checksums.txt
 
       - uses: actions/upload-artifact@v4
@@ -143,12 +143,12 @@ jobs:
       - name: Smoke test (Windows)
         run: |
           V="${{ steps.ver.outputs.version }}"
-          GOT="$(dist/pg_semantius-windows-x64.exe --version)"
+          GOT="$(dist/pg_semantius-cli-windows-x64.exe --version)"
           [ "$GOT" = "pg_semantius $V" ] || { echo "::error::--version printed \"$GOT\", expected \"pg_semantius $V\""; exit 1; }
 
           mkdir -p "$RUNNER_TEMP/smoke"
           cd "$RUNNER_TEMP/smoke"
-          "$GITHUB_WORKSPACE/dist/pg_semantius-windows-x64.exe" migrate --apps _core --script
+          "$GITHUB_WORKSPACE/dist/pg_semantius-cli-windows-x64.exe" migrate --apps _core --script
           cmp migrate.sql "$GITHUB_WORKSPACE/dist/migrate.sql" \
             || { echo "::error::the Windows binary produced different SQL from the Linux one"; exit 1; }
           echo "the Windows binary reads its embedded apps/ correctly"
@@ -330,7 +330,9 @@ jobs:
           irm https://raw.githubusercontent.com/semantius/semantius/main/install.ps1 | iex
           \`\`\`
 
-          Or download one directly: \`pg_semantius-linux-x64\`, \`pg_semantius-linux-arm64\`, \`pg_semantius-darwin-arm64\` (Apple Silicon), \`pg_semantius-windows-x64.exe\`, \`pg_semantius-windows-arm64.exe\`; \`checksums.txt\` covers all five.
+          Or download one directly: \`pg_semantius-cli-linux-x64\`, \`pg_semantius-cli-linux-arm64\`, \`pg_semantius-cli-darwin-arm64\` (Apple Silicon), \`pg_semantius-cli-windows-x64.exe\`, \`pg_semantius-cli-windows-arm64.exe\`; \`checksums.txt\` covers all five.
+
+          The \`-cli-\` in those names separates them from the extension assets above; the installed command is still \`pg_semantius\`. Releases up to v0.5.0-beta1 published them without the infix.
           EOF
           # Re-release support: drop any existing release for this tag so the
           # assets are replaced cleanly (gh release create fails if it exists).
@@ -351,7 +353,7 @@ jobs:
             extension/pg_semantius.control \
             --title "Semantius extension v$V" \
             --notes-file notes.md
-          gh release upload "$TAG" dist/pg_semantius-* dist/checksums.txt --clobber
+          gh release upload "$TAG" dist/pg_semantius-cli-* dist/checksums.txt --clobber
           gh release edit "$TAG" --draft=false
 
       # --- Publish the DB image (PostgreSQL 18 + extension) to GHCR -----------

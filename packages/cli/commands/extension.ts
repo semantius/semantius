@@ -69,8 +69,10 @@ const MEMBERSHIP_ALLOWLIST = ["pgcrypto", "plpgsql_check"];
 const OUTER_TAG = "$pgsem_migrate_body$";
 
 /** LF-normalizes text (B13): local CRLF checkouts and CI's LF blobs must hash
- * and embed identically, or the release guard fails on line endings alone. */
-function toLf(text: string): string {
+ * and embed identically, or the release guard fails on line endings alone.
+ * Exported for `extension_test.ts`, the only check that can fail on its
+ * removal: the generated files are CR-free either way. */
+export function toLf(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
@@ -408,8 +410,10 @@ function escapeSqlLiteral(text: string): string {
   return text.replace(/'/g, "''");
 }
 
-/** SHA-256 hex digest of a string (used to fingerprint migration sources). */
-async function sha256hex(text: string): Promise<string> {
+/** SHA-256 hex digest of a string (used to fingerprint migration sources).
+ * Exported with `toLf` so `extension_test.ts` can pin what the manifest
+ * records. */
+export async function sha256hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(text),

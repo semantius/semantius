@@ -3,10 +3,11 @@
 One document, one list. Every open item is a row in the table below, sorted by
 priority. When an item is fixed, delete its row; git keeps the history. IDs come
 from the release review of 2026-09-02 and are never reused, so gaps (S1 to S20,
-the whole S series; P1 to P14; B1 to B10 and B12 to B21; Q1 to Q5 and Q7;
-R1 to R6 and R10; T1, T2) mean fixed or dropped. The review, the readiness hand-off, and the separate blocker and
-next-action lists that used to sit above the detail tables were retired on
-2026-09-03; all of them are in git history under `plans/`.
+the whole S series; P1 to P14; B1 to B21, the whole B series; Q1 to Q7, the
+whole Q series; R1 to R7 and R10; T1, T2) mean fixed or dropped. The review, the
+readiness hand-off, and the separate blocker and next-action lists that used to
+sit above the detail tables were retired on 2026-09-03; all of them are in git
+history under `plans/`.
 
 S2, the client-writable permission cache, is solved for regular
 configurations (PostgREST and app-server sessions, where the client never
@@ -90,8 +91,9 @@ day; renumbered 2026-09-05.
   on UPDATE, where the audit trigger stays row-level by design. Detail, the
   accepted limitations and the residual left inside the validator are in
   `plans/ext-solved-items.md`. Residue: six statement-level trigger functions the
-  linter cannot parse, tracked as **Q6** since 2026-09-05 (Q5 described them as
-  false positives until it was re-linted that day).
+  linter could not parse, tracked as **Q6** since 2026-09-05 (Q5 described them
+  as false positives until it was re-linted that day) and closed 2026-09-07 by
+  `deno task lint-sql`, which hands them their transition-table names.
 - Every fix lands with its pinning test in the same change. The suite must
   stay green on both install layouts: `pgdocker/pg-cli-retest.sh` (migrate
   path) and `pgdocker/pg-ext-retest.sh` (`CREATE EXTENSION` path); add
@@ -194,9 +196,10 @@ day; renumbered 2026-09-05.
   and in `SECURITY.md`. Two things the batch did **not** deliver are recorded in
   the closure rather than quietly dropped: P7's 13 linter warnings stay
   (accepted, not fixed), and P8's "the 8 warnings are gone" was never
-  deliverable either way. Two residues are open: **R10** (the test that
-  overpromises about `modules_select_policy`) and **Q6** (the trigger functions
-  the linter cannot parse). A third, **S20** (an empty `external_id` had become
+  deliverable either way. Two residues were left open: **R10** (the test that
+  overpromises about `modules_select_policy`), still open, and **Q6** (the
+  trigger functions the linter could not parse), closed 2026-09-07. A third,
+  **S20** (an empty `external_id` had become
   repeatable), was closed the same day. The plan that owned all five was
   deleted with them. Full record, with
   the before/after measurements and the profile, in
@@ -235,35 +238,29 @@ file or shipped README, `tooling` to the harnesses and CI.
 
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
-| B11 | Low | migration | `0010:37`, `0012:104` (the CURRENT_USER grants), `0050:20` (the BYPASSRLS gate) | Partly fixed 2026-09-03: both grants are now skipped when the installing role is a superuser, and 0050's `ASSERT` became a `RAISE EXCEPTION` (no `ASSERT` statement survives in the generated script, asserted by `pg-ext-lifecycle.sh`). The row's first alternative - "neither reaches the generated script" - is still unmet: both grants are present at `pg_semantius--0.5.0.sql:242` and `:531`, only runtime-guarded. | **Decided 2026-09-07: accept the runtime guard.** The statements stay in the generated script, skipped when the installer is a superuser, which the extension path always is; stripping them would make the two install layouts differ in SQL and lifecycle step 10 would have to be taught the difference. What remains is the two assertions, which belong to the same lifecycle change as **R7**. | The BYPASSRLS gate has a test that fails when it is removed, and the grant-skip is asserted on a superuser install. |
-| Q6 | Low | tooling | `raci_emit_trigger_fn()`; `audit.insert_trigger`, `audit.delete_trigger`, `handle_field_searchable_insert/update/delete`, `queue_build_record_json`; pgmq `notify_queue_listeners()` | Seven Semantius trigger functions the linter never sees: `raci_emit_trigger_fn` because no trigger binds it in a fresh install, and the six statement-level trigger functions because plpgsql_check 2.10 stops at `relation "new_rows" does not exist` when no transition table is declared for the check. `pgmq.notify_queue_listeners` is vendored and unbound. | Bind `raci_emit_trigger_fn` in a test. For the six, pass `oldtable`/`newtable` to `plpgsql_check_function` (the arguments exist for this case; untried here), or accept and say so. | All seven appear in the lint report, or the acceptance is written into this row. |
-| R7 | Low | tooling | `pgdocker/pg-ext-lifecycle.sh` | Four runtime assertions the script does not make, each belonging to another row and each needing no new infrastructure: the BYPASSRLS `RAISE EXCEPTION` in `0050_rbac_rls.sql` actually firing, and a superuser install skipping the CURRENT_USER grants (both **B11**); `0160_pgmq.sql`'s own header guard on the CLI path, which `migrate()`'s pre-flight currently pre-empts (**B4**); and a repeatable assertion for LF normalization, which today rests only on the release job's diff guard (**B13**). Split out of the old R7 on 2026-09-05, which mixed these with two much more expensive families now tracked as **R8** and **R9**. | Add the four assertions to the existing script. They run in the container that is already up, so they belong on the per-PR path with the rest of the lifecycle. | Each of the four fails when the behavior it asserts is removed. |
 | R8 | Low | tooling | a new `pgdocker/pg-ext-portability.sh` | Two restore scenarios that need a **second container**, so they do not belong in `pg-ext-lifecycle.sh` on the per-PR path. (a) *Fresh cluster*: the step-2 dump restored into a second `postgres18-ext:local` without the init mounts - with `POSTGRES_USER=postgres` it should be clean and tests 0430, 0060, 0240 green there; with `POSTGRES_USER=admin` every error should match `role "postgres" does not exist`, `status()` should report the ownership and default-ACL drift and `harden()` should clear it. (b) *Dump taken after `DROP EXTENSION`*, restored on a fresh cluster: should fail only on role references, and succeed once `pg_dumpall --globals-only` has been applied first, with the `pg_auth_members` rows for the four roles equal to the source. Neither gates the three requirements, which lifecycle steps 1, 2 and 4 prove directly, and the in-principle case is now covered - step 5 (restore where the extension is not installed at all) landed 2026-09-05. | Write the script; run it from `extension-release.yml` only, not from `test.yml`, so a second container does not cost every contributor pull request. | Both scenarios asserted, green on a release tag. |
 | R9 | Low | tooling | a new `pgdocker/pg-ext-upgrade.sh` | The `ALTER EXTENSION ... UPDATE` path, untested because **there has only ever been one version**: `extension/versions.json` holds `0.5.0-beta1` and nothing else, so there is no real upgrade to exercise and the test has to fabricate one. Three scenarios, all needing a generated `<v+1>` bundle built from a temp copy of `apps/_core` with a dummy migration appended plus a copy of `versions.json` (without it no upgrade script is written): (a) *upgrade* - `ALTER EXTENSION pg_semantius UPDATE`, then `pending()` returns exactly the dummy, `migrate()` applies only it, `version()` is `<v+1>`, and the function ACL checks of lifecycle step 8 still hold; (b) *cross-version* - the step-2 dump restored on the `<v+1>` server lists the dummy as pending, and a `<v+1>` dump restored on the `<v>` server has `pending()` empty with `status()` listing the dummy as unknown; (c) *failure atomicity* - a `<v+1>` bundle whose dummy fails midway makes `migrate()` raise with the migration name, the original SQLSTATE and message, leaves `_versions` unchanged, still lists the dummy as pending, and leaves no schema `common` on a fresh database. | Write the script; run it on the release tag. It is synthetic today and becomes load-bearing at the second release, which is the first time a real upgrade path ships - promote it to a hard gate then. | All three scenarios asserted, and the second release cannot be cut without them passing. |
 
-Linter context for **Q6**, the one Q row left: plpgsql_check reported 122
-warnings on 63 functions at the review. Re-linted 2026-09-05 with the
-invocation in the appendix: 131 findings, 99 of them outside `pgmq`. After the
-same-day sweep of our own code (Q1 and Q4 closed, the Semantius halves of Q2,
-Q3 and Q5 done; record in `plans/ext-solved-items.md`) the linter reported 40
-outside `pgmq`, none of them a Q kind: 23 STABLE/VOLATILE (P7, P8), 8
-`format(%I/%L)` sites it calls unsanitized (S1 audited every dynamic-SQL site),
-2 dynamic-SQL results it cannot type, and the 7 unlinted trigger functions in
-Q6. Q6 is not about pgmq: those seven are Semantius trigger functions the
-linter never sees. The STABLE/VOLATILE family was settled on 2026-09-06 rather
-than reduced: P8's eight "VOLATILE but read-only" findings went away when those
-functions were labeled `STABLE`, and P7's thirteen "STABLE but writes" findings
-were accepted as they stand, because the readers keep a lazy transaction-local
-write that the primary deployment target gives no other place to do. The
-reasoning is in the comment above `rbac.uid()`; the count has not been re-run
-since. The 11 "EXECUTE expression is SQL injection vulnerable" warnings from
-the review are closed (S1 fixed). The 32 `pgmq` findings are untouched and were
-**accepted on 2026-09-06**, which closed Q2, Q3 and Q5: the vendored file stays
-byte-identical to upstream v1.11.1, and the next re-vendor is the moment to
-re-lint it and the only trigger for revisiting that. The 75 grant and
-search_path warnings on the same functions were accepted with Q7. There is
-deliberately no lint gate in CI: the owner does not want style warnings failing
-builds.
+Linter context. plpgsql_check reported 122 warnings on 63 functions at the
+review. Re-linted 2026-09-05 with the appendix invocation: 131 findings, 99 of
+them outside `pgmq`. After the same-day sweep of our own code (Q1 and Q4 closed,
+the Semantius halves of Q2, Q3 and Q5 done; record in
+`plans/ext-solved-items.md`) the linter reported 40 outside `pgmq`. The current
+figure, measured 2026-09-07 with `deno task lint-sql`, is **37 outside `pgmq`
+and 31 in it**, over 193 of the 194 PL/pgSQL functions with one expected skip;
+that run is recorded in Q6's closure. The STABLE/VOLATILE family was settled on
+2026-09-06 rather than reduced: P8's eight "VOLATILE but read-only" findings
+went away when those functions were labeled `STABLE`, and P7's thirteen "STABLE
+but writes" findings were accepted as they stand, because the readers keep a
+lazy transaction-local write that the primary deployment target gives no other
+place to do. The reasoning is in the comment above `rbac.uid()`. The 11 "EXECUTE
+expression is SQL injection vulnerable" warnings from the review are closed (S1
+fixed). The `pgmq` findings are untouched and were **accepted on 2026-09-06**,
+which closed Q2, Q3 and Q5: the vendored file stays byte-identical to upstream
+v1.11.1, and the next re-vendor is the moment to re-lint it and the only trigger
+for revisiting that. The 75 grant and search_path warnings on the same functions
+were accepted with Q7. There is deliberately no lint gate in CI: the owner does
+not want style warnings failing builds.
 
 ## Extension baseline (what the rebuild replaced)
 
@@ -283,6 +280,6 @@ IS NULL`, and all 52 relations are ordinary objects.
 - Catalog audit: `pg_proc`/`aclexplode` for PUBLIC and `semantius_user`
   EXECUTE, `pg_class.relrowsecurity`, `pg_policies`, `pg_extension.extconfig`,
   `pg_event_trigger`, `pg_default_acl`, `proconfig` search_path check.
-- Linter: `extensions.plpgsql_check_function_tb(oid, relid => <first bound table>, security_warnings => true, performance_warnings => true, extra_warnings => true, compatibility_warnings => true)` over all PL/pgSQL members of the extension.
+- Linter: `deno task lint-sql --database-url <url>` against a migrated database (`./pgdocker/pg-cli-retest.sh` first). It runs plpgsql_check over every PL/pgSQL function in `public`, `common`, `rbac`, `audit` and `pgmq`, passing each trigger function the `relid` and transition-table names its own bindings imply, and names what it could not check. Report in `coverage/lint.txt`; `docs/test-coverage.md` says how to read it. Never a gate.
 - Performance: `EXPLAIN (ANALYZE, BUFFERS)` and `\timing` inside `BEGIN ... ROLLBACK` as owner or after `pgtap.authenticate_as('user2')`; per-call costs from `pg_stat_xact_user_functions` with `track_functions = all`; 100k/10k-row ephemeral entities created through the data dictionary.
 - Coverage: `./pgdocker/pg-cli-retest.sh --coverage` (plpgsql_check profiler plus `pg_stat_user_functions`); reports land in `coverage/`, and `docs/test-coverage.md` says how to read them.

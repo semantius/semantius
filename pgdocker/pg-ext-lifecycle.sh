@@ -6,7 +6,7 @@
 # behaves like the migrate-installed one. This script proves the properties the
 # suite cannot see from inside one database:
 #
-#   0.  preflight: control file and generated script
+#   0.  preflight: control file, generated script, generator unit tests
 #   1.  fresh install, two statements, no CASCADE
 #   1b. a second database on the same cluster (roles already exist)
 #   1c. concurrency: two migrate() callers serialize on the advisory lock
@@ -19,8 +19,10 @@
 #   6.  schema pinning: non-public search_path installs, SCHEMA other refuses
 #   6b. hostile session settings produce an identical install
 #   7.  refusals: a real pgmq, pgcrypto in the wrong schema, nested extension
+#   7d. 0160's own pgmq header guard on the CLI path
 #   8.  privileges: non-superuser cannot migrate(); functions are locked down
 #   8b. role squatting is refused
+#   8d. the 0050 BYPASSRLS gate refuses an installer without the attribute
 #   9.  LATIN1 and SQL_ASCII databases are refused
 #   10. equivalence: the CLI-installed and extension-installed schemas match
 #   11. event-trigger noise: the DDL audit and NOTIFY pgrst are scoped
@@ -106,6 +108,22 @@ check "script: exactly one config_dump call (migrate()'s guard)" "1" "$n_cfg"
 n_reg=$(grep -c "^SELECT pg_catalog.pg_extension_config_dump\|^SELECT pg_extension_config_dump" "$SQLFILE" || true)
 check "script: no table is registered for pg_dump" "0" "$n_reg"
 grep -q "skip_audit" "$SQLFILE" && bad "script: skip_audit must be gone" || ok "script: no skip_audit"
+
+# B13 lives in the generator, not in the shipped bytes. On a fresh checkout
+# .gitattributes makes the whole tree LF, and toLf() could then be deleted with
+# every generated file still coming out CR-free - and that LF checkout is what
+# CI, and therefore the release guard, builds from. Only a check that hands the
+# normalizer CRLF itself fails on its removal, so that is a Deno unit test, run
+# here on the host where this script already runs.
+lftest=$(cd "$REPO_ROOT" && deno test --allow-read packages/cli/commands/extension_test.ts 2>&1) \
+  && ok "LF normalization and the manifest checksum are unit-pinned (B13)" \
+  || bad "deno test extension_test.ts failed: $(printf '%s' "$lftest" | tail -3 | tr '\n' ' ')"
+# Pins, not the assertion above: on an LF checkout they stay green with toLf()
+# removed. They fail if a CR reaches the shipped files by some other route.
+# Counted with `tr`, not `grep $'\r'`: MSYS drops the carriage return on its way
+# to grep.exe, leaving an empty pattern that matches every line.
+check "pin: no CR byte in the generated script" "0" "$(tr -cd '\r' < "$SQLFILE" | wc -c | tr -d ' ')"
+check "pin: no CR byte in the control file"     "0" "$(tr -cd '\r' < "$CONTROL"  | wc -c | tr -d ' ')"
 
 # Stage the files into the container (the image has no PGXS).
 docker cp "$(cygpath -w "$SQLFILE" 2>/dev/null || echo "$SQLFILE")" "$CONTAINER:/tmp/ext.sql" >/dev/null
@@ -442,6 +460,24 @@ docker exec -u root "$CONTAINER" sh -c "printf 'CREATE SCHEMA IF NOT EXISTS pgmq
 psqlrun life7 "CREATE EXTENSION pgmq" >/dev/null 2>&1 || true
 err=$(psqlq life7 "SELECT semantius.migrate()")
 echo "$err" | grep -q "pgmq extension is installed" && ok "a real pgmq is refused (B4)" || bad "pgmq refusal: $err"
+
+# 7d. The same refusal on the CLI path. migrate()'s pre-flight raises before any
+# migration runs, so 0160's own header guard is never reached above; `psql -f`
+# on the raw file is the only path that reaches it. The stub pgmq extension
+# staged for step 7 is still in place, which is why this sub-step sits here.
+newdb life7d
+psqlrun life7d "CREATE EXTENSION pgmq" >/dev/null 2>&1 || true
+M0160="$REPO_ROOT/apps/_core/migrations/0160_pgmq.sql"
+docker cp "$(cygpath -w "$M0160" 2>/dev/null || echo "$M0160")" "$CONTAINER:/tmp/0160.sql" >/dev/null
+err=$(docker exec "$CONTAINER" psql -U postgres -d life7d -v ON_ERROR_STOP=1 -f /tmp/0160.sql 2>&1 || true)
+# This phrase is 0160's alone: the pre-flight says "is installed;", so the
+# assertion cannot pass by way of the pre-flight it is meant to bypass.
+echo "$err" | grep -q "installed in this database" \
+  && ok "0160's own header guard refuses a real pgmq on the CLI path (B4)" \
+  || bad "0160 header guard: $err"
+# The stub creates schema pgmq_stub, so any pgmq schema here would be 0160's.
+check "  and creates no pgmq schema" "0" \
+  "$(psqlq life7d "SELECT count(*) FROM pg_namespace WHERE nspname = 'pgmq'")"
 docker exec -u root "$CONTAINER" rm -f "$EXT_DIR/pgmq.control" "$EXT_DIR/pgmq--1.0.sql"
 
 newdb life7b
@@ -500,6 +536,41 @@ psqlrun life8c "DROP ROLE IF EXISTS ext_probe" >/dev/null 2>&1 || true
 # documentation.
 n_assert=$(grep -cE "^[[:space:]]*ASSERT[[:space:]]" "$SQLFILE" || true)
 check "no ASSERT statement survives in the generated script (B11)" "0" "$n_assert"
+
+# ------------------------------------------------- 8d the BYPASSRLS gate fires
+step "[8d] The 0050 BYPASSRLS gate refuses an installer without the attribute"
+# A superuser bypasses RLS whatever the attribute says, but the gate READS the
+# attribute, so a superuser WITHOUT BYPASSRLS is the role that trips it. That is
+# also the realistic case: NOBYPASSRLS is the CREATE ROLE default whatever else
+# a role has, and postgres here shows it only because initdb set it - which is
+# why no install has ever reached this gate.
+newdb life8d
+psqlrun life8d "CREATE ROLE gate_probe SUPERUSER" >/dev/null 2>&1 || true  # roles are cluster-wide; a dead run may have left it
+psqlrun life8d "ALTER ROLE gate_probe NOBYPASSRLS" >/dev/null
+psqlrun life8d "CREATE EXTENSION pg_semantius" >/dev/null
+err=$(psqlq life8d "SET ROLE gate_probe; SELECT semantius.migrate()")
+echo "$err" | grep -q "does not have BYPASSRLS" \
+  && ok "a superuser without BYPASSRLS is refused by the 0050 gate (B11)" \
+  || bad "BYPASSRLS gate: $err"
+# quote_ident() leaves a plain identifier unquoted, so the hint is verbatim.
+echo "$err" | grep -q "ALTER ROLE gate_probe BYPASSRLS" \
+  && ok "  and the hint names the fix" || bad "expected the ALTER ROLE hint, got: $err"
+# This is what makes the assertion honest. migrate() EXECUTEs every migration
+# inside one call, so a gate moved later, or softened to a NOTICE, would leave
+# these schemas standing; nothing before 0050 looks at BYPASSRLS.
+check "  and nothing was applied" "0" \
+  "$(psqlq life8d "SELECT count(*) FROM pg_namespace WHERE nspname IN ('common','rbac','audit','pgmq')")"
+# And the gate was the ONLY refusal: same role, same database, attribute added.
+psqlrun life8d "ALTER ROLE gate_probe BYPASSRLS" >/dev/null
+psqlrun life8d "SET ROLE gate_probe; SELECT semantius.migrate()" >/dev/null \
+  && ok "  and the same role installs once it has BYPASSRLS" \
+  || bad "gate_probe still cannot install with BYPASSRLS"
+# pg_shdepend is cluster-wide, so the role can only be dropped once its database
+# is gone. Under --keep both are left for triage and the next run reuses them.
+if [ "$KEEP" != "1" ]; then
+  dropdb_ life8d
+  psqlq postgres "DROP ROLE IF EXISTS gate_probe" >/dev/null 2>&1 || true
+fi
 
 # --------------------------------------------------------- 8b role squatting
 step "[8b] Role squatting is refused"
@@ -686,11 +757,11 @@ if [ "$KEEP" = "1" ]; then
   echo "   --keep: scratch databases left in place"
 else
   for d in life1 life1b life1c life1d life1d2 life1e life2 life2p life2j life2t life5 \
-           life6 life6b life6c life6d life7 life7b life7c life8 life8c life9 \
+           life6 life6b life6c life6d life7 life7b life7c life7d life8 life8c life8d life9 \
            life9b life_virgin; do
     dropdb_ "$d"
   done
-  docker exec "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out || true
+  docker exec "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out /tmp/0160.sql || true
   ok "scratch databases and files removed"
 fi
 

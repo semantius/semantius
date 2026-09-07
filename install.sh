@@ -35,14 +35,14 @@ ARCH=$(uname -m)
 case "$OS" in
     linux)
         case "$ARCH" in
-            x86_64) BINARY="pg_semantius-linux-x64" ;;
-            aarch64|arm64) BINARY="pg_semantius-linux-arm64" ;;
+            x86_64) BINARY="pg_semantius-cli-linux-x64" ;;
+            aarch64|arm64) BINARY="pg_semantius-cli-linux-arm64" ;;
             *) echo -e "${RED}Unsupported architecture: $ARCH${NC}"; exit 1 ;;
         esac
         ;;
     darwin)
         case "$ARCH" in
-            arm64) BINARY="pg_semantius-darwin-arm64" ;;
+            arm64) BINARY="pg_semantius-cli-darwin-arm64" ;;
             # There is no macOS x64 build. Saying so is the whole point: an
             # Intel Mac that silently downloaded the arm64 binary would fail
             # later with an exec format error nobody can act on.
@@ -97,23 +97,35 @@ if command -v pg_semantius &> /dev/null; then
     echo ""
 fi
 
-DOWNLOAD_URL="https://github.com/$GITHUB_REPO/$RELEASE_PATH/$BINARY"
 CHECKSUM_URL="https://github.com/$GITHUB_REPO/$RELEASE_PATH/checksums.txt"
+
+# Releases up to and including v0.5.0-beta1 published the binaries as
+# `pg_semantius-<os>-<arch>`; from the next release on they carry a `-cli-`
+# infix, so the extension's own assets on the same release page are no longer
+# mistaken for the CLI. This script is fetched from main and installed against
+# whatever `releases/latest` resolves to, so it has to serve both: ask for the
+# current name, fall back to the legacy one. $BINARY is reassigned on the
+# fallback because the checksum lookup below keys off it.
+LEGACY_BINARY=$(printf '%s' "$BINARY" | sed 's/^pg_semantius-cli-/pg_semantius-/')
 
 # Download binary
 echo -e "${BLUE}Downloading...${NC}"
 TMP_FILE=$(mktemp)
-if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"; then
-    echo -e "${RED}Failed to download binary. Check if releases exist at:${NC}"
-    echo "  https://github.com/$GITHUB_REPO/releases"
-    exit 1
+if ! curl -fsSL "https://github.com/$GITHUB_REPO/$RELEASE_PATH/$BINARY" -o "$TMP_FILE"; then
+    if curl -fsSL "https://github.com/$GITHUB_REPO/$RELEASE_PATH/$LEGACY_BINARY" -o "$TMP_FILE"; then
+        BINARY="$LEGACY_BINARY"
+    else
+        echo -e "${RED}Failed to download binary. Check if releases exist at:${NC}"
+        echo "  https://github.com/$GITHUB_REPO/releases"
+        exit 1
+    fi
 fi
 
 # Verify checksum (if available)
 TMP_CHECKSUM=$(mktemp)
 if curl -fsSL "$CHECKSUM_URL" -o "$TMP_CHECKSUM" 2>/dev/null; then
     # Anchored on the whole line: checksums.txt holds bare names, and an
-    # unanchored grep for "pg_semantius-linux-x64" also matches nothing else
+    # unanchored grep for "pg_semantius-cli-linux-x64" also matches nothing else
     # today but would silently pick the wrong row the day a longer name is
     # added.
     EXPECTED_CHECKSUM=$(awk -v b="$BINARY" '$2 == b || $2 == "*" b {print $1}' "$TMP_CHECKSUM")

@@ -16,6 +16,7 @@ import { resetCommand } from "./commands/reset.ts";
 import { retestCommand } from "./commands/retest.ts";
 import { testgenJsonlogicCommand } from "./commands/testgen_jsonlogic.ts";
 import { extensionCommand } from "./commands/extension.ts";
+import { lintSqlCommand } from "./commands/lint_sql.ts";
 import { red, yellow } from "@std/fmt/colors";
 import {
   HELP_INVOCATION,
@@ -63,6 +64,7 @@ interface CliArgs {
 const DATABASE_COMMANDS = new Set([
   "connect",
   "test",
+  "lint-sql",
   "migrate",
   "dropall",
   "reset",
@@ -204,6 +206,8 @@ function showHelp(): void {
     "test --coverage",
     "test --coverage --coverage-min 80",
     "test --apps nwind",
+    "lint-sql",
+    "lint-sql --database-url postgresql://user:pass@host:5432/db",
     "migrate --apps app1,app2,app3 --verbose",
     "migrate --apps nwind,_ddtest",
     "migrate --apps nwind --script",
@@ -254,6 +258,9 @@ COMMANDS:
 ${initCommand}    connect          Test database connection
     test             Run pgTAP tests
     test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 0010*)
+    lint-sql         Run plpgsql_check over every PL/pgSQL function in a
+                     migrated database and write coverage/lint.txt. Reports the
+                     functions it could not check; never fails the build.
 ${checkoutCommands}    migrate          Process and validate app folders (requires --apps parameter)
     extension <VER>  Generate the PostgreSQL extension (control + SQL) into
                      ./extension at an explicit version (e.g. 0.5.0). The version
@@ -420,6 +427,12 @@ async function main(): Promise<void> {
 
     case "lint":
       await lintProject();
+      break;
+
+    // Deliberately not a gate and deliberately not `lint`: this one needs a
+    // migrated database, and its exit code is always 0 (see lint_sql.ts).
+    case "lint-sql":
+      await lintSqlCommand(databaseUrl!);
       break;
 
     case "format":

@@ -23,8 +23,8 @@ function Write-Red    { param($msg) Write-Host $msg -ForegroundColor Red }
 # Detect architecture
 $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 switch ($arch) {
-    'X64'   { $binary = 'pg_semantius-windows-x64.exe' }
-    'Arm64' { $binary = 'pg_semantius-windows-arm64.exe' }
+    'X64'   { $binary = 'pg_semantius-cli-windows-x64.exe' }
+    'Arm64' { $binary = 'pg_semantius-cli-windows-arm64.exe' }
     default {
         Write-Red "Unsupported architecture: $arch"
         exit 1
@@ -42,8 +42,17 @@ if ($Version) {
     $releasePath = 'releases/latest/download'
 }
 
-$downloadUrl = "https://github.com/$githubRepo/$releasePath/$binary"
-$checksumUrl = "https://github.com/$githubRepo/$releasePath/checksums.txt"
+# Releases up to and including v0.5.0-beta1 published the binaries as
+# `pg_semantius-<os>-<arch>`; from the next release on they carry a `-cli-`
+# infix, so the extension's own assets on the same release page are no longer
+# mistaken for the CLI. This script is fetched from main and installed against
+# whatever `releases/latest` resolves to, so it has to serve both: ask for the
+# current name, fall back to the legacy one. $binary is reassigned on the
+# fallback because the checksum lookup below keys off it.
+$legacyBinary = $binary -replace '^pg_semantius-cli-', 'pg_semantius-'
+$downloadUrl  = "https://github.com/$githubRepo/$releasePath/$binary"
+$legacyUrl    = "https://github.com/$githubRepo/$releasePath/$legacyBinary"
+$checksumUrl  = "https://github.com/$githubRepo/$releasePath/checksums.txt"
 $destExe     = Join-Path $InstallDir 'pg_semantius.exe'
 
 # Print banner
@@ -74,10 +83,15 @@ $tmpFile = [System.IO.Path]::GetTempFileName()
 try {
     Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpFile -UseBasicParsing
 } catch {
-    Write-Red "Failed to download binary. Check if releases exist at:"
-    Write-Host "  https://github.com/$githubRepo/releases"
-    Remove-Item $tmpFile -ErrorAction SilentlyContinue
-    exit 1
+    try {
+        Invoke-WebRequest -Uri $legacyUrl -OutFile $tmpFile -UseBasicParsing
+        $binary = $legacyBinary
+    } catch {
+        Write-Red "Failed to download binary. Check if releases exist at:"
+        Write-Host "  https://github.com/$githubRepo/releases"
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+        exit 1
+    }
 }
 
 # Verify checksum (if available)
