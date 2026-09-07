@@ -76,8 +76,9 @@ jobs:
       # ./release.sh <version> does all of that in the right order;
       # this failing means the tag was moved without it.
       # `git status --porcelain`, not `git diff`: the generator also WRITES new
-      # upgrade scripts and PRUNES superseded full installs, and a plain diff
-      # sees neither an untracked file nor a deletion that was never committed.
+      # upgrade scripts and PRUNES the ones the manifest no longer accounts
+      # for, and a plain diff sees neither an untracked file nor a deletion
+      # that was never committed.
       - name: Committed build must equal the regenerated one
         run: |
           if [ -n "$(git status --porcelain -- extension/)" ]; then
@@ -140,11 +141,12 @@ jobs:
           mkdir -p "$DIST"
           # The file set comes from extension/versions.json via
           # scripts/archive-manifest.sh, not from a pg_semantius--*.sql
-          # glob: an upgrade script whose endpoints are no longer in the
-          # manifest survives regeneration (pruneOldFullInstalls keeps
-          # anything with a second --), and a glob would ship it, offering
-          # PostgreSQL an update path the manifest knows nothing about.
-          # --check makes that an error instead of a silent omission.
+          # glob: a glob would ship any upgrade script sitting in
+          # extension/, offering PostgreSQL an update path nobody
+          # generated a migration set for, and the archive cannot be
+          # recalled once it reaches PGXN. --check makes that an error
+          # instead of a silent omission. The generator prunes such a file
+          # in the first place; this is the last guard before publication.
           # Written to a file, not piped: the default shell here is `bash -e`
           # without pipefail, so a failing archive-manifest.sh at the head of a
           # pipeline would be masked by the exit status of the loop.

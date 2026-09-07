@@ -92,7 +92,7 @@ CONTROL_VERSION="$(sed -nE "s/^default_version = '(.*)'/\1/p" "$EXT_DIR/$NAME.co
 
 # The build on disk must be what the generator produces from these sources -
 # the same oracle CI uses (git status after a regeneration), rather than a
-# temp-directory diff. It regenerates IN PLACE, and pruneOldFullInstalls deletes
+# temp-directory diff. It regenerates IN PLACE, and the generator deletes
 # files, so restore extension/ on any exit.
 echo "Verifying the local build is reproducible..."
 trap 'git checkout -- "$EXT_DIR" 2>/dev/null || true' EXIT

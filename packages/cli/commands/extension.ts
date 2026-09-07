@@ -243,9 +243,10 @@ export async function extensionCommand(
   // committed, after which it is frozen. Without this check, regenerating a
   // superseded version silently corrupts the output directory - `prev` is
   // undefined (nothing sorts BELOW it), so no edit detection runs,
-  // pruneOldFullInstalls deletes the NEWER full install, the newer upgrade
-  // script is left pointing at a version that no longer has one, and
-  // default_version moves backwards. See RELEASE.md.
+  // pruneStaleScripts deletes the NEWER full install, the newer upgrade script
+  // survives (both its endpoints are still in the manifest) but now points at a
+  // version that has no full install, and default_version moves backwards.
+  // See RELEASE.md.
   const superseded = Object.keys(manifest.versions)
     .filter((v) => compareVersions(v, version) > 0)
     .sort(compareVersions);
@@ -342,11 +343,17 @@ export async function extensionCommand(
     );
   }
 
-  // Record this version's migration set, then drop superseded full installs
-  // (keep the current full install + the whole upgrade chain).
+  // Record this version's migration set FIRST, so the prune below sees the
+  // version being generated as a known one, then drop everything in the output
+  // directory that the manifest does not account for.
   manifest.versions[version] = { files: currentFiles };
   await Deno.writeTextFile(manifestPath, serializeManifest(manifest));
-  const pruned = await pruneOldFullInstalls(outputDir, name, version);
+  const pruned = await pruneStaleScripts(
+    outputDir,
+    name,
+    version,
+    new Set(Object.keys(manifest.versions)),
+  );
 
   const controlPath = `${outputDir}/${name}.control`;
   const sqlPath = `${outputDir}/${name}--${version}.sql`;
@@ -387,7 +394,7 @@ export async function extensionCommand(
   );
   console.log(`  Makefile, META.json, README.md`);
   for (const f of pruned) {
-    console.log(`  (removed superseded full install ${f})`);
+    console.log(`  (removed ${f}: not accounted for by versions.json)`);
   }
   if (requires.size > 0) {
     console.log(`  requires: ${[...requires].sort().join(", ")}`);
@@ -525,14 +532,30 @@ function serializeManifest(manifest: VersionsManifest): string {
 }
 
 /**
- * Removes superseded full-install scripts (`<name>--<version>.sql`) from the
- * output dir, keeping only `keepVersion`. Upgrade scripts (`<name>--<a>--<b>.sql`,
- * which contain a second `--`) are left untouched. Returns the removed filenames.
+ * Removes generated SQL that the manifest no longer accounts for: full installs
+ * (`<name>--<version>.sql`) other than `keepVersion`, and upgrade scripts
+ * (`<name>--<from>--<to>.sql`) whose `<from>` or `<to>` is not a known version.
+ * Returns the removed filenames.
+ *
+ * Why an upgrade script is not simply left alone: `make install` copies every
+ * SQL file in the directory, and PostgreSQL offers each `<from>--<to>` pair it
+ * finds as an `ALTER EXTENSION ... UPDATE` path. A pair the manifest does not
+ * know is a path nobody generated a migration set for, and nothing downstream
+ * can tell it from a real one. Such a file needs no mistake to appear -
+ * discarding version history leaves the whole chain orphaned, which is how the
+ * 0.3.0 and 0.4.0 scripts became orphans when the manifest was reset for 0.5.0.
+ * `scripts/archive-manifest.sh --check` guards the release archive; this guards
+ * every build, including the ones a Dockerfile glob picks up locally.
+ * `scripts/check-prune-orphans.sh` pins it.
+ *
+ * A live chain survives: both endpoints are manifest versions, and `make
+ * install` needs the whole chain, not only the links ending at `keepVersion`.
  */
-async function pruneOldFullInstalls(
+async function pruneStaleScripts(
   dir: string,
   name: string,
   keepVersion: string,
+  knownVersions: Set<string>,
 ): Promise<string[]> {
   const prefix = `${name}--`;
   const removed: string[] = [];
@@ -542,8 +565,12 @@ async function pruneOldFullInstalls(
       continue;
     }
     const mid = entry.name.slice(prefix.length, -".sql".length);
-    if (mid.includes("--")) continue; // upgrade script — keep
-    if (mid !== keepVersion) {
+    const parts = mid.split("--");
+    const keep = parts.length === 1
+      ? mid === keepVersion
+      : parts.length === 2 && knownVersions.has(parts[0]) &&
+        knownVersions.has(parts[1]);
+    if (!keep) {
       await Deno.remove(`${dir}/${entry.name}`);
       removed.push(entry.name);
     }

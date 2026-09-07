@@ -10,13 +10,19 @@
 # nobody meant to ship.
 #
 # The SQL files come from extension/versions.json, NOT from a
-# `pg_semantius--*.sql` glob. That is the difference that matters (open item
-# B17): pruneOldFullInstalls deliberately keeps anything with a second `--`
-# forever, so an upgrade script whose endpoints are no longer in the manifest
-# survives regeneration. A glob then packages it, and `make install` hands
-# PostgreSQL an `ALTER EXTENSION ... UPDATE` path the manifest knows nothing
-# about - permanently, once it reaches PGXN. Driving the list from the manifest
-# excludes such a file instead, and `--check` turns it into an error.
+# `pg_semantius--*.sql` glob. A glob would package any upgrade script sitting in
+# extension/, and `make install` would hand PostgreSQL an
+# `ALTER EXTENSION ... UPDATE` path nobody generated a migration set for -
+# permanently, once it reaches PGXN. Driving the list from the manifest excludes
+# such a file instead, and `--check` turns it into an error.
+#
+# This is the second guard, not the only one: the generator itself deletes an
+# upgrade script whose `<from>` or `<to>` is absent from the manifest
+# (`pruneStaleScripts` in packages/cli/commands/extension.ts, pinned by
+# scripts/check-prune-orphans.sh), so an orphan should not survive to be
+# packaged. The check still earns its place - the archive is what reaches PGXN
+# and cannot be recalled, and a hand-copied or half-generated directory is not
+# something the generator ever sees.
 #
 # With --check, orphans and missing sources are reported on stderr and the exit
 # status is 1. Without it, the list is emitted and orphans are silently skipped.
@@ -77,7 +83,7 @@ for f in "$EXT_DIR/$NAME--"*"--"*.sql; do
 done
 
 # A full install for a version other than the target should not exist:
-# pruneOldFullInstalls removes them. One here means a generation was interrupted.
+# the generator prunes them. One here means a generation was interrupted.
 for f in "$EXT_DIR/$NAME--"*.sql; do
   [ -e "$f" ] || continue
   base="${f##*/}"

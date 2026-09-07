@@ -3,8 +3,8 @@
 One document, one list. Every open item is a row in the table below, sorted by
 priority. When an item is fixed, delete its row; git keeps the history. IDs come
 from the release review of 2026-09-02 and are never reused, so gaps (S1 to
-S11, S13, S15, S20, P1 to P14, B1 to B10, B12 to B16, B19, B20, B21,
-Q1, Q4, Q7, R1 to R5, T1) mean fixed or dropped. The review, the readiness hand-off, and the separate blocker and
+S11, S13, S15, S19, S20, P1 to P14, B1 to B10, B12 to B21, Q1 to Q5, Q7,
+R1 to R6, R10, T1, T2) mean fixed or dropped. The review, the readiness hand-off, and the separate blocker and
 next-action lists that used to sit above the detail tables were retired on
 2026-09-03; all of them are in git history under `plans/`.
 
@@ -14,7 +14,7 @@ runs SQL) and is deliberately not listed here. What remains of it applies to
 PostgreSQL 18 OAuth bearer sessions only and is tracked in
 `docs/bearer-mode-status.md`.
 
-Last updated: 2026-09-06.
+Last updated: 2026-09-07.
 
 **Plan ownership is 1:1 from this side.** Every row is owned by at most one plan
 under `plans/`, named in its Fix column; a plan may own several rows. A plan that
@@ -65,7 +65,7 @@ day; renumbered 2026-09-05.
   stamped into the `search_vector` column comment. A rewrite that is really
   needed still takes ACCESS EXCLUSIVE for the whole heap, now documented in
   `AGENTS.md`. Detail and evidence in `plans/ext-solved-items.md`; the residue
-  it exposed is **S19**.
+  it exposed was **S19**, closed 2026-09-07.
 - **P3 closed 2026-09-05.** A warm `has_permission` no longer resolves the
   caller twice, and no longer enters a second PL/pgSQL frame to find out the
   context is already built: **17.9-19.4 -> 2.0 µs**, with
@@ -95,7 +95,9 @@ day; renumbered 2026-09-05.
   `--coverage` for the coverage report; `docs/test-coverage.md` says how to run it and how to read it.
 - Regenerate the extension with `deno task extension <version>` and the
   `packages/*/migrations-bundle.ts` copies with `scripts/bundle-sql.ts`
-  before anything ships.
+  before anything ships. The three bundles are build output: generated on
+  demand, never tracked, not regenerated or guarded by the release flow
+  (decided 2026-09-06 with B18, reasoning in `.gitignore` next to the paths).
 - No commits without asking.
 - **Q1 and Q4 closed 2026-09-05, Q2, Q3 and Q5 restated as pgmq-only.** Every
   plpgsql_check finding in our own code under the Q rows is gone: the two
@@ -196,13 +198,31 @@ day; renumbered 2026-09-05.
   deleted with them. Full record, with
   the before/after measurements and the profile, in
   `plans/ext-solved-items.md`.
+- **R6, B17, B18, Q2, Q3, Q5, R10 and T2 closed 2026-09-06**, the batch of
+  rows that needed bookkeeping or one small change. Two were already done in
+  code and only the list had not caught up: the three `migrations-bundle.ts`
+  copies have been untracked build output since commit `f0584ae` (**B18**), and
+  the release archive has been driven from the manifest rather than a glob since
+  2026-09-04 (the second half of **B17**). Three were decisions waiting to be
+  written down: the 20 vendored pgmq lint findings are accepted and
+  `0160_pgmq.sql` stays byte-identical to upstream (**Q2**, **Q3**, **Q5**), and
+  the plpgsql_check profiler bug is not ours to report (**T2**, whose Appendix A
+  draft moved to the closure record). Two were changes: the extension generator
+  now deletes upgrade scripts whose endpoints `versions.json` does not know,
+  pinned by `scripts/check-prune-orphans.sh` on every pull request (**B17**), and
+  `0445_test_policy_initplan_form.sql` became
+  `0445_test_policy_subselect_form.sql`, which is what it checks - the
+  InitPlan-against-SubPlan discriminator was deliberately not built, because the
+  generators cannot emit a correlated sub-select and the one hand-written
+  correlated policy is accepted at its size (**R10**). **R6**: the scratch
+  container is gone. Full record in `plans/ext-solved-items.md`.
 
 Reachability in the priority column: (REST) callable through PostgREST as
 `semantius_user`; (DB) needs SQL access as the request role, i.e. session
 mode, an app-tier SQL injection, or a PostgreSQL 18 OAuth bearer session.
 `rbac`, `common` and `pgmq` are not exposed by PostgREST. Timings are from the
 review, measured inside rolled-back transactions on ephemeral 100k and
-10k-row entities; method in Appendix B.
+10k-row entities; method in the appendix.
 
 ## Open items
 
@@ -213,44 +233,39 @@ file or shipped README, `tooling` to the harnesses and CI.
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
 | B11 | Low | migration | `0010:37`, `0012:104` (the CURRENT_USER grants), `0050:20` (the BYPASSRLS gate) | Partly fixed 2026-09-03: both grants are now skipped when the installing role is a superuser, and 0050's `ASSERT` became a `RAISE EXCEPTION` (no `ASSERT` statement survives in the generated script, asserted by `pg-ext-lifecycle.sh`). The row's first alternative - "neither reaches the generated script" - is still unmet: both grants are present at `pg_semantius--0.5.0.sql:242` and `:531`, only runtime-guarded. | Either drop the grants from the generated script entirely, or accept the runtime guard and rewrite this row's done-when. Add a test that the BYPASSRLS `RAISE EXCEPTION` actually fires and that a superuser install skips the grants. | The BYPASSRLS gate has a test that fails when it is removed, and the grant-skip is asserted on a superuser install. |
-| B17 | Low | extension | `extension.ts` (`pruneOldFullInstalls`), `extension-release.yml` (packaging step) | An upgrade script whose endpoints are no longer in `versions.json` survives regeneration and is shipped. `pruneOldFullInstalls` deliberately keeps anything with a second `--` (`if (mid.includes("--")) continue;`), and the packaging step globs `cp extension/pg_semantius--*.sql`, so the archive can offer PostgreSQL an `ALTER EXTENSION ... UPDATE` path that the manifest knows nothing about. Verified by dropping a fabricated `pg_semantius--0.4.0--0.5.0.sql` into a copy of `extension/` and regenerating: the stale full install was removed, the orphan survived. Latent today - the 2026-09-03 manifest wipe is exactly how one is created. | Prune upgrade scripts whose `<from>` or `<to>` is absent from the manifest, or package from the manifest instead of a glob. | An orphaned upgrade script is deleted by the next generation, or never reaches the archive. |
-| B18 | Low | tooling | `packages/*/src/migrations-bundle.ts`, `scripts/bundle-sql.ts`, `.gitignore:149` | The three bundle copies are generated by hand (`RELEASE.md` asks for it) and nothing verifies them. `packages/triggerdev/src/migrations-bundle.ts` is **tracked** despite being ignored, and is stale: it still holds the pre-P11 row-level `handle_field_searchable_change` trigger and lacks 0290's `GRANT EXECUTE ON FUNCTION audit.current_user_id()`. The other two are untracked. The release workflow's porcelain guard is scoped `-- extension/` and cannot see any of this. | Decide whether the bundles are build output (untrack all three, generate on demand) or artifacts (track all three, regenerate in the release flow and extend the porcelain guard to cover them). | The tracked copy either matches a fresh `bundle-sql.ts` run or is not tracked. |
-| Q2 | Low | migration | `0160_pgmq.sql` (`_belongs_to_pgmq`, `convert_archive_partitioned`, `create_partitioned`) | 3 `SELECT expr INTO variable`, all in the vendored pgmq v1.11.1 code. The 14 Semantius sites were converted to assignments on 2026-09-05 (`plans/ext-solved-items.md`); the count is from a re-lint that day, not decremented. | Leave the vendored file byte-identical to upstream. Either accept and delete this row, or re-vendor from an upstream release that has fixed them. | The decision is recorded, or the vendored copy no longer reports them. |
-| Q3 | Low | migration | `0160_pgmq.sql` (`read_with_poll`, `read_grouped_with_poll`, `read_grouped_rr_with_poll`, `purge_queue`) | 4 implicit casts, all vendored pgmq. The 15 Semantius casts were made explicit on 2026-09-05. | As Q2. | As Q2. |
-| Q5 | Low | migration | `0160_pgmq.sql` (`drop_queue` (4), `create_non_partitioned`/`create_partitioned`/`create_unlogged` (`qtable_seq`), `_belongs_to_pgmq`, `_get_partition_col`, `convert_archive_partitioned`, `detach_archive`, `pop`, `set_vt`) | 13 unused or never-read variables and parameters, all vendored pgmq. The six Semantius ones were removed on 2026-09-05. Recorded invocation: plpgsql_check 2.10, `extensions.plpgsql_check_function_tb(oid, relid => <bound table or 0>, security_warnings => true, performance_warnings => true, extra_warnings => true, compatibility_warnings => true)` over every PL/pgSQL function in `public`, `rbac`, `audit`, `common`, `pgmq`. The "six transition-table false positives" this row used to describe do not occur under that invocation: those functions abort the linter instead and are Q6. | As Q2. | As Q2. |
 | Q6 | Low | tooling | `raci_emit_trigger_fn()`; `audit.insert_trigger`, `audit.delete_trigger`, `handle_field_searchable_insert/update/delete`, `queue_build_record_json`; pgmq `notify_queue_listeners()` | Seven Semantius trigger functions the linter never sees: `raci_emit_trigger_fn` because no trigger binds it in a fresh install, and the six statement-level trigger functions because plpgsql_check 2.10 stops at `relation "new_rows" does not exist` when no transition table is declared for the check. `pgmq.notify_queue_listeners` is vendored and unbound. | Bind `raci_emit_trigger_fn` in a test. For the six, pass `oldtable`/`newtable` to `plpgsql_check_function` (the arguments exist for this case; untried here), or accept and say so. | All seven appear in the lint report, or the acceptance is written into this row. |
-| R6 | Low | tooling | `semantius-cov-scratch` (port 5439) | Scratch container from the review measurements is still running. | `docker rm -f semantius-cov-scratch` when no longer needed. | Container gone. |
 | R7 | Low | tooling | `pgdocker/pg-ext-lifecycle.sh` | Four runtime assertions the script does not make, each belonging to another row and each needing no new infrastructure: the BYPASSRLS `RAISE EXCEPTION` in `0050_rbac_rls.sql` actually firing, and a superuser install skipping the CURRENT_USER grants (both **B11**); `0160_pgmq.sql`'s own header guard on the CLI path, which `migrate()`'s pre-flight currently pre-empts (**B4**); and a repeatable assertion for LF normalization, which today rests only on the release job's diff guard (**B13**). Split out of the old R7 on 2026-09-05, which mixed these with two much more expensive families now tracked as **R8** and **R9**. | Add the four assertions to the existing script. They run in the container that is already up, so they belong on the per-PR path with the rest of the lifecycle. | Each of the four fails when the behavior it asserts is removed. |
 | R8 | Low | tooling | a new `pgdocker/pg-ext-portability.sh` | Two restore scenarios that need a **second container**, so they do not belong in `pg-ext-lifecycle.sh` on the per-PR path. (a) *Fresh cluster*: the step-2 dump restored into a second `postgres18-ext:local` without the init mounts - with `POSTGRES_USER=postgres` it should be clean and tests 0430, 0060, 0240 green there; with `POSTGRES_USER=admin` every error should match `role "postgres" does not exist`, `status()` should report the ownership and default-ACL drift and `harden()` should clear it. (b) *Dump taken after `DROP EXTENSION`*, restored on a fresh cluster: should fail only on role references, and succeed once `pg_dumpall --globals-only` has been applied first, with the `pg_auth_members` rows for the four roles equal to the source. Neither gates the three requirements, which lifecycle steps 1, 2 and 4 prove directly, and the in-principle case is now covered - step 5 (restore where the extension is not installed at all) landed 2026-09-05. | Write the script; run it from `extension-release.yml` only, not from `test.yml`, so a second container does not cost every contributor pull request. | Both scenarios asserted, green on a release tag. |
 | R9 | Low | tooling | a new `pgdocker/pg-ext-upgrade.sh` | The `ALTER EXTENSION ... UPDATE` path, untested because **there has only ever been one version**: `extension/versions.json` holds `0.5.0-beta1` and nothing else, so there is no real upgrade to exercise and the test has to fabricate one. Three scenarios, all needing a generated `<v+1>` bundle built from a temp copy of `apps/_core` with a dummy migration appended plus a copy of `versions.json` (without it no upgrade script is written): (a) *upgrade* - `ALTER EXTENSION pg_semantius UPDATE`, then `pending()` returns exactly the dummy, `migrate()` applies only it, `version()` is `<v+1>`, and the function ACL checks of lifecycle step 8 still hold; (b) *cross-version* - the step-2 dump restored on the `<v+1>` server lists the dummy as pending, and a `<v+1>` dump restored on the `<v>` server has `pending()` empty with `status()` listing the dummy as unknown; (c) *failure atomicity* - a `<v+1>` bundle whose dummy fails midway makes `migrate()` raise with the migration name, the original SQLSTATE and message, leaves `_versions` unchanged, still lists the dummy as pending, and leaves no schema `common` on a fresh database. | Write the script; run it on the release tag. It is synthetic today and becomes load-bearing at the second release, which is the first time a real upgrade path ships - promote it to a hard gate then. | All three scenarios asserted, and the second release cannot be cut without them passing. |
-| R10 | Low | tooling | `apps/test/tests/0445_test_policy_initplan_form.sql` | The test is named for the InitPlan form and reads as a guarantee that a policy's permission check runs once per statement. It asserts something weaker: that the call appears inside a sub-select. `modules_select_policy` (`0050_rbac_rls.sql:47`) is `(select rbac.has_any_permission('admin', view_permission))` - the column reference makes the sub-select correlated, so it is a SubPlan evaluated per row - and it passes. The policy itself is accepted (under 20 modules, about 0.5 ms warm); the test claiming to cover it is the problem. | Either rename the test to what it checks, or make it distinguish a correlated sub-select from an uncorrelated one - `EXPLAIN` of a policy-guarded query and a look for `SubPlan` against `InitPlan` is the direct form. Not owned by any plan. | The test's name matches what it asserts, and a deliberately correlated policy added as a fixture fails it. |
 | S12 | Low (DB) | migration | `0030_rbac_functions.sql` (`has_permission`, `has_any_permission`, `user_has_permission`) | `app.oauth_scopes` is a client-settable GUC: a scoped session can clear its own confinement. There is no definer entry point for scopes since `set_request_context` was removed. **The delimiter half is done (2026-09-05).** Separators are normalized rather than unified: any run of commas or whitespace separates, in all three GUC readers and in `validate_oauth_scopes`' request parameter, so `"a,b"`, `"a b"` and `" a ,, b "` are the same two scopes. That is stronger than the "one delimiter everywhere" the design asked for - it needs no writer to have normalized first, and it stays correct when `set_request_scopes` later normalizes on write. It cannot escalate: scopes only subtract, the permission is matched against the caller's own set before the scope test runs. Pinned by `0405` GROUP 6. | Store scopes inside the signed cache planned in `docs/bearer-mode-status.md`; a self-only `rbac.set_request_scopes(p_oauth_scopes)` with a narrow-only rule, see that document, step 5. The delimiter clause of that step is satisfied. | A scoped session that clears the GUC or calls the entry point with a wider list still has the scoped-out permission denied. |
-| S16 | Low | migration | `entities.view_permission`/`edit_permission`, `modules.view_permission`, `queues.view_permission`/`manage_permission` | Permission names are stored as text, validated on save only, no foreign key. Deleting a permission that is still named leaves a dangling name that fails `has_permission` for everyone, admins included (fails closed). The UI renders these as plain text boxes because it keys on format, not on field name; `dashboards.view_permission` and `modules.manage_permission_id`/`admin_permission_id` are references and get the picker. Decision 2026-09-03: keep text for now; converting all of them touches the policy generators and the schema RPCs and needs its own plan. | Interim: a before-delete trigger on `permissions` that refuses to remove a name still used by an entity, module or queue. Later: convert to references. | Deleting a permission named by an entity raises. |
+| S16 | Low | migration | `entities.view_permission`/`edit_permission`, `modules.view_permission`, `queues.view_permission`/`manage_permission` | Permission names are stored as text, validated on save only, no foreign key. Deleting a permission that is still named leaves a dangling name that fails `has_permission` for everyone, admins included (fails closed). The UI renders these as plain text boxes because it keys on format, not on field name; `dashboards.view_permission` and `modules.manage_permission_id`/`admin_permission_id` are references and get the picker. Decision 2026-09-03: keep text for now; converting all of them touches the policy generators and the schema RPCs and needs its own plan. | Interim: a before-delete trigger on `permissions` that refuses to remove a name still used by an entity, module or queue. Later: convert to references. **Owned by `plans/2026-09-06-2248-text-keys-and-permission-name-pk.md`.** | Deleting a permission named by an entity raises. |
 | S17 | Low | migration | `0050_rbac_rls.sql` (default privileges) | Default privileges grant `semantius_user` SELECT/INSERT/UPDATE/DELETE on every future table in `public`: any table created outside the data dictionary is fully writable by the request role unless it gets RLS. Documented as a behavior in `SECURITY.md` since 2026-09-03; dictionary tables always get RLS. | Decide: keep, or narrow the default and grant explicitly from `create_dd_table`. | A table created by hand in `public` is not writable by user1 (if narrowed), or the decision to keep is recorded here and the row deleted. |
-| S18 | Low | migration | `0150_audit_log.sql` (`audit.log_ddl_event`, `track_ddl_changes`) | What the 2026-09-04 scoped audit cannot see. (a) `GRANT`/`REVOKE` events arrive from `pg_event_trigger_ddl_commands()` with NULL `classid`, `objid`, `schema_name` **and** `object_identity` (verified live), so they can be neither scoped to a schema nor recognized as generated-label churn: 766 of the 2156 rows a full migrate leaves, 36%, identify no object. They were kept rather than dropped, because dropping them would discard the privilege history the table exists for - but on the extension path their `query_text` is only `SELECT semantius.migrate()`, so there they carry nothing at all. (b) `WHEN TAG IN (...)` is an allowlist on an evidence table: a DDL kind nobody enumerated (`CREATE STATISTICS`, `ALTER ROUTINE`, text-search configurations, `IMPORT FOREIGN SCHEMA`) is silently unaudited, and nothing tests that the list is still complete. None is emitted by any migration today. (c) `CREATE SCHEMA` reports a NULL `schema_name`, so creating a schema is always logged and always fires `NOTIFY pgrst`, foreign schemas included. | (a) accept and document, or record the grant target from the DDL text; (b) decide between the allowlist and auditing every tag, and if it stays, a test that fails when a new tag appears in the migrations without being listed; (c) accept. | Each of the three is either fixed or recorded here as a deliberate limitation, and the row deleted. |
-| S19 | Low | migration | `0290_owner_hardening.sql` (the `pg_proc` ownership loop) | The loop that runs `ALTER FUNCTION ... OWNER TO semantius_owner` has no `ORDER BY`, and the DDL audit event trigger fires on every statement it issues. `audit.log_ddl_event()` is SECURITY DEFINER and calls `audit.current_user_id()`, which 0150 revokes from PUBLIC: the moment `log_ddl_event` changes owner it starts running as `semantius_owner`, and if `current_user_id` has not moved yet the migration dies on `log_ddl_event`'s own ALTER with `permission denied for function current_user_id`. Which of the two moves first is `pg_proc` heap order, so adding or removing any function anywhere in the codebase can flip it - it flipped on 2026-09-04 when P11 added three, and a clean tree migrated fine minutes earlier. Fixed by granting EXECUTE on `audit.current_user_id()` to `semantius_owner` before the loop, which grants nothing the end state lacks since that role owns the function seconds later. | Residue: the loop is still order-dependent for any future SECURITY DEFINER function that calls a PUBLIC-revoked helper during DDL, and nothing detects it until an install fails. Either order the loop explicitly, or remove the event trigger's dependency on a revoked function. | A new SECURITY DEFINER function calling a PUBLIC-revoked helper cannot break 0290, by test or by construction. |
-| T2 | Low | tooling | plpgsql_check upstream | The profiler bug in Appendix A is worked around in `0145` but not reported. | File the report. | Issue link recorded here, then delete the row. |
+| S18 | Low | migration | `0150_audit_log.sql` (`audit.log_ddl_event`, `track_ddl_changes`) | What the 2026-09-04 scoped audit cannot see. (a) `GRANT`/`REVOKE` events arrive from `pg_event_trigger_ddl_commands()` with NULL `classid`, `objid`, `schema_name` **and** `object_identity` (verified live), so they can be neither scoped to a schema nor recognized as generated-label churn: 557 of the 1955 rows a full migrate leaves, 28%, identify no object; 207 of them are the per-function pre-grants `0290_owner_hardening.sql` issues so that its ownership transfer does not depend on `pg_proc` order. They were kept rather than dropped, because dropping them would discard the privilege history the table exists for - but on the extension path their `query_text` is only `SELECT semantius.migrate()`, so there they carry nothing at all. (b) `WHEN TAG IN (...)` is an allowlist on an evidence table: a DDL kind nobody enumerated (`CREATE STATISTICS`, `ALTER ROUTINE`, text-search configurations, `IMPORT FOREIGN SCHEMA`) is silently unaudited, and nothing tests that the list is still complete. None is emitted by any migration today. (c) `CREATE SCHEMA` reports a NULL `schema_name`, so creating a schema is always logged and always fires `NOTIFY pgrst`, foreign schemas included. | (a) accept and document, or record the grant target from the DDL text; (b) decide between the allowlist and auditing every tag, and if it stays, a test that fails when a new tag appears in the migrations without being listed; (c) accept. | Each of the three is either fixed or recorded here as a deliberate limitation, and the row deleted. |
 | S14 | Info | migration | `0030_rbac_functions.sql` (`rbac.uid`) | In session mode the request role controls `request.jwt.claim.*`; `system_user` pins the identity only for PG18 `oauth:` sessions; without a `jwt_aud` row in `_settings` the audience is not enforced. This is the trust model, documented in `SECURITY.md` (2026-09-03). | Require `jwt_aud`; link the policy from the consumer README (B8). | A missing `jwt_aud` row refuses `uid()` (today only a mismatched `aud` raises, tests 0250 and 0410). |
 
-Linter context for the Q rows: plpgsql_check reported 122 warnings on 63
-functions at the review. Re-linted 2026-09-05 with the invocation recorded in
-Q5: 131 findings, 99 of them outside `pgmq`. After the same-day sweep of our
-own code (Q1 and Q4 closed, the Semantius halves of Q2, Q3 and Q5 done; record
-in `plans/ext-solved-items.md`) the linter reported 40 outside `pgmq`, none of
-them a Q kind: 23 STABLE/VOLATILE (P7, P8), 8 `format(%I/%L)` sites it calls
-unsanitized (S1 audited every dynamic-SQL site), 2 dynamic-SQL results it
-cannot type, and the 7 unlinted trigger functions in Q6. The STABLE/VOLATILE
-family was settled on 2026-09-06 rather than reduced: P8's eight
-"VOLATILE but read-only" findings went away when those functions were labeled
-`STABLE`, and P7's thirteen "STABLE but writes" findings were accepted as they
-stand, because the readers keep a lazy transaction-local write that the primary
-deployment target gives no other place to do. The reasoning is in the comment
-above `rbac.uid()`; the count has not been re-run since. The 11 "EXECUTE
-expression is SQL injection vulnerable" warnings from the review are closed (S1
-fixed). The 32 `pgmq` findings are untouched and are Q2, Q3 and Q5; the 75 grant and
-search_path warnings on the same functions were accepted with Q7. There
-is deliberately no lint gate in CI: the owner does not want style warnings
-failing builds.
+Linter context for **Q6**, the one Q row left: plpgsql_check reported 122
+warnings on 63 functions at the review. Re-linted 2026-09-05 with the
+invocation in the appendix: 131 findings, 99 of them outside `pgmq`. After the
+same-day sweep of our own code (Q1 and Q4 closed, the Semantius halves of Q2,
+Q3 and Q5 done; record in `plans/ext-solved-items.md`) the linter reported 40
+outside `pgmq`, none of them a Q kind: 23 STABLE/VOLATILE (P7, P8), 8
+`format(%I/%L)` sites it calls unsanitized (S1 audited every dynamic-SQL site),
+2 dynamic-SQL results it cannot type, and the 7 unlinted trigger functions in
+Q6. Q6 is not about pgmq: those seven are Semantius trigger functions the
+linter never sees. The STABLE/VOLATILE family was settled on 2026-09-06 rather
+than reduced: P8's eight "VOLATILE but read-only" findings went away when those
+functions were labeled `STABLE`, and P7's thirteen "STABLE but writes" findings
+were accepted as they stand, because the readers keep a lazy transaction-local
+write that the primary deployment target gives no other place to do. The
+reasoning is in the comment above `rbac.uid()`; the count has not been re-run
+since. The 11 "EXECUTE expression is SQL injection vulnerable" warnings from
+the review are closed (S1 fixed). The 32 `pgmq` findings are untouched and were
+**accepted on 2026-09-06**, which closed Q2, Q3 and Q5: the vendored file stays
+byte-identical to upstream v1.11.1, and the next re-vendor is the moment to
+re-lint it and the only trigger for revisiting that. The 75 grant and
+search_path warnings on the same functions were accepted with Q7. There is
+deliberately no lint gate in CI: the owner does not want style warnings failing
+builds.
 
 ## Extension baseline (what the rebuild replaced)
 
@@ -265,43 +280,7 @@ and `DROP EXTENSION` destroyed all data.
 0.5.0 has **4 members** (the `semantius` schema and three functions), `extconfig
 IS NULL`, and all 52 relations are ordinary objects.
 
-## Appendix A. Upstream bug report draft (plpgsql_check)
-
-Title: profiler re-evaluates dynamic EXECUTE expressions after execution
-(`profiler_get_dyn_queryid`), breaking statements whose expression depends on
-state the statement changed.
-
-Repro (PostgreSQL 18.6, plpgsql_check 2.10.4):
-
-```sql
-CREATE FUNCTION public.f1() RETURNS int LANGUAGE sql AS 'SELECT 1';
-CREATE FUNCTION public.drop_them() RETURNS void LANGUAGE plpgsql AS $$
-DECLARE r record;
-BEGIN
-  FOR r IN SELECT p.oid::regprocedure AS sig FROM pg_proc p WHERE p.proname = 'f1' LOOP
-    EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
-  END LOOP;
-END $$;
-SET plpgsql_check.profiler = on;
-SELECT public.drop_them();
--- ERROR:  syntax error at or near "16xxx"
--- CONTEXT:  PL/pgSQL function drop_them() line 5 at EXECUTE
-```
-
-With the profiler off the function succeeds. Cause: `profiler_stmt_end` calls
-`profiler_get_queryid` then `profiler_get_dyn_queryid`, which runs
-`profiler_plugin.assign_expr()` on the EXECUTE string expression a second
-time (after the DROP) and `pg_parse_query()`s the result; the `regprocedure`
-now renders as a bare OID and the parse fails inside the profiler. Any
-expression with side effects (`nextval()`, `clock_timestamp()` in the SQL
-text, `set_config`) is evaluated twice as well. Suggested fix: capture the
-query string in `stmt_beg` (or from the executed statement's cached text)
-instead of re-evaluating, and wrap the parse in `PG_TRY` so a profiler failure
-never aborts the profiled function. No server setting avoids it
-(`compute_query_id` off/on/regress, the fake queryid hook, versions 2.10.3
-and 2.10.4 all fail).
-
-## Appendix B. How to re-measure
+## Appendix. How to re-measure
 
 - Catalog audit: `pg_proc`/`aclexplode` for PUBLIC and `semantius_user`
   EXECUTE, `pg_class.relrowsecurity`, `pg_policies`, `pg_extension.extconfig`,

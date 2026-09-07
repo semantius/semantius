@@ -1,12 +1,30 @@
--- Test (P1, release review 2026-09-02): every RLS policy predicate that calls
--- rbac.has_permission() or rbac.has_any_permission() must do so through a scalar sub-select,
+-- Every RLS policy predicate that calls rbac.has_permission() or rbac.has_any_permission()
+-- must do so through a scalar sub-select,
 --     USING ((SELECT rbac.has_permission('x')))
 -- never the bare form
 --     USING (rbac.has_permission('x'))
 -- The bare form is a per-row Filter: PostgreSQL re-evaluates the call for every row scanned
--- (1.7 s on a 100k-row table). The sub-select form becomes an InitPlan that the executor runs
--- once per statement and then treats as a constant (about 10 ms). Same result, same session
--- context, evaluated at execution time either way.
+-- (1.7 s on a 100k-row table). Wrapping it costs nothing and is the only shape that lets the
+-- planner lift the check out of the scan. Same result, same session context, evaluated at
+-- execution time either way.
+--
+-- WHAT THIS TEST CHECKS, AND WHAT IT DOES NOT. It checks the FORM - that the call sits inside
+-- a sub-select - and nothing beyond it. How often the sub-select then runs depends on whether
+-- it is correlated:
+--   uncorrelated - it references no column of the scanned row, so the planner makes it an
+--     InitPlan, runs it once per statement and treats the result as a constant (about 10 ms
+--     against the 1.7 s above);
+--   correlated - it references a column, so it stays a SubPlan and is evaluated per row, which
+--     costs what the bare form costs.
+-- Both pass here. Telling them apart takes EXPLAIN on a policy-guarded query and a look for
+-- SubPlan against InitPlan, which this file does not do.
+--
+-- Every policy the generators emit is uncorrelated: they interpolate the permission NAME as a
+-- literal through %L, so no column reference can appear inside the sub-select. The one
+-- correlated policy in the catalog is hand-written - modules_select_policy in
+-- 0050_rbac_rls.sql, USING ((select rbac.has_any_permission('admin', view_permission))), where
+-- the per-module view_permission column is the whole point. It is accepted as it stands:
+-- modules number under twenty, and the scan costs about 0.5 ms warm.
 --
 -- Part 1 sweeps the installed catalog: no policy in any schema may contain a bare call.
 -- Part 2 drives every policy generator on throwaway entities and re-checks, so an edit that
@@ -33,8 +51,8 @@
 -- (SELECT (jl_request_context() ->> '$user_id')::int) - deparses with one or two of them, and a
 -- pattern without that allowance would skip the strip and then report the residue as a failure.
 -- The name is matched unqualified: pg_get_expr renders public functions without the schema.
--- The positive assertions (count of InitPlan-form policies) keep the sweep from passing vacuously
--- on a table that lost its permission check altogether.
+-- The positive assertions (count of sub-select-form policies) keep the sweep from passing
+-- vacuously on a table that lost its permission check altogether.
 --
 -- Fixtures: user3 = Administrator. No DDL is issued directly (the request role cannot).
 BEGIN;
@@ -82,7 +100,7 @@ SELECT is(
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
-    'create_dd_table: SELECT, INSERT, UPDATE and DELETE policies are all in the InitPlan form');
+    'create_dd_table: SELECT, INSERT, UPDATE and DELETE policies are all in the sub-select form');
 
 -- update_entity_policies (INSERT policy) + build_select_rule_policy, permission-only branch
 -- (SELECT/UPDATE/DELETE), both fired by an edit_permission change
@@ -104,10 +122,10 @@ SELECT is(
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
-    'edit_permission change: all four rebuilt policies are in the InitPlan form');
+    'edit_permission change: all four rebuilt policies are in the sub-select form');
 
 -- build_select_rule_policy, rule branch: UPDATE/DELETE keep the permission check next to the
--- per-row rule function; the permission half must still be the InitPlan form
+-- per-row rule function; the permission half must still be the sub-select form
 UPDATE entities SET select_rule = '{"!=":[{"var":"label"},""]}'::jsonb
 WHERE table_name = 'p1_initplan';
 
@@ -128,7 +146,7 @@ SELECT is(
        AND qual ~ 'SELECT rbac\.has_permission\('
        AND qual ~ 'select_rule_p1_initplan\('),
     2,
-    'select_rule set: UPDATE and DELETE combine the InitPlan-form permission check with the rule function');
+    'select_rule set: UPDATE and DELETE combine the sub-select-form permission check with the rule function');
 
 -- The positive control for the jl_request_context half of the sweep: all three rule-branch
 -- policies must reach the context through a sub-select. Without a count the strip-and-search
@@ -166,7 +184,7 @@ SELECT is(
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
-    'select_rule cleared: all four restored policies are in the InitPlan form');
+    'select_rule cleared: all four restored policies are in the sub-select form');
 
 -- enable_dd_table (0145): entity defined unmanaged, then managed
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
@@ -192,7 +210,7 @@ SELECT is(
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
-    'enable_dd_table: all four policies are in the InitPlan form');
+    'enable_dd_table: all four policies are in the sub-select form');
 
 -- ---------------------------------------------------------------------------
 -- Final sweep: the catalog including everything the generators just built

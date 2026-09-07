@@ -333,7 +333,7 @@ BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
     -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
-    -- it once per statement (InitPlan) instead of once per row (P1, 1.7 s vs 10 ms on 100k rows).
+    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
     -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(

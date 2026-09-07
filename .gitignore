@@ -145,9 +145,11 @@ migrate.sql
 dropall.sql
 
 # Generated SQL bundles (regenerate with: deno task bundle-sql)
-# Build output, not artefacts: the header carries a generation timestamp, so a
+# Build output, not artifacts: the header carries a generation timestamp, so a
 # committed copy puts churn in every release commit and goes stale the moment a
-# migration changes. None of the three is tracked (open item B18).
+# migration changes. None of the three is tracked, and the release flow neither
+# regenerates nor guards them - regenerate before publishing an npm package,
+# which is a manual step.
 packages/triggerdev/src/migrations-bundle.ts
 packages/provisioning/src/migrations-bundle.ts
 packages/neon-provisioner/src/migrations-bundle.ts

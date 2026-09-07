@@ -313,7 +313,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- The reserved JsonLogic variables that do not vary within a statement. RLS
 -- quals reach this through an uncorrelated sub-select so the planner turns it
 -- into an InitPlan and evaluates it once per statement instead of once per row;
--- 0445_test_policy_initplan_form.sql pins that shape against a well-meaning
+-- 0445_test_policy_subselect_form.sql pins that shape against a well-meaning
 -- edit to a bare call.
 --
 -- rbac.uid() is called directly and first. It is what refuses a session with no

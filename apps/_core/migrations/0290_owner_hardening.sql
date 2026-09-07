@@ -88,14 +88,50 @@ BEGIN
     END LOOP;
 
     -- The DDL audit event trigger fires on every ALTER below. audit.log_ddl_event()
-    -- is SECURITY DEFINER and calls audit.current_user_id(), which 0150 revokes
-    -- from PUBLIC, so the moment log_ddl_event changes owner it starts running as
-    -- semantius_owner -- and fails on its own ALTER unless current_user_id() has
-    -- moved first. The loop below has no ORDER BY, so which one moves first is
-    -- pg_proc heap order: adding or removing any function anywhere can flip it.
-    -- Grant explicitly instead of relying on that order. semantius_owner ends up
-    -- owning the function anyway, so this grants nothing the end state lacks.
-    GRANT EXECUTE ON FUNCTION audit.current_user_id() TO semantius_owner;
+    -- is SECURITY DEFINER: from the moment its own owner changes it runs as
+    -- semantius_owner, and it calls audit.current_user_id(), which 0150 revokes
+    -- from PUBLIC. Whether that call is allowed mid-transfer depends on which of
+    -- the two functions moved first, and the loop order is pg_proc heap order,
+    -- which any function added or removed anywhere in the codebase can change.
+    -- So every function the loop is about to move that semantius_owner cannot
+    -- already execute is granted to it first: whatever the audit trigger reaches
+    -- for during the transfer, in whatever order, it may call.
+    --
+    -- The has_function_privilege test is what keeps the end state identical. A
+    -- function carrying no ACL of its own - every vendored pgmq function - is
+    -- executable by PUBLIC and so is already callable here; granting it anyway
+    -- would write out an ACL where there was none, the same privileges spelled
+    -- out instead of implied, and a difference in the catalog for no gain. What
+    -- the test leaves is functions that already carry an explicit ACL, and there
+    -- the grant dissolves: an owner change rewrites the old owner's entries onto
+    -- the new owner and merges duplicates, so the final ACL is what it would
+    -- have been.
+    --
+    -- Apart from that test, this query and the ownership loop below must keep
+    -- selecting the same functions: one moved but not pre-granted reopens the
+    -- window.
+    FOR r IN
+        SELECT p.oid::regprocedure AS signature, p.prokind
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+          AND pg_get_userbyid(p.proowner) = current_user
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_extension e ON e.oid = d.refobjid
+              WHERE d.classid = 'pg_proc'::regclass
+                AND d.objid = p.oid
+                AND d.refclassid = 'pg_extension'::regclass
+                AND d.deptype = 'e'
+                AND e.extname <> 'pg_semantius')
+          AND NOT has_function_privilege('semantius_owner', p.oid, 'EXECUTE')
+    LOOP
+        -- GRANT has no AGGREGATE keyword; aggregates are granted as FUNCTION.
+        EXECUTE format('GRANT EXECUTE ON %s %s TO semantius_owner',
+            CASE r.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
+            r.signature);
+    END LOOP;
 
     -- Functions and procedures (this is what makes SECURITY DEFINER code run as semantius_owner).
     FOR r IN

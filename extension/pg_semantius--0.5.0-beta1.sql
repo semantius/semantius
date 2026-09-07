@@ -4719,7 +4719,7 @@ BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
     -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
-    -- it once per statement (InitPlan) instead of once per row (P1, 1.7 s vs 10 ms on 100k rows).
+    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
     -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
@@ -6283,7 +6283,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db');
+      VALUES ('_core.0070_dd_functions', '94d05f1bc577372efc54dc0d3f34b70423ef5dd5b3dafe87a7e3d2e0f651c099');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8869,7 +8869,7 @@ BEGIN
         );
 
         -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
-        -- see the note in create_dd_table (P1); test 0445 fails on the bare per-row form.
+        -- see the note in create_dd_table; test 0445 fails on the bare per-row form.
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
@@ -9782,7 +9782,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab');
+      VALUES ('_core.0145_managed_enable', 'f04384be4e556a1b55f2879da86e4bfb6f8628f3a734188241129d8ec7b50116');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13810,7 +13810,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- The reserved JsonLogic variables that do not vary within a statement. RLS
 -- quals reach this through an uncorrelated sub-select so the planner turns it
 -- into an InitPlan and evaluates it once per statement instead of once per row;
--- 0445_test_policy_initplan_form.sql pins that shape against a well-meaning
+-- 0445_test_policy_subselect_form.sql pins that shape against a well-meaning
 -- edit to a bare call.
 --
 -- rbac.uid() is called directly and first. It is what refuses a session with no
@@ -14084,7 +14084,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', 'bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c');
+      VALUES ('_core.0180_computed_validation', '04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17029,14 +17029,50 @@ BEGIN
     END LOOP;
 
     -- The DDL audit event trigger fires on every ALTER below. audit.log_ddl_event()
-    -- is SECURITY DEFINER and calls audit.current_user_id(), which 0150 revokes
-    -- from PUBLIC, so the moment log_ddl_event changes owner it starts running as
-    -- semantius_owner -- and fails on its own ALTER unless current_user_id() has
-    -- moved first. The loop below has no ORDER BY, so which one moves first is
-    -- pg_proc heap order: adding or removing any function anywhere can flip it.
-    -- Grant explicitly instead of relying on that order. semantius_owner ends up
-    -- owning the function anyway, so this grants nothing the end state lacks.
-    GRANT EXECUTE ON FUNCTION audit.current_user_id() TO semantius_owner;
+    -- is SECURITY DEFINER: from the moment its own owner changes it runs as
+    -- semantius_owner, and it calls audit.current_user_id(), which 0150 revokes
+    -- from PUBLIC. Whether that call is allowed mid-transfer depends on which of
+    -- the two functions moved first, and the loop order is pg_proc heap order,
+    -- which any function added or removed anywhere in the codebase can change.
+    -- So every function the loop is about to move that semantius_owner cannot
+    -- already execute is granted to it first: whatever the audit trigger reaches
+    -- for during the transfer, in whatever order, it may call.
+    --
+    -- The has_function_privilege test is what keeps the end state identical. A
+    -- function carrying no ACL of its own - every vendored pgmq function - is
+    -- executable by PUBLIC and so is already callable here; granting it anyway
+    -- would write out an ACL where there was none, the same privileges spelled
+    -- out instead of implied, and a difference in the catalog for no gain. What
+    -- the test leaves is functions that already carry an explicit ACL, and there
+    -- the grant dissolves: an owner change rewrites the old owner's entries onto
+    -- the new owner and merges duplicates, so the final ACL is what it would
+    -- have been.
+    --
+    -- Apart from that test, this query and the ownership loop below must keep
+    -- selecting the same functions: one moved but not pre-granted reopens the
+    -- window.
+    FOR r IN
+        SELECT p.oid::regprocedure AS signature, p.prokind
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+          AND pg_get_userbyid(p.proowner) = current_user
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_extension e ON e.oid = d.refobjid
+              WHERE d.classid = 'pg_proc'::regclass
+                AND d.objid = p.oid
+                AND d.refclassid = 'pg_extension'::regclass
+                AND d.deptype = 'e'
+                AND e.extname <> 'pg_semantius')
+          AND NOT has_function_privilege('semantius_owner', p.oid, 'EXECUTE')
+    LOOP
+        -- GRANT has no AGGREGATE keyword; aggregates are granted as FUNCTION.
+        EXECUTE format('GRANT EXECUTE ON %s %s TO semantius_owner',
+            CASE r.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,
+            r.signature);
+    END LOOP;
 
     -- Functions and procedures (this is what makes SECURITY DEFINER code run as semantius_owner).
     FOR r IN
@@ -17128,7 +17164,7 @@ $pgsem__core_0290_owner_hardening$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0290_owner_hardening', 'ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30');
+      VALUES ('_core.0290_owner_hardening', '2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17210,7 +17246,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09","_core.0070_dd_functions":"321706662408ed886f2448ca20b4445ea29e29756fa022f2183f5c9ef463e7db","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"0725f0855920dde651c2e348b93cf0f698d6f06242a6c604445172f10770f7ab","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"bf8bfca7db9db0b2c147197855bd9f5b30335d4464c9f4dfb2b2cdec7671e10c","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"ff7338cb547c538ec8246c22282f860c472b6fbd416a1e1a9f4140a94b3d3b30"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09","_core.0070_dd_functions":"94d05f1bc577372efc54dc0d3f34b70423ef5dd5b3dafe87a7e3d2e0f651c099","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"f04384be4e556a1b55f2879da86e4bfb6f8628f3a734188241129d8ec7b50116","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

@@ -243,7 +243,7 @@ BEGIN
         );
 
         -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
-        -- see the note in create_dd_table (P1); test 0445 fails on the bare per-row form.
+        -- see the note in create_dd_table; test 0445 fails on the bare per-row form.
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(

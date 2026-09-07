@@ -58,10 +58,21 @@ jobs:
         # in this version are editable. To hot-patch an inherited one on
         # purpose, add --allow-edited-migrations for that one release.
 
+      # The generator must delete an upgrade script whose endpoints versions.json
+      # does not know. `make install` copies every SQL file in the build
+      # directory, and PostgreSQL offers each `<from>--<to>` pair it finds as an
+      # ALTER EXTENSION ... UPDATE path, so an orphan hands out a path nobody
+      # generated a migration set for. The release job's archive-manifest.sh
+      # --check catches the same file, but only once a tag is cut and after both
+      # Dockerfiles have already copied the SQL by glob.
+      - name: Orphaned upgrade scripts must be pruned
+        run: bash scripts/check-prune-orphans.sh "${{ steps.ver.outputs.version }}"
+
       # Same guard as the release job: a PR that edits a migration without
       # regenerating extension/ would otherwise pass its tests and then break
       # the release. `git status --porcelain`, not `git diff`, because the
-      # generator also writes new upgrade scripts and prunes old full installs.
+      # generator also writes new upgrade scripts and prunes the ones the manifest
+      # no longer accounts for.
       - name: Committed build must equal the regenerated one
         run: |
           if [ -n "$(git status --porcelain -- extension/)" ]; then
