@@ -60,7 +60,7 @@ SELECT CASE WHEN (SELECT active FROM hardening_ctx) THEN
 ELSE pass('owner hardening not active: definer check skipped') END;
 
 -- 5.-8. objects the dictionary creates at runtime are owned by semantius_owner
---       and the request role keeps its privileges on them (default privileges)
+--       and the request role holds the privileges create_dd_table grants it
 SELECT authenticate_as('user3');
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)

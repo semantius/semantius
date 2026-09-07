@@ -51,10 +51,9 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   privileges.** The extension's `ALTER DEFAULT PRIVILEGES` entries bind to the
   role that installed it, so restoring a dump as a superuser with a different
   name leaves the four schemas and the event triggers owned by the restorer
-  and drops those entries: the request role's data access on future tables in
-  `public` and its EXECUTE on future functions in `rbac`.
-  `semantius.status()` reports the drift. `pg_restore --no-owner` additionally
-  loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
+  and drops those entries, so the request role loses its EXECUTE on future
+  functions in `rbac`. `semantius.status()` reports the drift.
+  `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
   would run as the restorer. Restore as the same superuser name, without
   `--no-owner`.
 - **A function you create by hand in any of the extension's schemas is
@@ -75,7 +74,11 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   can run SQL as the request role can set any claim, `sub` included. Deploy
   through PostgREST or an app server you control, never hand the request role
   to end users, and set `jwt_aud` in `_settings` so tokens minted for another
-  audience are rejected.
+  audience are rejected. That row is optional, and it counts only when its
+  value is non-empty: without it the audience claim is not checked and any
+  token from the trusted issuer is accepted, which is also what Neon does when
+  the provider's audience is left blank. `semantius.status()` reports
+  `jwt_aud_set = false` until the row is written.
 - **The transaction-scoped context cache is client-writable, and it stays
   that way.** The `app.*` settings written by
   `rbac.ensure_context_initialized()` are ordinary settings. Behind PostgREST
@@ -102,11 +105,20 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   dictionary code runs with that role's powers; on managed platforms it runs
   as the installing role. An administrator can shape every managed table
   through the dictionary. That is what the `admin` permission means.
-- **A table created by hand in `public` is writable by the request role until
-  it gets row-level security.** Default privileges grant the request role
-  data access on future tables in `public`. Tables created through the data
-  dictionary always get their policies; tables created outside it need their
-  own.
+- **A table created by hand in `public` is invisible to the request role until
+  the operator grants it.** There are no default privileges on tables or
+  sequences in `public`, so a table the data dictionary did not create is
+  unreachable through the Data API: a `SELECT` as the request role raises
+  `42501`. The dictionary grants each table it creates, after it has written
+  that table's policies. Adoption (setting an entity's `managed` to `true`)
+  does the same for a table made outside the dictionary: row-level security,
+  the four permission policies, then the grant - but only for a table that has
+  no row-level security of its own. A table that is already secured keeps its
+  own policies and privileges, so registering a core table as an entity cannot
+  widen it. Exposing an unmanaged table yourself takes the same two steps in
+  the same order: write its policies, then `GRANT ... TO semantius_user`.
+  Never the grant alone - it is what publishes the table, and without policies
+  it publishes every row.
 - **Every principal carries a non-empty `external_id`, and that is its
   identity.** A session is a JWT, and the caller is the `users` row whose
   `external_id` equals the `sub` claim, for users and agents alike; an API key

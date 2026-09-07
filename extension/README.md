@@ -51,7 +51,7 @@ a re-download changed anything.
 | `semantius.migrate()` | Applies the bundled migrations. Superuser only, idempotent, one transaction. |
 | `semantius.pending()` | Bundled migrations not yet applied. Works before the first migrate(). |
 | `semantius.version()` | Version of the installed bundle. |
-| `semantius.status()` | Applied/pending counts, unknown or changed migrations, ownership and default-ACL drift. |
+| `semantius.status()` | Applied/pending counts, unknown or changed migrations, ownership and default-ACL drift, and whether `jwt_aud` is set. |
 
 `\dx` shows the *installer's* version, which is not necessarily the state of
 the installed schema; `semantius.status()` is the authority.
@@ -96,14 +96,10 @@ completely, in this order (step 3 **deletes all data**):
 
 ```sql
 DROP EXTENSION pg_semantius;
-DROP EVENT TRIGGER track_ddl_changes, pgrst_ddl_watch, pgrst_drop_watch;
+DROP EVENT TRIGGER track_ddl_changes, track_ddl_drops, pgrst_ddl_watch, pgrst_drop_watch;
 DROP OWNED BY semantius_owner CASCADE;      -- deletes all Semantius data
 DROP SCHEMA IF EXISTS common, rbac, audit, pgmq CASCADE;
 DROP TABLE IF EXISTS public._versions;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
 DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
 -- only if no other database in this cluster uses them:
@@ -126,7 +122,7 @@ are NOLOGIN and passwordless; grant LOGIN and a password per environment.
 | Role | Purpose |
 |---|---|
 | `semantius_owner` | Owns the core objects; the identity the SECURITY DEFINER dictionary code runs as. NOLOGIN NOSUPERUSER NOINHERIT BYPASSRLS. |
-| `semantius_user` | The request role. Subject to RLS. |
+| `semantius_user` | The request role. Subject to RLS. No default access to tables in `public`; the dictionary grants each table it creates or adopts. |
 | `authenticated` | Holds `semantius_user`; what an authenticated session acts as. |
 | `semantius_authenticator` | Session-mode login role; NOINHERIT, can only `SET ROLE authenticated`. |
 
@@ -155,7 +151,19 @@ The code reads these settings from the session:
 | `dd.table_rename` | the data dictionary, during a table rename |
 
 DDL emits `NOTIFY pgrst, 'reload schema'` so PostgREST reloads its cache, and
-the audit event trigger records DDL in `public.audit_ddl_logs`.
+the audit event triggers record both DDL and drops in
+`public.audit_ddl_logs`.
+
+One row of `public._settings` is worth setting deliberately. `jwt_aud`
+pins the audience `rbac.uid()` accepts: with the row present and non-empty, a
+token whose `aud` claim does not carry that value is rejected with 42501;
+without it the audience is not checked at all and any token from the trusted
+issuer is accepted. That is the same default Neon applies when a provider's audience is
+left blank, and it is a real choice rather than an oversight - set the row when
+more than one audience is minted from your issuer.
+`semantius.status().jwt_aud_set` reports whether it is set. The trust model this
+sits inside is in `SECURITY.md`, under "Session mode trusts the application
+tier".
 
 ## Errors
 

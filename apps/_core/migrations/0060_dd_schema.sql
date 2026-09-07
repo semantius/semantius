@@ -305,6 +305,18 @@ CREATE POLICY fields_delete_policy ON fields
     USING ((SELECT rbac.has_permission('admin')));
 
 -- =====================================================
+-- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
+-- =====================================================
+-- These two are created after 0050's one-time GRANT ... ON ALL TABLES and there
+-- is no default privilege in this schema to pick them up, so the request role
+-- reaches them only through this grant. It comes after the RLS enable and the
+-- eight policies above, in that order: a grant is what publishes a table
+-- through the Data API, and until policies exist it is the whole of that
+-- table's access control. Neither table has a sequence - entities is keyed by
+-- table_name and fields.id is a generated text column.
+GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
+
+-- =====================================================
 -- AUTO-SET PLURAL TRIGGER
 -- =====================================================
 -- Automatically sets plural to match table_name on INSERT/UPDATE

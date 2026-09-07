@@ -358,6 +358,7 @@ DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
     v_comment    TEXT;
+    v_sequence_name TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
@@ -452,7 +453,37 @@ BEGIN
         NEW.edit_permission
     );
     EXECUTE v_policy_sql;
-    
+
+    -- The request role has no default privileges in public, so a dictionary
+    -- table is unreachable through the Data API until it is granted here. The
+    -- grant comes last, after the four policies above: it is what publishes a
+    -- table, and until policies exist it is the whole of that table's access
+    -- control, so it is never the first thing in place.
+    EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
+        NEW.table_name
+    );
+    -- CREATE TABLE above is IF NOT EXISTS, so an entity can be registered onto a
+    -- table somebody else made, whose key column need not exist at all.
+    -- pg_get_serial_sequence raises on a column that is not there rather than
+    -- returning NULL, so the column is checked first. A key that is not a serial
+    -- has no sequence and needs no grant.
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.id_column
+    ) THEN
+        v_sequence_name := pg_get_serial_sequence(
+            format('public.%I', NEW.table_name), NEW.id_column);
+        IF v_sequence_name IS NOT NULL THEN
+            EXECUTE format(
+                'GRANT USAGE, SELECT ON SEQUENCE %s TO semantius_user',
+                v_sequence_name
+            );
+        END IF;
+    END IF;
+
     -- Insert field records for id, label, created_at, and updated_at columns.
     -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).

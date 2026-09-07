@@ -8,10 +8,14 @@
 --   3. CREATE TEMP TABLE produces no audit row
 --   4. CREATE TEMP TABLE succeeds as the request role (S15)
 --   5. audit.log_ddl_event is SECURITY DEFINER, which is what makes 4 true
---   6. track_ddl_changes carries a tag allowlist that still admits the tags
---      0300 asserts on
+--   6. track_ddl_changes carries no tag allowlist: the schema is the scope
 --   7. query_text is bounded to 8192 characters
 --   8. generated *_label companion functions produce no audit rows
+--   9. a command type nobody enumerated is audited all the same
+--  10. DROP TABLE in public is audited, once, as the table alone
+--  11. DROP TABLE in a foreign schema is not audited
+--  12. the label churn's DROP FUNCTION half is not audited either
+--  13. audit.log_drop_event is SECURITY DEFINER, for the reason 5 gives
 --
 -- The NOTIFY half of the same change (pgrst_ddl_watch's schema filter) is NOT
 -- testable here: pgTAP runs inside a transaction that rolls back, and a
@@ -19,7 +23,7 @@
 -- asserted in pgdocker/pg-ext-lifecycle.sh, where sessions commit for real.
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(17);
 
 -- =====================================================
 -- TEST 1: DDL in a non-Semantius schema is not logged
@@ -39,8 +43,7 @@ SELECT is(
 -- =====================================================
 -- TEST 2: DDL in public is still logged
 -- =====================================================
--- The regression guard for 0300's three count(*) > 0 assertions, and the guard
--- that the new WHEN TAG list did not drop a wanted event.
+-- The regression guard for 0300's three count(*) > 0 assertions.
 
 CREATE TABLE public.audit_scope_owned (id int);
 CREATE INDEX audit_scope_owned_idx ON public.audit_scope_owned (id);
@@ -113,20 +116,15 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST 6: the event trigger carries a tag allowlist
+-- TEST 6: the event trigger carries no tag allowlist
 -- =====================================================
+-- The schema is the scope, not the command name. A tag list could only ever be
+-- a guess at which commands matter, and the ones left out would pass over an
+-- evidence table without a trace. TEST 9 is the same claim from the other side.
 
 SELECT ok(
-    (SELECT evttags IS NOT NULL FROM pg_event_trigger WHERE evtname = 'track_ddl_changes'),
-    'track_ddl_changes fires only for an explicit tag list'
-);
-
-SELECT ok(
-    (SELECT evttags @> ARRAY['CREATE TABLE', 'CREATE INDEX', 'CREATE TRIGGER',
-                             'ALTER TABLE', 'CREATE FUNCTION', 'CREATE POLICY',
-                             'GRANT', 'REVOKE', 'COMMENT']
-       FROM pg_event_trigger WHERE evtname = 'track_ddl_changes'),
-    'the tag list still admits every tag 0300 and the migrations rely on'
+    (SELECT evttags IS NULL FROM pg_event_trigger WHERE evtname = 'track_ddl_changes'),
+    'track_ddl_changes fires for every command type'
 );
 
 -- =====================================================
@@ -171,6 +169,120 @@ SELECT is(
       WHERE object_identity ~ '(^|[.])[^.(]*_label[(]'),
     0,
     'generated *_label functions produce no audit rows'
+);
+
+-- =====================================================
+-- TEST 9: a command type nobody enumerated is audited
+-- =====================================================
+-- CREATE STATISTICS was not on the tag list the trigger used to carry, and it
+-- changes the planner's behavior on a table Semantius owns. It stands here for
+-- every other command type nobody thought to name.
+
+CREATE TABLE public.audit_scope_drop (id serial PRIMARY KEY, label text NOT NULL DEFAULT '');
+CREATE INDEX audit_scope_drop_label_idx ON public.audit_scope_drop (label);
+CREATE STATISTICS public.audit_scope_stats ON id, label FROM public.audit_scope_drop;
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_ddl_logs
+      WHERE command_tag = 'CREATE STATISTICS'
+        AND object_identity = 'public.audit_scope_stats'),
+    1,
+    'a command type the old tag list never named is audited'
+);
+
+-- =====================================================
+-- TEST 10: DROP TABLE in public is audited, once
+-- =====================================================
+-- ddl_command_end reports nothing at all for a drop, so this is entirely the
+-- work of the sql_drop trigger. PostgreSQL reports the table's whole dependency
+-- closure: for this one, measured on PostgreSQL 18, fourteen objects - the
+-- table, its sequence, its rowtype, its array type, two column defaults, two
+-- not-null constraints, the primary key and its index, the label index, the
+-- statistics object, and the TOAST table with its index. Exactly one of them is
+-- the object the operator named.
+--
+-- The assertion reads every row the DROP added rather than rows matching the
+-- table's name, and that is the point: a name filter cannot see the constraint
+-- rows (they are identified as "<name> on public.<table>") or the TOAST pair,
+-- so it would still pass with the `original` filter deleted.
+
+CREATE TEMP TABLE audit_scope_drop_mark AS
+SELECT coalesce(max(id), 0) AS id FROM audit_ddl_logs;
+
+DROP TABLE public.audit_scope_drop;
+
+SELECT is(
+    (SELECT coalesce(string_agg(command_tag || ' ' || object_type || ' ' || object_identity, ', ' ORDER BY id), '')
+       FROM audit_ddl_logs
+      WHERE id > (SELECT id FROM audit_scope_drop_mark)),
+    'DROP TABLE table public.audit_scope_drop',
+    'DROP TABLE in public logs one row, the table, and nothing else the statement dropped'
+);
+
+-- =====================================================
+-- TEST 11: DROP TABLE in a foreign schema is not audited
+-- =====================================================
+-- The mirror of TEST 1 for the drop side: the schema filter is what bounds the
+-- new trigger too, and audit_scope_foreign.t comes from TEST 1.
+
+DROP TABLE audit_scope_foreign.t;
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_ddl_logs
+      WHERE object_identity LIKE 'audit\_scope\_foreign.%'),
+    0,
+    'DROP TABLE in a schema Semantius does not own produces no audit row'
+);
+
+-- =====================================================
+-- TEST 12: the label churn's DROP FUNCTION half is not audited
+-- =====================================================
+-- rebuild_entity_label_functions (0145) drops every label companion of an
+-- entity before recreating it, on every field edit. TEST 8 keeps that churn out
+-- of the log on the create side; without the same filter on the drop side it
+-- would all come back in through the sql_drop trigger.
+--
+-- The companion is dropped explicitly rather than by provoking a rebuild. A
+-- rebuild fires only for edits to a field's name, format or reference_table, so
+-- a test that edits some other column proves nothing and does not say so; doing
+-- the drop directly is the event under test, and the first assertion is what
+-- stops the second from being vacuous.
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('audit_scope_lbl', 'audit_scope_lbl', 'Audit Scope Label', 'Audit Scope Labels', 'label churn probe', 1, 'public:read', 'admin', 'id', 'label');
+
+RESET ROLE;
+
+SELECT ok(
+    to_regprocedure('public._label(public.audit_scope_lbl)') IS NOT NULL,
+    'the entity generated a *_label companion there is something to drop'
+);
+
+DROP FUNCTION public._label(public.audit_scope_lbl);
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_ddl_logs
+      WHERE command_tag = 'DROP FUNCTION'
+        AND object_identity ~ '(^|[.])[^.(]*_label[(]'),
+    0,
+    'dropping a generated *_label companion produces no audit row'
+);
+
+-- =====================================================
+-- TEST 13: log_drop_event is SECURITY DEFINER
+-- =====================================================
+-- Same reason as TEST 5: audit.current_user_id() is revoked from PUBLIC, so a
+-- caller-rights trigger would make DROP TABLE fail for the request role - and
+-- the request role does drop things, its own temp tables among them.
+
+SELECT ok(
+    (SELECT p.prosecdef
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'audit' AND p.proname = 'log_drop_event'),
+    'audit.log_drop_event is SECURITY DEFINER'
 );
 
 SELECT * FROM finish();

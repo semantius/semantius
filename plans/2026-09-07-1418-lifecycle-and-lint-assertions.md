@@ -4,11 +4,10 @@ Written 2026-09-07 14:18, revised the same day after an independent review
 (findings folded in; the review also ran read-only probes on the containers,
 cited below as "verified"). Owns **B11**, **R7** and **Q6**, the three tooling
 rows that need no new infrastructure: every assertion runs in the container
-the harness already has up. Written at the owner's request while
-`plans/2026-09-07-1340-public-grants-ddl-drops-jwt-aud.md` is still open; the
-two touch the same lifecycle script and the same set of trigger functions,
-and the coordination points are marked **sibling** below. Whichever lands
-second rebases on the other.
+the harness already has up. Written while a second plan was open on the same
+lifecycle script and the same set of trigger functions; that plan landed first
+on 2026-09-07, closing S14, S17 and S18, so the coordination points marked
+**sibling** below are now statements about what is already in the tree.
 
 ## Open items
 
@@ -24,8 +23,8 @@ second rebases on the other.
 
 | Row | Effect here | Owner |
 |---|---|---|
-| **S18** (sibling plan) | The sibling adds `audit.log_drop_event`, an event-trigger function. Verified: plpgsql_check 2.10 checks `event_trigger` functions with no `relid` (`audit.log_ddl_event`, `pgrst_ddl_watch`, `pgrst_drop_watch` each return 0 findings), so it is linted like the rest and needs no override. | sibling plan |
-| **S17** (sibling plan) | The sibling edits lifecycle 4b and the uninstall recipe. This plan adds sub-steps 0, 7d and 8c and does not touch 4b. | sibling plan |
+| **S18** (landed) | `audit.log_drop_event` is now in the tree, an event-trigger function. Verified: plpgsql_check 2.10 checks `event_trigger` functions with no `relid` (`audit.log_ddl_event`, `pgrst_ddl_watch`, `pgrst_drop_watch` each return 0 findings), so it is linted like the rest and needs no override. | closed 2026-09-07 |
+| **S17** (landed) | Lifecycle 4b and the uninstall recipe have already been edited. This plan adds sub-steps 0, 7d and 8c and does not touch 4b. | closed 2026-09-07 |
 
 Two closed rows are named because the assertions are theirs: **B4** (the pgmq
 refusal, closed with the extension rebuild) and **B13** (LF normalization,
@@ -163,8 +162,8 @@ Do it as a Deno test, the first one in the repository:
 ### 1d. Bookkeeping
 
 Header step list gains `7d`, `8c` and the two step-0 lines; step 12 gains
-`life7d`, `life8d` and `/tmp/0160.sql`. **Sibling:** the sibling plan adds two
-assertions to step 11 and a trigger name to 4b; no overlap.
+`life7d`, `life8d` and `/tmp/0160.sql`. **Sibling:** step 11 already carries the
+two drop assertions and 4b the extra trigger name; no overlap.
 
 ---
 
@@ -221,9 +220,10 @@ The query:
     byte-identical to upstream v1.11.1, unbound by design, re-linted only at
     the next re-vendor.
 - `event_trigger` functions are checked with no `relid`; verified to work for
-  the three that exist (`audit.log_ddl_event`, `public.pgrst_ddl_watch`,
-  `public.pgrst_drop_watch`) and therefore for the sibling's
-  `audit.log_drop_event`. They must not appear as skips.
+  the three that existed when this was probed (`audit.log_ddl_event`,
+  `public.pgrst_ddl_watch`, `public.pgrst_drop_watch`) and therefore for
+  `audit.log_drop_event`, which has landed since. They must not appear as
+  skips.
 - The call is `extensions.plpgsql_check_function_tb(oid, relid => ...,
   oldtable => ..., newtable => ..., security_warnings => true,
   performance_warnings => true, extra_warnings => true, compatibility_warnings

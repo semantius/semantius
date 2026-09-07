@@ -352,15 +352,12 @@ step "[4b] The documented uninstall recipe leaves no leftovers"
 docker exec -i "$CONTAINER" psql -U postgres -d life2t -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<'SQL'
 DROP EXTENSION pg_semantius;
 DROP EVENT TRIGGER IF EXISTS track_ddl_changes;
+DROP EVENT TRIGGER IF EXISTS track_ddl_drops;
 DROP EVENT TRIGGER IF EXISTS pgrst_ddl_watch;
 DROP EVENT TRIGGER IF EXISTS pgrst_drop_watch;
 DROP OWNED BY semantius_owner CASCADE;
 DROP SCHEMA IF EXISTS common, rbac, audit, pgmq CASCADE;
 DROP TABLE IF EXISTS public._versions;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
 DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
 SQL
@@ -621,6 +618,10 @@ check "foreign schema: no audit row" "0" \
 
 res=$(notify_probe "DROP TABLE lifecycle_foreign.t")
 check "foreign schema: no NOTIFY pgrst on DROP" "silent" "$res"
+# The drop half of the audit is a second event trigger on sql_drop, and it is
+# bounded by the same five schemas as the create half.
+check "foreign schema: no audit row on DROP" "0" \
+  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE 'lifecycle_foreign.%'")"
 
 res=$(notify_probe "CREATE TEMP TABLE lifecycle_tmp (id int)")
 check "temp table: no NOTIFY pgrst" "silent" "$res"
@@ -631,6 +632,21 @@ res=$(notify_probe "CREATE TABLE public.lifecycle_owned (id int)")
 check "public schema: NOTIFY pgrst still fires" "notified" "$res"
 check "public schema: audit row still written" "1" \
   "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity = 'public.lifecycle_owned'")"
+
+# ddl_command_end reports nothing at all for a DROP, so a table could be
+# destroyed and leave no evidence until the sql_drop trigger existed. The
+# assertion reads every row the DROP added, not rows matching a name: measured
+# on PostgreSQL 18 this one statement reports eight dropped objects - the table,
+# its sequence, its rowtype, its array type, the id default, the not-null
+# constraint, the primary key and its index - and exactly one of them, the
+# table, may reach the log. A name filter would not see the constraint rows,
+# which are identified as "<name> on public.<table>".
+psqlrun life1 "CREATE TABLE public.lifecycle_dropped (id serial PRIMARY KEY)" >/dev/null
+drop_base=$(psqlq life1 "SELECT coalesce(max(id), 0) FROM audit_ddl_logs")
+psqlrun life1 "DROP TABLE public.lifecycle_dropped" >/dev/null
+check "public schema: a committed DROP TABLE is audited, as the table alone" \
+  "DROP TABLE|table|public.lifecycle_dropped" \
+  "$(psqlq life1 "SELECT coalesce(string_agg(command_tag||'|'||object_type||'|'||object_identity, ',' ORDER BY id), '') FROM audit_ddl_logs WHERE id > $drop_base")"
 
 # S15: before the SECURITY DEFINER fix this failed with
 # "permission denied for function current_user_id" from audit.log_ddl_event().

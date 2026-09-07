@@ -200,6 +200,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
     v_field      fields%ROWTYPE;
+    v_sequence_name TEXT;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -242,37 +243,97 @@ BEGIN
             'update_' || NEW.table_name || '_updated_at', NEW.table_name
         );
 
-        -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
-        -- see the note in create_dd_table; test 0445 fails on the bare per-row form.
-        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
-
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR SELECT TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR INSERT TO semantius_user
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR UPDATE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR DELETE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
-        );
-
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
+    END IF;
+
+    -- ── Secure the table, unless it is secured already ───────────────────
+    -- Adoption secures a table that has none of its own security; it never
+    -- overrules security that is already in place. The table below is either one
+    -- this trigger just created (row-level security still off) or one that
+    -- already existed, and only the first kind is secured here.
+    --
+    -- The condition is not caution, it is the difference between adoption and
+    -- privilege escalation. Two of the tables this file's own migrations create
+    -- are registered as entities with managed = false - the audit logs - and
+    -- their whole protection is that the request role may read and delete rows
+    -- but never write them. Securing them "again" would hand out the four
+    -- permission policies and, with them, a GRANT of INSERT and UPDATE, so any
+    -- administrator could forge and rewrite the evidence by flipping one boolean
+    -- through the Data API. The same reasoning covers _versions, _settings,
+    -- users and every other pre-existing table in public: each carries the
+    -- policies its own migration chose, and a table registered into the
+    -- dictionary must not have them replaced by the generic four.
+    --
+    -- A table an operator made in a console has no row-level security, which is
+    -- exactly what makes it unreachable until this runs, and exactly what makes
+    -- it safe to secure here.
+    IF NOT (SELECT relrowsecurity FROM pg_class
+             WHERE oid = format('public.%I', NEW.table_name)::regclass) THEN
+
+        -- The policy creations are guarded by a pg_policies lookup because
+        -- PostgreSQL has no CREATE POLICY IF NOT EXISTS; a policy an operator wrote
+        -- by hand keeps its own name and is left untouched.
+        -- Predicates use the (SELECT rbac.has_permission(...)) InitPlan form, see
+        -- the note in create_dd_table; test 0445 fails on the bare per-row form.
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_select_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR SELECT TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_insert_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR INSERT TO semantius_user
+                    WITH CHECK ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_update_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR UPDATE TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))
+                    WITH CHECK ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_delete_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR DELETE TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
+            );
+        END IF;
+
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
+            NEW.table_name
+        );
+
+    ELSE
+        RAISE NOTICE 'Table "%" already has row level security; adoption left its policies and privileges alone', NEW.table_name;
     END IF;
 
     -- ── Insert core field records if they were never created ─────────────
@@ -310,6 +371,32 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- The id column's sequence, granted here rather than beside the table grant
+    -- above because on the hand-made path the column may only have been added by
+    -- the loop above, and pg_get_serial_sequence raises on a column that does
+    -- not exist. A table whose key is not a serial has no sequence and needs no
+    -- grant. Conditioned on the table grant having been issued: a sequence
+    -- grant on a table the request role cannot reach is dead privilege, and on
+    -- an already-secured table it would be the same overreach the block above
+    -- refuses.
+    IF has_table_privilege('semantius_user',
+                           format('public.%I', NEW.table_name)::regclass, 'SELECT')
+       AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.id_column
+    ) THEN
+        v_sequence_name := pg_get_serial_sequence(
+            format('public.%I', NEW.table_name), NEW.id_column);
+        IF v_sequence_name IS NOT NULL THEN
+            EXECUTE format(
+                'GRANT USAGE, SELECT ON SEQUENCE %s TO semantius_user',
+                v_sequence_name
+            );
+        END IF;
+    END IF;
+
     -- Update searchable flag in case any searchable fields exist
     UPDATE entities
     SET searchable = EXISTS (
@@ -334,11 +421,20 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
-creates the physical table (with RLS policies and updated_at trigger) if it does
-not already exist, then adds any columns that were defined as field records while
-the table was unmanaged. Finally calls build_select_rule_policy() so the canonical
-select_rule predicate is installed deterministically, without depending on the
-firing order of the manage_select_rule_policy AFTER-trigger (F3).';
+creates the physical table and its updated_at trigger if it does not already
+exist, then secures the table on either path - RLS enabled, the four permission
+policies created if absent, and the request-role grant issued last - then adds
+any columns that were defined as field records while the table was unmanaged.
+Adoption secures a table that has no row-level security of its own - a hand-made
+table arrives with none, and the grant is what exposes it through the Data API -
+and leaves a table that is already secured exactly as it is, so that registering
+a core table as an entity cannot replace its policies or widen its privileges. Finally
+calls build_select_rule_policy() directly, so an entity carrying a select_rule
+gets the per-row predicate rather than the permission-only policies installed
+above. Calling it here rather than leaving it to the manage_select_rule_policy
+AFTER-trigger is deliberate: two AFTER triggers on the same table fire in name
+order, and if that one ran first the toggle would leave a select_rule entity
+gated by view_permission alone.';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
 CREATE TRIGGER enable_table_trigger

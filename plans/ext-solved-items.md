@@ -58,8 +58,10 @@ table was never in the rebuild's scope.
 | R2 | tooling | **CLOSED** | Resolved 2026-09-03 after the owner clarified: they work directly on `main` and tag releases and will not change that, but contributors may open PRs later. So `.github/workflows/test.yml` exists with a `pull_request`-only trigger (plus manual) - it never fires on a push, leaving the maintainer workflow untouched, and gives a contributor PR the full check set on a clean Linux runner: regenerate, the committed-equals-regenerated guard, both suites (Path B with coverage), the lifecycle script and the META checks. `extension-release.yml` deliberately does not depend on it, so a release stays self-contained. Not yet observed green, because no pull request exists to run it. |
 | R5 | tooling | **CLOSED** | postgresql-18-plpgsql-check in the dev image; both stacks report statement coverage (1,816/2,162). Confirmed live in both containers. |
 
-**Not closed: B11** — plus the gaps noted inside B4, B10 and B13, and the new limits of the scoped audit (**S18**). Those are tracked in
+**Not closed: B11** — plus the gaps noted inside B4, B10 and B13. It is tracked in
 `plans/pg_semantius-open-items.md`, with the verification gaps collected under **R7**.
+The new limits of the scoped audit were tracked as **S18** and closed on
+2026-09-07; its section is below.
 
 ## The 0.5.0 rebuild: original rows
 
@@ -2197,3 +2199,296 @@ The trigger for reopening is the day bearer mode stops being experimental, and
 the definition of done is unchanged: a scoped session that clears the GUC, or
 calls the entry point with a wider list, still has the scoped-out permission
 denied.
+
+## S17 (2026-09-07): the request role has no default access in `public`, and adoption always secures
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S17 | Low | migration | `0050_rbac_rls.sql` (default privileges) | Default privileges grant `semantius_user` SELECT/INSERT/UPDATE/DELETE on every future table in `public`: any table created outside the data dictionary is fully writable by the request role unless it gets RLS. Documented as a behavior in `SECURITY.md` since 2026-09-03; dictionary tables always get RLS. | Decide: keep, or narrow the default and grant explicitly from `create_dd_table`. | A table created by hand in `public` is not writable by user1 (if narrowed), or the decision to keep is recorded here and the row deleted. |
+
+### The decision
+
+**Narrowed.** A grant is what publishes a table through the Data API, and a
+table nobody wrote policies for has no other access control, so the grant is
+issued only where the policies are. A table created in a console is now
+invisible to the request role until an operator grants it deliberately.
+
+The owner also decided the second half, which the row did not ask about:
+**adoption always secures the table.** Flipping an entity's `managed` to `true`
+now enables RLS, creates the four permission policies and grants, whether the
+trigger created the table itself or the operator made it by hand. Before this,
+a hand-made table adopted into the dictionary got neither RLS nor policies -
+and would, under the old default, have been served in full to every logged-in
+user.
+
+### What changed
+
+- `0050_rbac_rls.sql`: both `ALTER DEFAULT PRIVILEGES ... ON TABLES/SEQUENCES`
+  statements are gone. The two one-time `GRANT ... ON ALL TABLES` /
+  `ON ALL SEQUENCES` stay: they cover the tables that exist at that point of
+  the migration order, every one of them ours and every one of them with RLS.
+- `0290_owner_hardening.sql`: the two statements that reproduced the same
+  defaults `FOR ROLE semantius_owner` are gone. The four `REVOKE EXECUTE`
+  defaults, the `rbac` `GRANT EXECUTE` default and the two `pg_monitor` ones
+  stay.
+- **Both files also revoke the old defaults.** `pg_default_acl` is database
+  state, not schema state, and `deno task dropall` does not touch it: without
+  an explicit revoke, every database that ever ran an earlier build would keep
+  handing the request role each new table in `public` forever, and the standard
+  dropall-then-migrate cycle would never clear it. Verified on
+  `postgres18-cli`, where the ten pre-existing rows became six after the change.
+  Each file revokes the rows whose grantor it is.
+- `0060_dd_schema.sql`: `entities` and `fields` are created after the one-time
+  grant and had nothing; they get an explicit grant beside their RLS enable.
+  Neither has a sequence.
+- `0070_dd_functions.sql`, `create_dd_table`: grants the four table privileges
+  and `USAGE, SELECT` on the id sequence, after `ENABLE ROW LEVEL SECURITY`.
+- `0145_managed_enable.sql`, `enable_dd_table`: the RLS enable, the four
+  policies and the grants moved out of the `IF NOT EXISTS` branch so both paths
+  run them. Each policy is guarded by a `pg_policies` lookup, because there is
+  no `CREATE POLICY IF NOT EXISTS`; a policy an operator wrote by hand keeps its
+  own name and survives. The sequence grant sits after the column-creation loop
+  rather than beside the table grant: on the hand-made path the id column may
+  only be added by that loop, and `pg_get_serial_sequence` raises on a column
+  that does not exist.
+- **The securing block runs only for a table with no row-level security of its
+  own, and that condition is the difference between adoption and privilege
+  escalation.** Written unconditionally first, it was reachable as an attack:
+  `audit_record_logs` and `audit_ddl_logs` are registered as entities with
+  `managed = false`, and their whole protection is that the request role may
+  read and delete rows but never write them. An administrator flipping that one
+  boolean through the Data API got the four generic permission policies and,
+  with them, a `GRANT` of INSERT and UPDATE on the evidence table - reproduced
+  live on 2026-09-07, `has_table_privilege('semantius_user', …, 'INSERT')` going
+  from false to true on the flip. The same shape reached `_versions`,
+  `_settings`, `users` and every other pre-existing table in `public`. The rule
+  is now "adoption secures a table that has none of its own security; it never
+  overrules security that is already there", which is exactly right for the case
+  adoption exists for: a table made in a console has no RLS, and that is what
+  makes it both unreachable and safe to secure. An already-secured table gets a
+  NOTICE saying what was left alone. The permissive-looking policies
+  `build_select_rule_policy` adds on such a flip are older than this change and
+  confer nothing without the grant.
+- `0070_dd_functions.sql` also guards its `pg_get_serial_sequence` call with a
+  column-existence check, the same way `0145` does: `CREATE TABLE IF NOT EXISTS`
+  means an entity can be registered onto a table somebody else made, whose key
+  column need not exist. And in both `0060` and `0070` the grant is issued after
+  the policies rather than before, so the ordering the code follows is the same
+  one `SECURITY.md` tells an operator to follow.
+- `0150_audit_log.sql`: the two `REVOKE INSERT, UPDATE` on the audit tables stay
+  as belt and braces and their comment now says so. They take nothing away
+  today - the tables are created after the one-time grant and there is no
+  default - but a blanket grant added later in the migration order must not
+  silently make audit rows forgeable.
+- The uninstall recipe lost its two `ALTER DEFAULT PRIVILEGES ... REVOKE` lines
+  in both copies (`packages/cli/commands/extension.ts` and
+  `pgdocker/pg-ext-lifecycle.sh` step 4b). The `FUNCTIONS` line stays, and so
+  does the assertion that it leaves exactly one cosmetic `pg_default_acl` row.
+- `SECURITY.md`: the "writable by the request role until it gets row-level
+  security" bullet is now "invisible to the request role until the operator
+  grants it", and says what exposing an unmanaged table takes - policies first,
+  then the grant, never the grant alone. The restore-by-a-differently-named-
+  superuser bullet no longer lists data access on future tables as something
+  lost; only the `rbac` EXECUTE default remains.
+- The generated consumer README's Roles table says the request role has no
+  default access to tables in `public`.
+
+### What proves it
+
+`apps/test/tests/0460_test_public_grants.sql`, thirteen assertions: no
+`pg_default_acl` row in `public` for tables or sequences reaches the request
+role, for any grantor and by any grantee that carries it (PUBLIC and
+`authenticated` included); **every** table and sequence in `public` is reachable,
+which is the assertion that catches a future creation site added without a
+grant; a hand-made table carries no privilege for the request role and a
+`SELECT` as user1 raises 42501; a dictionary table carries all four privileges
+and `USAGE` on its id sequence, and a user holding the edit permission can
+insert into it; and adoption of a hand-made table that demonstrably has neither
+RLS nor a privilege beforehand ends with RLS enabled, the four named policies
+present, an operator's own policy still there, and the four privileges plus the
+sequence granted.
+
+`0060_test_security.sql` 2.1 (every table in `public` has RLS) and the two
+audit-table privilege assertions stay green unchanged, as do
+`0300_test_audit_log.sql`'s forge tests and
+`0430_test_owner_hardening.sql`'s privilege assertion. Both harnesses are green:
+`pg-cli-retest.sh` and `pg-ext-retest.sh` at 2339 assertions each,
+`pg-ext-lifecycle.sh` at 114.
+
+### What this closure does not solve
+
+**Adoption of a table the dictionary cannot own now fails instead of silently
+half-working.** `enable_dd_table` is SECURITY DEFINER as `semantius_owner`, and
+PostgreSQL allows `ALTER TABLE`, `CREATE POLICY` and `GRANT` only to a table's
+owner. On a hardened self-hosted install, a table created by `postgres` has to
+be handed to `semantius_owner` before it can be adopted - the same requirement
+adding a missing column at adoption always had, but it now applies to every
+adoption rather than only to those that change columns. On managed platforms
+(Neon, Supabase) owner hardening is a no-op and the installing role owns both,
+so nothing is needed. `0460` documents the handoff where it performs it.
+
+**Existing installs need the migration to re-run.** The revokes live in `0050`
+and `0290`, and `semantius.migrate()` never re-applies an applied migration, so
+a database that already has those rows keeps its default privileges until it is
+migrated from empty. That matches the project's stated prototyping mode.
+
+## S18 (2026-09-07): every command type is audited, and drops are audited at all
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S18 | Low | migration | `0150_audit_log.sql` (`audit.log_ddl_event`, `track_ddl_changes`) | What the 2026-09-04 scoped audit cannot see. (a) `GRANT`/`REVOKE` events arrive from `pg_event_trigger_ddl_commands()` with NULL `classid`, `objid`, `schema_name` **and** `object_identity` (verified live), so they can be neither scoped to a schema nor recognized as generated-label churn: 557 of the 1955 rows a full migrate leaves, 28%, identify no object; 207 of them are the per-function pre-grants `0290_owner_hardening.sql` issues so that its ownership transfer does not depend on `pg_proc` order. They were kept rather than dropped, because dropping them would discard the privilege history the table exists for - but on the extension path their `query_text` is only `SELECT semantius.migrate()`, so there they carry nothing at all. (b) `WHEN TAG IN (...)` is an allowlist on an evidence table: a DDL kind nobody enumerated (`CREATE STATISTICS`, `ALTER ROUTINE`, text-search configurations, `IMPORT FOREIGN SCHEMA`) is silently unaudited, and nothing tests that the list is still complete. None is emitted by any migration today. (c) `CREATE SCHEMA` reports a NULL `schema_name`, so creating a schema is always logged and always fires `NOTIFY pgrst`, foreign schemas included. | (a) accept and document, or record the grant target from the DDL text; (b) decide between the allowlist and auditing every tag, and if it stays, a test that fails when a new tag appears in the migrations without being listed; (c) accept. | Each of the three is either fixed or recorded here as a deliberate limitation, and the row deleted. |
+
+### The decision
+
+**(a) and (c) accepted, (b) fixed, and a fourth problem the row had not
+named fixed with it.** The tag allowlist is gone: the schema is the scope, and a
+command is audited when it touches one of the five Semantius schemas whatever it
+is called. The reasoning for all three accepted limitations is written into the
+comment above `audit.log_ddl_event` rather than left in a plan, because a plan
+is deleted and a comment is not.
+
+The fourth problem: **`DROP TABLE` was not audited at all.** Probed live on
+2026-09-07 in `postgres18-cli` - a `DROP TABLE s.t` produced zero
+`ddl_command_end` rows and nine `sql_drop` rows, one of them `original = true`.
+`pg_event_trigger_ddl_commands()` returns nothing for a drop whatever the tag,
+so no allowlist edit could ever have caught it: a table could be destroyed and
+leave no evidence.
+
+### What changed
+
+- `track_ddl_changes` lost its `WHEN TAG IN (...)` clause. `log_ddl_event`
+  itself is unchanged; its three filters (extension membership, the five
+  schemas, the generated label companions) were always the real scope.
+- A second event trigger, `track_ddl_drops` on `sql_drop`, running the new
+  `audit.log_drop_event()` - `SECURITY DEFINER` for the same reason as its
+  sibling, so a request-role `DROP` of its own temp table does not fail on the
+  insert. Four conditions decide what it records: `original` only (one
+  `DROP TABLE` reports the table's whole dependency closure - eight objects for
+  a bare `(id serial PRIMARY KEY)`, fourteen once a text column, a second index
+  and a statistics object are involved, measured on PostgreSQL 18 - and only the
+  table is the one the operator named), the five schemas **or** a dropped schema, not temporary, and not a
+  generated `*_label` companion.
+- **The `NULL` schema rule is deliberately narrow, and it is load-bearing.**
+  `DROP SCHEMA` reports the schema itself with a NULL `schema_name`, the mirror
+  of `CREATE SCHEMA`, and is logged for the same reason. `DROP EXTENSION`
+  reports an original object with a NULL schema too, and is not logged: the
+  lifecycle harness fingerprints every core table's row count across
+  `DROP EXTENSION` and asserts the drop is inert, and one audit row there would
+  break that. The predicate uses `COALESCE(schema_name, '')` rather than a bare
+  `IN`, because a NULL predicate makes `CONTINUE WHEN` fall through - which
+  would have logged exactly the `DROP EXTENSION` row the rule exists to exclude.
+- **The first statement of `log_drop_event` returns early when
+  `public.audit_ddl_logs` no longer exists.** `deno task dropall` drops the
+  tables in `public` alphabetically with a per-table catch that only logs, and
+  `audit_ddl_logs` is fourth; without the guard every drop after it would fail
+  on the insert and leave the database half torn down. The cost is that drops
+  issued after the log table is gone are unaudited - which is the case where the
+  audit itself is being destroyed, and where a row would have nowhere to go.
+- The uninstall recipe lists `track_ddl_drops` in its `DROP EVENT TRIGGER`
+  statement, in both copies. The event triggers go first there because
+  `DROP OWNED BY ... CASCADE` would otherwise fire them thousands of times.
+
+### What proves it
+
+`apps/test/tests/0301_test_audit_ddl_scope.sql`, seventeen assertions (was
+twelve). Test 6 is inverted - `evttags IS NULL`, "fires for every command type".
+Test 9 issues a `CREATE STATISTICS`, a type the old list never named, and finds
+its row. Test 10 drops a table and asserts that the log gained exactly one row -
+it reads every row above a watermark taken before the `DROP`, not rows matching
+the table's name, because a name filter cannot see the constraint rows or the
+TOAST pair and would still pass with the `original` filter deleted. Test 11
+drops a table in a foreign schema and finds nothing. Test 12 drops a generated
+label companion by hand and finds no `DROP FUNCTION` row, with a positive
+control proving there was a companion to drop. Test 13 pins `log_drop_event` as
+`SECURITY DEFINER`.
+
+`pg-ext-lifecycle.sh` step 11 gains two committed assertions (fourteen checks,
+was twelve): a `DROP TABLE` in `public` leaves exactly one audit row and nothing
+else, and a `DROP TABLE` in a foreign schema leaves none. Step 4's inert-drop
+signature and step 4b's "no event triggers left" both stay green.
+`0440_test_extension_membership.sql`'s event-trigger count comparison is
+unaffected: the new trigger is on both sides.
+
+`deno task dropall` against a fully migrated database was run by hand, which is
+the path the teardown guard exists for and which no harness covers: it empties
+the database with no table-drop failure, and `deno task migrate` afterwards
+succeeds.
+
+`0448_test_statement_triggers.sql`'s bound of two DDL rows per plain field
+insert is the guard that would catch the label filter going missing from the
+drop side, and it stays green.
+
+### What this closure does not solve
+
+`GRANT` and `REVOKE` still identify no object, so they can be neither scoped nor
+recognized as label churn, and roughly half of the label rebuild's churn is
+still unfilterable. Recovering the target from the DDL text was considered and
+declined: that is a parser for an open-ended grammar, feeding an evidence table.
+`CREATE SCHEMA` and `DROP SCHEMA` are still always logged, foreign ones
+included. All three are now written into the comment above `log_ddl_event`.
+
+Fresh installs only, for the same reason as every other change to a migration:
+`migrate()` never re-applies an applied migration, so an existing database keeps
+the old single trigger with its tag list until it is migrated from empty.
+
+## S14 (2026-09-07): the audience stays optional, and `status()` says whether it is set
+
+### The row, as it stood
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S14 | Info | migration | `0030_rbac_functions.sql` (`rbac.uid`) | In session mode the request role controls `request.jwt.claim.*`; `system_user` pins the identity only for PG18 `oauth:` sessions; without a `jwt_aud` row in `_settings` the audience is not enforced. This is the trust model, documented in `SECURITY.md` (2026-09-03). | Require `jwt_aud`; link the policy from the consumer README (B8). | A missing `jwt_aud` row refuses `uid()` (today only a mismatched `aud` raises, tests 0250 and 0410). |
+
+### The decision
+
+**Keep it optional, report it, link the policy.** `rbac.uid()` is unchanged: with
+no `jwt_aud` row it accepts any token from the trusted issuer. Requiring the row
+would refuse every install that has not written one, and it would be stricter
+than the platform Semantius targets - Neon's own provider settings treat the
+audience as optional and check nothing when it is left blank. What the install
+owes the operator is therefore not enforcement but visibility.
+
+### What changed
+
+- `semantius.status()` has a `jwt_aud_set boolean` column: true when
+  `public._settings` holds a `jwt_aud` row with a non-empty value, false
+  otherwise, inside the same exception-guarded shape the `db_version` read uses.
+- The generated consumer README's "Runtime configuration" section says what the
+  row does, that without it any token from the trusted issuer is accepted, that
+  this matches Neon's blank-audience default, that `status().jwt_aud_set`
+  reports it, and where the trust model is (`SECURITY.md`, "Session mode trusts
+  the application tier").
+- `SECURITY.md`'s session-mode bullet says the row is optional and names the
+  `status()` column.
+
+### The bug found while reading, fixed here
+
+`semantius.status()` read `_settings.key` to fill `db_version`, and the column
+is `name`. The `EXCEPTION WHEN OTHERS` around it swallowed the undefined-column
+error, so `db_version` was NULL on every install that ever ran the function -
+silently, since the column is nullable by design. Fixed in the same function,
+and pinned by an assertion rather than left to be found again.
+
+### What proves it
+
+`apps/test/tests/0250_test_jwt_aud.sql`, four new assertions (nine, was five).
+`status()` is `REVOKE ... FROM PUBLIC` and exists only on the extension path, so
+they run as the installer between the `RESET ROLE` and the `SET ROLE`, through
+`pg_temp` wrapper functions: a literal `semantius.status()` is resolved at parse
+time and would make the whole file fail on the migrate path, where the schema
+does not exist. On that path each assertion passes with a skip message. The four:
+`jwt_aud_set` is false before the row is written and true after; `default_acls_ok`
+is still true with no table or sequence defaults left (the claim S17's change
+rests on); and `db_version` returns the value in `_settings`.
+
+### What this closure does not solve
+
+The trust model itself, which is what the row was really about. In session mode
+whoever can run SQL as the request role can set any claim, `sub` included; the
+audience check is one more thing such a caller could satisfy anyway. It bounds
+tokens minted for another audience by an issuer you share, and nothing more.
+That is documented, not fixed, and the row was closed on that basis.

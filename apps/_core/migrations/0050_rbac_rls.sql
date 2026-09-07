@@ -260,12 +260,29 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius
 -- Grant sequence usage for auto-increment columns
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
 
--- Ensure future tables also get these grants
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+-- Earlier releases did carry a default privilege here, and `deno task dropall`
+-- does not remove one: pg_default_acl is database state, not schema state, so a
+-- database that ever ran that release keeps handing the request role every new
+-- table in public until it is taken back explicitly. These two revokes do that.
+-- They bind to the installing role, which is the grantor of the rows they undo;
+-- 0290 takes back the semantius_owner pair. On a database that never had them
+-- both are no-ops and leave no row behind.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+-- There is deliberately no ALTER DEFAULT PRIVILEGES for tables or sequences in
+-- this schema. A default grant would reach every table created in public from
+-- then on, including one made by hand in a console, and such a table has no
+-- policies: the grant is the whole of its access control, so the Data API would
+-- serve all of its rows to every logged-in user. The grant is therefore issued
+-- per table, at each site that creates one the request role must reach - the
+-- dictionary at CREATE TABLE and at adoption, and the core migrations for what
+-- they create - so that a grant is never in place without the policies that
+-- bound it. The two ON ALL statements above are not a default: they cover the
+-- tables that exist at this point of the migration order, every one of them
+-- ours and every one of them with RLS (pinned by 0060_test_security.sql 2.1).
 
 -- =====================================================
 -- TRIGGER: Auto-assign role 1 (User) to new users

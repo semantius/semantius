@@ -3348,12 +3348,29 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius
 -- Grant sequence usage for auto-increment columns
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
 
--- Ensure future tables also get these grants
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+-- Earlier releases did carry a default privilege here, and `deno task dropall`
+-- does not remove one: pg_default_acl is database state, not schema state, so a
+-- database that ever ran that release keeps handing the request role every new
+-- table in public until it is taken back explicitly. These two revokes do that.
+-- They bind to the installing role, which is the grantor of the rows they undo;
+-- 0290 takes back the semantius_owner pair. On a database that never had them
+-- both are no-ops and leave no row behind.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-    GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+-- There is deliberately no ALTER DEFAULT PRIVILEGES for tables or sequences in
+-- this schema. A default grant would reach every table created in public from
+-- then on, including one made by hand in a console, and such a table has no
+-- policies: the grant is the whole of its access control, so the Data API would
+-- serve all of its rows to every logged-in user. The grant is therefore issued
+-- per table, at each site that creates one the request role must reach - the
+-- dictionary at CREATE TABLE and at adoption, and the core migrations for what
+-- they create - so that a grant is never in place without the policies that
+-- bound it. The two ON ALL statements above are not a default: they cover the
+-- tables that exist at this point of the migration order, every one of them
+-- ours and every one of them with RLS (pinned by 0060_test_security.sql 2.1).
 
 -- =====================================================
 -- TRIGGER: Auto-assign role 1 (User) to new users
@@ -3679,7 +3696,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', '789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3');
+      VALUES ('_core.0050_rbac_rls', 'ffe938e8499aba831441ed0fe51634448c99c2781f306bb5574e49d37313a5ec');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3993,6 +4010,18 @@ CREATE POLICY fields_delete_policy ON fields
     FOR DELETE
     TO semantius_user
     USING ((SELECT rbac.has_permission('admin')));
+
+-- =====================================================
+-- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
+-- =====================================================
+-- These two are created after 0050's one-time GRANT ... ON ALL TABLES and there
+-- is no default privilege in this schema to pick them up, so the request role
+-- reaches them only through this grant. It comes after the RLS enable and the
+-- eight policies above, in that order: a grant is what publishes a table
+-- through the Data API, and until policies exist it is the whole of that
+-- table's access control. Neither table has a sequence - entities is keyed by
+-- table_name and fields.id is a generated text column.
+GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
 
 -- =====================================================
 -- AUTO-SET PLURAL TRIGGER
@@ -4408,7 +4437,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '4b331200ba3e1817826c91294136ed2c206bf7dcc4a4a7f07cde775ecef0a703');
+      VALUES ('_core.0060_dd_schema', 'f62856532dc376e1a302a1ce4ac8f6cb06814cc6d188fd7d9746a9f4d0b4a688');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4777,6 +4806,7 @@ DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
     v_comment    TEXT;
+    v_sequence_name TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
@@ -4871,7 +4901,37 @@ BEGIN
         NEW.edit_permission
     );
     EXECUTE v_policy_sql;
-    
+
+    -- The request role has no default privileges in public, so a dictionary
+    -- table is unreachable through the Data API until it is granted here. The
+    -- grant comes last, after the four policies above: it is what publishes a
+    -- table, and until policies exist it is the whole of that table's access
+    -- control, so it is never the first thing in place.
+    EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
+        NEW.table_name
+    );
+    -- CREATE TABLE above is IF NOT EXISTS, so an entity can be registered onto a
+    -- table somebody else made, whose key column need not exist at all.
+    -- pg_get_serial_sequence raises on a column that is not there rather than
+    -- returning NULL, so the column is checked first. A key that is not a serial
+    -- has no sequence and needs no grant.
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.id_column
+    ) THEN
+        v_sequence_name := pg_get_serial_sequence(
+            format('public.%I', NEW.table_name), NEW.id_column);
+        IF v_sequence_name IS NOT NULL THEN
+            EXECUTE format(
+                'GRANT USAGE, SELECT ON SEQUENCE %s TO semantius_user',
+                v_sequence_name
+            );
+        END IF;
+    END IF;
+
     -- Insert field records for id, label, created_at, and updated_at columns.
     -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
@@ -6386,7 +6446,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '8727da41a8d7e161a48a1e45e0624e691b7dc9d68f6c359dd0e89fc40d0be65e');
+      VALUES ('_core.0070_dd_functions', '4b384e4a30a659d9c43b728b16f86e35f712ae44ce5758cd59982341a0509b7e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8928,6 +8988,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
     v_field      fields%ROWTYPE;
+    v_sequence_name TEXT;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -8970,37 +9031,97 @@ BEGIN
             'update_' || NEW.table_name || '_updated_at', NEW.table_name
         );
 
-        -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
-        -- see the note in create_dd_table; test 0445 fails on the bare per-row form.
-        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
-
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR SELECT TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR INSERT TO semantius_user
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR UPDATE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
-        );
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR DELETE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
-        );
-
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
+    END IF;
+
+    -- ── Secure the table, unless it is secured already ───────────────────
+    -- Adoption secures a table that has none of its own security; it never
+    -- overrules security that is already in place. The table below is either one
+    -- this trigger just created (row-level security still off) or one that
+    -- already existed, and only the first kind is secured here.
+    --
+    -- The condition is not caution, it is the difference between adoption and
+    -- privilege escalation. Two of the tables this file's own migrations create
+    -- are registered as entities with managed = false - the audit logs - and
+    -- their whole protection is that the request role may read and delete rows
+    -- but never write them. Securing them "again" would hand out the four
+    -- permission policies and, with them, a GRANT of INSERT and UPDATE, so any
+    -- administrator could forge and rewrite the evidence by flipping one boolean
+    -- through the Data API. The same reasoning covers _versions, _settings,
+    -- users and every other pre-existing table in public: each carries the
+    -- policies its own migration chose, and a table registered into the
+    -- dictionary must not have them replaced by the generic four.
+    --
+    -- A table an operator made in a console has no row-level security, which is
+    -- exactly what makes it unreachable until this runs, and exactly what makes
+    -- it safe to secure here.
+    IF NOT (SELECT relrowsecurity FROM pg_class
+             WHERE oid = format('public.%I', NEW.table_name)::regclass) THEN
+
+        -- The policy creations are guarded by a pg_policies lookup because
+        -- PostgreSQL has no CREATE POLICY IF NOT EXISTS; a policy an operator wrote
+        -- by hand keeps its own name and is left untouched.
+        -- Predicates use the (SELECT rbac.has_permission(...)) InitPlan form, see
+        -- the note in create_dd_table; test 0445 fails on the bare per-row form.
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_select_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR SELECT TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_insert_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR INSERT TO semantius_user
+                    WITH CHECK ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_update_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR UPDATE TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))
+                    WITH CHECK ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
+            );
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public' AND tablename = NEW.table_name
+              AND policyname = NEW.table_name || '_delete_policy'
+        ) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON %I
+                    FOR DELETE TO semantius_user
+                    USING ((SELECT rbac.has_permission(%L)))',
+                NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
+            );
+        END IF;
+
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
+            NEW.table_name
+        );
+
+    ELSE
+        RAISE NOTICE 'Table "%" already has row level security; adoption left its policies and privileges alone', NEW.table_name;
     END IF;
 
     -- ── Insert core field records if they were never created ─────────────
@@ -9038,6 +9159,32 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- The id column's sequence, granted here rather than beside the table grant
+    -- above because on the hand-made path the column may only have been added by
+    -- the loop above, and pg_get_serial_sequence raises on a column that does
+    -- not exist. A table whose key is not a serial has no sequence and needs no
+    -- grant. Conditioned on the table grant having been issued: a sequence
+    -- grant on a table the request role cannot reach is dead privilege, and on
+    -- an already-secured table it would be the same overreach the block above
+    -- refuses.
+    IF has_table_privilege('semantius_user',
+                           format('public.%I', NEW.table_name)::regclass, 'SELECT')
+       AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.id_column
+    ) THEN
+        v_sequence_name := pg_get_serial_sequence(
+            format('public.%I', NEW.table_name), NEW.id_column);
+        IF v_sequence_name IS NOT NULL THEN
+            EXECUTE format(
+                'GRANT USAGE, SELECT ON SEQUENCE %s TO semantius_user',
+                v_sequence_name
+            );
+        END IF;
+    END IF;
+
     -- Update searchable flag in case any searchable fields exist
     UPDATE entities
     SET searchable = EXISTS (
@@ -9062,11 +9209,20 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
-creates the physical table (with RLS policies and updated_at trigger) if it does
-not already exist, then adds any columns that were defined as field records while
-the table was unmanaged. Finally calls build_select_rule_policy() so the canonical
-select_rule predicate is installed deterministically, without depending on the
-firing order of the manage_select_rule_policy AFTER-trigger (F3).';
+creates the physical table and its updated_at trigger if it does not already
+exist, then secures the table on either path - RLS enabled, the four permission
+policies created if absent, and the request-role grant issued last - then adds
+any columns that were defined as field records while the table was unmanaged.
+Adoption secures a table that has no row-level security of its own - a hand-made
+table arrives with none, and the grant is what exposes it through the Data API -
+and leaves a table that is already secured exactly as it is, so that registering
+a core table as an entity cannot replace its policies or widen its privileges. Finally
+calls build_select_rule_policy() directly, so an entity carrying a select_rule
+gets the per-row predicate rather than the permission-only policies installed
+above. Calling it here rather than leaving it to the manage_select_rule_policy
+AFTER-trigger is deliberate: two AFTER triggers on the same table fire in name
+order, and if that one ran first the toggle would leave a select_rule entity
+gated by view_permission alone.';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
 CREATE TRIGGER enable_table_trigger
@@ -9884,7 +10040,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '0e61baf7829829518ad95a6e1977845fa530c9179653b19333a565f3a3242853');
+      VALUES ('_core.0145_managed_enable', '01814712b33990532c9dc6eb1df989206363d3c272d8b793126407f0009a0ede');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10006,7 +10162,7 @@ CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
 );
 
 COMMENT ON TABLE public.audit_ddl_logs IS
-'Stores DDL schema change events captured by the ddl_command_end event trigger.';
+'Stores schema change events captured by two event triggers: creations and alterations from ddl_command_end, drops from sql_drop, which is the only mechanism that reports them.';
 
 COMMENT ON COLUMN public.audit_ddl_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context (e.g. migrations).';
 
@@ -10439,6 +10595,12 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
 -- other two audit triggers in this file are already definers.
 --
+-- The scope is the schema, not the command. track_ddl_changes below carries no
+-- WHEN TAG clause: a command is audited when it touches one of the five
+-- schemas, whatever it is called. A tag allowlist could only ever be a guess at
+-- which commands matter, and a command type nobody thought to enumerate would
+-- pass through an evidence table leaving nothing behind.
+--
 -- Three filters, in the order they are applied:
 --   1. in_extension - objects an extension script created belong to that
 --      extension, not to this database's schema history.
@@ -10461,6 +10623,22 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      named <something>_label in one of the five schemas is not audited
 --      either, and an entity whose name needs quoting is (the quote sits
 --      between _label and the paren). Neither occurs today.
+--
+-- Three limitations, all accepted:
+--   - GRANT and REVOKE arrive with no classid, objid, schema_name or
+--     object_identity, so they can be neither scoped to a schema nor
+--     recognized as label churn. They are kept anyway, because the privilege
+--     history is what this table exists for; on the extension install path
+--     their query_text is only the migrate() call that issued them. Recovering
+--     the target from the DDL text was considered and declined: that is a
+--     parser for an open-ended grammar, feeding an evidence table.
+--   - CREATE SCHEMA reports no schema of its own - its identity is the new
+--     schema's name - so creating a schema is always logged, foreign ones
+--     included. Dropping one is logged too, by the sibling below, for the same
+--     reason and with the same consequence.
+--
+-- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
+-- rows for them whatever the tag, which is why audit.log_drop_event exists.
 -- query_text is bounded: current_query() is the entire migration script for
 -- script-driven DDL, stored once per event.
 CREATE OR REPLACE FUNCTION audit.log_ddl_event()
@@ -10493,37 +10671,94 @@ $$;
 COMMENT ON FUNCTION audit.log_ddl_event IS
 'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
--- The tag allowlist keeps the trigger from firing at all for commands that
--- cannot change the schema Semantius manages. It is deliberately broad: every
--- CREATE/ALTER of a database-local schema object, plus the privilege and
--- documentation commands. ddl_command_end reports no rows for DROP commands
--- (dropped objects are only visible to a sql_drop trigger), so DROP tags would
--- be dead weight here.
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
-    WHEN TAG IN (
-      'CREATE SCHEMA', 'ALTER SCHEMA'
-    , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
-    , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
-    , 'CREATE VIEW', 'ALTER VIEW'
-    , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
-    , 'CREATE SEQUENCE', 'ALTER SEQUENCE'
-    , 'CREATE INDEX', 'ALTER INDEX'
-    , 'CREATE FUNCTION', 'ALTER FUNCTION'
-    , 'CREATE PROCEDURE', 'ALTER PROCEDURE'
-    , 'CREATE TRIGGER', 'ALTER TRIGGER'
-    , 'CREATE POLICY', 'ALTER POLICY'
-    , 'CREATE TYPE', 'ALTER TYPE'
-    , 'CREATE DOMAIN', 'ALTER DOMAIN'
-    , 'CREATE RULE', 'ALTER RULE'
-    , 'CREATE EXTENSION', 'ALTER EXTENSION'
-    , 'GRANT', 'REVOKE', 'ALTER DEFAULT PRIVILEGES'
-    , 'SECURITY LABEL', 'COMMENT'
-    )
     EXECUTE FUNCTION audit.log_ddl_event();
 
 COMMENT ON EVENT TRIGGER track_ddl_changes IS
 'Event trigger that fires after any DDL command completes, logging the change to audit_ddl_logs.';
+
+-- The drop half of the audit. ddl_command_end reports nothing for a drop -
+-- pg_event_trigger_ddl_commands() returns zero rows even when the tag is
+-- DROP TABLE - so without this trigger a table can be destroyed and leave no
+-- evidence at all. SECURITY DEFINER for the same reason as its sibling: the
+-- request role must be able to drop a temp table without failing on the insert.
+--
+-- The first statement is a teardown guard, and it is load-bearing. A full
+-- teardown drops the tables in public one at a time, in whatever order it walks
+-- them, and audit_ddl_logs is one of those tables; every drop issued after it
+-- is gone would otherwise fail on the insert here and leave the database half
+-- torn down. The cost is that drops issued after the log table is destroyed go
+-- unaudited - which is exactly the case where the audit itself is being
+-- destroyed, and where a row would have nowhere to go regardless.
+--
+-- Four conditions decide what is recorded, and each removes a specific kind of
+-- churn:
+--   - original only. A DROP TABLE reports the whole dependency closure of the
+--     table: measured on PostgreSQL 18, a table as plain as
+--     (id serial PRIMARY KEY) reports eight objects - the table, its sequence,
+--     its rowtype, its array type, the id default, the not-null constraint, the
+--     primary key and its index - and a table with a text column and one more
+--     index reports fourteen, the TOAST table and TOAST index included. Exactly
+--     one of them, the table, is the object the operator named.
+--   - the five schemas, or a dropped schema. DROP SCHEMA reports the schema
+--     itself with a NULL schema_name, the mirror of CREATE SCHEMA, and is
+--     logged for the same reason. The NULL rule must stay this narrow: DROP
+--     EXTENSION also reports an original object with a NULL schema, and
+--     dropping the extension has to leave every core table untouched,
+--     audit_ddl_logs included, because that inertness is what makes DROP
+--     EXTENSION safe to run on a database whose data is being kept.
+--   - not temporary. The dropped-objects record carries is_temporary directly,
+--     so no pg_temp prefix test is needed here.
+--   - not a generated label companion. rebuild_entity_label_functions (0145)
+--     issues DROP FUNCTION IF EXISTS on every label companion on every field
+--     edit; without this filter the churn the scoped audit keeps out on the
+--     create side comes straight back in through this door. Same pattern and
+--     same caveats as the sibling above.
+CREATE OR REPLACE FUNCTION audit.log_drop_event()
+RETURNS event_trigger
+SECURITY DEFINER
+SET search_path = ''
+LANGUAGE plpgsql AS $$
+DECLARE
+    obj RECORD;
+    v_user_id INTEGER;
+BEGIN
+    IF to_regclass('public.audit_ddl_logs') IS NULL THEN
+        RETURN;
+    END IF;
+    v_user_id := audit.current_user_id();
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP
+        CONTINUE WHEN NOT obj.original;
+        CONTINUE WHEN obj.is_temporary;
+        -- COALESCE, not a bare IN: a NULL schema_name would make the whole
+        -- predicate NULL, and CONTINUE WHEN NULL does not continue - the
+        -- DROP EXTENSION row this filter exists to exclude would be logged.
+        CONTINUE WHEN NOT (
+            COALESCE(obj.schema_name, '') IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+            OR (obj.schema_name IS NULL AND obj.object_type = 'schema')
+        );
+        -- Bracket expressions, not backslash escapes: the body is re-parsed at
+        -- first execution, so a session with standard_conforming_strings = off
+        -- would otherwise turn this pattern into an invalid regexp.
+        CONTINUE WHEN obj.object_type = 'function'
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
+        INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
+        VALUES (v_user_id, tg_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
+                left(current_query(), 8192));
+    END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.log_drop_event IS
+'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order.';
+
+CREATE EVENT TRIGGER track_ddl_drops
+    ON sql_drop
+    EXECUTE FUNCTION audit.log_drop_event();
+
+COMMENT ON EVENT TRIGGER track_ddl_drops IS
+'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
 -- STEP 8: audit_log column on entities
@@ -10731,10 +10966,14 @@ GRANT SELECT, DELETE ON public.audit_ddl_logs TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
 
--- The grants above are additive, so the write privileges have to be taken away
--- explicitly: 0050 hands semantius_user SELECT, INSERT, UPDATE, DELETE on every
--- table in public and on every table created there afterwards, which is where
--- these two get theirs.
+-- Belt and braces on the two evidence tables: the grants above are the only
+-- ones they receive, since there is no default privilege on tables in public
+-- and 0050's one-time GRANT ... ON ALL TABLES ran before these were created.
+-- These revokes therefore take nothing away today. They stay because a
+-- blanket grant added anywhere later in the migration order would silently
+-- hand the request role the ability to forge and rewrite audit rows, and this
+-- is the one place where that must be impossible rather than merely unlikely.
+-- Pinned by 0060_test_security.sql and 0300_test_audit_log.sql.
 REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
 REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
 
@@ -10751,6 +10990,7 @@ REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
@@ -10770,7 +11010,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3');
+      VALUES ('_core.0150_audit_log', 'c05c8b40cbc18a0c522d8f5834cee0fc92487821842ecb9d21ca7676bc026d60');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17206,12 +17446,21 @@ BEGIN
     END LOOP;
 
     -- Objects the dictionary creates from now on are owned by semantius_owner:
-    -- reproduce the default privileges that 0010, 0030, 0050, 0150 and 0160
-    -- established for the installing role.
+    -- reproduce the default privileges that 0010, 0030, 0150 and 0160
+    -- established for the installing role. There is deliberately no default
+    -- grant on tables or sequences in public: a table the dictionary did not
+    -- create has no policies, so a grant on it is unbounded access through the
+    -- Data API. The dictionary grants each table it creates or adopts instead.
+    --
+    -- The two revokes take back the pair an earlier release did establish here.
+    -- pg_default_acl survives `deno task dropall`, so without them a database
+    -- that ever ran that release keeps the default forever; 0050 does the same
+    -- for the installing role's own rows. No-ops on a database that never had
+    -- them.
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
-        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+        REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
-        GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+        REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
         REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA common
@@ -17245,7 +17494,7 @@ $pgsem__core_0290_owner_hardening$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0290_owner_hardening', '2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a');
+      VALUES ('_core.0290_owner_hardening', '1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17320,14 +17569,15 @@ RETURNS TABLE (
   unknown_versions  text[],
   changed_versions  text[],
   unowned_objects   int,
-  default_acls_ok   boolean
+  default_acls_ok   boolean,
+  jwt_aud_set       boolean
 )
 LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"4b331200ba3e1817826c91294136ed2c206bf7dcc4a4a7f07cde775ecef0a703","_core.0070_dd_functions":"8727da41a8d7e161a48a1e45e0624e691b7dc9d68f6c359dd0e89fc40d0be65e","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"29fe41ae19020ddf793b719c64b355b0d407e6a3f2c9360706e84bf9b37cc503","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648","_core.0145_managed_enable":"0e61baf7829829518ad95a6e1977845fa530c9179653b19333a565f3a3242853","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"ffe938e8499aba831441ed0fe51634448c99c2781f306bb5574e49d37313a5ec","_core.0060_dd_schema":"f62856532dc376e1a302a1ce4ac8f6cb06814cc6d188fd7d9746a9f4d0b4a688","_core.0070_dd_functions":"4b384e4a30a659d9c43b728b16f86e35f712ae44ce5758cd59982341a0509b7e","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"29fe41ae19020ddf793b719c64b355b0d407e6a3f2c9360706e84bf9b37cc503","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648","_core.0145_managed_enable":"01814712b33990532c9dc6eb1df989206363d3c272d8b793126407f0009a0ede","_core.0150_audit_log":"c05c8b40cbc18a0c522d8f5834cee0fc92487821842ecb9d21ca7676bc026d60","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
@@ -17335,11 +17585,24 @@ BEGIN
   unknown_versions := ARRAY[]::text[];
   changed_versions := ARRAY[]::text[];
 
+  jwt_aud_set := false;
+
   IF to_regclass('public._settings') IS NOT NULL THEN
     BEGIN
-      SELECT s.value INTO db_version FROM public._settings s WHERE s.key = 'db_version';
+      SELECT s.value INTO db_version FROM public._settings s WHERE s.name = 'db_version';
     EXCEPTION WHEN OTHERS THEN
       db_version := NULL;  -- shape differs or RLS denies: not fatal for status
+    END;
+    -- Whether the JWT audience is pinned. rbac.uid() checks the aud claim only
+    -- when this row exists, so its absence means any token from the trusted
+    -- issuer is accepted; that is a deliberate default and this reports it
+    -- rather than changing it.
+    BEGIN
+      SELECT EXISTS (SELECT 1 FROM public._settings s
+                      WHERE s.name = 'jwt_aud' AND s.value <> '')
+        INTO jwt_aud_set;
+    EXCEPTION WHEN OTHERS THEN
+      jwt_aud_set := false;  -- shape differs or RLS denies: not fatal for status
     END;
   END IF;
 
@@ -17382,4 +17645,4 @@ END
 $pgsem_status$;
 REVOKE EXECUTE ON FUNCTION semantius.status() FROM PUBLIC;
 COMMENT ON FUNCTION semantius.status() IS
-  'Install health: version drift, unknown or changed migrations, ownership and default-ACL drift after a restore.';
+  'Install health: version drift, unknown or changed migrations, ownership and default-ACL drift after a restore, and whether the JWT audience is pinned.';

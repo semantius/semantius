@@ -184,12 +184,21 @@ BEGIN
     END LOOP;
 
     -- Objects the dictionary creates from now on are owned by semantius_owner:
-    -- reproduce the default privileges that 0010, 0030, 0050, 0150 and 0160
-    -- established for the installing role.
+    -- reproduce the default privileges that 0010, 0030, 0150 and 0160
+    -- established for the installing role. There is deliberately no default
+    -- grant on tables or sequences in public: a table the dictionary did not
+    -- create has no policies, so a grant on it is unbounded access through the
+    -- Data API. The dictionary grants each table it creates or adopts instead.
+    --
+    -- The two revokes take back the pair an earlier release did establish here.
+    -- pg_default_acl survives `deno task dropall`, so without them a database
+    -- that ever ran that release keeps the default forever; 0050 does the same
+    -- for the installing role's own rows. No-ops on a database that never had
+    -- them.
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
-        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO semantius_user;
+        REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
-        GRANT USAGE, SELECT ON SEQUENCES TO semantius_user;
+        REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
         REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA common

@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
 );
 
 COMMENT ON TABLE public.audit_ddl_logs IS
-'Stores DDL schema change events captured by the ddl_command_end event trigger.';
+'Stores schema change events captured by two event triggers: creations and alterations from ddl_command_end, drops from sql_drop, which is the only mechanism that reports them.';
 
 COMMENT ON COLUMN public.audit_ddl_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context (e.g. migrations).';
 
@@ -544,6 +544,12 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
 -- other two audit triggers in this file are already definers.
 --
+-- The scope is the schema, not the command. track_ddl_changes below carries no
+-- WHEN TAG clause: a command is audited when it touches one of the five
+-- schemas, whatever it is called. A tag allowlist could only ever be a guess at
+-- which commands matter, and a command type nobody thought to enumerate would
+-- pass through an evidence table leaving nothing behind.
+--
 -- Three filters, in the order they are applied:
 --   1. in_extension - objects an extension script created belong to that
 --      extension, not to this database's schema history.
@@ -566,6 +572,22 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      named <something>_label in one of the five schemas is not audited
 --      either, and an entity whose name needs quoting is (the quote sits
 --      between _label and the paren). Neither occurs today.
+--
+-- Three limitations, all accepted:
+--   - GRANT and REVOKE arrive with no classid, objid, schema_name or
+--     object_identity, so they can be neither scoped to a schema nor
+--     recognized as label churn. They are kept anyway, because the privilege
+--     history is what this table exists for; on the extension install path
+--     their query_text is only the migrate() call that issued them. Recovering
+--     the target from the DDL text was considered and declined: that is a
+--     parser for an open-ended grammar, feeding an evidence table.
+--   - CREATE SCHEMA reports no schema of its own - its identity is the new
+--     schema's name - so creating a schema is always logged, foreign ones
+--     included. Dropping one is logged too, by the sibling below, for the same
+--     reason and with the same consequence.
+--
+-- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
+-- rows for them whatever the tag, which is why audit.log_drop_event exists.
 -- query_text is bounded: current_query() is the entire migration script for
 -- script-driven DDL, stored once per event.
 CREATE OR REPLACE FUNCTION audit.log_ddl_event()
@@ -598,37 +620,94 @@ $$;
 COMMENT ON FUNCTION audit.log_ddl_event IS
 'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
--- The tag allowlist keeps the trigger from firing at all for commands that
--- cannot change the schema Semantius manages. It is deliberately broad: every
--- CREATE/ALTER of a database-local schema object, plus the privilege and
--- documentation commands. ddl_command_end reports no rows for DROP commands
--- (dropped objects are only visible to a sql_drop trigger), so DROP tags would
--- be dead weight here.
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
-    WHEN TAG IN (
-      'CREATE SCHEMA', 'ALTER SCHEMA'
-    , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
-    , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
-    , 'CREATE VIEW', 'ALTER VIEW'
-    , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
-    , 'CREATE SEQUENCE', 'ALTER SEQUENCE'
-    , 'CREATE INDEX', 'ALTER INDEX'
-    , 'CREATE FUNCTION', 'ALTER FUNCTION'
-    , 'CREATE PROCEDURE', 'ALTER PROCEDURE'
-    , 'CREATE TRIGGER', 'ALTER TRIGGER'
-    , 'CREATE POLICY', 'ALTER POLICY'
-    , 'CREATE TYPE', 'ALTER TYPE'
-    , 'CREATE DOMAIN', 'ALTER DOMAIN'
-    , 'CREATE RULE', 'ALTER RULE'
-    , 'CREATE EXTENSION', 'ALTER EXTENSION'
-    , 'GRANT', 'REVOKE', 'ALTER DEFAULT PRIVILEGES'
-    , 'SECURITY LABEL', 'COMMENT'
-    )
     EXECUTE FUNCTION audit.log_ddl_event();
 
 COMMENT ON EVENT TRIGGER track_ddl_changes IS
 'Event trigger that fires after any DDL command completes, logging the change to audit_ddl_logs.';
+
+-- The drop half of the audit. ddl_command_end reports nothing for a drop -
+-- pg_event_trigger_ddl_commands() returns zero rows even when the tag is
+-- DROP TABLE - so without this trigger a table can be destroyed and leave no
+-- evidence at all. SECURITY DEFINER for the same reason as its sibling: the
+-- request role must be able to drop a temp table without failing on the insert.
+--
+-- The first statement is a teardown guard, and it is load-bearing. A full
+-- teardown drops the tables in public one at a time, in whatever order it walks
+-- them, and audit_ddl_logs is one of those tables; every drop issued after it
+-- is gone would otherwise fail on the insert here and leave the database half
+-- torn down. The cost is that drops issued after the log table is destroyed go
+-- unaudited - which is exactly the case where the audit itself is being
+-- destroyed, and where a row would have nowhere to go regardless.
+--
+-- Four conditions decide what is recorded, and each removes a specific kind of
+-- churn:
+--   - original only. A DROP TABLE reports the whole dependency closure of the
+--     table: measured on PostgreSQL 18, a table as plain as
+--     (id serial PRIMARY KEY) reports eight objects - the table, its sequence,
+--     its rowtype, its array type, the id default, the not-null constraint, the
+--     primary key and its index - and a table with a text column and one more
+--     index reports fourteen, the TOAST table and TOAST index included. Exactly
+--     one of them, the table, is the object the operator named.
+--   - the five schemas, or a dropped schema. DROP SCHEMA reports the schema
+--     itself with a NULL schema_name, the mirror of CREATE SCHEMA, and is
+--     logged for the same reason. The NULL rule must stay this narrow: DROP
+--     EXTENSION also reports an original object with a NULL schema, and
+--     dropping the extension has to leave every core table untouched,
+--     audit_ddl_logs included, because that inertness is what makes DROP
+--     EXTENSION safe to run on a database whose data is being kept.
+--   - not temporary. The dropped-objects record carries is_temporary directly,
+--     so no pg_temp prefix test is needed here.
+--   - not a generated label companion. rebuild_entity_label_functions (0145)
+--     issues DROP FUNCTION IF EXISTS on every label companion on every field
+--     edit; without this filter the churn the scoped audit keeps out on the
+--     create side comes straight back in through this door. Same pattern and
+--     same caveats as the sibling above.
+CREATE OR REPLACE FUNCTION audit.log_drop_event()
+RETURNS event_trigger
+SECURITY DEFINER
+SET search_path = ''
+LANGUAGE plpgsql AS $$
+DECLARE
+    obj RECORD;
+    v_user_id INTEGER;
+BEGIN
+    IF to_regclass('public.audit_ddl_logs') IS NULL THEN
+        RETURN;
+    END IF;
+    v_user_id := audit.current_user_id();
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP
+        CONTINUE WHEN NOT obj.original;
+        CONTINUE WHEN obj.is_temporary;
+        -- COALESCE, not a bare IN: a NULL schema_name would make the whole
+        -- predicate NULL, and CONTINUE WHEN NULL does not continue - the
+        -- DROP EXTENSION row this filter exists to exclude would be logged.
+        CONTINUE WHEN NOT (
+            COALESCE(obj.schema_name, '') IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+            OR (obj.schema_name IS NULL AND obj.object_type = 'schema')
+        );
+        -- Bracket expressions, not backslash escapes: the body is re-parsed at
+        -- first execution, so a session with standard_conforming_strings = off
+        -- would otherwise turn this pattern into an invalid regexp.
+        CONTINUE WHEN obj.object_type = 'function'
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
+        INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
+        VALUES (v_user_id, tg_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
+                left(current_query(), 8192));
+    END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION audit.log_drop_event IS
+'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order.';
+
+CREATE EVENT TRIGGER track_ddl_drops
+    ON sql_drop
+    EXECUTE FUNCTION audit.log_drop_event();
+
+COMMENT ON EVENT TRIGGER track_ddl_drops IS
+'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
 -- STEP 8: audit_log column on entities
@@ -836,10 +915,14 @@ GRANT SELECT, DELETE ON public.audit_ddl_logs TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
 GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
 
--- The grants above are additive, so the write privileges have to be taken away
--- explicitly: 0050 hands semantius_user SELECT, INSERT, UPDATE, DELETE on every
--- table in public and on every table created there afterwards, which is where
--- these two get theirs.
+-- Belt and braces on the two evidence tables: the grants above are the only
+-- ones they receive, since there is no default privilege on tables in public
+-- and 0050's one-time GRANT ... ON ALL TABLES ran before these were created.
+-- These revokes therefore take nothing away today. They stay because a
+-- blanket grant added anywhere later in the migration order would silently
+-- hand the request role the ability to forge and rewrite audit rows, and this
+-- is the one place where that must be impossible rather than merely unlikely.
+-- Pinned by 0060_test_security.sql and 0300_test_audit_log.sql.
 REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
 REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
 
@@ -856,6 +939,7 @@ REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
