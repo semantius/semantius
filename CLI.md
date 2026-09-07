@@ -39,17 +39,30 @@ irm https://raw.githubusercontent.com/semantius/semantius/main/install.ps1 | iex
 There is no macOS x64 build; on an Intel Mac, run the CLI from a checkout.
 
 The binary carries the `_core`, `nwind` and `test` SQL of the release it came
-from, so `pg_semantius migrate --apps _core` works in an empty directory. If
-the working directory does have an `apps/<name>`, that copy is used instead of
-the embedded one, per app, and the CLI says so on the line it prints. So a
-project with its own `apps/myapp` still gets `_core` from the binary.
+from, so `pg_semantius migrate --apps _core` works in an empty directory. If the
+working directory does have an `apps/<name>`, that copy is used instead of the
+embedded one, per app, and the CLI says so on the line it prints. So a project
+with its own `apps/myapp` still gets `_core` from the binary.
 
-Two commands have database-side prerequisites, which are not dependencies of
-the binary: `test` needs pgTAP in the target database (`pg_semantius migrate
---apps test` installs it), and `--coverage` needs `plpgsql_check` on the server
-for statement-level data (without it, function-level data is still reported).
-Beyond that the binary needs nothing at all — no Deno, no `node_modules`, no
-network other than the PostgreSQL connection.
+Commands that act on _every_ app rather than a named one — `test` — read only
+the working directory's own `apps/` when it has one. In a project holding just
+`apps/myapp`, `pg_semantius test` runs that project's suites and not the `test`
+and `nwind` suites the binary carries, which would fail unless those apps had
+been migrated too. From a directory with no `apps/` of its own, the shipped
+suites are what run, which is how you check an install. `--apps
+<names>`
+overrides both: `pg_semantius test --apps myapp,test` runs exactly those two,
+and the execution order is always the central `test` suite first (it seeds the
+identities the others assert against), then the rest by name.
+
+Two commands have database-side prerequisites, which are not dependencies of the
+binary: `test` needs pgTAP in the target database
+(`pg_semantius migrate
+--apps test` installs it), and `--coverage` needs
+`plpgsql_check` on the server for statement-level data (without it,
+function-level data is still reported). Beyond that the binary needs nothing at
+all — no Deno, no `node_modules`, no network other than the PostgreSQL
+connection.
 
 `init`, `lint` and `format` are the exceptions: they scaffold or lint a source
 tree, so they exist only when the CLI runs from a checkout and the binary does
@@ -79,10 +92,11 @@ repository root:
 .\dist\pg_semantius-windows-x64.exe --version    # Windows
 ```
 
-From anywhere else, give the full path — `C:\dev\semantius\dist\pg_semantius-windows-x64.exe`,
-`~/src/semantius/dist/pg_semantius-linux-x64`. Commands that read a `.env.<name>`
-profile still resolve it against the *current* directory, so run those from the
-repository root or pass `--database-url` instead.
+From anywhere else, give the full path —
+`C:\dev\semantius\dist\pg_semantius-windows-x64.exe`,
+`~/src/semantius/dist/pg_semantius-linux-x64`. Commands that read a
+`.env.<name>` profile still resolve it against the _current_ directory, so run
+those from the repository root or pass `--database-url` instead.
 
 To type `pg_semantius` instead, copy it where the installers put it — the same
 destination, so a later `install.sh` / `install.ps1` replaces it cleanly:
@@ -104,7 +118,8 @@ Linux/macOS, `~/.local/bin` must be on your PATH.
 
 ## CLI usage (`packages/cli`)
 
-All Deno tasks are defined in the root `deno.json` and run `packages/cli/cli.ts`.
+All Deno tasks are defined in the root `deno.json` and run
+`packages/cli/cli.ts`.
 
 ```bash
 deno task [COMMAND] [OPTIONS]
@@ -113,11 +128,11 @@ deno task [COMMAND] [OPTIONS]
 ### Options
 
 | Flag | Description |
-|------|-------------|
+|---|---|
 | `-h, --help` | Show help message |
 | `--version` | Show version information |
 | `-v, --verbose` | Enable verbose output |
-| `--apps <APPS>` | Comma-separated app names (for `migrate`) |
+| `--apps <APPS>` | Comma-separated app names (for `migrate`, `extension`, `test`) |
 | `--confirm` | Skip confirmation prompt (for `dropall`, `reset`) |
 | `--script` | Generate SQL file instead of executing |
 | `--env <ENV>` | Load `.env.<ENV>` instead of `.env.local` |
@@ -128,10 +143,10 @@ deno task [COMMAND] [OPTIONS]
 ### Commands
 
 | Command | Description |
-|---------|-------------|
+|---|---|
 | `init` | Initialize a new project (checkout only) |
 | `connect` | Test the database connection |
-| `test` | Run pgTAP tests |
+| `test` | Run pgTAP tests (`--apps <names>` to pick which apps' suites) |
 | `lint` | Run Deno linter (checkout only) |
 | `format` / `fmt` | Format code (checkout only) |
 | `migrate` | Execute SQL migrations for specified apps |
@@ -143,10 +158,10 @@ deno task [COMMAND] [OPTIONS]
 | `bundle-sql` | Bundle SQL files for Node.js/serverless deployment (`deno task` only) |
 
 `deno task build-cli` and `deno task build-cli:all` compile the `pg_semantius`
-binary; they are build tooling, not CLI commands. There is deliberately no
-task called plain `build`: this repository produces three artifacts, and each
-one is named — `build-cli` for the binary, `extension <ver>` for the
-PostgreSQL extension, `docker-postgres/build.sh` for the database image.
+binary; they are build tooling, not CLI commands. There is deliberately no task
+called plain `build`: this repository produces three artifacts, and each one is
+named — `build-cli` for the binary, `extension <ver>` for the PostgreSQL
+extension, `docker-postgres/build.sh` for the database image.
 
 ### Examples
 
@@ -206,8 +221,8 @@ DATABASE_URL='postgresql://username:password@host:port/database?sslmode=require'
 ```
 
 | Flag | File loaded |
-|------|------------|
-| *(none)* | `.env.local` |
+|---|---|
+| _(none)_ | `.env.local` |
 | `--env pgdocker-cli` | `.env.pgdocker-cli` |
 | `--env pgdocker-ext` | `.env.pgdocker-ext` |
 | `--env test` | `.env.test` |
@@ -253,8 +268,8 @@ deno task reset --confirm
 
 ### `retest`
 
-Combines `dropall --confirm` → `migrate --apps nwind,test` (`_core` is
-prepended automatically) → `test`. Requires `--confirm`:
+Combines `dropall --confirm` → `migrate --apps nwind,test` (`_core` is prepended
+automatically) → `test`. Requires `--confirm`:
 
 ```bash
 deno task retest --confirm

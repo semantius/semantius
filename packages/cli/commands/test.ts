@@ -6,7 +6,11 @@
 
 import { Client } from "@postgres";
 import { basename, join } from "@std/path";
-import { listApps, resolveAppDir } from "../assets.ts";
+import {
+  listPrimaryApps,
+  resolveAppDir,
+  validateAppNames,
+} from "../assets.ts";
 import { INVOCATION } from "../invocation.ts";
 import {
   CoverageCollector,
@@ -449,11 +453,32 @@ ${BOLD_RED}# Stopping after first failure (--failfast)${RESET}`);
  * Test directories in execution order: the central suite (apps/test/tests)
  * first, then every other app's tests/ directory sorted by app name
  * (e.g. apps/nwind/tests). Apps without a tests/ directory are ignored.
+ *
+ * `apps` is the explicit `--apps` list; without one the default is every app of
+ * the working directory's own apps/, or the CLI's own copy when it has none -
+ * so running this inside somebody's project tests that project, and not also
+ * the suites the binary happens to carry, which would fail unless those apps
+ * had been migrated too.
+ *
+ * The order is normalized either way and never taken from the list as typed:
+ * the central suite seeds the identities the other suites assert against.
  */
-async function collectTestDirs(): Promise<string[]> {
-  const others = (await listApps()).filter((app) => app !== "test");
+async function collectTestDirs(apps?: string): Promise<string[]> {
+  let names: string[];
+  if (apps && apps.trim() !== "") {
+    names = apps.split(",").map((app) => app.trim()).filter((app) =>
+      app.length > 0
+    );
+    validateAppNames(names);
+    names = [...new Set(names)].sort();
+  } else {
+    names = await listPrimaryApps();
+  }
+  const first = names.includes("test") ? ["test"] : [];
+  const others = names.filter((app) => app !== "test");
+
   const dirs: string[] = [];
-  for (const app of ["test", ...others]) {
+  for (const app of [...first, ...others]) {
     const resolved = await resolveAppDir(app);
     if (!resolved) continue;
     const dir = join(resolved.dir, "tests");
@@ -480,6 +505,7 @@ export async function testCommand(
   failFast = false,
   filter?: string,
   coverage?: CoverageOptions,
+  apps?: string,
 ): Promise<void> {
   console.log("Running test command...");
 
@@ -503,7 +529,7 @@ export async function testCommand(
       await collector.snapshotBefore();
     }
 
-    const testDirs = await collectTestDirs();
+    const testDirs = await collectTestDirs(apps);
     console.log(`Test directories: ${testDirs.join(", ")}`);
     const run = await pgTest.runTests(testDirs, filter);
 

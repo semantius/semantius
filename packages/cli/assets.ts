@@ -145,28 +145,58 @@ export async function resolveAppDir(
   return hits[0];
 }
 
-/** Every app name either root offers, sorted, without duplicates. */
+/**
+ * The apps a command should act on when it was given no list.
+ *
+ * Only the highest-precedence root that actually holds apps contributes. A
+ * working directory with its own apps/ is somebody's project, and `test` there
+ * has to run that project's suites - not also the `test` and `nwind` suites
+ * the CLI happens to carry, which fail unless those apps were migrated too.
+ * Answering "which apps?" from the union is what caused that; answering "where
+ * does app X live?" from the union stays correct, and resolveAppDir still does.
+ *
+ * With a single root - a checkout, or a directory with no apps/ of its own -
+ * this is exactly listApps().
+ */
+export async function listPrimaryApps(): Promise<string[]> {
+  for (const root of await appsRoots()) {
+    const names = await appsIn(root);
+    if (names.length > 0) return names;
+  }
+  return [];
+}
+
+/**
+ * Every app name either root offers, sorted, without duplicates. For a caller
+ * building a lookup table rather than choosing what to run, where a surplus
+ * entry costs nothing and a missing one loses information.
+ */
 export async function listApps(): Promise<string[]> {
   const names = new Set<string>();
   for (const root of await appsRoots()) {
-    try {
-      for await (const entry of Deno.readDir(root.path)) {
-        // isSymlink as well as isDirectory: readDir does not follow links,
-        // while the Deno.stat in resolveAppDir does. Without it a symlinked
-        // apps/<name> is migratable by name and invisible to every command
-        // that enumerates - test and coverage would silently skip it.
-        if (
-          (entry.isDirectory || entry.isSymlink) && APP_NAME.test(entry.name)
-        ) {
-          names.add(entry.name);
-        }
-      }
-    } catch {
-      // A root that cannot be listed simply contributes no apps; the caller's
-      // "not found" path is the right report, not a crash here.
-    }
+    for (const name of await appsIn(root)) names.add(name);
   }
   return [...names].sort();
+}
+
+/** The app directories directly under one root, sorted. */
+async function appsIn(root: AppsRoot): Promise<string[]> {
+  const names: string[] = [];
+  try {
+    for await (const entry of Deno.readDir(root.path)) {
+      // isSymlink as well as isDirectory: readDir does not follow links,
+      // while the Deno.stat in resolveAppDir does. Without it a symlinked
+      // apps/<name> is migratable by name and invisible to every command
+      // that enumerates - test and coverage would silently skip it.
+      if ((entry.isDirectory || entry.isSymlink) && APP_NAME.test(entry.name)) {
+        names.push(entry.name);
+      }
+    }
+  } catch {
+    // A root that cannot be listed simply contributes no apps; the caller's
+    // "not found" path is the right report, not a crash here.
+  }
+  return names.sort();
 }
 
 async function isDirectory(path: string): Promise<boolean> {

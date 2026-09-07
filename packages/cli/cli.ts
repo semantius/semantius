@@ -203,6 +203,7 @@ function showHelp(): void {
     "test 0015_test_jsonlogic.sql",
     "test --coverage",
     "test --coverage --coverage-min 80",
+    "test --apps nwind",
     "migrate --apps app1,app2,app3 --verbose",
     "migrate --apps nwind,_ddtest",
     "migrate --apps nwind --script",
@@ -239,7 +240,7 @@ OPTIONS:
     -v, --verbose           Enable verbose output
     --config <FILE>         Specify config file path
     --output <DIR>          Specify output directory
-    --apps <APPS>           Comma-separated list of app names (for migrate command)
+    --apps <APPS>           Comma-separated list of app names (for migrate, extension and test)
     --confirm               Skip confirmation prompt (for dropall, reset, and retest commands)
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
     --failfast              Stop test execution after the first failed test file (for test and reset commands)
@@ -412,6 +413,7 @@ async function main(): Promise<void> {
         args.failfast,
         filter,
         parseCoverageOptions(args),
+        args.apps,
       );
       break;
     }
