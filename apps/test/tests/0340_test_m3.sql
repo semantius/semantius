@@ -40,11 +40,11 @@ SELECT is(
 -- MODULES: FK columns
 -- =====================================================
 
-SELECT has_column('public', 'modules', 'manage_permission_id',
-    'modules.manage_permission_id column exists');
+SELECT has_column('public', 'modules', 'manage_permission',
+    'modules.manage_permission column exists');
 
-SELECT has_column('public', 'modules', 'admin_permission_id',
-    'modules.admin_permission_id column exists');
+SELECT has_column('public', 'modules', 'admin_permission',
+    'modules.admin_permission column exists');
 
 SELECT has_column('public', 'modules', 'default_viewer_role_id',
     'modules.default_viewer_role_id column exists');
@@ -55,11 +55,11 @@ SELECT has_column('public', 'modules', 'default_manager_role_id',
 SELECT has_column('public', 'modules', 'default_admin_role_id',
     'modules.default_admin_role_id column exists');
 
--- FK columns default to NULL (except admin_permission_id which is set in seed)
+-- FK columns default to NULL (except admin_permission which is set in seed)
 SELECT is(
-    (SELECT manage_permission_id FROM modules WHERE module_name = '_core'),
+    (SELECT manage_permission FROM modules WHERE module_name = '_core'),
     NULL,
-    'modules.manage_permission_id defaults to NULL for _core'
+    'modules.manage_permission defaults to NULL for _core'
 );
 
 SELECT is(
@@ -68,11 +68,11 @@ SELECT is(
     'modules.default_viewer_role_id defaults to NULL for _core'
 );
 
--- _core module has admin_permission_id and default_admin_role_id set in seed
+-- _core module has admin_permission and default_admin_role_id set in seed
 SELECT is(
-    (SELECT admin_permission_id FROM modules WHERE module_name = '_core'),
-    (SELECT id FROM permissions WHERE permission_name = 'admin' LIMIT 1),
-    'modules.admin_permission_id is set to admin permission for _core'
+    (SELECT admin_permission FROM modules WHERE module_name = '_core'),
+    'admin',
+    'modules.admin_permission is set to the admin permission for _core'
 );
 
 SELECT is(
@@ -81,15 +81,15 @@ SELECT is(
     'modules.default_admin_role_id is set to Administrator role for _core'
 );
 
--- Test FK referential integrity: set manage_permission_id to a valid permission
+-- Test FK referential integrity: set manage_permission to a valid permission
 UPDATE modules
-SET manage_permission_id = (SELECT id FROM permissions WHERE permission_name = 'admin' LIMIT 1)
+SET manage_permission = 'admin'
 WHERE module_name = 'master_test';
 
 SELECT is(
-    (SELECT manage_permission_id FROM modules WHERE module_name = 'master_test'),
-    (SELECT id FROM permissions WHERE permission_name = 'admin' LIMIT 1),
-    'modules.manage_permission_id can reference a valid permission'
+    (SELECT manage_permission FROM modules WHERE module_name = 'master_test'),
+    'admin',
+    'modules.manage_permission can reference a valid permission'
 );
 
 -- Test FK referential integrity: set default_viewer_role_id to a valid role
@@ -192,42 +192,32 @@ SELECT is(
 );
 
 -- Test inserting with specific origin values
-INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
-SELECT p1.id, p2.id, 'model'
-FROM permissions p1, permissions p2
-WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:view';
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin)
+VALUES ('user:manage', 'nwind:view', 'model');
 
 SELECT is(
-    (SELECT origin FROM permission_hierarchy ph
-     JOIN permissions p1 ON ph.including_permission_id = p1.id
-     JOIN permissions p2 ON ph.included_permission_id = p2.id
-     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:view'),
+    (SELECT origin FROM permission_hierarchy
+     WHERE including_permission_name = 'user:manage' AND included_permission_name = 'nwind:view'),
     'model',
     'permission_hierarchy.origin can be set to model'
 );
 
 -- Test origin enum constraint
 SELECT throws_ok(
-    $$INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
-      SELECT p1.id, p2.id, 'invalid'
-      FROM permissions p1, permissions p2
-      WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage'$$,
+    $$INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin)
+      VALUES ('user:manage', 'nwind:manage', 'invalid')$$,
     '23514',
     NULL,
     'permission_hierarchy.origin rejects invalid values'
 );
 
 -- Test model_master origin
-INSERT INTO permission_hierarchy (including_permission_id, included_permission_id, origin)
-SELECT p1.id, p2.id, 'model_master'
-FROM permissions p1, permissions p2
-WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage';
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin)
+VALUES ('user:manage', 'nwind:manage', 'model_master');
 
 SELECT is(
-    (SELECT origin FROM permission_hierarchy ph
-     JOIN permissions p1 ON ph.including_permission_id = p1.id
-     JOIN permissions p2 ON ph.included_permission_id = p2.id
-     WHERE p1.permission_name = 'user:manage' AND p2.permission_name = 'nwind:manage'),
+    (SELECT origin FROM permission_hierarchy
+     WHERE including_permission_name = 'user:manage' AND included_permission_name = 'nwind:manage'),
     'model_master',
     'permission_hierarchy.origin can be set to model_master'
 );
@@ -255,9 +245,9 @@ SELECT is(
 );
 
 SELECT is(
-    (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'modules' AND field_name = 'manage_permission_id'),
+    (SELECT COUNT(*)::integer FROM fields WHERE table_name = 'modules' AND field_name = 'manage_permission'),
     1,
-    'modules.manage_permission_id has field metadata'
+    'modules.manage_permission has field metadata'
 );
 
 SELECT is(

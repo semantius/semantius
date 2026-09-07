@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(35);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -193,6 +193,43 @@ SELECT ok(
 SELECT ok(
     (SELECT validate_api_key(NULL) IS NULL),
     'validate_api_key should return NULL for NULL input'
+);
+
+-- Test 15: a real key id with the wrong secret must not authenticate.
+--
+-- This is the only assertion in the file that reaches the secret comparison.
+-- Every other negative case returns before it: an unknown key id fails the
+-- lookup, and the empty and NULL inputs fail the guard on the first line. So
+-- without this, the one branch that decides whether a presented secret is the
+-- right one is never executed, and an inverted comparison - or a crypt() call
+-- replaced by a constant - would authenticate any secret against any key id a
+-- caller can guess or observe, with the suite still fully green.
+--
+-- The key id is everything up to the LAST dash, so it must be split the way the
+-- function splits it; split_part(key, '-', 1) would yield "uk" and degrade this
+-- into another unknown-key-id case that pins nothing. Secrets are 32 hex
+-- characters, so a run of 'z' cannot collide with the real one.
+SELECT is(
+    validate_api_key(
+        substring(current_setting('test.generated_key', true)
+                  FROM 1 FOR length(current_setting('test.generated_key', true))
+                              - position('-' IN reverse(current_setting('test.generated_key', true))))
+        || '-' || repeat('z', 32)
+    ),
+    NULL,
+    'validate_api_key should reject a valid key id presented with the wrong secret'
+);
+
+-- Test 16: a key with no separator at all cannot be split into id and secret.
+SELECT is(
+    validate_api_key('nodashatall'), NULL,
+    'validate_api_key should reject a key containing no separator'
+);
+
+-- Test 17: a key whose id half is empty names no record to look up.
+SELECT is(
+    validate_api_key('-secretonly'), NULL,
+    'validate_api_key should reject a key with an empty key id'
 );
 
 -- =====================================================

@@ -129,8 +129,8 @@ SELECT ok(
 -- Strip public:read from the User role; the answer must flip to false.
 SELECT authenticate_as('user3');
 DELETE FROM role_permissions
- WHERE role_id       = (SELECT id FROM roles       WHERE role_name       = 'User')
-   AND permission_id = (SELECT id FROM permissions WHERE permission_name = 'public:read');
+ WHERE role_id         = (SELECT id FROM roles WHERE role_name = 'User')
+   AND permission_name = 'public:read';
 
 -- Re-authenticate to rebuild the cached permission list
 SELECT authenticate_as('user1');

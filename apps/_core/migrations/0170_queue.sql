@@ -48,12 +48,18 @@ WHERE table_name = 'queues' AND field_name = 'queue_name';
 -- Per-queue authorization for the RPC consumers (release review S4), declared
 -- as dictionary fields like entities.view_permission so the UI can manage them.
 -- view_permission gates queue_read; manage_permission gates queue_pop,
--- queue_archive and queue_delete. Both default to admin and must name an
--- existing permission (queue_validate_permissions below).
+-- queue_archive and queue_delete. Both default to admin, and being references
+-- to permissions(permission_name) is what makes a name that is not a registered
+-- permission impossible to store and a permission a queue names impossible to
+-- delete.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
 VALUES
-    ('queues', 'view_permission',   'View Permission',   'text', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, '', '', '', FALSE),
-    ('queues', 'manage_permission', 'Manage Permission', 'text', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, '', '', '', FALSE);
+    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
+
+-- reference columns default to nullable in the DD model; both are mandatory
+ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;
+ALTER TABLE queues ALTER COLUMN manage_permission SET NOT NULL;
 
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
@@ -123,32 +129,6 @@ CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_delete();
-
-CREATE OR REPLACE FUNCTION queue_validate_permissions()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
-        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
-    END IF;
-
-    IF NOT rbac.validate_permission_exists(NEW.manage_permission) THEN
-        RAISE EXCEPTION 'Manage permission "%" does not exist in permissions table', NEW.manage_permission;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION queue_validate_permissions() IS
-'Trigger function that rejects a queues row whose view_permission or manage_permission is not a registered permission name (the same rule entities apply to their permission columns).';
-
-CREATE TRIGGER queue_validate_permissions_trigger
-    BEFORE INSERT OR UPDATE ON queues
-    FOR EACH ROW
-    EXECUTE FUNCTION queue_validate_permissions();
 
 -- =====================================================
 -- STEP 3: Create queue_table_events child entity
@@ -466,7 +446,6 @@ REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION queue_validate_permissions() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 5: RPC functions for PostgREST consumers

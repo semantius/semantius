@@ -57,13 +57,13 @@ SELECT is(
     'Northwind module icon_name should be compass'
 );
 
--- Test 6: manage_permission_id points at nwind:manage
+-- Test 6: manage_permission points at nwind:manage
 SELECT is(
     (SELECT p.permission_name
-     FROM modules m JOIN permissions p ON p.id = m.manage_permission_id
+     FROM modules m JOIN permissions p ON p.permission_name = m.manage_permission
      WHERE m.module_slug = 'nwind'),
     'nwind:manage',
-    'Northwind module manage_permission_id should reference nwind:manage'
+    'Northwind module manage_permission should reference nwind:manage'
 );
 
 -- Test 7: default_manager_role_id points at northwind_sales
@@ -91,8 +91,8 @@ SELECT set_eq(
 SELECT is(
     (SELECT COUNT(*)::integer
      FROM permission_hierarchy ph
-     JOIN permissions p ON p.id = ph.including_permission_id
-     JOIN permissions c ON c.id = ph.included_permission_id
+     JOIN permissions p ON p.permission_name = ph.including_permission_name
+     JOIN permissions c ON c.permission_name = ph.included_permission_name
      WHERE p.permission_name = 'nwind:manage'
        AND c.permission_name = 'nwind:view'),
     1,
@@ -125,7 +125,7 @@ SELECT set_eq(
     $$SELECT p.permission_name
       FROM role_permissions rp
       JOIN roles r ON r.id = rp.role_id
-      JOIN permissions p ON p.id = rp.permission_id
+      JOIN permissions p ON p.permission_name = rp.permission_name
       WHERE r.slug = 'northwind_sales'$$,
     ARRAY['nwind:view', 'nwind:manage'],
     'Role northwind_sales should hold exactly {nwind:view, nwind:manage}'
@@ -136,7 +136,7 @@ SELECT set_eq(
     $$SELECT p.permission_name
       FROM role_permissions rp
       JOIN roles r ON r.id = rp.role_id
-      JOIN permissions p ON p.id = rp.permission_id
+      JOIN permissions p ON p.permission_name = rp.permission_name
       WHERE r.slug = 'administrator' AND p.permission_name LIKE 'nwind:%'$$,
     ARRAY['nwind:view', 'nwind:manage'],
     'Administrator should hold both nwind permissions via auto-grant'
@@ -230,8 +230,8 @@ SELECT is(
 -- Test 24: dashboard is visible to nwind:view holders
 SELECT is(
     (SELECT view_permission FROM dashboards WHERE label = 'Northwind Overview'),
-    (SELECT id FROM permissions WHERE permission_name = 'nwind:view'),
-    'Dashboard "Northwind Overview" view_permission should be the id of nwind:view'
+    'nwind:view',
+    'Dashboard "Northwind Overview" view_permission should be nwind:view'
 );
 
 -- Test 25: dashboard config carries the orders count widget

@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-06-12T14:31:51.557Z
+**Generated:** 2026-09-07T09:13:51.731Z
 
 ---
 
@@ -24,6 +24,8 @@ DDL audit trail for schema change events
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `command_tag` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -35,8 +37,7 @@ DDL audit trail for schema change events
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -71,6 +72,8 @@ DML audit trail for entity table records
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `table_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -82,8 +85,7 @@ DML audit trail for entity table records
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -123,6 +125,8 @@ User-configured dashboard layouts and configurations
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `label` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -134,26 +138,25 @@ User-configured dashboard layouts and configurations
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `label` (label) | text | Dashboard | - | string | false | - | 1 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `config` | json | Configuration | Dashboard layout and widget configuration | json | false | - | 10 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `position` | int32 | Position | Display order position | integer | false | 0 | 20 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `label` (label) | text | Dashboard | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `module_id` | reference | Module | Module this dashboard belongs to | integer | false | - | 30 | default | default | - | false | - | 2 | modules | cascade | has | - | - | false | auto | [object Object] | - |
-| `view_permission` | reference | View Permission | Permission required to view this dashboard | integer | false | - | 40 | default | default | - | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
+| `view_permission` | reference | View Permission | Permission required to view this dashboard | string | false | - | 40 | default | default | - | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
 
 ---
 
 ## Entity: entities
 
-Metadata for dynamically created tables
+Catalog of tables in Semantius
 
 | field_name | label | value |
 |------------|-------|-------|
@@ -163,12 +166,14 @@ Metadata for dynamically created tables
 | singular_label | Singular Label | Entity |
 | plural_label | Plural Label | Entities |
 | icon_url | Icon URL | - |
-| description | Description | Metadata for dynamically created tables |
+| description | Description | Catalog of tables in Semantius |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `public:read` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `table_name` |
 | label_column | Label Column | `singular_label` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -180,8 +185,7 @@ Metadata for dynamically created tables
 | validation_rules | Validation Rules | [object Object] |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -195,11 +199,13 @@ Metadata for dynamically created tables
 | `plural_label` (core) | text | Plural Label | Human-readable plural label for UI/reports | string | false | - | 40 | default | default | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `icon_url` (core) | url | Icon URL | Optional URL or path to icon for this table | string | false | - | 50 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `description` (core) | text | Description | - | string | false | - | 60 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `module_id` (core) | reference | Module Id | - | integer | false | - | 70 | required | default | core | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] | - |
-| `view_permission` (core) | text | View Permission | Permission required to SELECT from this table | string | false | public:read | 80 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `edit_permission` (core) | text | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | false | admin | 90 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `module_id` (core) | reference | Module Id | - | integer | false | - | 70 | required | default | core | false | - | 2 | modules | cascade | contains | - | - | false | auto | [object Object] | - |
+| `view_permission` (core) | reference | View Permission | Permission required to SELECT from this table | string | false | public:read | 80 | default | default | core | false | - | 2 | permissions | restrict | gates viewing | - | - | false | auto | [object Object] | - |
+| `edit_permission` (core) | reference | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | false | admin | 90 | default | default | core | false | - | 2 | permissions | restrict | gates editing | - | - | false | auto | [object Object] | - |
 | `id_column` (core) | text | Id Column | Name of primary key column | string | false | id | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `label_column` (core) | text | Label Column | Name of label/display column | string | false | label | 110 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `label_parent` (core) | text | Label Parent | Names the reference/parent FK that is this entity's identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label). | string | false | - | 111 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `order_column` (core) | text | Order Column | Store a fixed row order in this column | string | false | - | 112 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `managed` (core) | boolean | Managed | When false, automatic DDL execution is disabled | boolean | false | true | 115 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `searchable` (core) | boolean | Searchable | Whether table is included in full-text search (auto-computed) | boolean | false | - | 117 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `is_child` (core) | boolean | Is Child | Whether table has any parent relationships (auto-computed) | boolean | false | - | 118 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
@@ -211,15 +217,14 @@ Metadata for dynamically created tables
 | `validation_rules` (core) | json | Validation Rules | JsonLogic invariants that must hold for the write to succeed | json | false | - | 124 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `select_rule` (core) | json | Select Rule | JsonLogic rule for per-row FOR SELECT RLS policy | json | false | - | 125 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `catalog_entity_code` (core) | text | Catalog Entity Code | Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline. | string | false | - | 126 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `canonical_owner_module` (core) | text | Canonical Owner Module | For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local. | string | false | - | 127 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `pattern_flags` (core) | json | Pattern Flags | Authored behavior flags as a sparse JSON object of true-valued keys (e.g. personal_content, submit_lock, single_approver). Empty object = no special behavior. | json | false | - | 128 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `catalog_entity_aliases` (core) | json | Catalog Entity Aliases | Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target. | json | false | - | 129 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `catalog_owner_module` (core) | text | Catalog Owner Module | For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local. | string | false | - | 127 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `catalog_entity_aliases` (core) | json | Catalog Entity Aliases | Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target. | json | false | [] | 129 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 
 ---
 
 ## Entity: fields
 
-Metadata for fields in dynamically created tables
+Catalog of the fields that make up a table
 
 | field_name | label | value |
 |------------|-------|-------|
@@ -229,12 +234,14 @@ Metadata for fields in dynamically created tables
 | singular_label | Singular Label | Field |
 | plural_label | Plural Label | Fields |
 | icon_url | Icon URL | - |
-| description | Description | Metadata for fields in dynamically created tables |
+| description | Description | Catalog of the fields that make up a table |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `public:read` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `title` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | field_order |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | true |
@@ -246,8 +253,7 @@ Metadata for fields in dynamically created tables
 | validation_rules | Validation Rules | [object Object] |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -283,7 +289,7 @@ Metadata for fields in dynamically created tables
 
 ## Entity: modules
 
-Logical modules that group related roles and permissions
+Groups of related tables and permissions
 
 | field_name | label | value |
 |------------|-------|-------|
@@ -293,12 +299,14 @@ Logical modules that group related roles and permissions
 | singular_label | Singular Label | Module |
 | plural_label | Plural Label | Modules |
 | icon_url | Icon URL | - |
-| description | Description | Logical modules that group related roles and permissions |
+| description | Description | Groups of related tables and permissions |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `module_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -310,8 +318,7 @@ Logical modules that group related roles and permissions
 | validation_rules | Validation Rules | [object Object],[object Object] |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -322,19 +329,23 @@ Logical modules that group related roles and permissions
 | `module_name` (label) | text | Module Name | Unique module name | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `description` (core) | text | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `module_type` (core) | enum | Module Type | Module type: domain (normal) or master (promoted for sharing) | string | false | - | 25 | readonly | default | core | false | ["domain","master"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `view_permission` (core) | text | View Permission | Permission required to view this module | string | false | - | 30 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `logo_url` (core) | url | Logo URL | URL or base64 data URI for module logo | string | false | - | 35 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `view_permission` (core) | reference | View Permission | Permission required to view this module | string | false | - | 30 | default | default | core | false | - | 2 | permissions | restrict | has | - | - | false | auto | [object Object] | - |
 | `logo_color` (core) | text | Logo Color | Hex color code for module logo | string | false | - | 36 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `home_page` (core) | text | Home Page | Default home page path for module | string | false | - | 37 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `icon_name` (core) | text | Icon Name | Icon or logo name identifier | string | false | - | 37 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `module_slug` (core) | text | Module Slug | URL-safe unique identifier for module | string | false | - | 38 | required | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `manage_permission_id` (core) | reference | Manage Permission | - | integer | false | - | 39 | default | default | core | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
-| `admin_permission_id` (core) | reference | Admin Permission | - | integer | false | - | 40 | default | default | core | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
+| `home_page` (core) | text | Home Page | Default home page path for module | string | false | - | 38 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `manage_permission` (core) | reference | Manage Permission | - | string | false | - | 39 | default | default | core | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
+| `admin_permission` (core) | reference | Admin Permission | - | string | false | - | 40 | default | default | core | false | - | 2 | permissions | clear | has | - | - | false | auto | [object Object] | - |
 | `default_viewer_role_id` (core) | reference | Default Viewer Role | - | integer | false | - | 41 | default | default | core | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] | - |
 | `default_manager_role_id` (core) | reference | Default Manager Role | - | integer | false | - | 42 | default | default | core | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] | - |
 | `default_admin_role_id` (core) | reference | Default Admin Role | - | integer | false | - | 43 | default | default | core | false | - | 2 | roles | clear | has | - | - | false | auto | [object Object] | - |
 | `catalog_module_code` (core) | text | Catalog Module Code | Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield. | string | false | - | 44 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `domain_code` (core) | text | Domain Code | Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM) | string | false | - | 45 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `access_scope` (core) | enum | Access Scope | Basic for simple read/edit; full for role tiers, approvals & gating | string | false | - | 46 | default | default | core | false | ["basic","full"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `settings` (core) | json | Settings | Module-specific settings and configuration | json | false | - | 50 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `dashboard_config` (core) | json | Dashboard Configuration | - | json | false | - | 60 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `version` (core) | int32 | Version | Auto-incremented version number | integer | false | - | 85 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `version_date` (core) | date-time | Version Date | Timestamp of last version change | string | false | - | 86 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -356,28 +367,29 @@ Defines permission inclusion (including permission implies included permissions)
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `id` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
 | is_child | Is Child | true |
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | junction |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
 | validation_rules | Validation Rules | [object Object] |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | text | Id | Generated identifier (including_permission_id.included_permission_id) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `including_permission_id` (core) | parent | Including Permission Id | The broader permission that includes other permissions | string | false | - | 10 | default | default | core | false | - | 2 | permissions | cascade | includes | Includes | Includes | false | auto | [object Object] | - |
-| `included_permission_id` (core) | parent | Included Permission Id | The narrower permission that is included by the broader one | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | included in | Included in | Included in | false | auto | [object Object] | - |
+| `id` 🔑 (id) | text | Id | Generated identifier (including_permission_name.included_permission_name) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `including_permission_name` (core) | parent | Including Permission Name | The broader permission that includes other permissions | string | false | - | 10 | default | default | core | false | - | 2 | permissions | cascade | includes | Includes | Includes | false | auto | [object Object] | - |
+| `included_permission_name` (core) | parent | Included Permission Name | The narrower permission that is included by the broader one | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | included in | Included in | Included in | false | auto | [object Object] | - |
 | `origin` (core) | enum | Origin | How this hierarchy entry was created | string | false | - | 25 | readonly | default | core | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 
 ---
@@ -398,8 +410,10 @@ System permissions that can be assigned to roles
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
-| id_column | Id Column | `id` |
+| id_column | Id Column | `permission_name` |
 | label_column | Label Column | `permission_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -411,66 +425,16 @@ System permissions that can be assigned to roles
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `permission_name` (label) | text | Permission Name | Unique permission name | string | false | - | 10 | required | default | label | true | - | 2 | - | - | - | - | - | true | auto | [object Object] | - |
+| `permission_name` 🔑 (id) | text | Permission Name | Unique permission name | string | true | - | 1 | required | default | id | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `description` (core) | multiline | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `module_id` (core) | reference | Module Id | Module this permission belongs to | integer | false | - | 30 | default | default | core | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] | - |
-
----
-
-## Entity: process_gates
-
-Governance registry: maps entity transitions to processes
-
-| field_name | label | value |
-|------------|-------|-------|
-| table_name | Table Name | `process_gates` |
-| singular | Singular | process_gate |
-| plural | Plural | process_gates |
-| singular_label | Singular Label | Process Gate |
-| plural_label | Plural Label | Process Gates |
-| icon_url | Icon URL | - |
-| description | Description | Governance registry: maps entity transitions to processes |
-| module_id | Module Id | 1 |
-| view_permission | View Permission | `admin` |
-| edit_permission | Edit Permission | `admin` |
-| id_column | Id Column | `id` |
-| label_column | Label Column | `name` |
-| managed | Managed | true |
-| searchable | Searchable | true |
-| is_child | Is Child | true |
-| edit_mode | Edit Mode | auto |
-| cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
-| audit_log | Audit Log | false |
-| computed_fields | Computed Fields | [object Object] |
-| validation_rules | Validation Rules |  |
-| select_rule | Select Rule | [object Object] |
-| catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
-| catalog_entity_aliases | Catalog Entity Aliases |  |
-
-### Fields
-
-| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `name` (label) | text | Name | Display label — mirrors the gate kind (computed) | string | false | - | 5 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `process_id` | parent | Process | The governed process | string | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
-| `entity` | text | Entity | Governed table name (mirrors entities.table_name) | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `gate_kind` | enum | Gate Kind | Type of governance gate | string | false | - | 30 | required | default | - | false | ["approval","submit_lock","ownership","create","transition"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `to_state` | text | To State | Target lifecycle state (empty for non-state-targeted gates) | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `state_column` | text | State Column | Column that holds the lifecycle state in the governed table | string | false | status | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `emits_events` | boolean | Emits Events | When TRUE, entering to_state inserts raci_events | boolean | false | - | 60 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `module_id` (core) | reference | Module Id | Module this permission belongs to | integer | false | - | 30 | required | default | core | false | - | 2 | modules | cascade | contains | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -492,6 +456,8 @@ RACI process catalog
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -503,16 +469,15 @@ RACI process catalog
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `name` (label) | text | Name | Display name of the process | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `module_id` | reference | Module | Owning module | integer | false | - | 20 | default | default | - | false | - | 2 | modules | clear | has | - | - | false | auto | [object Object] | - |
 | `process_key` | text | Process Key | Stable snake_case identifier, unique within module | string | false | - | 30 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `description` | multiline | Description | Detailed description of the process | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
@@ -520,24 +485,26 @@ RACI process catalog
 
 ---
 
-## Entity: queue_table_events
+## Entity: process_gates
 
-Maps table DML events to queues
+Governance registry: maps entity transitions to processes
 
 | field_name | label | value |
 |------------|-------|-------|
-| table_name | Table Name | `queue_table_events` |
-| singular | Singular | queue_table_event |
-| plural | Plural | queue_table_events |
-| singular_label | Singular Label | Queue Table Event |
-| plural_label | Plural Label | Queue Table Events |
+| table_name | Table Name | `process_gates` |
+| singular | Singular | process_gate |
+| plural | Plural | process_gates |
+| singular_label | Singular Label | Process Gate |
+| plural_label | Plural Label | Process Gates |
 | icon_url | Icon URL | - |
-| description | Description | Maps table DML events to queues |
+| description | Description | Governance registry: maps entity transitions to processes |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
-| label_column | Label Column | `event_name` |
+| label_column | Label Column | `name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | true |
@@ -545,23 +512,25 @@ Maps table DML events to queues
 | cube_mode | Cube Mode | auto |
 | entity_type | Entity Type | unclassified |
 | audit_log | Audit Log | false |
-| computed_fields | Computed Fields |  |
+| computed_fields | Computed Fields | [object Object] |
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `event_name` (label) | text | Queue Table Event | - | string | false | - | 1 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `queue_id` | parent | Queue | Parent queue this event belongs to | string | false | - | 5 | default | default | - | false | - | 2 | queues | cascade | has events | - | - | false | auto | [object Object] | - |
-| `table_name` | reference | Table | Table whose DML events are captured | integer | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | [object Object] | - |
-| `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `name` (label) | text | Name | Display label — mirrors the gate kind (computed) | string | false | - | 5 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `process_id` | parent | Process | The governed process | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
+| `entity` | text | Entity | Governed table name (mirrors entities.table_name) | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `gate_kind` | enum | Gate Kind | Type of governance gate | string | false | - | 30 | required | default | - | false | ["approval","submit_lock","ownership","create","transition"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `to_state` | text | To State | Target lifecycle state (empty for non-state-targeted gates) | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `state_column` | text | State Column | Column that holds the lifecycle state in the governed table | string | false | status | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `emits_events` | boolean | Emits Events | When TRUE, entering to_state inserts raci_events | boolean | false | - | 60 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -583,6 +552,8 @@ Message queues backed by pgmq
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `queue_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -594,16 +565,63 @@ Message queues backed by pgmq
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `queue_name` (label) | text | Queue | - | string | false | - | 1 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `queue_name` (label) | text | Queue | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
+| `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | [object Object] | - |
+| `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | [object Object] | - |
+
+---
+
+## Entity: queue_table_events
+
+Maps table DML events to queues
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queue_table_events` |
+| singular | Singular | queue_table_event |
+| plural | Plural | queue_table_events |
+| singular_label | Singular Label | Queue Table Event |
+| plural_label | Plural Label | Queue Table Events |
+| icon_url | Icon URL | - |
+| description | Description | Maps table DML events to queues |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `event_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| entity_type | Entity Type | unclassified |
+| audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases |  |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `queue_id` | parent | Queue | Parent queue this event belongs to | integer | false | - | 5 | default | default | - | false | - | 2 | queues | cascade | has events | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `table_name` | reference | Table | Table whose DML events are captured | string | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | [object Object] | - |
+| `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `event_name` (label) | text | Queue Table Event | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -625,6 +643,8 @@ RACI matrix rows assigning roles to processes
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | true |
@@ -636,17 +656,16 @@ RACI matrix rows assigning roles to processes
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `name` (label) | text | Name | Display label — mirrors the RACI letter (computed) | string | false | - | 5 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `process_id` | parent | Process | The governed process | string | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `process_id` | parent | Process | The governed process | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
 | `role_id` | reference | Role | The persona role assigned this letter | integer | false | - | 20 | required | default | - | false | - | 2 | roles | cascade | has | - | - | false | auto | [object Object] | - |
 | `raci` | enum | RACI | Responsibility letter | string | false | - | 30 | required | default | - | false | ["responsible","accountable","consulted","informed"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `consult_mode` | enum | Consult Mode | Consultation mode (only for raci=consulted) | string | false | read | 40 | default | default | - | false | ["read","notify","block"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
@@ -672,6 +691,8 @@ Notify/consult audit log for RACI-governed record transitions
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `record_id` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | true |
@@ -683,16 +704,15 @@ Notify/consult audit log for RACI-governed record transitions
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `process_id` | parent | Process | The governed process | string | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
+| `process_id` | parent | Process | The governed process | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `entity` | text | Entity | Governed table name | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `record_id` (label) | text | Record Id | Governed record PK (text for non-integer PKs) | string | false | - | 30 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `raci` | enum | RACI | consulted or informed | string | false | - | 40 | required | default | - | false | ["consulted","informed"] | 2 | - | - | has | - | - | false | auto | [object Object] | - |
@@ -720,28 +740,29 @@ Many-to-many mapping between roles and permissions
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `id` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
 | is_child | Is Child | true |
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | junction |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | text | Id | Generated identifier (role_id.permission_id) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `role_id` (core) | parent | Role Id | Role this permission is granted to | string | false | - | 10 | default | default | core | false | - | 2 | roles | cascade | has permissions | Permission | Permissions | false | auto | [object Object] | - |
-| `permission_id` (core) | parent | Permission Id | Permission granted to the role | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | granted to | Permission | Permissions | false | auto | [object Object] | - |
+| `id` 🔑 (id) | text | Id | Generated identifier (role_id.permission_name) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `role_id` (core) | parent | Role Id | Role this permission is granted to | integer | false | - | 10 | default | default | core | false | - | 2 | roles | cascade | has permissions | Permission | Permissions | false | auto | [object Object] | - |
+| `permission_name` (core) | parent | Permission Name | Permission granted to the role | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | granted to | Permission | Permissions | false | auto | [object Object] | - |
 | `granted_at` (core) | date-time | Granted At | Timestamp when permission was granted | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `granted_by` (core) | reference | Granted By | User who granted this permission | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | [object Object] | - |
 
@@ -765,6 +786,8 @@ Groups of permissions that can be assigned to users
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `role_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -776,8 +799,7 @@ Groups of permissions that can be assigned to users
 | validation_rules | Validation Rules | [object Object],[object Object] |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -791,6 +813,53 @@ Groups of permissions that can be assigned to users
 | `description` (core) | multiline | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `origin` (core) | enum | Origin | - | string | false | - | 25 | readonly | default | core | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `module_id` (core) | reference | Module Id | Module this role belongs to | integer | false | - | 30 | default | default | core | false | - | 2 | modules | clear | contains | - | - | false | auto | [object Object] | - |
+
+---
+
+## Entity: user_bookmarks
+
+Manage and order your facorites for quick access to frequently used apps and records.
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `user_bookmarks` |
+| singular | Singular | user_bookmark |
+| plural | Plural | user_bookmarks |
+| singular_label | Singular Label | User Bookmark |
+| plural_label | Plural Label | Favorites |
+| icon_url | Icon URL | - |
+| description | Description | Manage and order your facorites for quick access to frequently used apps and records. |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `user:read` |
+| edit_permission | Edit Permission | `user:read` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `title` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | row_order |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| entity_type | Entity Type | unclassified |
+| audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases |  |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `user_id` | reference | User | Owner of this bookmark (auto-assigned to current user) | integer | false | - | 10 | hidden | default | - | false | - | 2 | users | cascade | has | - | - | false | auto | [object Object] | - |
+| `title` (label) | text | User Bookmark | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `url` | text | URL | Bookmark URL | string | false | - | 30 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `entity_name` | text | Entity | Name of the related entity table | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `entity_id` | int32 | Entity ID | ID of the related record in the entity table (0 = no record) | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -812,28 +881,29 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `id` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
 | is_child | Is Child | true |
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | junction |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | text | Id | Generated identifier (user_id.permission_id) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `user_id` (core) | parent | User Id | User this permission is granted to | string | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has permissions | Permission | Permissions | false | auto | [object Object] | - |
-| `permission_id` (core) | parent | Permission Id | Permission granted to the user | string | false | - | 20 | required | default | core | false | - | 2 | permissions | cascade | granted to | User | Users | false | auto | [object Object] | - |
+| `id` 🔑 (id) | text | Id | Generated identifier (user_id.permission_name) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `user_id` (core) | parent | User Id | User this permission is granted to | integer | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has permissions | Permission | Permissions | false | auto | [object Object] | - |
+| `permission_name` (core) | parent | Permission Name | Permission granted to the user | string | false | - | 20 | required | default | core | false | - | 2 | permissions | cascade | granted to | User | Users | false | auto | [object Object] | - |
 | `granted_at` (core) | date-time | Granted At | Timestamp when permission was granted | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `granted_by` (core) | reference | Granted By | User who granted this permission | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | [object Object] | - |
 
@@ -857,19 +927,20 @@ Many-to-many mapping between users and roles
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `id` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
 | is_child | Is Child | true |
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | junction |
 | audit_log | Audit Log | true |
 | computed_fields | Computed Fields |  |
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -877,8 +948,8 @@ Many-to-many mapping between users and roles
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | text | Id | Generated identifier (user_id.role_id) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `user_id` (core) | parent | User Id | User this role is assigned to | string | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has roles | Role | Roles | false | auto | [object Object] | - |
-| `role_id` (core) | parent | Role Id | Role assigned to the user | string | false | - | 20 | required | default | core | false | - | 2 | roles | cascade | assigned to | User | Users | false | auto | [object Object] | - |
+| `user_id` (core) | parent | User Id | User this role is assigned to | integer | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has roles | Role | Roles | false | auto | [object Object] | - |
+| `role_id` (core) | parent | Role Id | Role assigned to the user | integer | false | - | 20 | required | default | core | false | - | 2 | roles | cascade | assigned to | User | Users | false | auto | [object Object] | - |
 | `assigned_at` (core) | date-time | Assigned At | Timestamp when role was assigned | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `assigned_by` (core) | reference | Assigned By | User who assigned this role | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has assigned | - | - | false | auto | [object Object] | - |
 
@@ -902,6 +973,8 @@ Users and agents
 | edit_permission | Edit Permission | `user:manage` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `email` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -913,8 +986,7 @@ Users and agents
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
@@ -922,7 +994,7 @@ Users and agents
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `external_id` (core) | text | External Id | External identifier from authentication provider | string | false | - | 10 | readonly | default | core | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
+| `external_id` (core) | text | External Id | Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid> | string | false | - | 10 | readonly | default | core | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
 | `email` (label) | email | Email | - | string | false | - | 20 | default | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `first_name` (core) | text | First Name | First name from JWT given_name claim | string | false | - | 22 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `last_name` (core) | text | Last Name | Last name from JWT family_name claim | string | false | - | 23 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
@@ -952,6 +1024,8 @@ Log of webhook receiver events
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `label` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | true |
@@ -963,18 +1037,17 @@ Log of webhook receiver events
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `label` (label) | text | Webhook Receiver Log | - | string | false | - | 1 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `webhook_id` | parent | Webhook Receiver | Parent webhook receiver this log belongs to | string | false | - | 5 | default | default | - | false | - | 2 | webhook_receivers | cascade | has logs | - | - | false | auto | [object Object] | - |
+| `webhook_id` | parent | Webhook Receiver | Parent webhook receiver this log belongs to | integer | false | - | 5 | default | default | - | false | - | 2 | webhook_receivers | cascade | has logs | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `webhook_receiver_id` | reference | Webhook Receiver | Reference to webhook receiver configuration | integer | false | - | 10 | default | default | - | false | - | 2 | webhook_receivers | clear | has logs | - | - | false | auto | [object Object] | - |
+| `label` (label) | text | Webhook Receiver Log | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `webhook_timestamp` | date-time | Webhook Timestamp | Timestamp from webhook source | string | false | - | 30 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `received_timestamp` | date-time | Received Timestamp | Timestamp when webhook was received | string | false | CURRENT_TIMESTAMP | 40 | disabled | default | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `payload` | json | Payload | Webhook payload data | json | false | - | 50 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
@@ -1001,6 +1074,8 @@ Configuration for webhook endpoints
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | label_column | Label Column | `label` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
 | is_child | Is Child | false |
@@ -1012,18 +1087,17 @@ Configuration for webhook endpoints
 | validation_rules | Validation Rules |  |
 | select_rule | Select Rule | [object Object] |
 | catalog_entity_code | Catalog Entity Code | - |
-| canonical_owner_module | Canonical Owner Module | - |
-| pattern_flags | Pattern Flags | [object Object] |
+| catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases |  |
 
 ### Fields
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `label` (label) | text | Webhook Receiver | - | string | false | - | 1 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `table_name` | reference | Table | Target table for webhook data | integer | false | - | 10 | default | default | - | false | - | 2 | entities | cascade | has receivers | - | - | false | auto | [object Object] | - |
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `table_name` | reference | Table | Target table for webhook data | string | false | - | 10 | default | default | - | false | - | 2 | entities | cascade | has receivers | - | - | false | auto | [object Object] | - |
 | `description` | text | Description | Description of webhook receiver purpose | string | false | - | 20 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `label` (label) | text | Webhook Receiver | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `auth_type` | enum | Authentication Type | Type of authentication (none, hmac, or custom header) | string | false | none | 30 | default | default | - | false | ["none","hmac","header"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `secret` | text | Secret | Secret for webhook authentication | string | false | - | 40 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `header_name` | text | Header Name | Custom header name for authentication | string | false | - | 45 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |

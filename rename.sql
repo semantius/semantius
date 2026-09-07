@@ -6,13 +6,13 @@
 --   0145_managed_enable.sql
 -- =====================================================
 
--- --- from 0070_dd_functions.sql (22 functions) ---
+-- --- from 0070_dd_functions.sql (30 functions) ---
 
 -- format_to_data_type
 CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
 DECLARE
-    v_scale SMALLINT := COALESCE(p_precision, 2);
+    v_scale SMALLINT := COALESCE(p_precision, 2::SMALLINT);
 BEGIN
     RETURN CASE p_format
         -- Integer formats
@@ -51,6 +51,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
+-- field_data_type
+CREATE OR REPLACE FUNCTION field_data_type(
+    p_format TEXT,
+    p_precision SMALLINT DEFAULT NULL,
+    p_reference_table TEXT DEFAULT NULL
+)
+RETURNS TEXT AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT upper(pg_catalog.format_type(a.atttypid, a.atttypmod))
+                FROM entities e
+                JOIN pg_catalog.pg_attribute a
+                  ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))::oid
+                 AND a.attname = e.id_column
+                 AND a.attnum > 0
+                 AND NOT a.attisdropped
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_data_type(p_format, p_precision)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
+
 -- format_to_json_type
 CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
 RETURNS JSONB AS $$
@@ -69,6 +93,22 @@ BEGIN
     END;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- field_json_type
+CREATE OR REPLACE FUNCTION field_json_type(p_format TEXT, p_reference_table TEXT DEFAULT NULL)
+RETURNS JSONB AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT format_to_json_type(rf.format)
+                FROM entities e
+                JOIN fields rf ON rf.table_name = e.table_name AND rf.field_name = e.id_column
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_json_type(p_format)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
 
 -- is_nullable
 CREATE OR REPLACE FUNCTION is_nullable(p_format TEXT)
@@ -117,35 +157,89 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 -- quote_default_value
 CREATE OR REPLACE FUNCTION quote_default_value(p_default_value TEXT, p_data_type TEXT)
 RETURNS TEXT AS $$
+DECLARE
+    v_value TEXT := trim(p_default_value);
+    v_upper TEXT;
 BEGIN
     -- If default value is NULL or empty, return as-is
-    IF p_default_value IS NULL OR trim(p_default_value) = '' THEN
+    IF p_default_value IS NULL OR v_value = '' THEN
         RETURN p_default_value;
     END IF;
-    
-    -- If it's a function call (contains parentheses) or cast (contains ::), return as-is
-    IF p_default_value ~ '\(|::' THEN
-        RETURN p_default_value;
+
+    v_upper := upper(v_value);
+
+    -- The NULL keyword
+    IF v_upper = 'NULL' THEN
+        RETURN 'NULL';
     END IF;
-    
-    -- If it's a numeric constant and data type is numeric, return as-is
-    IF p_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT', 'NUMERIC', 'DECIMAL', 'REAL', 'DOUBLE PRECISION') 
-       AND p_default_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
-        RETURN p_default_value;
+
+    -- Boolean constants for boolean columns (t/f are normalized to keywords)
+    IF p_data_type = 'BOOLEAN' AND v_upper IN ('TRUE', 'FALSE', 'T', 'F') THEN
+        RETURN CASE WHEN v_upper IN ('TRUE', 'T') THEN 'TRUE' ELSE 'FALSE' END;
     END IF;
-    
-    -- If it's a boolean constant, return uppercase for consistency
-    IF p_data_type = 'BOOLEAN' AND p_default_value IN ('TRUE', 'FALSE', 'true', 'false', 't', 'f') THEN
-        RETURN UPPER(p_default_value);
+
+    -- Plain numeric constants for numeric columns (NUMERIC(18, n) included)
+    IF p_data_type ~ '^(INTEGER|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|DOUBLE PRECISION)'
+       AND v_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+        RETURN v_value;
     END IF;
-    
-    -- For TEXT and string-like types, quote the value
-    IF p_data_type IN ('TEXT', 'VARCHAR', 'CHAR', 'CHARACTER VARYING') THEN
-        RETURN quote_literal(p_default_value);
+
+    -- Allow-listed argument-less SQL expressions (exact, case-insensitive match)
+    IF v_upper IN (
+        'CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME',
+        'LOCALTIMESTAMP', 'LOCALTIME',
+        'NOW()', 'CLOCK_TIMESTAMP()', 'STATEMENT_TIMESTAMP()', 'TRANSACTION_TIMESTAMP()',
+        'GEN_RANDOM_UUID()',
+        'CURRENT_USER', 'SESSION_USER'
+    ) THEN
+        RETURN v_upper;
     END IF;
-    
-    -- Default: return as-is (for special types like UUID, JSONB, etc.)
-    RETURN p_default_value;
+
+    -- Everything else is a literal value; PostgreSQL casts it to the column type
+    -- (so '[]' works for JSONB, '2026-01-01' for DATE, '1e3' for NUMERIC, ...).
+    RETURN quote_literal(p_default_value);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- dd_table_comment
+CREATE OR REPLACE FUNCTION dd_table_comment(p_plural_label TEXT, p_description TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_body TEXT;
+BEGIN
+    -- Summary line: the plural label
+    v_body := COALESCE(trim(p_plural_label), '');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := CASE WHEN v_body = '' THEN '' ELSE v_body || E'\n\n' END || p_description;
+    END IF;
+    RETURN NULLIF(v_body, '');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- dd_field_comment
+CREATE OR REPLACE FUNCTION dd_field_comment(p_title TEXT, p_format TEXT, p_description TEXT, p_enum_values JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_body   TEXT;
+    v_values TEXT;
+BEGIN
+    -- Summary line: "<title> (<format>)"
+    v_body := trim(trim(COALESCE(p_title, '')) || ' (' || COALESCE(p_format, '') || ')');
+    -- Description paragraph (blank line before it)
+    IF p_description IS NOT NULL AND trim(p_description) != '' THEN
+        v_body := v_body || E'\n\n' || p_description;
+    END IF;
+    -- Enum value list: comma-separated allowed values on their own line
+    IF p_format = 'enum'
+       AND p_enum_values IS NOT NULL
+       AND jsonb_typeof(p_enum_values) = 'array'
+       AND jsonb_array_length(p_enum_values) > 0 THEN
+        SELECT string_agg(value, ', ') INTO v_values
+        FROM jsonb_array_elements_text(p_enum_values) AS value;
+        v_body := v_body || E'\n\n' || v_values;
+    END IF;
+    RETURN NULLIF(v_body, '');
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
@@ -155,20 +249,12 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
     v_policy_sql TEXT;
+    v_comment    TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
-    END IF;
-    
-    -- Validate that view and edit permissions exist
-    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
-        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
-    END IF;
-    
-    IF NOT rbac.validate_permission_exists(NEW.edit_permission) THEN
-        RAISE EXCEPTION 'Edit permission "%" does not exist in permissions table', NEW.edit_permission;
     END IF;
     
     -- Build CREATE TABLE statement
@@ -187,35 +273,35 @@ BEGIN
     -- Create the table
     EXECUTE v_create_sql;
     
-    -- Add table comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON TABLE %I IS %L',
-            NEW.table_name,
-            NEW.description
-        );
+    -- Set table comment: plural label summary + optional description
+    v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
     END IF;
-    
+
     -- Add updated_at trigger using common schema function
     EXECUTE format(
-        'CREATE TRIGGER update_%I_updated_at
+        'CREATE TRIGGER %I
             BEFORE UPDATE ON %I
             FOR EACH ROW
             EXECUTE FUNCTION common.update_updated_at_column()',
-        NEW.table_name,
+        'update_' || NEW.table_name || '_updated_at',
         NEW.table_name
     );
     
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
+    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
+    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
+    -- Test 0445 fails on the bare per-row form.
     -- Create RLS policies for SELECT (view permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_select_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR SELECT
             TO semantius_user
-            USING (rbac.has_permission(%L))',
-        NEW.table_name,
+            USING ((SELECT rbac.has_permission(%L)))',
+        NEW.table_name || '_select_policy',
         NEW.table_name,
         NEW.view_permission
     );
@@ -223,11 +309,11 @@ BEGIN
     
     -- Create RLS policies for INSERT (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_insert_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR INSERT
             TO semantius_user
-            WITH CHECK (rbac.has_permission(%L))',
-        NEW.table_name,
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        NEW.table_name || '_insert_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -235,12 +321,12 @@ BEGIN
     
     -- Create RLS policies for UPDATE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_update_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR UPDATE
             TO semantius_user
-            USING (rbac.has_permission(%L))
-            WITH CHECK (rbac.has_permission(%L))',
-        NEW.table_name,
+            USING ((SELECT rbac.has_permission(%L)))
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        NEW.table_name || '_update_policy',
         NEW.table_name,
         NEW.edit_permission,
         NEW.edit_permission
@@ -249,11 +335,11 @@ BEGIN
     
     -- Create RLS policies for DELETE (edit permission)
     v_policy_sql := format(
-        'CREATE POLICY %I_delete_policy ON %I
+        'CREATE POLICY %I ON %I
             FOR DELETE
             TO semantius_user
-            USING (rbac.has_permission(%L))',
-        NEW.table_name,
+            USING ((SELECT rbac.has_permission(%L)))',
+        NEW.table_name || '_delete_policy',
         NEW.table_name,
         NEW.edit_permission
     );
@@ -265,12 +351,12 @@ BEGIN
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
     
-    -- Note: The handle_field_searchable_change_trigger will fire for the above INSERTs
+    -- Note: The handle_field_searchable_insert_trigger will fire for the above INSERTs
     -- and update entities.searchable automatically. However, since we're in a nested trigger context,
     -- we need to ensure the searchable flag gets set correctly after this trigger completes.
     -- The solution is to update it directly here since the label field is always searchable.
@@ -278,6 +364,33 @@ BEGIN
     SET searchable = TRUE 
     WHERE table_name = NEW.table_name 
       AND EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND searchable = TRUE);
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- update_dd_table_comment
+CREATE OR REPLACE FUNCTION update_dd_table_comment()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_comment TEXT;
+BEGIN
+    -- Only managed tables that physically exist have a table to comment on
+    IF NOT NEW.managed OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Nothing to do unless a comment input or the table identity changed
+    IF OLD.plural_label IS DISTINCT FROM NEW.plural_label
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        v_comment := dd_table_comment(NEW.plural_label, NEW.description);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+        ELSE
+            EXECUTE format('COMMENT ON TABLE %I IS NULL', NEW.table_name);
+        END IF;
+    END IF;
 
     RETURN NEW;
 END;
@@ -337,6 +450,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Suppress IF NOT EXISTS/IF EXISTS notices
     SET LOCAL client_min_messages = WARNING;
@@ -355,20 +469,16 @@ BEGIN
         UNION
         SELECT label_column FROM entities WHERE table_name = NEW.table_name
     ) THEN
-        -- Still add column comment if description provided
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+        -- Still set the column comment (title/format summary + description [+ enum values])
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         END IF;
         RETURN NEW;
     END IF;
     
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(NEW.format, NEW."precision");
+    v_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
     
     -- Build nullable clause based on format
     IF is_nullable(NEW.format) THEN
@@ -425,17 +535,13 @@ BEGIN
     
     -- Add the column
     EXECUTE v_alter_sql;
-    
-    -- Add column comment if description provided
-    IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-        EXECUTE format(
-            'COMMENT ON COLUMN %I.%I IS %L',
-            NEW.table_name,
-            NEW.field_name,
-            NEW.description
-        );
+
+    -- Set column comment: title/format summary + description [+ enum values]
+    v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+    IF v_comment IS NOT NULL THEN
+        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
     END IF;
-    
+
     -- If this is a primary key field, set it as primary key
     IF NEW.is_pk THEN
         -- Check if table already has a primary key
@@ -588,6 +694,7 @@ DECLARE
     v_fk_name TEXT;
     v_idx_name TEXT;
     v_on_delete TEXT;
+    v_comment TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -621,49 +728,39 @@ BEGIN
     
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name,
-                    NEW.field_name,
-                    NEW.description
-                );
+        -- Still keep the column comment in sync even if not managed
+        IF OLD.title IS DISTINCT FROM NEW.title
+           OR OLD.format IS DISTINCT FROM NEW.format
+           OR OLD.description IS DISTINCT FROM NEW.description
+           OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
-        
+
         RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;
     
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
-    
+
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
@@ -710,7 +807,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -888,7 +985,7 @@ DECLARE
 BEGIN
     -- Check if the parent table still exists in entities table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
-    SELECT EXISTS(SELECT 1 FROM entities WHERE table_name = OLD.table_name) INTO v_table_exists;
+    v_table_exists := EXISTS (SELECT 1 FROM entities WHERE table_name = OLD.table_name);
     
     IF NOT v_table_exists THEN
         -- Table is being deleted, allow cascade deletion of all fields including core fields
@@ -976,11 +1073,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Sub-select form: see the note in create_dd_table (P1).
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         NEW.table_name || '_insert_policy', NEW.table_name);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK (rbac.has_permission(%L))',
+        'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK ((SELECT rbac.has_permission(%L)))',
         NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
@@ -1000,6 +1098,12 @@ DECLARE
     v_searchable_fields TEXT[];
     v_search_expr TEXT;
     v_table_exists BOOLEAN;
+    v_relid REGCLASS;
+    v_attnum SMALLINT;
+    v_current_fingerprint TEXT;
+    v_new_fingerprint TEXT;
+    v_index_name TEXT;
+    v_index_exists BOOLEAN;
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
@@ -1008,16 +1112,30 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Check if the table actually exists in the database
-    SELECT EXISTS (
+    v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = p_table_name
-    ) INTO v_table_exists;
+    );
     
     IF NOT v_table_exists THEN
 
         RETURN;
     END IF;
-    
+
+    v_relid := format('public.%I', p_table_name)::regclass;
+    v_index_name := p_table_name || '_search_vector_idx';
+
+    -- What is installed right now: the generated column, if any, and the
+    -- fingerprint we stamped into its comment the last time we built it. Both
+    -- come back NULL when there is nothing to compare against.
+    SELECT a.attnum, col_description(v_relid, a.attnum::int)
+    INTO v_attnum, v_current_fingerprint
+    FROM pg_attribute a
+    WHERE a.attrelid = v_relid
+      AND a.attname = 'search_vector'
+      AND a.attgenerated = 's'
+      AND NOT a.attisdropped;
+
     -- Get all searchable text-based fields for this table that actually exist as columns
     SELECT ARRAY_AGG(field_name ORDER BY field_order)
     INTO v_searchable_fields
@@ -1034,10 +1152,17 @@ BEGIN
     
     -- If no searchable fields, drop the search_vector column and index if they exist
     IF v_searchable_fields IS NULL OR array_length(v_searchable_fields, 1) IS NULL THEN
+        -- Nothing installed and nothing wanted: skip the DDL. ALTER TABLE takes
+        -- ACCESS EXCLUSIVE before it evaluates IF EXISTS, so even a drop that
+        -- matches nothing blocks the table for the rest of the transaction.
+        IF v_attnum IS NULL THEN
+            RETURN;
+        END IF;
+
         -- Drop the GIN index first
         EXECUTE format(
             'DROP INDEX IF EXISTS %I',
-            p_table_name || '_search_vector_idx'
+            v_index_name
         );
         
         -- Drop the search_vector column
@@ -1078,6 +1203,32 @@ BEGIN
           )
     );
     
+    -- Everything below is one full table rewrite: ADD COLUMN ... GENERATED ...
+    -- STORED has to materialize the tsvector for every existing row, so it holds
+    -- ACCESS EXCLUSIVE (blocking readers, not just writers) for the whole
+    -- rewrite and rebuilds every index on the table -- about 650 ms per 100k
+    -- rows, linear. Skip it when the installed column was generated from exactly
+    -- this expression and its index is still in place.
+    --
+    -- The comparison is against a fingerprint of the text we generate, not
+    -- against pg_get_expr(): PostgreSQL deparses the stored expression with
+    -- casts of its own ('simple'::regconfig, 'A'::"char"), so the deparsed form
+    -- never matches what is built above and the guard would never fire.
+    v_new_fingerprint := 'fts:' || md5(v_search_expr);
+
+    v_index_exists := EXISTS (
+        SELECT 1
+        FROM pg_class i
+        JOIN pg_namespace n ON n.oid = i.relnamespace
+        WHERE n.nspname = 'public'
+          AND i.relname = v_index_name
+          AND i.relkind = 'i'
+    );
+
+    IF v_index_exists AND v_current_fingerprint IS NOT DISTINCT FROM v_new_fingerprint THEN
+        RETURN;
+    END IF;
+
     -- Drop existing search_vector column if it exists
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
@@ -1094,14 +1245,21 @@ BEGIN
     -- Drop existing GIN index if it exists
     EXECUTE format(
         'DROP INDEX IF EXISTS %I',
-        p_table_name || '_search_vector_idx'
+        v_index_name
     );
     
     -- Create GIN index on the search_vector column
     EXECUTE format(
         'CREATE INDEX %I ON %I USING GIN (search_vector)',
-        p_table_name || '_search_vector_idx',
+        v_index_name,
         p_table_name
+    );
+
+    -- Stamp the fingerprint so the next call can tell whether anything changed.
+    EXECUTE format(
+        'COMMENT ON COLUMN %I.search_vector IS %L',
+        p_table_name,
+        v_new_fingerprint
     );
 
 END;
@@ -1117,54 +1275,112 @@ BEGIN
     -- during migrations when there is no JWT context.
 
     -- Check if any fields in this table are searchable
-    SELECT EXISTS (
+    v_has_searchable_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND searchable = TRUE
-    ) INTO v_has_searchable_fields;
+    );
 
-    -- Update the searchable flag on the entities record
-    UPDATE entities 
+    -- IS DISTINCT FROM is not a micro-optimization: this runs on every field
+    -- write, and a no-op entities UPDATE still fires its whole trigger stack.
+    UPDATE entities
     SET searchable = v_has_searchable_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND searchable IS DISTINCT FROM v_has_searchable_fields;
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- handle_field_searchable_change
-CREATE OR REPLACE FUNCTION handle_field_searchable_change()
+-- apply_field_searchable_change
+CREATE OR REPLACE FUNCTION apply_field_searchable_change(
+    p_rebuild TEXT[],
+    p_touched TEXT[]
+)
+RETURNS VOID AS $$
+DECLARE
+    v_table_name TEXT;
+BEGIN
+    -- Note: no rbac.uid() here — this function is called by triggers
+    -- during migrations when there is no JWT context.
+
+    -- One rebuild per table per statement, never one per changed field row:
+    -- a rebuild is a full table rewrite under ACCESS EXCLUSIVE.
+    FOREACH v_table_name IN ARRAY coalesce(p_rebuild, ARRAY[]::TEXT[]) LOOP
+        PERFORM update_search_vector_column(v_table_name);
+    END LOOP;
+
+    FOREACH v_table_name IN ARRAY coalesce(p_touched, ARRAY[]::TEXT[]) LOOP
+        PERFORM update_table_searchable_flag(v_table_name);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- handle_field_searchable_insert
+CREATE OR REPLACE FUNCTION handle_field_searchable_insert()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_searchable_changed BOOLEAN := FALSE;
-    v_table_name_to_update TEXT;
+    v_rebuild TEXT[];
+    v_touched TEXT[];
 BEGIN
-    -- Determine which table needs updating and if searchable changed
-    IF TG_OP = 'INSERT' THEN
-        v_table_name_to_update := NEW.table_name;
-        v_searchable_changed := (NEW.searchable = TRUE);
-    ELSIF TG_OP = 'UPDATE' THEN
-        v_table_name_to_update := NEW.table_name;
-        v_searchable_changed := (OLD.searchable IS DISTINCT FROM NEW.searchable);
-    ELSIF TG_OP = 'DELETE' THEN
-        v_table_name_to_update := OLD.table_name;
-        v_searchable_changed := (OLD.searchable = TRUE);
-    END IF;
-    
-    -- Update search vector if searchable fields changed
-    -- The add_field_trigger runs alphabetically before this trigger, so the column already exists
-    IF v_searchable_changed THEN
-        PERFORM update_search_vector_column(v_table_name_to_update);
-    END IF;
-    
-    -- Always update the table searchable flag when fields change
-    PERFORM update_table_searchable_flag(v_table_name_to_update);
-    
-    -- Return appropriate value based on operation
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
-    ELSE
-        RETURN NEW;
-    END IF;
+    SELECT array_agg(DISTINCT table_name) FILTER (WHERE searchable),
+           array_agg(DISTINCT table_name)
+    INTO v_rebuild, v_touched
+    FROM new_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- handle_field_searchable_update
+CREATE OR REPLACE FUNCTION handle_field_searchable_update()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rebuild TEXT[];
+    v_touched TEXT[];
+BEGIN
+    -- Compare the set of searchable field names per table across the whole
+    -- statement instead of pairing old rows with new ones: this catches one
+    -- field being switched off while another is switched on, and needs no join
+    -- key (fields.id is generated from table_name || field_name, so it moves
+    -- when a field is renamed).
+    SELECT array_agg(coalesce(n.table_name, o.table_name))
+    INTO v_rebuild
+    FROM (
+        SELECT table_name,
+               array_agg(field_name ORDER BY field_name) FILTER (WHERE searchable) AS searchable_names
+        FROM new_fields
+        GROUP BY table_name
+    ) n
+    FULL JOIN (
+        SELECT table_name,
+               array_agg(field_name ORDER BY field_name) FILTER (WHERE searchable) AS searchable_names
+        FROM old_fields
+        GROUP BY table_name
+    ) o ON o.table_name = n.table_name
+    WHERE n.searchable_names IS DISTINCT FROM o.searchable_names;
+
+    SELECT array_agg(DISTINCT table_name) INTO v_touched FROM new_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- handle_field_searchable_delete
+CREATE OR REPLACE FUNCTION handle_field_searchable_delete()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rebuild TEXT[];
+    v_touched TEXT[];
+BEGIN
+    SELECT array_agg(DISTINCT table_name) FILTER (WHERE searchable),
+           array_agg(DISTINCT table_name)
+    INTO v_rebuild, v_touched
+    FROM old_fields;
+
+    PERFORM apply_field_searchable_change(v_rebuild, v_touched);
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -1177,11 +1393,11 @@ BEGIN
     -- If searchable was changed, recompute it from fields and override the value
     IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
         -- Compute the correct value from fields
-        SELECT EXISTS (
+        v_computed_searchable := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND searchable = TRUE
-        ) INTO v_computed_searchable;
+        );
         
         -- Override any manual change with the computed value
         NEW.searchable := v_computed_searchable;
@@ -1201,15 +1417,17 @@ BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    SELECT EXISTS (
+    v_has_parent_fields := EXISTS (
         SELECT 1 FROM fields
         WHERE table_name = p_table_name
           AND format = 'parent'
-    ) INTO v_has_parent_fields;
+    );
     
-    UPDATE entities 
+    -- Gated like update_table_searchable_flag above.
+    UPDATE entities
     SET is_child = v_has_parent_fields
-    WHERE table_name = p_table_name;
+    WHERE table_name = p_table_name
+      AND is_child IS DISTINCT FROM v_has_parent_fields;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -1250,11 +1468,11 @@ DECLARE
     v_computed_is_child BOOLEAN;
 BEGIN
     IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
-        SELECT EXISTS (
+        v_computed_is_child := EXISTS (
             SELECT 1 FROM fields 
             WHERE table_name = NEW.table_name 
               AND format = 'parent'
-        ) INTO v_computed_is_child;
+        );
 
         NEW.is_child := v_computed_is_child;
     END IF;
@@ -1419,7 +1637,7 @@ BEGIN
 
             -- Rename all FK constraints named <old_table>_<field>_fkey
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -1434,7 +1652,7 @@ BEGIN
 
             -- Rename all FK indexes named idx_<old_table>_<field>
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -1446,7 +1664,7 @@ BEGIN
 
             -- Rename all check constraints named <old_table>_<field>_check
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -1467,7 +1685,7 @@ BEGIN
             -- branch needed. (Matched by name rather than contype so it does not
             -- depend on the PG18-specific contype value 'n'.)
             FOR v_old_name IN
-                SELECT c.conname
+                SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = NEW.table_name
@@ -1481,7 +1699,7 @@ BEGIN
 
             -- Rename all unique indexes named <old_table>_<field>_unique
             FOR v_old_name IN
-                SELECT indexname
+                SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = NEW.table_name
@@ -1496,15 +1714,22 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
                 'compute_validate_' || OLD.table_name);
 
-            -- Drop old select_rule function (CASCADE drops the policy that uses it).
-            -- The AFTER trigger manage_select_rule_policy will rebuild it under the new name.
+            -- Drop both select_rule overloads (CASCADE drops the policies that use
+            -- them). The AFTER trigger manage_select_rule_policy rebuilds them under
+            -- the new name. The signatures pair the OLD function name with the NEW
+            -- row type on purpose: the physical table was renamed a few lines above,
+            -- so the composite type already answers to NEW.table_name while the
+            -- functions still carry the old name.
+            EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE',
+                'select_rule_' || OLD.table_name, NEW.table_name);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, NEW.table_name);
 
             -- Rename queue event triggers on the entity table.
-            -- Pattern: queue_<queue_name>_<handler>_on_<old_table>
+            -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
+            -- event the mapping covers.
             FOR v_old_name IN
-                SELECT t.tgname
+                SELECT t.tgname::text
                 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
                 WHERE c.relname = NEW.table_name
@@ -1709,8 +1934,12 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
-        v_old_type := format_to_data_type(OLD.format);
-        v_new_type := format_to_data_type(NEW.format);
+        -- field_data_type, not format_to_data_type: a reference takes the type
+        -- of the key it points at, so text -> reference(permissions) is TEXT to
+        -- TEXT and must be allowed, while text -> reference(users) is TEXT to
+        -- INTEGER and must not. The format alone cannot tell the two apart.
+        v_old_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_type <> v_new_type THEN
             RAISE EXCEPTION
@@ -1819,8 +2048,8 @@ BEGIN
     -- Only execute ALTER COLUMN TYPE when the mapped type actually differs
     -- (this guards against edge cases and keeps DDL minimal).
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format);
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             -- Defensive check: BEFORE trigger should have prevented this
@@ -1868,7 +2097,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -2046,7 +2275,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(p_field.format, p_field."precision");
+    v_data_type := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
 
     -- Build nullable clause
     IF is_nullable(p_field.format) THEN
@@ -2100,11 +2329,15 @@ BEGIN
     );
     EXECUTE v_alter_sql;
 
-    -- Add / refresh column comment
-    IF p_field.description IS NOT NULL AND trim(p_field.description) != '' THEN
-        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
-            p_field.table_name, p_field.field_name, p_field.description);
-    END IF;
+    -- Add / refresh column comment: title/format summary + description [+ enum values]
+    DECLARE
+        v_comment TEXT := dd_field_comment(p_field.title, p_field.format, p_field.description, p_field.enum_values);
+    BEGIN
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L',
+                p_field.table_name, p_field.field_name, v_comment);
+        END IF;
+    END;
 
     -- Foreign key (reference / parent format)
     IF p_field.format IN ('reference', 'parent')
@@ -2222,47 +2455,52 @@ BEGIN
         );
         EXECUTE v_create_sql;
 
-        -- Table comment
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, NEW.description);
-        END IF;
+        -- Table comment: plural label summary + optional description
+        DECLARE
+            v_comment TEXT := dd_table_comment(NEW.plural_label, NEW.description);
+        BEGIN
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+            END IF;
+        END;
 
         -- updated_at maintenance trigger
         EXECUTE format(
-            'CREATE TRIGGER update_%I_updated_at
+            'CREATE TRIGGER %I
                 BEFORE UPDATE ON %I
                 FOR EACH ROW
                 EXECUTE FUNCTION common.update_updated_at_column()',
-            NEW.table_name, NEW.table_name
+            'update_' || NEW.table_name || '_updated_at', NEW.table_name
         );
 
-        -- Row Level Security
+        -- Row Level Security. Predicates use the (SELECT rbac.has_permission(...)) InitPlan form,
+        -- see the note in create_dd_table; test 0445 fails on the bare per-row form.
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
         EXECUTE format(
-            'CREATE POLICY %I_select_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR SELECT TO semantius_user
-                USING (rbac.has_permission(%L))',
-            NEW.table_name, NEW.table_name, NEW.view_permission
+                USING ((SELECT rbac.has_permission(%L)))',
+            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_insert_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR INSERT TO semantius_user
-                WITH CHECK (rbac.has_permission(%L))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
+            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_update_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR UPDATE TO semantius_user
-                USING (rbac.has_permission(%L))
-                WITH CHECK (rbac.has_permission(%L))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission, NEW.edit_permission
+                USING ((SELECT rbac.has_permission(%L)))
+                WITH CHECK ((SELECT rbac.has_permission(%L)))',
+            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
         );
         EXECUTE format(
-            'CREATE POLICY %I_delete_policy ON %I
+            'CREATE POLICY %I ON %I
                 FOR DELETE TO semantius_user
-                USING (rbac.has_permission(%L))',
-            NEW.table_name, NEW.table_name, NEW.edit_permission
+                USING ((SELECT rbac.has_permission(%L)))',
+            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
         );
 
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
@@ -2272,11 +2510,11 @@ BEGIN
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 1, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -2337,6 +2575,7 @@ DECLARE
     v_fk_name        TEXT;
     v_idx_name       TEXT;
     v_on_delete      TEXT;
+    v_comment        TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
@@ -2372,18 +2611,24 @@ BEGIN
 
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name, NEW.field_name, NEW.description
-                );
+        -- Keep the column comment in sync even if not managed, but only when the
+        -- physical column actually exists (an unmanaged entity may be metadata-only
+        -- with no physical table/column to comment on).
+        IF (OLD.title IS DISTINCT FROM NEW.title
+            OR OLD.format IS DISTINCT FROM NEW.format
+            OR OLD.description IS DISTINCT FROM NEW.description
+            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name   = NEW.table_name
+                 AND column_name  = NEW.field_name
+           ) THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name, NEW.field_name
-                );
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
             END IF;
         END IF;
 
@@ -2404,25 +2649,23 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name, NEW.field_name, NEW.description
-            );
+    -- Keep column comment in sync when title/format/description/enum values change
+    IF OLD.title IS DISTINCT FROM NEW.title
+       OR OLD.format IS DISTINCT FROM NEW.format
+       OR OLD.description IS DISTINCT FROM NEW.description
+       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name, NEW.field_name
-            );
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
         END IF;
     END IF;
 
     -- Handle format change
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format, OLD."precision");
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
@@ -2464,7 +2707,7 @@ BEGIN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -2662,7 +2905,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $fn$
 DECLARE
-    v_id_col      TEXT;
     v_label_col   TEXT;
     v_spine       TEXT;
     v_rowtype     TEXT;
@@ -2674,6 +2916,7 @@ DECLARE
     v_parent_id   TEXT;
     v_spine_ref   TEXT;
     v_spine_fmt   TEXT;
+    v_sql         TEXT;
     r             RECORD;
 BEGIN
     -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
@@ -2685,8 +2928,8 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT id_column, label_column, NULLIF(label_parent, '')
-      INTO v_id_col, v_label_col, v_spine
+    SELECT label_column, NULLIF(label_parent, '')
+      INTO v_label_col, v_spine
       FROM entities WHERE table_name = p_table_name;
 
     v_saved := current_setting('check_function_bodies');
@@ -2703,7 +2946,11 @@ BEGIN
           AND p.pronargs = 1
           AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
     LOOP
-        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+        -- Build the statement first, then EXECUTE the variable: the plpgsql_check
+        -- profiler re-evaluates an EXECUTE's string expression after the statement
+        -- ran, and re-rendering r.sig after the DROP would yield a bare OID.
+        v_sql := 'DROP FUNCTION IF EXISTS ' || r.sig;
+        EXECUTE v_sql;
     END LOOP;
 
     -- Local term: own label value with '' folded to NULL (so it contributes nothing).
@@ -2779,6 +3026,10 @@ BEGIN
     -- by the request role so they work as PostgREST computed columns and in nested _label calls.
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public._label(%s) TO semantius_user', v_rowtype);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public._label(%s) IS %L',
+        v_rowtype,
+        format('Composed record label for entity "%s" (PostgREST computed column). Generated by rebuild_entity_label_functions from entity/field metadata.', p_table_name));
 
     -- <fk>_label companion for every reference/parent field (referenced record's composed label).
     FOR r IN
@@ -2805,6 +3056,10 @@ BEGIN
             r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
         EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
         EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
+        EXECUTE format(
+            'COMMENT ON FUNCTION public.%I(%s) IS %L',
+            r.field_name || '_label', v_rowtype,
+            format('Composed label of the "%s" record referenced by %s.%s (PostgREST computed column). Generated by rebuild_entity_label_functions.', r.reference_table, p_table_name, r.field_name));
     END LOOP;
 
     PERFORM set_config('check_function_bodies', v_saved, true);
@@ -2930,6 +3185,29 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+    -- Skip the rebuild when the new field cannot change a generated body: it
+    -- emits DDL per reference field, on every field insert. Miss a case and
+    -- nothing raises - a stale <fk>_label keeps answering with the old body.
+    -- The parent-leg count is dd_is_junction(), which reads every field.
+    -- Pinned by 0370_test_composed_labels.sql.
+    IF TG_OP = 'INSERT' AND NOT (
+            dd_is_fk_format(NEW.format)
+         OR EXISTS (SELECT 1 FROM entities e
+                     WHERE e.table_name = NEW.table_name
+                       AND (e.label_column = NEW.field_name
+                         OR NULLIF(e.label_parent, '') = NEW.field_name))
+         OR (SELECT count(*) FROM fields f
+              WHERE f.table_name = NEW.table_name
+                AND f.format = 'parent') >= 2
+         OR EXISTS (SELECT 1 FROM fields f
+                     WHERE f.table_name = NEW.table_name
+                       AND dd_is_fk_format(f.format)
+                       AND f.reference_table <> ''
+                       AND f.field_name || '_label' = NEW.field_name))
+    THEN
+        RETURN NULL;
+    END IF;
+
     PERFORM rebuild_entity_label_functions(COALESCE(NEW.table_name, OLD.table_name));
     RETURN NULL;
 END;

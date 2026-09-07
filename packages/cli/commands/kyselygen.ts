@@ -36,6 +36,7 @@ interface ModuleRecord {
 
 interface EntityRecord {
   table_name: string;
+  id_column: string;
 }
 
 interface FieldRecord {
@@ -47,6 +48,7 @@ interface FieldRecord {
   field_order: number;
   input_type: string;
   enum_values: string[] | null;
+  reference_table: string;
 }
 
 // ---- identifier / string helpers -------------------------------------------
@@ -136,9 +138,27 @@ const JSON_DEFS = [
  * `used`, applies nullability (mirror of is_nullable), and wraps DB-supplied
  * columns in Generated<…>.
  */
-function columnType(field: FieldRecord, used: Set<Alias>): string {
+function columnType(
+  field: FieldRecord,
+  used: Set<Alias>,
+  keyFormatByTable: Map<string, string>,
+): string {
   let base: string;
-  switch (field.format) {
+  // A reference is typed after the key it points at, not after its own format:
+  // the column has that key's type, so a reference to `users` is a number and
+  // one to `entities` or `permissions` a string. Mirrors field_data_type() in
+  // the database. A key is never itself a reference, so this cannot recurse.
+  let format = field.format;
+  if (
+    (format === "reference" || format === "parent") && field.reference_table &&
+    keyFormatByTable.has(field.reference_table)
+  ) {
+    const keyFormat = keyFormatByTable.get(field.reference_table)!;
+    format = keyFormat === "reference" || keyFormat === "parent"
+      ? "integer"
+      : keyFormat;
+  }
+  switch (format) {
     case "int32":
     case "integer":
     case "reference":
@@ -179,7 +199,12 @@ function columnType(field: FieldRecord, used: Set<Alias>): string {
       base = "Json";
       break;
     case "enum": {
-      const vals = effectiveEnumValues(field.input_type, field.enum_values);
+      // Only the field's own enum values constrain it; a reference to an
+      // enum-keyed entity is a plain string here, because the CHECK belongs to
+      // the key's own table.
+      const vals = format === field.format
+        ? effectiveEnumValues(field.input_type, field.enum_values)
+        : null;
       base = vals && vals.length
         ? vals.map((v) => JSON.stringify(v)).join(" | ")
         : "string";
@@ -210,11 +235,21 @@ export async function kyselygenCommand(
       "SELECT id FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name FROM entities ORDER BY table_name",
+      "SELECT table_name, id_column FROM entities ORDER BY table_name",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
-      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values FROM fields ORDER BY table_name, field_order",
+      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, reference_table FROM fields ORDER BY table_name, field_order",
     )).rows;
+
+    // The format of each entity's key field, so a reference can be typed after
+    // the key it points at.
+    const idColByTable = new Map(entities.map((e) => [e.table_name, e.id_column]));
+    const keyFormatByTable = new Map<string, string>();
+    for (const f of fields) {
+      if (f.field_name === idColByTable.get(f.table_name)) {
+        keyFormatByTable.set(f.table_name, f.format);
+      }
+    }
 
     console.log(
       `Found ${modules.length} module(s), ${entities.length} entit(y/ies), ${fields.length} field(s)`,
@@ -230,7 +265,7 @@ export async function kyselygenCommand(
     // Single file, kysely-codegen style: helper aliases, every table interface,
     // then the `DB` map. Tables (and the DB keys) are sorted by physical name.
     const allTables = entities.map((e) => e.table_name).sort();
-    const content = renderFile(allTables, fieldsByTable);
+    const content = renderFile(allTables, fieldsByTable, keyFormatByTable);
 
     const dir = dirname(outputFile);
     if (dir && dir !== ".") await Deno.mkdir(dir, { recursive: true });
@@ -262,6 +297,7 @@ export async function kyselygenCommand(
 function renderFile(
   allTables: string[],
   fieldsByTable: Map<string, FieldRecord[]>,
+  keyFormatByTable: Map<string, string>,
 ): string {
   const used = new Set<Alias>();
   let needGenerated = false;
@@ -272,7 +308,11 @@ function renderFile(
     const colLines: string[] = [];
     for (const field of fieldList) {
       if (isGenerated(field)) needGenerated = true;
-      colLines.push(`  ${key(field.field_name)}: ${columnType(field, used)};`);
+      colLines.push(
+        `  ${key(field.field_name)}: ${
+          columnType(field, used, keyFormatByTable)
+        };`,
+      );
     }
     interfaceBlocks.push(
       `export interface ${pascalCase(table)} {\n${colLines.join("\n")}\n}`,

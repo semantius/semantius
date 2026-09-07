@@ -36,7 +36,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(p_field.format, p_field."precision");
+    v_data_type := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
 
     -- Build nullable clause
     IF is_nullable(p_field.format) THEN
@@ -457,8 +457,8 @@ BEGIN
 
     -- Handle format change
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format, OLD."precision");
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
@@ -500,7 +500,7 @@ BEGIN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;

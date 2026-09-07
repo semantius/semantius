@@ -497,8 +497,12 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
-        v_old_type := format_to_data_type(OLD.format);
-        v_new_type := format_to_data_type(NEW.format);
+        -- field_data_type, not format_to_data_type: a reference takes the type
+        -- of the key it points at, so text -> reference(permissions) is TEXT to
+        -- TEXT and must be allowed, while text -> reference(users) is TEXT to
+        -- INTEGER and must not. The format alone cannot tell the two apart.
+        v_old_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_type <> v_new_type THEN
             RAISE EXCEPTION
@@ -633,8 +637,8 @@ BEGIN
     -- Only execute ALTER COLUMN TYPE when the mapped type actually differs
     -- (this guards against edge cases and keeps DDL minimal).
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format);
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             -- Defensive check: BEFORE trigger should have prevented this
@@ -682,7 +686,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;

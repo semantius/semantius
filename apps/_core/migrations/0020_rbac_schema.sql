@@ -77,17 +77,44 @@ REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 -- PERMISSIONS AND ROLES
 -- =====================================================
 
--- Permissions: Basic permissions in the system
+-- Permissions: Basic permissions in the system.
+--
+-- The name is the key. A serial id would be minted per database and mean
+-- nothing outside it, while the name is what module packages seed, what every
+-- generated RLS policy embeds as a literal, what has_permission() takes and
+-- what an OAuth scope carries - so all of those would otherwise have to resolve
+-- a name to a number first, and nothing could hold a foreign key to a
+-- permission without storing a number nobody names. Deployment is one database
+-- per tenant, so there is no cross-database id to preserve either.
+--
+-- Being the key is also what lets the five columns that name a permission
+-- (entities.view_permission / edit_permission, modules.view_permission,
+-- queues.view_permission / manage_permission) be ordinary foreign keys: before
+-- that, deleting a permission left a dangling name that has_permission() failed
+-- closed on, for administrators too.
 CREATE TABLE permissions (
-    id SERIAL PRIMARY KEY,
-    permission_name TEXT UNIQUE NOT NULL DEFAULT '',
+    permission_name TEXT PRIMARY KEY,
     description TEXT DEFAULT '',
     module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    -- Two things depend on this alphabet, and only two. A scope string is split
+    -- on commas and whitespace, so a name containing either could never be
+    -- granted through an OAuth scope. And permission_hierarchy's key is
+    -- including || '.' || included, so with dots allowed ('a.b','c') and
+    -- ('a','b.c') both generate 'a.b.c' and the second, legitimate pair fails
+    -- with a primary key violation.
+    --
+    -- Everything else is allowed, and the segment alphabet deliberately equals
+    -- the one modules.module_slug accepts (0200_module_slug_validation.sql:
+    -- ^[a-z0-9][a-z0-9_-]*$, hyphens included), because a module scaffold mints
+    -- <slug>:<verb>. Narrowing this without narrowing that would make a module
+    -- slugged service-catalog unable to name its own permissions.
+    CONSTRAINT permission_name_shape CHECK (permission_name ~ '^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$')
 );
 
 COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
+COMMENT ON COLUMN permissions.permission_name IS 'The permission, and the key: colon-separated segments over the same alphabet module_slug uses, each starting with a letter or digit. Referenced by name from every table that grants or requires it.';
 COMMENT ON COLUMN permissions.module_id IS 'Required reference to the module this permission belongs to';
 
 -- Roles: Groups of permissions
@@ -181,7 +208,7 @@ COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring
 
 -- User-Role mapping
 CREATE TABLE user_roles (
-    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -193,24 +220,24 @@ COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
-    id VARCHAR GENERATED ALWAYS AS (role_id || '.' || permission_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (role_id || '.' || permission_name) STORED PRIMARY KEY,
     role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
-    UNIQUE (role_id, permission_id)
+    UNIQUE (role_id, permission_name)
 );
 
 COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
 
 -- User-Permission mapping (direct per-user permissions)
 CREATE TABLE user_permissions (
-    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || permission_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (user_id || '.' || permission_name) STORED PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
-    UNIQUE (user_id, permission_id)
+    UNIQUE (user_id, permission_name)
 );
 
 COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and permissions for direct per-user permission grants';
@@ -220,36 +247,45 @@ COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and per
 -- =====================================================
 
 -- Permission hierarchy: Defines which permissions imply others
--- Example: customer.manage implies customer.read and customer.write
+-- Example: customer:manage implies customer:read and customer:write
 CREATE TABLE permission_hierarchy (
-    id VARCHAR GENERATED ALWAYS AS (including_permission_id || '.' || included_permission_id) STORED PRIMARY KEY,
-    including_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    included_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    id TEXT GENERATED ALWAYS AS (including_permission_name || '.' || included_permission_name) STORED PRIMARY KEY,
+    including_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    included_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     origin TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (including_permission_id, included_permission_id),
-    CONSTRAINT no_self_reference CHECK (including_permission_id != included_permission_id),
+    UNIQUE (including_permission_name, included_permission_name),
+    CONSTRAINT no_self_reference CHECK (including_permission_name != included_permission_name),
     CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
-COMMENT ON COLUMN permission_hierarchy.including_permission_id IS 'The broader permission that includes other permissions';
-COMMENT ON COLUMN permission_hierarchy.included_permission_id IS 'The narrower permission that is included by the broader one';
+COMMENT ON COLUMN permission_hierarchy.including_permission_name IS 'The broader permission that includes other permissions';
+COMMENT ON COLUMN permission_hierarchy.included_permission_name IS 'The narrower permission that is included by the broader one';
 COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
 -- ADD FK COLUMNS TO MODULES (after roles and permissions exist)
 -- =====================================================
 
-ALTER TABLE modules ADD COLUMN manage_permission_id INTEGER REFERENCES permissions(id);
-ALTER TABLE modules ADD COLUMN admin_permission_id INTEGER REFERENCES permissions(id);
+ALTER TABLE modules ADD COLUMN manage_permission TEXT
+    REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN admin_permission TEXT
+    REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE modules ADD COLUMN default_viewer_role_id INTEGER REFERENCES roles(id);
 ALTER TABLE modules ADD COLUMN default_manager_role_id INTEGER REFERENCES roles(id);
 ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id);
 
+-- modules.view_permission is a foreign key to permissions(permission_name) too,
+-- but it is NOT created here: it is DEFERRABLE INITIALLY DEFERRED, and a
+-- deferred check queues a pending trigger event that PostgreSQL will not let a
+-- later ALTER TABLE past. Adding the constraint after the first module is
+-- seeded avoids ever queuing one - see 0040_rbac_seed.sql, where it is created
+-- and the reasoning is written out.
+
 COMMENT ON COLUMN modules.module_type IS 'Module type: domain (normal) or master (promoted for sharing).';
-COMMENT ON COLUMN modules.manage_permission_id IS 'FK to the manage permission for this module. Populated by scaffold.';
-COMMENT ON COLUMN modules.admin_permission_id IS 'FK to the admin permission for this module. Populated when any entity carries edit_permission: admin.';
+COMMENT ON COLUMN modules.manage_permission IS 'The manage permission for this module. Populated by scaffold.';
+COMMENT ON COLUMN modules.admin_permission IS 'The admin permission for this module. Populated when any entity carries edit_permission: admin.';
 COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to the default viewer role for this module. Populated by scaffold.';
 COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to the default manager role for this module. Populated by scaffold.';
 COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to the default admin role for this module. Populated when admin permission is present.';
@@ -288,14 +324,14 @@ CREATE INDEX idx_permissions_module ON permissions(module_id);
 -- =====================================================
 
 CREATE INDEX idx_roles_module ON roles(module_id);
-CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
+CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_name);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 
 -- =====================================================
 -- INDEXES - User Permissions
 -- =====================================================
 
-CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
+CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_name);
 CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
 -- =====================================================
@@ -317,14 +353,15 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
+CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_name);
 
 -- =====================================================
 -- INDEXES - Modules FK columns
 -- =====================================================
 
-CREATE INDEX idx_modules_manage_permission ON modules(manage_permission_id);
-CREATE INDEX idx_modules_admin_permission ON modules(admin_permission_id);
+CREATE INDEX idx_modules_view_permission ON modules(view_permission);
+CREATE INDEX idx_modules_manage_permission ON modules(manage_permission);
+CREATE INDEX idx_modules_admin_permission ON modules(admin_permission);
 CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
 CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
 CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);

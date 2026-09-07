@@ -7,6 +7,7 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   : ColumnType<T, T | undefined, T>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+export type Numeric = ColumnType<string, number | string, number | string>;
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 export type JsonArray = JsonValue[];
 export type JsonObject = { [K in string]?: JsonValue };
@@ -39,6 +40,73 @@ export interface AuditRecordLogs {
   old_record: Json;
 }
 
+export interface Categories {
+  id: Generated<number>;
+  category_name: string;
+  description: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Customers {
+  id: Generated<number>;
+  company_name: string;
+  customer_id: string;
+  contact_name: string;
+  contact_title: string;
+  address: string;
+  city: string;
+  region: string;
+  postal_code: string;
+  country: string;
+  phone: string;
+  fax: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Dashboards {
+  id: Generated<number>;
+  config: Json;
+  position: Generated<number>;
+  label: string;
+  module_id: number | null;
+  view_permission: string | null;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface EmployeeTerritories {
+  id: Generated<number>;
+  employee_id: number;
+  territory_id: number;
+  label: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Employees {
+  id: Generated<number>;
+  last_name: string;
+  first_name: string;
+  title: string;
+  title_of_courtesy: "Mr." | "Mrs." | "Ms." | "Dr." | "";
+  birth_date: Timestamp | null;
+  hire_date: Generated<Timestamp | null>;
+  address: string;
+  city: string;
+  region: string;
+  postal_code: string;
+  country: string;
+  home_phone: string;
+  extension: string;
+  notes: string;
+  photo_path: string;
+  reports_to: number | null;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
 export interface Entities {
   table_name: string;
   singular: string;
@@ -48,26 +116,32 @@ export interface Entities {
   icon_url: string;
   description: string;
   module_id: number | null;
-  view_permission: Generated<string>;
-  edit_permission: Generated<string>;
+  view_permission: Generated<string | null>;
+  edit_permission: Generated<string | null>;
   id_column: Generated<string>;
   label_column: Generated<string>;
+  label_parent: string;
+  order_column: string;
   managed: Generated<boolean>;
   searchable: boolean;
   is_child: boolean;
   edit_mode: Generated<"auto" | "sidebar" | "modal" | "page" | "">;
   cube_mode: Generated<"disabled" | "auto" | "">;
+  entity_type: Generated<"operational_workflow" | "operational_record" | "catalog" | "junction" | "computed" | "unclassified" | "">;
   audit_log: Generated<boolean>;
   computed_fields: Json;
   validation_rules: Json;
   select_rule: Json;
+  catalog_entity_code: string;
+  catalog_owner_module: string;
+  catalog_entity_aliases: Generated<Json>;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
 
 export interface Fields {
   id: string;
-  table_name: number;
+  table_name: string;
   field_name: string;
   format: Generated<"json" | "html" | "text" | "multiline" | "code" | "jsonata" | "reference" | "parent" | "enum" | "date" | "time" | "date-time" | "duration" | "uri" | "uri-reference" | "uri-template" | "url" | "email" | "hostname" | "ipv4" | "ipv6" | "regex" | "uuid" | "json-pointer" | "json-pointer-uri-fragment" | "relative-json-pointer" | "byte" | "int32" | "int64" | "float" | "double" | "password" | "binary" | "string" | "number" | "integer" | "boolean" | "object" | "array" | "null">;
   title: string;
@@ -89,6 +163,7 @@ export interface Fields {
   unique_value: boolean;
   cube_type: Generated<"auto" | "dimension" | "measure" | "disabled">;
   input_type_rule: Json;
+  catalog_field_code: string;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
@@ -98,32 +173,68 @@ export interface Modules {
   module_name: string;
   description: string;
   module_type: "domain" | "master" | "";
-  view_permission: string;
-  logo_url: string;
+  view_permission: string | null;
   logo_color: string;
-  home_page: string;
+  icon_name: string;
   module_slug: string;
-  manage_permission_id: number | null;
-  admin_permission_id: number | null;
+  home_page: string;
+  manage_permission: string | null;
+  admin_permission: string | null;
   default_viewer_role_id: number | null;
   default_manager_role_id: number | null;
   default_admin_role_id: number | null;
+  catalog_module_code: string;
+  domain_code: string;
+  access_scope: "basic" | "full" | "";
   settings: Json;
   dashboard_config: Json;
+  version: number;
+  version_date: Timestamp | null;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface OrderDetails {
+  id: Generated<number>;
+  order_id: number;
+  product_id: number;
+  label: string;
+  unit_price: Generated<Numeric>;
+  quantity: Generated<number>;
+  discount: Generated<Numeric>;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Orders {
+  id: Generated<number>;
+  ship_name: string;
+  status: Generated<"pending" | "shipped">;
+  customer_id: number | null;
+  employee_id: number | null;
+  ship_via: number | null;
+  ship_address: string;
+  ship_city: string;
+  ship_region: string;
+  ship_postal_code: string;
+  ship_country: string;
+  freight: Generated<Numeric>;
+  order_date: Generated<Timestamp | null>;
+  required_date: Generated<Timestamp | null>;
+  shipped_date: Timestamp | null;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
 
 export interface PermissionHierarchy {
   id: string;
-  including_permission_id: number;
-  included_permission_id: number;
+  including_permission_name: string;
+  included_permission_name: string;
   origin: "system" | "model" | "model_master" | "user" | "";
   created_at: Generated<Timestamp | null>;
 }
 
 export interface Permissions {
-  id: Generated<number>;
   permission_name: string;
   description: string;
   module_id: number | null;
@@ -132,8 +243,8 @@ export interface Permissions {
 }
 
 export interface ProcessGates {
-  id: Generated<number>;
   name: string;
+  id: Generated<number>;
   process_id: number;
   entity: string;
   gate_kind: "approval" | "submit_lock" | "ownership" | "create" | "transition";
@@ -145,8 +256,8 @@ export interface ProcessGates {
 }
 
 export interface Processes {
-  id: Generated<number>;
   name: string;
+  id: Generated<number>;
   module_id: number | null;
   process_key: string;
   description: string;
@@ -155,26 +266,43 @@ export interface Processes {
   updated_at: Generated<Timestamp | null>;
 }
 
-export interface QueueTableEvents {
-  event_name: string;
+export interface Products {
   id: Generated<number>;
+  product_name: string;
+  category_id: number | null;
+  supplier_id: number | null;
+  quantity_per_unit: string;
+  unit_price: Generated<Numeric>;
+  units_in_stock: Generated<number>;
+  units_on_order: Generated<number>;
+  reorder_level: Generated<number>;
+  discontinued: Generated<boolean>;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface QueueTableEvents {
   queue_id: number;
-  table_name: number | null;
+  table_name: string | null;
+  id: Generated<number>;
   event_handler: "insert" | "update" | "upsert" | "delete" | "change";
+  event_name: string;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
 
 export interface Queues {
-  queue_name: string;
   id: Generated<number>;
+  queue_name: string;
+  view_permission: Generated<string | null>;
+  manage_permission: Generated<string | null>;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
 
 export interface RaciAssignments {
-  id: Generated<number>;
   name: string;
+  id: Generated<number>;
   process_id: number;
   role_id: number | null;
   raci: "responsible" | "accountable" | "consulted" | "informed";
@@ -185,8 +313,8 @@ export interface RaciAssignments {
 }
 
 export interface RaciEvents {
-  id: Generated<number>;
   process_id: number;
+  id: Generated<number>;
   entity: string;
   record_id: string;
   raci: "consulted" | "informed";
@@ -197,10 +325,17 @@ export interface RaciEvents {
   updated_at: Generated<Timestamp | null>;
 }
 
+export interface Regions {
+  id: Generated<number>;
+  region_description: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
 export interface RolePermissions {
   id: string;
   role_id: number;
-  permission_id: number;
+  permission_name: string;
   granted_at: Timestamp | null;
   granted_by: number | null;
 }
@@ -209,6 +344,7 @@ export interface Roles {
   id: Generated<number>;
   role_name: string;
   slug: string;
+  catalog_role_code: string;
   description: string;
   origin: "system" | "model" | "model_master" | "user" | "";
   module_id: number | null;
@@ -216,10 +352,55 @@ export interface Roles {
   updated_at: Generated<Timestamp | null>;
 }
 
+export interface Shippers {
+  id: Generated<number>;
+  company_name: string;
+  phone: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Suppliers {
+  id: Generated<number>;
+  contact_name: string;
+  company_name: string;
+  contact_title: string;
+  address: string;
+  city: string;
+  region: string;
+  postal_code: string;
+  country: string;
+  phone: string;
+  fax: string;
+  homepage: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface Territories {
+  territory_id: string;
+  id: Generated<number>;
+  territory_description: string;
+  region_id: number | null;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface UserBookmarks {
+  user_id: number | null;
+  id: Generated<number>;
+  title: string;
+  url: string;
+  entity_name: string;
+  entity_id: number;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
 export interface UserPermissions {
   id: string;
   user_id: number;
-  permission_id: number;
+  permission_name: string;
   granted_at: Timestamp | null;
   granted_by: number | null;
 }
@@ -247,23 +428,66 @@ export interface Users {
   is_agent: Generated<boolean>;
 }
 
+export interface WebhookReceiverLogs {
+  webhook_id: number;
+  webhook_receiver_id: number | null;
+  id: Generated<number>;
+  label: string;
+  webhook_timestamp: Timestamp | null;
+  received_timestamp: Generated<Timestamp | null>;
+  payload: Json;
+  result: Generated<"10" | "20" | "90" | "">;
+  error_message: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
+export interface WebhookReceivers {
+  table_name: string | null;
+  id: Generated<number>;
+  label: string;
+  description: string;
+  auth_type: Generated<"none" | "hmac" | "header" | "">;
+  secret: string;
+  header_name: string;
+  header_value: string;
+  jsonata: string;
+  created_at: Generated<Timestamp | null>;
+  updated_at: Generated<Timestamp | null>;
+}
+
 export interface DB {
   audit_ddl_logs: AuditDdlLogs;
   audit_record_logs: AuditRecordLogs;
+  categories: Categories;
+  customers: Customers;
+  dashboards: Dashboards;
+  employee_territories: EmployeeTerritories;
+  employees: Employees;
   entities: Entities;
   fields: Fields;
   modules: Modules;
+  order_details: OrderDetails;
+  orders: Orders;
   permission_hierarchy: PermissionHierarchy;
   permissions: Permissions;
   process_gates: ProcessGates;
   processes: Processes;
+  products: Products;
   queue_table_events: QueueTableEvents;
   queues: Queues;
   raci_assignments: RaciAssignments;
   raci_events: RaciEvents;
+  regions: Regions;
   role_permissions: RolePermissions;
   roles: Roles;
+  shippers: Shippers;
+  suppliers: Suppliers;
+  territories: Territories;
+  user_bookmarks: UserBookmarks;
   user_permissions: UserPermissions;
   user_roles: UserRoles;
   users: Users;
+  webhook_receiver_logs: WebhookReceiverLogs;
+  webhook_receivers: WebhookReceivers;
 }

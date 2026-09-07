@@ -265,7 +265,12 @@ BEGIN
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
-            COALESCE(t.plural_label, '') AS reference_table_plural_label
+            COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The property's JSON type. A reference takes the type of the key it
+            -- points at, so entities/permissions come out "string" and users
+            -- "integer"; a hard-coded list of text-keyed tables would go stale the
+            -- first time an entity changes its key.
+            field_json_type(f.format, f.reference_table) AS json_type
         FROM fields f
         LEFT JOIN entities t ON f.reference_table = t.table_name
         WHERE f.table_name = p_table_name
@@ -276,11 +281,7 @@ BEGIN
             field_name,
             field_order,
             (jsonb_build_object(
-                'type', CASE
-                    WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                    THEN to_jsonb('string'::text)
-                    ELSE format_to_json_type(format)
-                END,
+                'type', json_type,
                 'title', title,
                 'description', description,
                 'inputMode', input_type,
@@ -357,21 +358,15 @@ BEGIN
                     jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
-                        -- Special case: reference/parent to entities/fields are string-typed
-                        WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                        THEN jsonb_build_object('default', trim(both '''' from default_value))
-                        WHEN format_to_json_type(format)::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
-                        WHEN format_to_json_type(format)::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN format_to_json_type(format)::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN format_to_json_type(format)::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
                         -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                         ELSE jsonb_build_object('default', trim(both '''' from default_value))
                     END
-                -- Special case: reference/parent to entities/fields get empty string default
-                WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                THEN jsonb_build_object('default', '')
                 -- For string types without explicit default, add empty string default
-                WHEN format_to_json_type(format)::text = '"string"' THEN jsonb_build_object('default', '')
+                WHEN json_type::text = '"string"' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
                 WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb

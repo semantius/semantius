@@ -58,7 +58,7 @@ function formatToJsonType(format: string): string {
   }
   
   // Single type mappings
-  if (['int32', 'int64', 'integer', 'reference'].includes(format)) {
+  if (['int32', 'int64', 'integer', 'reference', 'parent'].includes(format)) {
     return 'integer';
   }
   
@@ -86,6 +86,23 @@ function formatToJsonType(format: string): string {
   return 'string';
 }
 
+/**
+ * Convert a field to the JSON Schema type its property gets.
+ * Mimics the logic from the field_json_type PostgreSQL function: a reference or
+ * parent takes the type of the key it points at, so a reference to `entities`
+ * or `permissions` documents as string and one to `users` as integer. Falls
+ * back to the field's own format when the referenced entity's key is unknown.
+ */
+function fieldJsonType(field: FieldRecord, keyFormatByTable: Map<string, string>): string {
+  if ((field.format === 'reference' || field.format === 'parent') && field.reference_table) {
+    const keyFormat = keyFormatByTable.get(field.reference_table);
+    if (keyFormat) {
+      return formatToJsonType(keyFormat);
+    }
+  }
+  return formatToJsonType(field.format);
+}
+
 export async function docgenCommand(databaseUrl: string): Promise<void> {
   console.log("Generating schema.md documentation...");
   
@@ -98,6 +115,18 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     // Query entities for module_id = 1 (_core module)
     const entitiesResult = await client.queryObject<EntityRecord>(
       "SELECT * FROM entities WHERE module_id = 1 ORDER BY table_name"
+    );
+    
+    // The format of every entity's key field, so a reference can be documented
+    // with the type of the key it points at. Not restricted to the _core module:
+    // a _core field may reference an entity from any module.
+    const keyFormatsResult = await client.queryObject<{ table_name: string; format: string }>(
+      `SELECT e.table_name, f.format
+         FROM entities e
+         JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.id_column`
+    );
+    const keyFormatByTable = new Map(
+      keyFormatsResult.rows.map((r) => [r.table_name, r.format] as const),
     );
     
     console.log(`Found ${entitiesResult.rows.length} entities for _core module`);
@@ -196,7 +225,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
         const values = displayColumns.map(colName => {
           // Special handling for computed 'type' column
           if (colName === 'type') {
-            return formatToJsonType(field.format);
+            return fieldJsonType(field, keyFormatByTable);
           }
           
           const value = field[colName as keyof FieldRecord];

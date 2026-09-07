@@ -1499,17 +1499,44 @@ REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 -- PERMISSIONS AND ROLES
 -- =====================================================
 
--- Permissions: Basic permissions in the system
+-- Permissions: Basic permissions in the system.
+--
+-- The name is the key. A serial id would be minted per database and mean
+-- nothing outside it, while the name is what module packages seed, what every
+-- generated RLS policy embeds as a literal, what has_permission() takes and
+-- what an OAuth scope carries - so all of those would otherwise have to resolve
+-- a name to a number first, and nothing could hold a foreign key to a
+-- permission without storing a number nobody names. Deployment is one database
+-- per tenant, so there is no cross-database id to preserve either.
+--
+-- Being the key is also what lets the five columns that name a permission
+-- (entities.view_permission / edit_permission, modules.view_permission,
+-- queues.view_permission / manage_permission) be ordinary foreign keys: before
+-- that, deleting a permission left a dangling name that has_permission() failed
+-- closed on, for administrators too.
 CREATE TABLE permissions (
-    id SERIAL PRIMARY KEY,
-    permission_name TEXT UNIQUE NOT NULL DEFAULT '',
+    permission_name TEXT PRIMARY KEY,
     description TEXT DEFAULT '',
     module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    -- Two things depend on this alphabet, and only two. A scope string is split
+    -- on commas and whitespace, so a name containing either could never be
+    -- granted through an OAuth scope. And permission_hierarchy's key is
+    -- including || '.' || included, so with dots allowed ('a.b','c') and
+    -- ('a','b.c') both generate 'a.b.c' and the second, legitimate pair fails
+    -- with a primary key violation.
+    --
+    -- Everything else is allowed, and the segment alphabet deliberately equals
+    -- the one modules.module_slug accepts (0200_module_slug_validation.sql:
+    -- ^[a-z0-9][a-z0-9_-]*$, hyphens included), because a module scaffold mints
+    -- <slug>:<verb>. Narrowing this without narrowing that would make a module
+    -- slugged service-catalog unable to name its own permissions.
+    CONSTRAINT permission_name_shape CHECK (permission_name ~ '^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$')
 );
 
 COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
+COMMENT ON COLUMN permissions.permission_name IS 'The permission, and the key: colon-separated segments over the same alphabet module_slug uses, each starting with a letter or digit. Referenced by name from every table that grants or requires it.';
 COMMENT ON COLUMN permissions.module_id IS 'Required reference to the module this permission belongs to';
 
 -- Roles: Groups of permissions
@@ -1603,7 +1630,7 @@ COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring
 
 -- User-Role mapping
 CREATE TABLE user_roles (
-    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -1615,24 +1642,24 @@ COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
-    id VARCHAR GENERATED ALWAYS AS (role_id || '.' || permission_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (role_id || '.' || permission_name) STORED PRIMARY KEY,
     role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
-    UNIQUE (role_id, permission_id)
+    UNIQUE (role_id, permission_name)
 );
 
 COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
 
 -- User-Permission mapping (direct per-user permissions)
 CREATE TABLE user_permissions (
-    id VARCHAR GENERATED ALWAYS AS (user_id || '.' || permission_id) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (user_id || '.' || permission_name) STORED PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     granted_by INTEGER REFERENCES users(id),
-    UNIQUE (user_id, permission_id)
+    UNIQUE (user_id, permission_name)
 );
 
 COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and permissions for direct per-user permission grants';
@@ -1642,36 +1669,45 @@ COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and per
 -- =====================================================
 
 -- Permission hierarchy: Defines which permissions imply others
--- Example: customer.manage implies customer.read and customer.write
+-- Example: customer:manage implies customer:read and customer:write
 CREATE TABLE permission_hierarchy (
-    id VARCHAR GENERATED ALWAYS AS (including_permission_id || '.' || included_permission_id) STORED PRIMARY KEY,
-    including_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    included_permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    id TEXT GENERATED ALWAYS AS (including_permission_name || '.' || included_permission_name) STORED PRIMARY KEY,
+    including_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    included_permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     origin TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (including_permission_id, included_permission_id),
-    CONSTRAINT no_self_reference CHECK (including_permission_id != included_permission_id),
+    UNIQUE (including_permission_name, included_permission_name),
+    CONSTRAINT no_self_reference CHECK (including_permission_name != included_permission_name),
     CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
-COMMENT ON COLUMN permission_hierarchy.including_permission_id IS 'The broader permission that includes other permissions';
-COMMENT ON COLUMN permission_hierarchy.included_permission_id IS 'The narrower permission that is included by the broader one';
+COMMENT ON COLUMN permission_hierarchy.including_permission_name IS 'The broader permission that includes other permissions';
+COMMENT ON COLUMN permission_hierarchy.included_permission_name IS 'The narrower permission that is included by the broader one';
 COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
 -- ADD FK COLUMNS TO MODULES (after roles and permissions exist)
 -- =====================================================
 
-ALTER TABLE modules ADD COLUMN manage_permission_id INTEGER REFERENCES permissions(id);
-ALTER TABLE modules ADD COLUMN admin_permission_id INTEGER REFERENCES permissions(id);
+ALTER TABLE modules ADD COLUMN manage_permission TEXT
+    REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN admin_permission TEXT
+    REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE modules ADD COLUMN default_viewer_role_id INTEGER REFERENCES roles(id);
 ALTER TABLE modules ADD COLUMN default_manager_role_id INTEGER REFERENCES roles(id);
 ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id);
 
+-- modules.view_permission is a foreign key to permissions(permission_name) too,
+-- but it is NOT created here: it is DEFERRABLE INITIALLY DEFERRED, and a
+-- deferred check queues a pending trigger event that PostgreSQL will not let a
+-- later ALTER TABLE past. Adding the constraint after the first module is
+-- seeded avoids ever queuing one - see 0040_rbac_seed.sql, where it is created
+-- and the reasoning is written out.
+
 COMMENT ON COLUMN modules.module_type IS 'Module type: domain (normal) or master (promoted for sharing).';
-COMMENT ON COLUMN modules.manage_permission_id IS 'FK to the manage permission for this module. Populated by scaffold.';
-COMMENT ON COLUMN modules.admin_permission_id IS 'FK to the admin permission for this module. Populated when any entity carries edit_permission: admin.';
+COMMENT ON COLUMN modules.manage_permission IS 'The manage permission for this module. Populated by scaffold.';
+COMMENT ON COLUMN modules.admin_permission IS 'The admin permission for this module. Populated when any entity carries edit_permission: admin.';
 COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to the default viewer role for this module. Populated by scaffold.';
 COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to the default manager role for this module. Populated by scaffold.';
 COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to the default admin role for this module. Populated when admin permission is present.';
@@ -1710,14 +1746,14 @@ CREATE INDEX idx_permissions_module ON permissions(module_id);
 -- =====================================================
 
 CREATE INDEX idx_roles_module ON roles(module_id);
-CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id);
+CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_name);
 CREATE INDEX idx_role_permissions_granted_by ON role_permissions(granted_by);
 
 -- =====================================================
 -- INDEXES - User Permissions
 -- =====================================================
 
-CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id);
+CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_name);
 CREATE INDEX idx_user_permissions_granted_by ON user_permissions(granted_by);
 
 -- =====================================================
@@ -1739,14 +1775,15 @@ CREATE INDEX idx_user_roles_assigned_by ON user_roles(assigned_by);
 -- INDEXES - Permission Hierarchy
 -- =====================================================
 
-CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_id);
+CREATE INDEX idx_permission_hierarchy_included ON permission_hierarchy(included_permission_name);
 
 -- =====================================================
 -- INDEXES - Modules FK columns
 -- =====================================================
 
-CREATE INDEX idx_modules_manage_permission ON modules(manage_permission_id);
-CREATE INDEX idx_modules_admin_permission ON modules(admin_permission_id);
+CREATE INDEX idx_modules_view_permission ON modules(view_permission);
+CREATE INDEX idx_modules_manage_permission ON modules(manage_permission);
+CREATE INDEX idx_modules_admin_permission ON modules(admin_permission);
 CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
 CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
 CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);
@@ -1766,7 +1803,7 @@ $pgsem__core_0020_rbac_schema$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', '9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4');
+      VALUES ('_core.0020_rbac_schema', '0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1817,40 +1854,34 @@ DECLARE
     cycle_exists BOOLEAN;
     max_depth INTEGER;
 BEGIN
-    -- Validate that both including and included permissions exist (redundant with FK but explicit)
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.including_permission_id) THEN
-        RAISE EXCEPTION 'Including permission with Id % does not exist', NEW.including_permission_id;
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.included_permission_id) THEN
-        RAISE EXCEPTION 'Included permission with Id % does not exist', NEW.included_permission_id;
-    END IF;
-    
+    -- Both permissions are known to exist: the two foreign keys on this table
+    -- reject the row before this trigger is reached.
+
     -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the included can reach the including through existing paths
     WITH RECURSIVE hierarchy_path AS (
         -- Start from the proposed included
-        SELECT included_permission_id AS permission_id, 1 AS depth
+        SELECT included_permission_name AS permission_name, 1 AS depth
         FROM permission_hierarchy
-        WHERE including_permission_id = NEW.included_permission_id
-        
+        WHERE including_permission_name = NEW.included_permission_name
+
         UNION ALL
-        
+
         -- Recursively follow the hierarchy
-        SELECT ph.included_permission_id, hp.depth + 1
+        SELECT ph.included_permission_name, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.including_permission_id = hp.permission_id
+        INNER JOIN hierarchy_path hp ON ph.including_permission_name = hp.permission_name
         WHERE hp.depth < 11  -- Stop at depth 11
     )
-    SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.including_permission_id),
+    SELECT
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_name = NEW.including_permission_name),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
-    
+
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission Id % cannot be both ancestor and descendant of permission Id %', 
-            NEW.including_permission_id, NEW.included_permission_id;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %',
+            NEW.including_permission_name, NEW.included_permission_name;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -2230,7 +2261,6 @@ RETURNS BOOLEAN AS $$
 DECLARE
     v_oauth_scopes TEXT;
     v_has_permission BOOLEAN;
-    v_permission_id INTEGER;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id, where the rule is
     -- explained. Note that the admin test runs through rbac.has_permission and
@@ -2250,49 +2280,37 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Get the permission_id for the requested permission
-    SELECT id INTO v_permission_id
-    FROM permissions
-    WHERE permission_name = p_permission_name;
-    
-    -- If permission doesn't exist, return false
-    IF v_permission_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
-    
     -- Check if user has the permission (including hierarchy)
     -- Using recursive CTE to follow the hierarchy
     v_has_permission := EXISTS (
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.id AS permission_id
+        SELECT DISTINCT rp.permission_name
         FROM users u
         JOIN user_roles ur ON u.id = ur.user_id
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Direct per-user permissions
-        SELECT DISTINCT p.id AS permission_id
+        SELECT DISTINCT up.permission_name
         FROM users u
         JOIN user_permissions up ON u.id = up.user_id
-        JOIN permissions p ON up.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Add implied permissions (included in hierarchy)
-        SELECT DISTINCT ph.included_permission_id
+        SELECT DISTINCT ph.included_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT 1 FROM permission_tree
-    WHERE permission_id = v_permission_id
+    WHERE permission_name = p_permission_name
     );
     
     -- If user doesn't have the permission, return false immediately
@@ -2313,7 +2331,7 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.id AS permission_id
+            SELECT DISTINCT p.permission_name
             FROM permissions p
             WHERE p.permission_name = ANY(
                 -- Separators normalized: any run of commas or whitespace.
@@ -2324,12 +2342,12 @@ BEGIN
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT ph.included_permission_id
+            SELECT DISTINCT ph.included_permission_name
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+            JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
         )
         SELECT 1 FROM permission_tree
-        WHERE permission_id = v_permission_id
+        WHERE permission_name = p_permission_name
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
@@ -2624,32 +2642,29 @@ BEGIN
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions from roles
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT rp.permission_name
         FROM users u
         JOIN user_roles ur ON u.id = ur.user_id
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Direct per-user permissions
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT up.permission_name
         FROM users u
         JOIN user_permissions up ON u.id = up.user_id
-        JOIN permissions p ON up.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT ph.included_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
-        JOIN permissions p ON ph.included_permission_id = p.id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
@@ -2740,25 +2755,6 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
-
--- Validate that a permission exists
--- Note: no rbac.uid() here — this function is called by triggers
--- during migrations when there is no JWT context.
--- Its callers (create_dd_table in 0070, queue_validate_permissions in 0170) are
--- SECURITY DEFINER, so it needs no grant to the request role and is revoked from
--- it below: a definer with no identity check is not something to leave reachable
--- over RPC, even when all it answers is whether a permission name is registered.
-CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM permissions WHERE permission_name = p_permission_name
-    );
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION rbac.validate_permission_exists IS 
-'Validates that a permission exists in the permissions table.';
 
 -- =====================================================
 -- HELPER FUNCTIONS
@@ -2918,9 +2914,9 @@ BEGIN
     -- If Administrator role exists, grant the new permission to it
     IF v_administrator_role_id IS NOT NULL THEN
         -- Upsert into role_permissions - insert or update if already exists
-        INSERT INTO role_permissions (role_id, permission_id)
-        VALUES (v_administrator_role_id, NEW.id)
-        ON CONFLICT (role_id, permission_id) 
+        INSERT INTO role_permissions (role_id, permission_name)
+        VALUES (v_administrator_role_id, NEW.permission_name)
+        ON CONFLICT (role_id, permission_name) 
         DO UPDATE SET granted_at = CURRENT_TIMESTAMP;
     END IF;
     
@@ -2940,12 +2936,6 @@ CREATE TRIGGER auto_grant_permission_to_administrator
 -- Revoke default PUBLIC execute on all rbac functions defined above
 -- Must come AFTER all CREATE FUNCTION statements
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
-
--- rbac.validate_permission_exists is reached only from SECURITY DEFINER trigger
--- functions (see its header); the default privileges above hand it to the
--- request role along with every other function in this schema, so it takes an
--- explicit revoke to keep it off the RPC surface.
-REVOKE EXECUTE ON FUNCTION rbac.validate_permission_exists(TEXT) FROM semantius_user;
 $pgsem__core_0030_rbac_functions$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -2962,7 +2952,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c');
+      VALUES ('_core.0030_rbac_functions', '1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -2987,19 +2977,19 @@ INSERT INTO modules (id, module_name, module_slug, description, view_permission,
 -- SEED PERMISSIONS
 -- =====================================================
 
-INSERT INTO permissions (id, permission_name, description, module_id) VALUES
-    (1, 'user:read', 'Read user information', 1),
-    (2, 'user:manage', 'Manage users (includes read, create, update, delete)', 1),
-    (3, 'public:read', 'Read public information', 1),
-    (4, 'admin', 'Manage administrative functions', 1);
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('user:read', 'Read user information', 1),
+    ('user:manage', 'Manage users (includes read, create, update, delete)', 1),
+    ('public:read', 'Read public information', 1),
+    ('admin', 'Manage administrative functions', 1);
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
 -- =====================================================
--- user:manage (Id=2) implies user:read (Id=1)
+-- user:manage implies user:read
 
-INSERT INTO permission_hierarchy (including_permission_id, included_permission_id) VALUES
-    (2, 1);
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name) VALUES
+    ('user:manage', 'user:read');
 
 -- =====================================================
 -- SEED ROLES
@@ -3014,22 +3004,22 @@ INSERT INTO roles (id, role_name, description, origin, module_id) VALUES
 -- =====================================================
 
 -- User role gets user:read and public:read permissions
-INSERT INTO role_permissions (role_id, permission_id) VALUES 
-    (1, 1),
-    (1, 3);
+INSERT INTO role_permissions (role_id, permission_name) VALUES 
+    (1, 'user:read'),
+    (1, 'public:read');
 
 -- Administrator role gets user:manage, public:read, and admin permissions
-INSERT INTO role_permissions (role_id, permission_id) VALUES 
-    (2, 2),
-    (2, 3),
-    (2, 4);
+INSERT INTO role_permissions (role_id, permission_name) VALUES 
+    (2, 'user:manage'),
+    (2, 'public:read'),
+    (2, 'admin');
 
 -- =====================================================
 -- SET MODULE FK REFERENCES
 -- =====================================================
 
 UPDATE modules SET
-    admin_permission_id = (SELECT id FROM permissions WHERE permission_name = 'admin'),
+    admin_permission = 'admin',
     default_admin_role_id = (SELECT id FROM roles WHERE role_name = 'Administrator')
 WHERE module_name = '_core';
 
@@ -3037,9 +3027,41 @@ WHERE module_name = '_core';
 -- RESET SEQUENCES (Reserve Ids < 10000 for internal use)
 -- =====================================================
 
-SELECT setval('permissions_id_seq', GREATEST(10000, (SELECT MAX(id) + 1 FROM permissions)));
 SELECT setval('roles_id_seq', GREATEST(10000, (SELECT MAX(id) + 1 FROM roles)));
-SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)));$pgsem__core_0040_rbac_seed$;
+SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)));
+
+-- =====================================================
+-- MODULE VIEW PERMISSION FOREIGN KEY
+-- =====================================================
+-- A module and its view_permission point at each other: the permission's
+-- module_id names the module, so the module row has to exist first, and the
+-- first module of all is seeded before any permission exists. That is what
+-- DEFERRABLE INITIALLY DEFERRED is for - deferred to commit, both rows are
+-- there by then - and it is why this one constraint is NO ACTION: RESTRICT
+-- never defers. Every other permission foreign key is checked immediately and
+-- fails early, because entities and queues are always created after the
+-- permissions they name.
+--
+-- It is created HERE, at the end of the seed, rather than beside the other
+-- modules foreign keys in 0020, and that placement is the point. A deferred
+-- check is a pending trigger event, and PostgreSQL refuses ALTER TABLE on a
+-- table that has one; declaring the constraint before the seed would leave the
+-- seed's own INSERT queued and 0050's ALTER TABLE modules ENABLE ROW LEVEL
+-- SECURITY - and the ALTERs in 0282 and 0284 - would fail with SQLSTATE 55006.
+-- That is invisible when each migration runs in its own transaction and fatal
+-- when the extension installer runs all of them in one. ADD CONSTRAINT
+-- validates the rows already present with a single scan instead, queuing
+-- nothing, so both install paths behave the same from here on.
+--
+-- Consequence for any caller that creates a module over PostgREST, where each
+-- request is its own transaction: name a permission that already exists (the
+-- default 'user:read' does), create the module's own permissions, then update
+-- the module. A view_permission created in a later request fails at the module
+-- request's commit, not on the statement.
+ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
+    FOREIGN KEY (view_permission) REFERENCES permissions(permission_name)
+    ON DELETE NO ACTION ON UPDATE CASCADE
+    DEFERRABLE INITIALLY DEFERRED;$pgsem__core_0040_rbac_seed$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
       GET STACKED DIAGNOSTICS
@@ -3055,7 +3077,7 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0040_rbac_seed', '1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620');
+      VALUES ('_core.0040_rbac_seed', '692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3687,8 +3709,13 @@ CREATE TABLE IF NOT EXISTS entities (
     icon_url TEXT DEFAULT '',
     description TEXT DEFAULT '',
     module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
-    view_permission TEXT NOT NULL DEFAULT 'public:read',
-    edit_permission TEXT NOT NULL DEFAULT 'admin',
+    -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an
+    -- entity is always created after the permissions it names, so an immediate
+    -- check fails early instead of at commit.
+    view_permission TEXT NOT NULL DEFAULT 'public:read'
+        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
+    edit_permission TEXT NOT NULL DEFAULT 'admin'
+        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     id_column TEXT NOT NULL DEFAULT 'id',
     label_column TEXT NOT NULL DEFAULT 'label',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
@@ -3737,6 +3764,12 @@ CREATE TABLE IF NOT EXISTS entities (
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
+-- The two permission columns are RESTRICT foreign keys, so every permission
+-- delete and every rename scans them. The dictionary builds idx_<table>_<field>
+-- for a reference field it creates; these are declared by hand, so their
+-- indexes are too.
+CREATE INDEX idx_entities_view_permission ON entities(view_permission);
+CREATE INDEX idx_entities_edit_permission ON entities(edit_permission);
 
 -- Matches the format the DDL triggers apply (plural label + blank line + description),
 -- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
@@ -3768,7 +3801,7 @@ COMMENT ON COLUMN entities.select_rule IS
 -- Stores metadata about fields in dynamically created tables
 
 CREATE TABLE IF NOT EXISTS fields (
-    id VARCHAR GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
+    id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
     table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE,
     field_name TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
@@ -4056,7 +4089,7 @@ VALUES
      '[{"code":"catalog_module_code_write_once","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
      '[{"code":"origin_immutable_roles","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'permission_name', '[]'::jsonb),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb),
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
@@ -4207,8 +4240,8 @@ VALUES
     ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        ''),
     ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        ''),
     ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains'),
-    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'text',      FALSE, 80,  'default',  'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'text',      FALSE, 90,  'default',  'default', 'core', FALSE, '', '',        ''),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'reference', FALSE, 80,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing'),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing'),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', ''),
@@ -4250,7 +4283,7 @@ VALUES
     ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', ''),
     ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', ''),
     ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', ''),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'text', FALSE, 30, 'default', 'default', 'core', FALSE, '', ''),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict'),
     ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', ''),
@@ -4258,8 +4291,8 @@ VALUES
     ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', ''),
     ('modules', 'access_scope', 'Access Scope', 'Basic for simple read/edit; full for role tiers, approvals & gating', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'manage_permission_id', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
-    ('modules', 'admin_permission_id', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
+    ('modules', 'manage_permission', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
+    ('modules', 'admin_permission', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
     ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
     ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
     ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
@@ -4296,15 +4329,15 @@ UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::j
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('permissions', 'id',              'Id',              '',                                    'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      ''),
-    ('permissions', 'permission_name', 'Permission Name', 'Unique permission name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      ''),
+    -- input_type 'required', not the 'readonly' every other ctype='id' row
+    -- carries: those keys are generated by the database, this one is typed by
+    -- whoever creates the permission, and readonly would make a permission
+    -- impossible to create from the UI.
+    ('permissions', 'permission_name', 'Permission Name', 'Unique permission name',              'text',      TRUE,  1,  'required', 'default', 'id',    TRUE,  '',        '',      ''),
     ('permissions', 'description',     'Description',     '',                                    'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      ''),
     ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'required', 'default', 'core',  FALSE, 'modules', 'cascade', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '');
-
--- Mark permission_name as unique (matches UNIQUE constraint on actual table)
-UPDATE fields SET unique_value = TRUE WHERE table_name = 'permissions' AND field_name = 'permission_name';
 
 -- Insert fields metadata for user_roles table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -4321,38 +4354,38 @@ UPDATE fields SET singular_label_parent = 'User', plural_label_parent = 'Users' 
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('role_permissions', 'id',            'Id',            'Generated identifier (role_id.permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        ''),
-    ('role_permissions', 'role_id',       'Role Id',       'Role this permission is granted to',           'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions'),
-    ('role_permissions', 'permission_id', 'Permission Id', 'Permission granted to the role',               'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to'),
+    ('role_permissions', 'id',              'Id',              'Generated identifier (role_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        ''),
+    ('role_permissions', 'role_id',         'Role Id',         'Role this permission is granted to',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions'),
+    ('role_permissions', 'permission_name', 'Permission Name', 'Permission granted to the role',                 'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to'),
     ('role_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        ''),
     ('role_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted');
 
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'role_id';
-UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_id';
+UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_name';
 
 -- Insert fields metadata for user_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('user_permissions', 'id',            'Id',            'Generated identifier (user_id.permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
-    ('user_permissions', 'user_id',       'User Id',       'User this permission is granted to',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions'),
-    ('user_permissions', 'permission_id', 'Permission Id', 'Permission granted to the user',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to'),
+    ('user_permissions', 'id',              'Id',              'Generated identifier (user_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
+    ('user_permissions', 'user_id',         'User Id',         'User this permission is granted to',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions'),
+    ('user_permissions', 'permission_name', 'Permission Name', 'Permission granted to the user',                 'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to'),
     ('user_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        ''),
     ('user_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted');
 
 UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'user_permissions' AND field_name = 'user_id';
-UPDATE fields SET singular_label_parent = 'User',       plural_label_parent = 'Users'       WHERE table_name = 'user_permissions' AND field_name = 'permission_id';
+UPDATE fields SET singular_label_parent = 'User',       plural_label_parent = 'Users'       WHERE table_name = 'user_permissions' AND field_name = 'permission_name';
 
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('permission_hierarchy', 'id',                      'Id',                      'Generated identifier (including_permission_id.included_permission_id)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
-    ('permission_hierarchy', 'including_permission_id',  'Including Permission Id',  'The broader permission that includes other permissions',                 'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes'),
-    ('permission_hierarchy', 'included_permission_id',   'Included Permission Id',   'The narrower permission that is included by the broader one',            'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in'),
+    ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
+    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission that includes other permissions',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes'),
+    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one',                'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in'),
     ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        ''),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '');
 
-UPDATE fields SET singular_label_parent = 'Includes',    plural_label_parent = 'Includes'    WHERE table_name = 'permission_hierarchy' AND field_name = 'including_permission_id';
-UPDATE fields SET singular_label_parent = 'Included in', plural_label_parent = 'Included in' WHERE table_name = 'permission_hierarchy' AND field_name = 'included_permission_id';
+UPDATE fields SET singular_label_parent = 'Includes',    plural_label_parent = 'Includes'    WHERE table_name = 'permission_hierarchy' AND field_name = 'including_permission_name';
+UPDATE fields SET singular_label_parent = 'Included in', plural_label_parent = 'Included in' WHERE table_name = 'permission_hierarchy' AND field_name = 'included_permission_name';
 
 -- Set enum_values for permission_hierarchy.origin field
 UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'permission_hierarchy' AND field_name = 'origin';
@@ -4375,7 +4408,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09');
+      VALUES ('_core.0060_dd_schema', '4b331200ba3e1817826c91294136ed2c206bf7dcc4a4a7f07cde775ecef0a703');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4443,6 +4476,51 @@ COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
+-- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
+-- =====================================================
+-- The type a field's column actually gets. For everything except a reference
+-- that is format_to_data_type(); for a reference or a parent it is the type of
+-- the key the field points at, read from the catalog.
+--
+-- A reference cannot be typed from its format alone. `permissions` is keyed by
+-- TEXT, `users` by INTEGER, and format_to_data_type() sees only the word
+-- "reference", so it can only guess - and a column typed differently from the
+-- key it is about to be constrained to makes the ADD CONSTRAINT fail. Reading
+-- the key is the only answer that is right for every entity.
+--
+-- The catalog lookup returns nothing when the referenced entity is unknown, or
+-- is registered with no physical table yet (to_regclass gives NULL). The format
+-- then stands, which keeps INTEGER for reference and parent; the ADD CONSTRAINT
+-- that follows fails on the missing relation, as it did before this function
+-- existed. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
+-- tests and the DDL builders' NOT NULL default table keep matching on it.
+CREATE OR REPLACE FUNCTION field_data_type(
+    p_format TEXT,
+    p_precision SMALLINT DEFAULT NULL,
+    p_reference_table TEXT DEFAULT NULL
+)
+RETURNS TEXT AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT upper(pg_catalog.format_type(a.atttypid, a.atttypmod))
+                FROM entities e
+                JOIN pg_catalog.pg_attribute a
+                  ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))::oid
+                 AND a.attname = e.id_column
+                 AND a.attnum > 0
+                 AND NOT a.attisdropped
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_data_type(p_format, p_precision)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION field_data_type IS
+'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created. Falls back to the format when the referenced entity is unknown or has no physical table.';
+
+-- =====================================================
 -- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
 -- =====================================================
 -- Maps format values to JSON Schema primitive types
@@ -4469,6 +4547,38 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
+
+-- =====================================================
+-- HELPER FUNCTION: FIELD TO JSON SCHEMA TYPE
+-- =====================================================
+-- The JSON Schema type a field's property gets. The sibling of field_data_type
+-- above and it has to agree with it: the schema RPCs describe the very column
+-- that function creates, so a reference is typed after the key it points at
+-- here too. `entities` is keyed by TEXT and `users` by INTEGER, and a schema
+-- that called both "integer" would make the UI cast 'public:read' to a number
+-- and PostgREST reject the write.
+--
+-- The referenced key's own format is what decides, not its catalog type, so
+-- that a text key declared as `email` or `uuid` is described as precisely as
+-- any other field. The format stands when the referenced entity is unknown or
+-- has no field row for its key column.
+CREATE OR REPLACE FUNCTION field_json_type(p_format TEXT, p_reference_table TEXT DEFAULT NULL)
+RETURNS JSONB AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT format_to_json_type(rf.format)
+                FROM entities e
+                JOIN fields rf ON rf.table_name = e.table_name AND rf.field_name = e.id_column
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_json_type(p_format)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION field_json_type IS
+'JSON Schema type for a field''s property. Same as format_to_json_type except for reference/parent, which take the type of the referenced entity''s key field. Falls back to the format when the referenced entity is unknown.';
 
 -- =====================================================
 -- IS_NULLABLE FUNCTION
@@ -4672,15 +4782,6 @@ BEGIN
     IF NOT NEW.managed THEN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
-    END IF;
-    
-    -- Validate that view and edit permissions exist
-    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
-        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
-    END IF;
-    
-    IF NOT rbac.validate_permission_exists(NEW.edit_permission) THEN
-        RAISE EXCEPTION 'Edit permission "%" does not exist in permissions table', NEW.edit_permission;
     END IF;
     
     -- Build CREATE TABLE statement
@@ -4968,7 +5069,7 @@ BEGIN
     END IF;
     
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(NEW.format, NEW."precision");
+    v_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
     
     -- Build nullable clause based on format
     IF is_nullable(NEW.format) THEN
@@ -5262,7 +5363,7 @@ BEGIN
 
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
@@ -5309,7 +5410,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -6238,6 +6339,7 @@ COMMENT ON FUNCTION get_record_by_id IS
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
@@ -6247,6 +6349,7 @@ REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 -- query and the field DDL triggers) in the inserting user's context, so semantius_user needs EXECUTE.
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
@@ -6283,7 +6386,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '94d05f1bc577372efc54dc0d3f34b70423ef5dd5b3dafe87a7e3d2e0f651c099');
+      VALUES ('_core.0070_dd_functions', '8727da41a8d7e161a48a1e45e0624e691b7dc9d68f6c359dd0e89fc40d0be65e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -6617,7 +6720,12 @@ BEGIN
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
-            COALESCE(t.plural_label, '') AS reference_table_plural_label
+            COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The property's JSON type. A reference takes the type of the key it
+            -- points at, so entities/permissions come out "string" and users
+            -- "integer"; a hard-coded list of text-keyed tables would go stale the
+            -- first time an entity changes its key.
+            field_json_type(f.format, f.reference_table) AS json_type
         FROM fields f
         LEFT JOIN entities t ON f.reference_table = t.table_name
         WHERE f.table_name = p_table_name
@@ -6628,11 +6736,7 @@ BEGIN
             field_name,
             field_order,
             (jsonb_build_object(
-                'type', CASE
-                    WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                    THEN to_jsonb('string'::text)
-                    ELSE format_to_json_type(format)
-                END,
+                'type', json_type,
                 'title', title,
                 'description', description,
                 'inputMode', input_type,
@@ -6709,21 +6813,15 @@ BEGIN
                     jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
-                        -- Special case: reference/parent to entities/fields are string-typed
-                        WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                        THEN jsonb_build_object('default', trim(both '''' from default_value))
-                        WHEN format_to_json_type(format)::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
-                        WHEN format_to_json_type(format)::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN format_to_json_type(format)::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN format_to_json_type(format)::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
                         -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                         ELSE jsonb_build_object('default', trim(both '''' from default_value))
                     END
-                -- Special case: reference/parent to entities/fields get empty string default
-                WHEN format IN ('reference', 'parent') AND reference_table IN ('entities', 'fields')
-                THEN jsonb_build_object('default', '')
                 -- For string types without explicit default, add empty string default
-                WHEN format_to_json_type(format)::text = '"string"' THEN jsonb_build_object('default', '')
+                WHEN json_type::text = '"string"' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
                 WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
@@ -7121,7 +7219,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed');
+      VALUES ('_core.0080_public_functions', '29fe41ae19020ddf793b719c64b355b0d407e6a3f2c9360706e84bf9b37cc503');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8244,8 +8342,12 @@ BEGIN
             RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
         END IF;
 
-        v_old_type := format_to_data_type(OLD.format);
-        v_new_type := format_to_data_type(NEW.format);
+        -- field_data_type, not format_to_data_type: a reference takes the type
+        -- of the key it points at, so text -> reference(permissions) is TEXT to
+        -- TEXT and must be allowed, while text -> reference(users) is TEXT to
+        -- INTEGER and must not. The format alone cannot tell the two apart.
+        v_old_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_type <> v_new_type THEN
             RAISE EXCEPTION
@@ -8380,8 +8482,8 @@ BEGIN
     -- Only execute ALTER COLUMN TYPE when the mapped type actually differs
     -- (this guards against edge cases and keeps DDL minimal).
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format);
-        v_new_data_type := format_to_data_type(NEW.format);
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             -- Defensive check: BEFORE trigger should have prevented this
@@ -8429,7 +8531,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -8615,7 +8717,7 @@ $pgsem__core_0140_dd_rename$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5');
+      VALUES ('_core.0140_dd_rename', '9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8662,7 +8764,7 @@ BEGIN
     SET LOCAL client_min_messages = WARNING;
 
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(p_field.format, p_field."precision");
+    v_data_type := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
 
     -- Build nullable clause
     IF is_nullable(p_field.format) THEN
@@ -9083,8 +9185,8 @@ BEGIN
 
     -- Handle format change
     IF OLD.format <> NEW.format THEN
-        v_old_data_type := format_to_data_type(OLD.format, OLD."precision");
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
@@ -9126,7 +9228,7 @@ BEGIN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -9782,7 +9884,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', 'f04384be4e556a1b55f2879da86e4bfb6f8628f3a734188241129d8ec7b50116');
+      VALUES ('_core.0145_managed_enable', '0e61baf7829829518ad95a6e1977845fa530c9179653b19333a565f3a3242853');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -12878,12 +12980,18 @@ WHERE table_name = 'queues' AND field_name = 'queue_name';
 -- Per-queue authorization for the RPC consumers (release review S4), declared
 -- as dictionary fields like entities.view_permission so the UI can manage them.
 -- view_permission gates queue_read; manage_permission gates queue_pop,
--- queue_archive and queue_delete. Both default to admin and must name an
--- existing permission (queue_validate_permissions below).
+-- queue_archive and queue_delete. Both default to admin, and being references
+-- to permissions(permission_name) is what makes a name that is not a registered
+-- permission impossible to store and a permission a queue names impossible to
+-- delete.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
 VALUES
-    ('queues', 'view_permission',   'View Permission',   'text', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, '', '', '', FALSE),
-    ('queues', 'manage_permission', 'Manage Permission', 'text', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, '', '', '', FALSE);
+    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
+
+-- reference columns default to nullable in the DD model; both are mandatory
+ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;
+ALTER TABLE queues ALTER COLUMN manage_permission SET NOT NULL;
 
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
@@ -12953,32 +13061,6 @@ CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_delete();
-
-CREATE OR REPLACE FUNCTION queue_validate_permissions()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
-        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
-    END IF;
-
-    IF NOT rbac.validate_permission_exists(NEW.manage_permission) THEN
-        RAISE EXCEPTION 'Manage permission "%" does not exist in permissions table', NEW.manage_permission;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION queue_validate_permissions() IS
-'Trigger function that rejects a queues row whose view_permission or manage_permission is not a registered permission name (the same rule entities apply to their permission columns).';
-
-CREATE TRIGGER queue_validate_permissions_trigger
-    BEFORE INSERT OR UPDATE ON queues
-    FOR EACH ROW
-    EXECUTE FUNCTION queue_validate_permissions();
 
 -- =====================================================
 -- STEP 3: Create queue_table_events child entity
@@ -13296,7 +13378,6 @@ REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION queue_validate_permissions() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 5: RPC functions for PostgREST consumers
@@ -13486,7 +13567,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', 'c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2');
+      VALUES ('_core.0170_queue', '358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17246,7 +17327,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"9f16cd3ad8af5b84ffdfad3d5c008b7274d5bf65a410e00e88e45a43cf9a9ca4","_core.0030_rbac_functions":"0f7aff9a11a3219abaa029b226c5274193cb280510f3f0755404c967b98d7b8c","_core.0040_rbac_seed":"1c382450c03e1e0e2920304e279e468884891ca70958b3287caa8e4d45cfb620","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"43648896688c36bf795899a411ecf906fff90c16be7c178280442304a09e3d09","_core.0070_dd_functions":"94d05f1bc577372efc54dc0d3f34b70423ef5dd5b3dafe87a7e3d2e0f651c099","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8843dff6853b58525dd664ba77d80f43928d3cae60aada3331c20dde85602aed","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"2022307d048479aa31e49dce69fa34fcea9f756e4d166bf9607cffd21860f7c5","_core.0145_managed_enable":"f04384be4e556a1b55f2879da86e4bfb6f8628f3a734188241129d8ec7b50116","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"c8e97c57dbd159d1afe53daabd701683830f15a23f96661e6e2b4482c9021dd2","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"789a5eae62e137c21d380fa966a491dac3f755ab51d46af8b30dea30847c9be3","_core.0060_dd_schema":"4b331200ba3e1817826c91294136ed2c206bf7dcc4a4a7f07cde775ecef0a703","_core.0070_dd_functions":"8727da41a8d7e161a48a1e45e0624e691b7dc9d68f6c359dd0e89fc40d0be65e","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"29fe41ae19020ddf793b719c64b355b0d407e6a3f2c9360706e84bf9b37cc503","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648","_core.0145_managed_enable":"0e61baf7829829518ad95a6e1977845fa530c9179653b19333a565f3a3242853","_core.0150_audit_log":"073720c67868349e99adbc43cf3b0f156f9c19cdff41daef2fcbcf72a34471a3","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"2f9ede2bbddc99fd1a81edaf77b9574a1d0f33f62d4e66ea96a72b638448399a"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

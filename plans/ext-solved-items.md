@@ -1955,3 +1955,207 @@ of difference - `CREATE SCHEMA extensions` and `CREATE EXTENSION plpgsql_check`
 that `dropall` deliberately skips, so it outlives a reset. It is container state,
 not a schema difference: `DROP EXTENSION plpgsql_check; DROP SCHEMA extensions;`
 on the CLI side, or a `--coverage` run on both, and the step passes.
+
+## S16 (2026-09-07): the permission name became the key, and every column that names one became a foreign key
+
+### The row, as it was written
+
+| ID | Priority | Area | Where | Problem | Fix | Done when |
+|---|---|---|---|---|---|---|
+| S16 | Low | migration | `entities.view_permission`/`edit_permission`, `modules.view_permission`, `queues.view_permission`/`manage_permission` | Permission names are stored as text, validated on save only, no foreign key. Deleting a permission that is still named leaves a dangling name that fails `has_permission` for everyone, admins included (fails closed). The UI renders these as plain text boxes because it keys on format, not on field name; `dashboards.view_permission` and `modules.manage_permission_id`/`admin_permission_id` are references and get the picker. Decision 2026-09-03: keep text for now; converting all of them touches the policy generators and the schema RPCs and needs its own plan. | Interim: a before-delete trigger on `permissions` that refuses to remove a name still used by an entity, module or queue. Later: convert to references. | Deleting a permission named by an entity raises. |
+
+The interim before-delete trigger was never written. The row was closed by doing
+the later fix directly, which makes the interim one unnecessary.
+
+### What changed
+
+**`permissions` is keyed by `permission_name`.** The `SERIAL id` column is gone,
+and with it `permissions_id_seq` and the `setval` that reset it. A serial id was
+minted per database and meant nothing outside it, while the name is what module
+packages seed, what every generated RLS policy embeds as a literal, what
+`has_permission()` takes and what an OAuth scope carries. Deployment is one
+database per tenant, so there was no cross-database id to preserve.
+
+**Every column that names a permission is now a foreign key to it**, and the
+columns are named after the key they reference, following `fields.table_name` ->
+`entities(table_name)`:
+
+| Was | Is |
+|---|---|
+| `role_permissions.permission_id INTEGER` | `permission_name TEXT`, CASCADE / ON UPDATE CASCADE |
+| `user_permissions.permission_id` | same |
+| `permission_hierarchy.including_permission_id` / `included_permission_id` | `including_permission_name` / `included_permission_name`, same shape |
+| `modules.manage_permission_id` / `admin_permission_id` | `manage_permission` / `admin_permission` TEXT, SET NULL / ON UPDATE CASCADE |
+| `entities.view_permission` / `edit_permission` (plain text) | same names, RESTRICT / ON UPDATE CASCADE |
+| `modules.view_permission` (plain text) | same name, NO ACTION / ON UPDATE CASCADE, `DEFERRABLE INITIALLY DEFERRED` |
+| `queues.view_permission` / `manage_permission` (plain text) | same names, RESTRICT / ON UPDATE CASCADE, built by the dictionary |
+
+The four generated junction keys and `fields.id` became `TEXT` instead of
+`VARCHAR` in the same pass; that was the whole of the "normalize VARCHAR to
+TEXT" half, and `apps/test/tests/0042_test_no_varchar_columns.sql` now sweeps
+the catalog so it cannot come back. Only the vendored `pgmq` still has VARCHAR
+columns.
+
+**`modules.view_permission` is the one deferred constraint in the schema, and
+has to be.** A module's `view_permission` names a permission whose `module_id`
+names the module: a cycle, and every seed inserts the module first. Deferred to
+commit, both rows exist by then. RESTRICT never defers, so this one is NO
+ACTION; everywhere else the check is immediate and fails early. Two consequences
+worth keeping:
+
+- **A deferred check is a pending trigger event, and PostgreSQL refuses
+  `ALTER TABLE` on a table that has one.** That is invisible when each migration
+  runs in its own transaction and fatal when `semantius.migrate()` runs all of
+  them in one: with the constraint declared in `0020` beside the other modules
+  foreign keys, the `_core` module seeded in `0040` left its own check queued and
+  `0050`'s `ALTER TABLE modules ENABLE ROW LEVEL SECURITY` failed with SQLSTATE
+  55006 on the extension path while the CLI path was green. `0282` and `0284`
+  carry the same shape.
+
+  **So the constraint is created at the end of `0040`, after the rows it
+  validates**, where `ADD CONSTRAINT` checks them with one scan and queues
+  nothing. `0020` keeps a note saying where it went and why, because that is
+  where a reader looks for it. Northwind seeds a module naming a permission it
+  creates afterwards and does queue a check, which is exactly what the deferral
+  is for, and nothing alters `modules` after it in either install path.
+
+  The alternative considered and rejected was to let the seed settle its own
+  check with a paired `SET CONSTRAINTS <name> IMMEDIATE; ... DEFERRED;`. It
+  works - the second statement is not optional, or the constraint stays
+  immediate for the rest of the transaction and the Northwind seed fails on its
+  INSERT - but it needs the extension generator's migration lint widened to
+  permit a top-level `SET`, and it leaves a correctness-critical pairing that
+  nothing can check. Creating the constraint later needs neither.
+- **A caller that creates a module over PostgREST gets no protection from the
+  deferral**, because each request is its own transaction. The contract is:
+  create the module naming a permission that already exists (the default
+  `user:read` does), then its permissions, then update the module. That is
+  written into `create_module`'s tool description in the MCP server.
+
+**The dictionary types a reference after the key it references.** This was the
+prerequisite, and without all three parts the schema would install and then fail
+at runtime:
+
+- `field_data_type(format, precision, reference_table)` reads the referenced
+  entity's `id_column` type out of the catalog; `format_to_data_type` still
+  answers INTEGER when there is no table to look at. Used by `add_dd_field`
+  (0070) and `apply_field_ddl` (0145), and by the live `update_dd_field`'s
+  format-change guard so it judges a change by the type the column would
+  actually get.
+- `field_json_type(format, reference_table)` does the same for the JSON Schema
+  type, replacing the hard-coded `reference_table IN ('entities','fields')` list
+  in `build_schema_for_table`. Without it `get_schema('queues')` would have
+  raised `invalid input syntax for type integer` on `'admin'` and taken
+  `get_schemas`, `get_module_cubes` and `get_user_cubes` down with it.
+- `packages/cli/commands/docgen.ts` takes the same rule. It also had `parent`
+  missing from its integer list, which is why `schema.md` used to document
+  `user_roles.user_id` as a string; it says `integer` now.
+
+**Every site that types a column from a format takes the new rule, including
+the guard that runs first.** `validate_field_rename_and_format` (`0140`) is a
+BEFORE UPDATE trigger on `fields` and fires ahead of `update_dd_field`, so a
+`format_to_data_type` left in it is the one a caller hits. It was missed in the
+first pass, and the result was that converting a TEXT column into a reference to
+a text-keyed entity - the exact operation this change makes legal, performed by
+hand on five core columns - was refused with "would require changing the column
+type from TEXT to INTEGER" for a column that would have stayed TEXT. There was
+no silent corruption: the complementary direction was caught by the converted
+guard in `0145`. Both directions are pinned now. The superseded `update_dd_field`
+copies in `0070` and `0140` were converted with it, so all four definitions tell
+one story rather than differing in the one respect a reader would care about.
+
+**Three validators went, because the foreign keys are the check.**
+`rbac.validate_permission_exists`, the INSERT-time check in `create_dd_table`,
+`queue_validate_permissions` and its trigger, and the two id-existence checks in
+`rbac.check_permission_hierarchy_cycle`. The foreign key covers INSERT and
+UPDATE alike, and the UPDATE path on `entities` had no check at all before. The
+cost is that callers get a SQLSTATE instead of a sentence; the two assertions in
+`0395` that pinned those sentences now expect 23503, and the two in `0060` and
+`0405` that pinned the function's existence and its revoke are gone with it.
+
+**Naming is constrained: `^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$`.** Two
+things depend on the alphabet, and only two. A scope string is split on commas
+and whitespace, so a name containing either could never be granted through an
+OAuth scope. And `permission_hierarchy`'s generated key is
+`including || '.' || included`, so with dots allowed `('a.b','c')` and
+`('a','b.c')` both generate `a.b.c` and the second, legitimate pair fails with a
+spurious primary key violation.
+
+The segment alphabet is otherwise exactly the one `modules.module_slug` accepts.
+That is deliberate and it is the correction of a mistake: the alphabet first
+shipped as `^[a-z0-9_]+(:[a-z0-9_]+)*$` on the stated grounds that "module slugs
+are `[a-z0-9_]+`", which is false - `0200_module_slug_validation.sql` replaces
+the original CHECK with a JsonLogic rule of `^[a-z0-9][a-z0-9_-]*$`, hyphens
+included. A module slugged `service-catalog` could not have named its own
+`service-catalog:view`. Nothing in this repository mints `<slug>:<verb>` (the
+scaffold is external) so nothing had broken, but the invariant the comment
+asserted did not hold. Widening is strictly safe: no name that was legal became
+illegal, and both hazards above stay excluded.
+
+**The UI half of the row is answered by the format change, not by a rename.**
+The five columns are `format = 'reference'` to `permissions` now, so
+`InputReference` renders the same picker it already gave
+`dashboards.view_permission`, and it stores the name because it keys on the
+referenced entity's `id_column`. All seven have defaults, so none of them enters
+the schema RPC's `required` list and nothing the UI demands changed.
+
+### What proves it
+
+- **`apps/test/tests/0455_test_permission_name_key.sql`**, 31 assertions:
+  deleting a permission an entity, a module or a queue names is refused; a
+  module delete still cascades through its own permissions and entities and
+  drops the physical table; a rename propagates into `entities.view_permission`
+  and rebuilds the generated SELECT policy around the new literal; a module can
+  name a permission inserted later in the same transaction, and one that never
+  appears is refused when the check is forced to run; a space, a comma and a dot
+  are refused by the CHECK while a hyphenated `<slug>:<verb>` is accepted; a
+  reference to an entity with no physical table falls back to INTEGER;
+  `field_data_type` and `field_json_type` agree about every reference in the
+  database; a TEXT column can become a reference to a text-keyed entity and
+  still cannot become one to an integer-keyed entity; `SET NULL` clears rather
+  than refuses; a rename reaches a dictionary-created column too; and
+  `dashboards.view_permission` and `queues.view_permission` are TEXT columns
+  with foreign keys that `get_schema` reports as `string` while a reference to
+  `users` is still `integer`.
+- **`apps/test/tests/0042_test_no_varchar_columns.sql`**, 2 assertions, from the
+  catalog rather than from the documentation: no VARCHAR column in `public`,
+  `common`, `rbac` or `audit`, and the five generated keys are TEXT.
+- **RESTRICT and NO ACTION report different SQLSTATEs**, which the test records
+  because it is the only externally visible difference between them here:
+  RESTRICT raises 23001 (`restrict_violation`), the deferred NO ACTION 23503.
+- **Both harnesses and the lifecycle.** `pg-cli-retest.sh` and
+  `pg-ext-retest.sh`, 2,321 passing on each; `pg-ext-lifecycle.sh`, 112 passed,
+  0 failed, with step 10's two schema dumps byte-identical at 23,637 lines. The
+  suite went from 2,290 to 2,321: it lost two assertions (the two that pinned
+  `validate_permission_exists`, a function that no longer exists) and gained
+  thirty-three. Five assertions were rewritten from an error sentence to a
+  SQLSTATE - four in `0395`, one in `0415` - and one in `0395` went the other
+  way and got stronger, from `%does not exist%` to `42501`.
+- **The three questions the plan could not settle without a database**, all
+  answered by the run:
+  - The cascaded UPDATE from a rename, issued as `user3`, passes through the
+    RLS, audit and module-version triggers on `entities` without being blocked -
+    referential actions run as the referencing table's owner with RLS not
+    forced.
+  - `0450` GROUP 2 still resolves the recursive permission walk through the
+    renamed composite indexes with `enable_seqscan = off`, on text keys.
+  - A reference to an entity with no physical table behaves exactly as before:
+    `field_data_type('reference', NULL, <unmanaged entity>)` returns `INTEGER`
+    from the fallback and the `ADD CONSTRAINT` then fails on the missing
+    relation. Probed live.
+
+### What this closure does not solve
+
+- **`get_record_by_id(TEXT, INTEGER)`** (0070, reached from the JsonLogic
+  operator in 0015 and from 0210) cannot address a text-keyed entity. It could
+  not address `entities` or `fields` before either; `permissions` joins them.
+- **The per-entity key format** (`int32`, `int64`, `text`, `uuid`) for
+  dictionary-created tables. Only the piece this change could not do without -
+  typing a reference after its key - landed.
+- **Modules and roles keyed by slug.** The same argument as permissions, no live
+  hazard, and a larger footprint.
+- **The dictionary describes the five columns as nullable** (`is_nullable` is
+  TRUE for every `reference`) while the physical columns are NOT NULL. That is
+  the pre-existing dictionary model, the same as `raci_assignments.role_id`, and
+  the queue columns get their `SET NOT NULL` after the field insert for exactly
+  that reason.

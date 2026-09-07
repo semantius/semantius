@@ -71,22 +71,22 @@ SELECT is((SELECT message->>'n' FROM pgmq.a_rpc_q), '2',
 -- Per-queue authorization (release review S4)
 -- =====================================================
 -- Still the owner here (RESET ROLE above). Both permission fields default to
--- admin and must name an existing permission.
+-- admin and are foreign keys to permissions(permission_name).
 SELECT is((SELECT view_permission FROM queues WHERE queue_name = 'raci_notify'), 'admin',
     'queues.view_permission: defaults to admin');
 SELECT is((SELECT manage_permission FROM queues WHERE queue_name = 'raci_notify'), 'admin',
     'queues.manage_permission: defaults to admin');
 SELECT throws_ok($$UPDATE queues SET view_permission = 'no:such' WHERE queue_name = 'rpc_q'$$,
-    NULL, 'View permission "no:such" does not exist in permissions table',
-    'queues.view_permission: an unknown permission name is rejected');
+    '23503', NULL,
+    'queues.view_permission: an unknown permission name is rejected by the foreign key');
 
 INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('rpcq:view',   'Read the rpc_q queue',    1),
     ('rpcq:manage', 'Consume the rpc_q queue', 1);
 UPDATE queues SET view_permission = 'rpcq:view', manage_permission = 'rpcq:manage'
 WHERE queue_name = 'rpc_q';
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT r.id, p.permission_name FROM roles r, permissions p
 WHERE r.slug = 'northwind_sales' AND p.permission_name = 'rpcq:view';
 SELECT pgmq.send('rpc_q', '{"n":4}');
 SELECT pgmq.send('rpc_q', '{"n":5}');
@@ -119,8 +119,8 @@ SELECT throws_ok($$SELECT public.queue_delete('rpc_q', 1)$$, '42501', NULL,
 
 -- grant rpcq:manage to the same role; authenticate_as clears the cache
 RESET ROLE;
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT r.id, p.permission_name FROM roles r, permissions p
 WHERE r.slug = 'northwind_sales' AND p.permission_name = 'rpcq:manage';
 SELECT authenticate_as('user2');
 SELECT is(public.queue_pop('rpc_q')->0->'message'->>'n', '4',

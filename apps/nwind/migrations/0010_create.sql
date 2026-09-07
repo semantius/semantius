@@ -16,11 +16,8 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('nwind:manage', 'Manage Northwind data', (SELECT id FROM modules WHERE module_name = 'Northwind'));
 
 -- Permission hierarchy: nwind:manage implies nwind:view
-INSERT INTO permission_hierarchy (including_permission_id, included_permission_id)
-SELECT p.id, c.id
-FROM permissions p, permissions c
-WHERE p.permission_name = 'nwind:manage'
-  AND c.permission_name = 'nwind:view';
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name) VALUES
+    ('nwind:manage', 'nwind:view');
 
 -- Set module FK references for Northwind
 -- Role: Northwind Sales (read + manage Northwind data). The slug is auto-generated
@@ -30,8 +27,8 @@ INSERT INTO roles (role_name, description, origin, module_id)
 VALUES ('Northwind Sales', 'Read and manage Northwind data', 'model',
         (SELECT id FROM modules WHERE module_slug = 'nwind'));
 
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT r.id, p.permission_name
 FROM roles r
 CROSS JOIN permissions p
 WHERE r.slug = 'northwind_sales'
@@ -39,7 +36,7 @@ WHERE r.slug = 'northwind_sales'
 
 -- Module FK references
 UPDATE modules SET
-    manage_permission_id    = (SELECT id FROM permissions WHERE permission_name = 'nwind:manage'),
+    manage_permission       = 'nwind:manage',
     default_manager_role_id = (SELECT id FROM roles WHERE slug = 'northwind_sales')
 WHERE module_name = 'Northwind';
 

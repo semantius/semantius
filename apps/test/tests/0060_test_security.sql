@@ -26,7 +26,7 @@
 --       exclusion list, which is the thing 2.3 exists to avoid.
 BEGIN;
 
-SELECT plan(10);
+SELECT plan(9);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -114,7 +114,6 @@ SELECT is(
             'update_table_searchable_flag',
             'apply_field_searchable_change',
             'update_table_is_child_flag',
-            'validate_permission_exists',
             'validate_api_key',
             'apply_field_ddl',
             'build_record_logic_trigger',
@@ -132,7 +131,7 @@ SELECT is(
 -- =====================================================
 -- TEST 2.4: Privileges the request role must not hold
 -- =====================================================
--- Seven catalog facts, asserted here rather than only through behavior because
+-- Six catalog facts, asserted here rather than only through behavior because
 -- a grant comes back by accident - a new GRANT ... ON ALL, a schema-wide default
 -- privilege, a vendor bump - long after the behavior test that covered it was
 -- written, and this file is where a reviewer looks.
@@ -155,11 +154,6 @@ SELECT ok(
 SELECT ok(
     NOT pg_catalog.has_function_privilege('semantius_user', 'rbac.upsert_user_from_jwt(text, text, text, text, text)', 'EXECUTE'),
     'the request role cannot provision or update an arbitrary principal'
-);
-
-SELECT ok(
-    NOT pg_catalog.has_function_privilege('semantius_user', 'rbac.validate_permission_exists(text)', 'EXECUTE'),
-    'the request role cannot probe the permission catalog through a definer'
 );
 
 -- The audit tables are append-only from the outside: the five SECURITY DEFINER

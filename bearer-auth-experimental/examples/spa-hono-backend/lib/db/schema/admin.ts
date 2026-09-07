@@ -29,6 +29,17 @@ export const auditRecordLogs = pgTable("audit_record_logs", {
   oldRecord: jsonb("old_record").notNull(),
 });
 
+export const dashboards = pgTable("dashboards", {
+  id: serial("id").primaryKey(),
+  config: jsonb("config").notNull(),
+  position: integer("position").notNull().default(0),
+  label: text("label").notNull(),
+  moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "cascade" }),
+  viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const entities = pgTable("entities", {
   tableName: text("table_name").primaryKey(),
   singular: text("singular").notNull(),
@@ -37,27 +48,33 @@ export const entities = pgTable("entities", {
   pluralLabel: text("plural_label").notNull(),
   iconUrl: text("icon_url").notNull(),
   description: text("description").notNull(),
-  moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "set null" }),
-  viewPermission: text("view_permission").notNull().default("public:read"),
-  editPermission: text("edit_permission").notNull().default("admin"),
+  moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "cascade" }),
+  viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName),
+  editPermission: text("edit_permission").references((): AnyPgColumn => permissions.permissionName),
   idColumn: text("id_column").notNull().default("id"),
   labelColumn: text("label_column").notNull().default("label"),
+  labelParent: text("label_parent").notNull(),
+  orderColumn: text("order_column").notNull(),
   managed: boolean("managed").notNull().default(true),
   searchable: boolean("searchable").notNull(),
   isChild: boolean("is_child").notNull(),
   editMode: text("edit_mode", { enum: ["auto", "sidebar", "modal", "page", ""] }).notNull().default("auto"),
   cubeMode: text("cube_mode", { enum: ["disabled", "auto", ""] }).notNull().default("auto"),
+  entityType: text("entity_type", { enum: ["operational_workflow", "operational_record", "catalog", "junction", "computed", "unclassified", ""] }).notNull().default("unclassified"),
   auditLog: boolean("audit_log").notNull().default(false),
   computedFields: jsonb("computed_fields").notNull(),
   validationRules: jsonb("validation_rules").notNull(),
   selectRule: jsonb("select_rule").notNull(),
+  catalogEntityCode: text("catalog_entity_code").notNull(),
+  catalogOwnerModule: text("catalog_owner_module").notNull(),
+  catalogEntityAliases: jsonb("catalog_entity_aliases").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const fields = pgTable("fields", {
   id: text("id").primaryKey(),
-  tableName: integer("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }).notNull(),
+  tableName: text("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }).notNull(),
   fieldName: text("field_name").notNull(),
   format: text("format", { enum: ["json", "html", "text", "multiline", "code", "jsonata", "reference", "parent", "enum", "date", "time", "date-time", "duration", "uri", "uri-reference", "uri-template", "url", "email", "hostname", "ipv4", "ipv6", "regex", "uuid", "json-pointer", "json-pointer-uri-fragment", "relative-json-pointer", "byte", "int32", "int64", "float", "double", "password", "binary", "string", "number", "integer", "boolean", "object", "array", "null"] }).notNull().default("text"),
   title: text("title").notNull(),
@@ -79,6 +96,7 @@ export const fields = pgTable("fields", {
   uniqueValue: boolean("unique_value").notNull(),
   cubeType: text("cube_type", { enum: ["auto", "dimension", "measure", "disabled"] }).notNull().default("auto"),
   inputTypeRule: jsonb("input_type_rule").notNull(),
+  catalogFieldCode: text("catalog_field_code").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -88,42 +106,46 @@ export const modules = pgTable("modules", {
   moduleName: text("module_name").notNull(),
   description: text("description").notNull(),
   moduleType: text("module_type", { enum: ["domain", "master", ""] }).notNull(),
-  viewPermission: text("view_permission").notNull(),
-  logoUrl: text("logo_url").notNull(),
+  viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName),
   logoColor: text("logo_color").notNull(),
-  homePage: text("home_page").notNull(),
+  iconName: text("icon_name").notNull(),
   moduleSlug: text("module_slug").notNull(),
-  managePermissionId: integer("manage_permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "set null" }),
-  adminPermissionId: integer("admin_permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "set null" }),
+  homePage: text("home_page").notNull(),
+  managePermission: text("manage_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
+  adminPermission: text("admin_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
   defaultViewerRoleId: integer("default_viewer_role_id").references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
   defaultManagerRoleId: integer("default_manager_role_id").references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
   defaultAdminRoleId: integer("default_admin_role_id").references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
+  catalogModuleCode: text("catalog_module_code").notNull(),
+  domainCode: text("domain_code").notNull(),
+  accessScope: text("access_scope", { enum: ["basic", "full", ""] }).notNull(),
   settings: jsonb("settings").notNull(),
   dashboardConfig: jsonb("dashboard_config").notNull(),
+  version: integer("version").notNull(),
+  versionDate: timestamp("version_date", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const permissionHierarchy = pgTable("permission_hierarchy", {
   id: text("id").primaryKey(),
-  includingPermissionId: integer("including_permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "cascade" }).notNull(),
-  includedPermissionId: integer("included_permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "cascade" }).notNull(),
+  includingPermissionName: text("including_permission_name").references((): AnyPgColumn => permissions.permissionName, { onDelete: "cascade" }).notNull(),
+  includedPermissionName: text("included_permission_name").references((): AnyPgColumn => permissions.permissionName, { onDelete: "cascade" }).notNull(),
   origin: text("origin", { enum: ["system", "model", "model_master", "user", ""] }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 export const permissions = pgTable("permissions", {
-  id: serial("id").primaryKey(),
-  permissionName: text("permission_name").notNull(),
+  permissionName: text("permission_name").primaryKey(),
   description: text("description").notNull(),
-  moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "set null" }),
+  moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const processGates = pgTable("process_gates", {
-  id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  id: serial("id").primaryKey(),
   processId: integer("process_id").references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   entity: text("entity").notNull(),
   gateKind: text("gate_kind", { enum: ["approval", "submit_lock", "ownership", "create", "transition"] }).notNull(),
@@ -135,8 +157,8 @@ export const processGates = pgTable("process_gates", {
 });
 
 export const processes = pgTable("processes", {
-  id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  id: serial("id").primaryKey(),
   moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "set null" }),
   processKey: text("process_key").notNull(),
   description: text("description").notNull(),
@@ -146,25 +168,27 @@ export const processes = pgTable("processes", {
 });
 
 export const queueTableEvents = pgTable("queue_table_events", {
-  eventName: text("event_name").notNull(),
-  id: serial("id").primaryKey(),
   queueId: integer("queue_id").references((): AnyPgColumn => queues.id, { onDelete: "cascade" }).notNull(),
-  tableName: integer("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }),
+  tableName: text("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }),
+  id: serial("id").primaryKey(),
   eventHandler: text("event_handler", { enum: ["insert", "update", "upsert", "delete", "change"] }).notNull(),
+  eventName: text("event_name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const queues = pgTable("queues", {
-  queueName: text("queue_name").notNull(),
   id: serial("id").primaryKey(),
+  queueName: text("queue_name").notNull(),
+  viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName),
+  managePermission: text("manage_permission").references((): AnyPgColumn => permissions.permissionName),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const raciAssignments = pgTable("raci_assignments", {
-  id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  id: serial("id").primaryKey(),
   processId: integer("process_id").references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   roleId: integer("role_id").references((): AnyPgColumn => roles.id, { onDelete: "cascade" }),
   raci: text("raci", { enum: ["responsible", "accountable", "consulted", "informed"] }).notNull(),
@@ -175,8 +199,8 @@ export const raciAssignments = pgTable("raci_assignments", {
 });
 
 export const raciEvents = pgTable("raci_events", {
-  id: serial("id").primaryKey(),
   processId: integer("process_id").references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
+  id: serial("id").primaryKey(),
   entity: text("entity").notNull(),
   recordId: text("record_id").notNull(),
   raci: text("raci", { enum: ["consulted", "informed"] }).notNull(),
@@ -190,7 +214,7 @@ export const raciEvents = pgTable("raci_events", {
 export const rolePermissions = pgTable("role_permissions", {
   id: text("id").primaryKey(),
   roleId: integer("role_id").references((): AnyPgColumn => roles.id, { onDelete: "cascade" }).notNull(),
-  permissionId: integer("permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "cascade" }).notNull(),
+  permissionName: text("permission_name").references((): AnyPgColumn => permissions.permissionName, { onDelete: "cascade" }).notNull(),
   grantedAt: timestamp("granted_at", { withTimezone: true }),
   grantedBy: integer("granted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
 });
@@ -199,6 +223,7 @@ export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
   roleName: text("role_name").notNull(),
   slug: text("slug").notNull(),
+  catalogRoleCode: text("catalog_role_code").notNull(),
   description: text("description").notNull(),
   origin: text("origin", { enum: ["system", "model", "model_master", "user", ""] }).notNull(),
   moduleId: integer("module_id").references((): AnyPgColumn => modules.id, { onDelete: "set null" }),
@@ -206,10 +231,21 @@ export const roles = pgTable("roles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+export const userBookmarks = pgTable("user_bookmarks", {
+  userId: integer("user_id").references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  entityName: text("entity_name").notNull(),
+  entityId: integer("entity_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const userPermissions = pgTable("user_permissions", {
   id: text("id").primaryKey(),
   userId: integer("user_id").references((): AnyPgColumn => users.id, { onDelete: "cascade" }).notNull(),
-  permissionId: integer("permission_id").references((): AnyPgColumn => permissions.id, { onDelete: "cascade" }).notNull(),
+  permissionName: text("permission_name").references((): AnyPgColumn => permissions.permissionName, { onDelete: "cascade" }).notNull(),
   grantedAt: timestamp("granted_at", { withTimezone: true }),
   grantedBy: integer("granted_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
 });
@@ -237,10 +273,46 @@ export const users = pgTable("users", {
   isAgent: boolean("is_agent").notNull().default(false),
 });
 
+export const webhookReceiverLogs = pgTable("webhook_receiver_logs", {
+  webhookId: integer("webhook_id").references((): AnyPgColumn => webhookReceivers.id, { onDelete: "cascade" }).notNull(),
+  webhookReceiverId: integer("webhook_receiver_id").references((): AnyPgColumn => webhookReceivers.id, { onDelete: "set null" }),
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  webhookTimestamp: timestamp("webhook_timestamp", { withTimezone: true }),
+  receivedTimestamp: timestamp("received_timestamp", { withTimezone: true }),
+  payload: jsonb("payload").notNull(),
+  result: text("result", { enum: ["10", "20", "90", ""] }).notNull().default("10"),
+  errorMessage: text("error_message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const webhookReceivers = pgTable("webhook_receivers", {
+  tableName: text("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }),
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description").notNull(),
+  authType: text("auth_type", { enum: ["none", "hmac", "header", ""] }).notNull().default("none"),
+  secret: text("secret").notNull(),
+  headerName: text("header_name").notNull(),
+  headerValue: text("header_value").notNull(),
+  jsonata: text("jsonata").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const dashboardsRelations = relations(dashboards, ({ one }) => ({
+  module: one(modules, { fields: [dashboards.moduleId], references: [modules.id], relationName: "dashboards_module_id" }),
+  viewPermission: one(permissions, { fields: [dashboards.viewPermission], references: [permissions.permissionName], relationName: "dashboards_view_permission" }),
+}));
+
 export const entitiesRelations = relations(entities, ({ one, many }) => ({
   module: one(modules, { fields: [entities.moduleId], references: [modules.id], relationName: "entities_module_id" }),
+  viewPermission: one(permissions, { fields: [entities.viewPermission], references: [permissions.permissionName], relationName: "entities_view_permission" }),
+  editPermission: one(permissions, { fields: [entities.editPermission], references: [permissions.permissionName], relationName: "entities_edit_permission" }),
   fields: many(fields, { relationName: "fields_table_name" }),
   queueTableEvents: many(queueTableEvents, { relationName: "queue_table_events_table_name" }),
+  webhookReceivers: many(webhookReceivers, { relationName: "webhook_receivers_table_name" }),
 }));
 
 export const fieldsRelations = relations(fields, ({ one }) => ({
@@ -248,11 +320,13 @@ export const fieldsRelations = relations(fields, ({ one }) => ({
 }));
 
 export const modulesRelations = relations(modules, ({ one, many }) => ({
-  managePermission: one(permissions, { fields: [modules.managePermissionId], references: [permissions.id], relationName: "modules_manage_permission_id" }),
-  adminPermission: one(permissions, { fields: [modules.adminPermissionId], references: [permissions.id], relationName: "modules_admin_permission_id" }),
+  viewPermission: one(permissions, { fields: [modules.viewPermission], references: [permissions.permissionName], relationName: "modules_view_permission" }),
+  managePermission: one(permissions, { fields: [modules.managePermission], references: [permissions.permissionName], relationName: "modules_manage_permission" }),
+  adminPermission: one(permissions, { fields: [modules.adminPermission], references: [permissions.permissionName], relationName: "modules_admin_permission" }),
   defaultViewerRole: one(roles, { fields: [modules.defaultViewerRoleId], references: [roles.id], relationName: "modules_default_viewer_role_id" }),
   defaultManagerRole: one(roles, { fields: [modules.defaultManagerRoleId], references: [roles.id], relationName: "modules_default_manager_role_id" }),
   defaultAdminRole: one(roles, { fields: [modules.defaultAdminRoleId], references: [roles.id], relationName: "modules_default_admin_role_id" }),
+  dashboards: many(dashboards, { relationName: "dashboards_module_id" }),
   entities: many(entities, { relationName: "entities_module_id" }),
   permissions: many(permissions, { relationName: "permissions_module_id" }),
   processes: many(processes, { relationName: "processes_module_id" }),
@@ -260,18 +334,24 @@ export const modulesRelations = relations(modules, ({ one, many }) => ({
 }));
 
 export const permissionHierarchyRelations = relations(permissionHierarchy, ({ one }) => ({
-  includingPermission: one(permissions, { fields: [permissionHierarchy.includingPermissionId], references: [permissions.id], relationName: "permission_hierarchy_including_permission_id" }),
-  includedPermission: one(permissions, { fields: [permissionHierarchy.includedPermissionId], references: [permissions.id], relationName: "permission_hierarchy_included_permission_id" }),
+  includingPermissionName: one(permissions, { fields: [permissionHierarchy.includingPermissionName], references: [permissions.permissionName], relationName: "permission_hierarchy_including_permission_name" }),
+  includedPermissionName: one(permissions, { fields: [permissionHierarchy.includedPermissionName], references: [permissions.permissionName], relationName: "permission_hierarchy_included_permission_name" }),
 }));
 
 export const permissionsRelations = relations(permissions, ({ one, many }) => ({
   module: one(modules, { fields: [permissions.moduleId], references: [modules.id], relationName: "permissions_module_id" }),
-  modulesManagePermission: many(modules, { relationName: "modules_manage_permission_id" }),
-  modulesAdminPermission: many(modules, { relationName: "modules_admin_permission_id" }),
-  permissionHierarchyIncludingPermission: many(permissionHierarchy, { relationName: "permission_hierarchy_including_permission_id" }),
-  permissionHierarchyIncludedPermission: many(permissionHierarchy, { relationName: "permission_hierarchy_included_permission_id" }),
-  rolePermissions: many(rolePermissions, { relationName: "role_permissions_permission_id" }),
-  userPermissions: many(userPermissions, { relationName: "user_permissions_permission_id" }),
+  dashboards: many(dashboards, { relationName: "dashboards_view_permission" }),
+  entitiesViewPermission: many(entities, { relationName: "entities_view_permission" }),
+  entitiesEditPermission: many(entities, { relationName: "entities_edit_permission" }),
+  modulesViewPermission: many(modules, { relationName: "modules_view_permission" }),
+  modulesManagePermission: many(modules, { relationName: "modules_manage_permission" }),
+  modulesAdminPermission: many(modules, { relationName: "modules_admin_permission" }),
+  permissionHierarchyIncludingPermissionName: many(permissionHierarchy, { relationName: "permission_hierarchy_including_permission_name" }),
+  permissionHierarchyIncludedPermissionName: many(permissionHierarchy, { relationName: "permission_hierarchy_included_permission_name" }),
+  queuesViewPermission: many(queues, { relationName: "queues_view_permission" }),
+  queuesManagePermission: many(queues, { relationName: "queues_manage_permission" }),
+  rolePermissions: many(rolePermissions, { relationName: "role_permissions_permission_name" }),
+  userPermissions: many(userPermissions, { relationName: "user_permissions_permission_name" }),
 }));
 
 export const processGatesRelations = relations(processGates, ({ one }) => ({
@@ -290,7 +370,9 @@ export const queueTableEventsRelations = relations(queueTableEvents, ({ one }) =
   tableName: one(entities, { fields: [queueTableEvents.tableName], references: [entities.tableName], relationName: "queue_table_events_table_name" }),
 }));
 
-export const queuesRelations = relations(queues, ({ many }) => ({
+export const queuesRelations = relations(queues, ({ one, many }) => ({
+  viewPermission: one(permissions, { fields: [queues.viewPermission], references: [permissions.permissionName], relationName: "queues_view_permission" }),
+  managePermission: one(permissions, { fields: [queues.managePermission], references: [permissions.permissionName], relationName: "queues_manage_permission" }),
   queueTableEvents: many(queueTableEvents, { relationName: "queue_table_events_queue_id" }),
 }));
 
@@ -306,7 +388,7 @@ export const raciEventsRelations = relations(raciEvents, ({ one }) => ({
 
 export const rolePermissionsRelations = relations(rolePermissions, ({ one }) => ({
   role: one(roles, { fields: [rolePermissions.roleId], references: [roles.id], relationName: "role_permissions_role_id" }),
-  permission: one(permissions, { fields: [rolePermissions.permissionId], references: [permissions.id], relationName: "role_permissions_permission_id" }),
+  permissionName: one(permissions, { fields: [rolePermissions.permissionName], references: [permissions.permissionName], relationName: "role_permissions_permission_name" }),
   grantedBy: one(users, { fields: [rolePermissions.grantedBy], references: [users.id], relationName: "role_permissions_granted_by" }),
 }));
 
@@ -321,9 +403,13 @@ export const rolesRelations = relations(roles, ({ one, many }) => ({
   userRoles: many(userRoles, { relationName: "user_roles_role_id" }),
 }));
 
+export const userBookmarksRelations = relations(userBookmarks, ({ one }) => ({
+  user: one(users, { fields: [userBookmarks.userId], references: [users.id], relationName: "user_bookmarks_user_id" }),
+}));
+
 export const userPermissionsRelations = relations(userPermissions, ({ one }) => ({
   user: one(users, { fields: [userPermissions.userId], references: [users.id], relationName: "user_permissions_user_id" }),
-  permission: one(permissions, { fields: [userPermissions.permissionId], references: [permissions.id], relationName: "user_permissions_permission_id" }),
+  permissionName: one(permissions, { fields: [userPermissions.permissionName], references: [permissions.permissionName], relationName: "user_permissions_permission_name" }),
   grantedBy: one(users, { fields: [userPermissions.grantedBy], references: [users.id], relationName: "user_permissions_granted_by" }),
 }));
 
@@ -335,8 +421,20 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
 
 export const usersRelations = relations(users, ({ many }) => ({
   rolePermissions: many(rolePermissions, { relationName: "role_permissions_granted_by" }),
+  userBookmarks: many(userBookmarks, { relationName: "user_bookmarks_user_id" }),
   userPermissionsUser: many(userPermissions, { relationName: "user_permissions_user_id" }),
   userPermissionsGrantedBy: many(userPermissions, { relationName: "user_permissions_granted_by" }),
   userRolesUser: many(userRoles, { relationName: "user_roles_user_id" }),
   userRolesAssignedBy: many(userRoles, { relationName: "user_roles_assigned_by" }),
+}));
+
+export const webhookReceiverLogsRelations = relations(webhookReceiverLogs, ({ one }) => ({
+  webhook: one(webhookReceivers, { fields: [webhookReceiverLogs.webhookId], references: [webhookReceivers.id], relationName: "webhook_receiver_logs_webhook_id" }),
+  webhookReceiver: one(webhookReceivers, { fields: [webhookReceiverLogs.webhookReceiverId], references: [webhookReceivers.id], relationName: "webhook_receiver_logs_webhook_receiver_id" }),
+}));
+
+export const webhookReceiversRelations = relations(webhookReceivers, ({ one, many }) => ({
+  tableName: one(entities, { fields: [webhookReceivers.tableName], references: [entities.tableName], relationName: "webhook_receivers_table_name" }),
+  webhookReceiverLogsWebhook: many(webhookReceiverLogs, { relationName: "webhook_receiver_logs_webhook_id" }),
+  webhookReceiverLogsWebhookReceiver: many(webhookReceiverLogs, { relationName: "webhook_receiver_logs_webhook_receiver_id" }),
 }));

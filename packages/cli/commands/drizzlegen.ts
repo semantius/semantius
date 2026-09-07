@@ -105,16 +105,39 @@ function effectiveEnumValues(
 
 // ---- column type mapping (mirror of format_to_data_type) --------------------
 
-/** The Drizzle pg-core builder function + its argument list for a field. */
-function baseBuilder(field: FieldRecord): { fn: string; args: string } {
+/**
+ * The Drizzle pg-core builder function + its argument list for a field.
+ *
+ * `keyFormatByTable` maps an entity to the format of its key field, and a
+ * reference or parent is built from THAT rather than from its own format: the
+ * column has the type of the key it points at, so a reference to `users` is an
+ * integer and one to `entities` or `permissions` is text. Mirrors
+ * field_data_type() in the database.
+ */
+function baseBuilder(
+  field: FieldRecord,
+  keyFormatByTable: Map<string, string>,
+): { fn: string; args: string } {
   const name = JSON.stringify(field.field_name);
-  const f = field.format;
+  let f = field.format;
+
+  if (
+    (f === "reference" || f === "parent") && field.reference_table &&
+    keyFormatByTable.has(field.reference_table)
+  ) {
+    const keyFormat = keyFormatByTable.get(field.reference_table)!;
+    // A key is never itself a reference, so this cannot recurse.
+    f = keyFormat === "reference" || keyFormat === "parent"
+      ? "integer"
+      : keyFormat as FieldRecord["format"];
+  }
 
   // Auto-increment primary keys: managed tables use SERIAL (see create_dd_table).
-  if (field.is_pk && (f === "int32" || f === "integer")) {
+  // Read from field.format, not f: only the field's own format can make it a key.
+  if (field.is_pk && (field.format === "int32" || field.format === "integer")) {
     return { fn: "serial", args: name };
   }
-  if (field.is_pk && f === "int64") {
+  if (field.is_pk && field.format === "int64") {
     return { fn: "bigserial", args: `${name}, { mode: "number" }` };
   }
 
@@ -157,7 +180,12 @@ function baseBuilder(field: FieldRecord): { fn: string; args: string } {
     case "enum": {
       // Physically a TEXT column (+ CHECK in the DB); the { enum } option types
       // it as a literal union ('a' | 'b' | …) without a native PG enum type.
-      const vals = effectiveEnumValues(field.input_type, field.enum_values);
+      // Only the field's OWN enum values may narrow it: when f came from the
+      // key of a referenced enum-keyed entity, the CHECK lives on that entity's
+      // table and this column is a plain text foreign key.
+      const vals = f === field.format
+        ? effectiveEnumValues(field.input_type, field.enum_values)
+        : null;
       if (vals && vals.length) {
         const list = vals.map((v) => JSON.stringify(v)).join(", ");
         return { fn: "text", args: `${name}, { enum: [${list}] }` };
@@ -258,6 +286,15 @@ export async function drizzlegenCommand(
       fieldsByTable.get(f.table_name)!.push(f);
     }
 
+    // The format of each entity's key field, so a reference can be built with
+    // the type of the key it points at.
+    const keyFormatByTable = new Map<string, string>();
+    for (const f of fields) {
+      if (f.field_name === tableToIdCol.get(f.table_name)) {
+        keyFormatByTable.set(f.table_name, f.format);
+      }
+    }
+
     // --- resolve foreign keys (skip dangling targets) ------------------------
     const fks: Fk[] = [];
     for (const f of fields) {
@@ -330,6 +367,7 @@ export async function drizzlegenCommand(
         tableToSlug,
         tableToIdCol,
         tableToVar,
+        keyFormatByTable,
         fieldsByTable,
         fks,
         oneName,
@@ -371,6 +409,7 @@ interface RenderCtx {
   tableToSlug: Map<string, string>;
   tableToIdCol: Map<string, string>;
   tableToVar: Map<string, string>;
+  keyFormatByTable: Map<string, string>;
   fieldsByTable: Map<string, FieldRecord[]>;
   fks: Fk[];
   oneName: Map<string, string>;
@@ -410,7 +449,7 @@ function renderModuleFile(
     const colLines: string[] = [];
     for (const field of fieldList) {
       const prop = camelCase(field.field_name);
-      const { fn, args } = baseBuilder(field);
+      const { fn, args } = baseBuilder(field, ctx.keyFormatByTable);
       pgCore.add(fn);
       if (fn === "bytea") needBytea = true;
 

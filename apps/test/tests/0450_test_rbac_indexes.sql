@@ -75,13 +75,13 @@ SELECT is(
 SELECT is(
     (SELECT count(*)::int FROM pg_indexes
      WHERE schemaname = 'public'
-       AND indexname IN ('modules_module_name_key', 'permissions_permission_name_key',
+       AND indexname IN ('modules_module_name_key', 'permissions_pkey',
                          'roles_role_name_key', 'roles_slug_key',
                          'users_external_id_unique',
                          'user_roles_user_id_role_id_key',
-                         'role_permissions_role_id_permission_id_key',
-                         'user_permissions_user_id_permission_id_key',
-                         'permission_hierarchy_including_permission_id_included_permi_key')),
+                         'role_permissions_role_id_permission_name_key',
+                         'user_permissions_user_id_permission_name_key',
+                         'permission_hierarchy_including_permission_name_included_per_key')),
     9,
     'the unique indexes that make the duplicates redundant are all present'
 );
@@ -111,25 +111,23 @@ BEGIN
     FOR v_line IN EXECUTE $q$
         EXPLAIN (COSTS OFF)
         WITH RECURSIVE permission_tree AS (
-            SELECT DISTINCT p.id AS permission_id
+            SELECT DISTINCT rp.permission_name
             FROM users u
             JOIN user_roles ur ON u.id = ur.user_id
             JOIN roles r ON ur.role_id = r.id
             JOIN role_permissions rp ON r.id = rp.role_id
-            JOIN permissions p ON rp.permission_id = p.id
             WHERE u.external_id = 'user3' AND u.is_disabled = FALSE
             UNION
-            SELECT DISTINCT p.id
+            SELECT DISTINCT up.permission_name
             FROM users u
             JOIN user_permissions up ON u.id = up.user_id
-            JOIN permissions p ON up.permission_id = p.id
             WHERE u.external_id = 'user3' AND u.is_disabled = FALSE
             UNION
-            SELECT DISTINCT ph.included_permission_id
+            SELECT DISTINCT ph.included_permission_name
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+            JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
         )
-        SELECT 1 FROM permission_tree WHERE permission_id = 1
+        SELECT 1 FROM permission_tree WHERE permission_name = 'admin'
     $q$
     LOOP
         INSERT INTO rbac_walk_plan VALUES (v_line);
@@ -149,7 +147,7 @@ SELECT is(
 -- planned away; the two role legs are the ones that must stay indexed.
 SELECT is(
     (SELECT count(*)::int FROM rbac_walk_plan
-     WHERE line ~ '(Scan using|Bitmap Index Scan on) (user_roles_user_id_role_id_key|role_permissions_role_id_permission_id_key)\M'),
+     WHERE line ~ '(Scan using|Bitmap Index Scan on) (user_roles_user_id_role_id_key|role_permissions_role_id_permission_name_key)\M'),
     2,
     'user_roles and role_permissions are reached through their composite unique index'
 );

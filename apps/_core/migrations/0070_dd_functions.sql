@@ -57,6 +57,51 @@ COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
+-- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
+-- =====================================================
+-- The type a field's column actually gets. For everything except a reference
+-- that is format_to_data_type(); for a reference or a parent it is the type of
+-- the key the field points at, read from the catalog.
+--
+-- A reference cannot be typed from its format alone. `permissions` is keyed by
+-- TEXT, `users` by INTEGER, and format_to_data_type() sees only the word
+-- "reference", so it can only guess - and a column typed differently from the
+-- key it is about to be constrained to makes the ADD CONSTRAINT fail. Reading
+-- the key is the only answer that is right for every entity.
+--
+-- The catalog lookup returns nothing when the referenced entity is unknown, or
+-- is registered with no physical table yet (to_regclass gives NULL). The format
+-- then stands, which keeps INTEGER for reference and parent; the ADD CONSTRAINT
+-- that follows fails on the missing relation, as it did before this function
+-- existed. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
+-- tests and the DDL builders' NOT NULL default table keep matching on it.
+CREATE OR REPLACE FUNCTION field_data_type(
+    p_format TEXT,
+    p_precision SMALLINT DEFAULT NULL,
+    p_reference_table TEXT DEFAULT NULL
+)
+RETURNS TEXT AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT upper(pg_catalog.format_type(a.atttypid, a.atttypmod))
+                FROM entities e
+                JOIN pg_catalog.pg_attribute a
+                  ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))::oid
+                 AND a.attname = e.id_column
+                 AND a.attnum > 0
+                 AND NOT a.attisdropped
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_data_type(p_format, p_precision)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION field_data_type IS
+'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created. Falls back to the format when the referenced entity is unknown or has no physical table.';
+
+-- =====================================================
 -- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
 -- =====================================================
 -- Maps format values to JSON Schema primitive types
@@ -83,6 +128,38 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
+
+-- =====================================================
+-- HELPER FUNCTION: FIELD TO JSON SCHEMA TYPE
+-- =====================================================
+-- The JSON Schema type a field's property gets. The sibling of field_data_type
+-- above and it has to agree with it: the schema RPCs describe the very column
+-- that function creates, so a reference is typed after the key it points at
+-- here too. `entities` is keyed by TEXT and `users` by INTEGER, and a schema
+-- that called both "integer" would make the UI cast 'public:read' to a number
+-- and PostgREST reject the write.
+--
+-- The referenced key's own format is what decides, not its catalog type, so
+-- that a text key declared as `email` or `uuid` is described as precisely as
+-- any other field. The format stands when the referenced entity is unknown or
+-- has no field row for its key column.
+CREATE OR REPLACE FUNCTION field_json_type(p_format TEXT, p_reference_table TEXT DEFAULT NULL)
+RETURNS JSONB AS $$
+    SELECT COALESCE(
+        CASE
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
+                SELECT format_to_json_type(rf.format)
+                FROM entities e
+                JOIN fields rf ON rf.table_name = e.table_name AND rf.field_name = e.id_column
+                WHERE e.table_name = p_reference_table
+            )
+        END,
+        format_to_json_type(p_format)
+    );
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION field_json_type IS
+'JSON Schema type for a field''s property. Same as format_to_json_type except for reference/parent, which take the type of the referenced entity''s key field. Falls back to the format when the referenced entity is unknown.';
 
 -- =====================================================
 -- IS_NULLABLE FUNCTION
@@ -286,15 +363,6 @@ BEGIN
     IF NOT NEW.managed THEN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
-    END IF;
-    
-    -- Validate that view and edit permissions exist
-    IF NOT rbac.validate_permission_exists(NEW.view_permission) THEN
-        RAISE EXCEPTION 'View permission "%" does not exist in permissions table', NEW.view_permission;
-    END IF;
-    
-    IF NOT rbac.validate_permission_exists(NEW.edit_permission) THEN
-        RAISE EXCEPTION 'Edit permission "%" does not exist in permissions table', NEW.edit_permission;
     END IF;
     
     -- Build CREATE TABLE statement
@@ -582,7 +650,7 @@ BEGIN
     END IF;
     
     -- Convert format to PostgreSQL data type
-    v_data_type := format_to_data_type(NEW.format, NEW."precision");
+    v_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
     
     -- Build nullable clause based on format
     IF is_nullable(NEW.format) THEN
@@ -876,7 +944,7 @@ BEGIN
 
     -- Allow updating format (which changes data type)
     IF OLD.format <> NEW.format THEN
-        v_new_data_type := format_to_data_type(NEW.format, NEW."precision");
+        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
         v_alter_sql := format(
             'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
             NEW.table_name,
@@ -923,7 +991,7 @@ BEGIN
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
                 NEW.table_name,
                 NEW.field_name,
-                quote_default_value(NEW.default_value, format_to_data_type(NEW.format, NEW."precision"))
+                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -1852,6 +1920,7 @@ COMMENT ON FUNCTION get_record_by_id IS
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
@@ -1861,6 +1930,7 @@ REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
 -- query and the field DDL triggers) in the inserting user's context, so semantius_user needs EXECUTE.
 GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;

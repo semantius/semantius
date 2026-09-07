@@ -18,7 +18,7 @@ SELECT ok(
 
 -- Get the current count of permissions for Administrator role before adding new permission
 CREATE TEMP TABLE admin_permissions_before AS
-SELECT permission_id FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE role_name = 'Administrator');
+SELECT permission_name FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE role_name = 'Administrator');
 
 -- Test 1: Insert a new test permission
 INSERT INTO permissions (permission_name, description, module_id) 
@@ -35,7 +35,7 @@ SELECT ok(
     (SELECT COUNT(*) 
      FROM role_permissions rp
      JOIN roles r ON rp.role_id = r.id
-     JOIN permissions p ON rp.permission_id = p.id
+     JOIN permissions p ON rp.permission_name = p.permission_name
      WHERE r.role_name = 'Administrator' 
        AND p.permission_name = 'test:new_permission') = 1,
     'New permission should be automatically granted to Administrator role'
@@ -50,7 +50,7 @@ SELECT ok(
     (SELECT COUNT(*) 
      FROM role_permissions rp
      JOIN roles r ON rp.role_id = r.id
-     JOIN permissions p ON rp.permission_id = p.id
+     JOIN permissions p ON rp.permission_name = p.permission_name
      WHERE r.role_name = 'Administrator' 
        AND p.permission_name = 'test:another_permission') = 1,
     'Second new permission should also be automatically granted to Administrator role'
@@ -61,7 +61,7 @@ SELECT ok(
     (SELECT COUNT(*) 
      FROM role_permissions rp
      JOIN roles r ON rp.role_id = r.id
-     JOIN permissions p ON rp.permission_id = p.id
+     JOIN permissions p ON rp.permission_name = p.permission_name
      WHERE r.role_name = 'Administrator' 
        AND p.permission_name = 'admin') = 1,
     'Administrator role should still have the admin permission'
@@ -86,7 +86,7 @@ SELECT ok(
     (SELECT COUNT(*) 
      FROM role_permissions rp
      JOIN roles r ON rp.role_id = r.id
-     JOIN permissions p ON rp.permission_id = p.id
+     JOIN permissions p ON rp.permission_name = p.permission_name
      WHERE r.role_name = 'Administrator' 
        AND p.permission_name = 'test:module_permission') = 1,
     'Permission with module_id should also be automatically granted to Administrator role'

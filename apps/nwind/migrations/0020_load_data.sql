@@ -3411,7 +3411,7 @@ VALUES ('Northwind Overview',
         '{"widgets": [{"type": "count", "entity": "orders"}]}'::jsonb,
         10,
         (SELECT id FROM modules WHERE module_slug = 'nwind'),
-        (SELECT id FROM permissions WHERE permission_name = 'nwind:view'));
+        'nwind:view');
 
 -- RACI registry: the order fulfillment process with a transition gate on orders.status.
 -- Registry only (no raci_assignments / validation_rules), so writes are not gated.

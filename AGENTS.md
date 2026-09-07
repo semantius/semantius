@@ -284,21 +284,38 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 
 ### Database Schema Standards
 **CRITICAL: Primary Key Conventions and EXCEPTIONS**
-- **STANDARD**: Most tables use an auto-incrementing INTEGER column named `id` as the primary key
-  - Examples: users, modules, roles, permissions, webhook_receivers, webhook_receiver_logs, etc.
-- **EXCEPTION 1**: The `tables` table uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
-  - When creating foreign keys to `tables`, reference `table_name`, not `id`
-  - Example: `FOREIGN KEY (table_name) REFERENCES tables(table_name)`
-- **EXCEPTION 2**: The `fields` table uses a GENERATED VARCHAR column as PRIMARY KEY
-  - Primary key: `id VARCHAR GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY`
-  - The `id` is auto-generated from `table_name.field_name`, not auto-incrementing
+- Every table has a **single-column** primary key, and the data dictionary
+  depends on it: `entities.id_column` names one column, so a composite primary
+  key would make the entity unaddressable by the generated RPCs, by PostgREST's
+  `/table?id=eq.x` and by the UI.
+- **STANDARD**: most tables use an auto-incrementing INTEGER column named `id`
+  - Examples: users, modules, roles, webhook_receivers, webhook_receiver_logs
+- **EXCEPTION 1**: `entities` uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
+  - The table was called `tables` until 0140 renamed it; `tables` survives only as the
+    updatable compatibility view created by 0130
+  - Foreign keys to it reference `table_name`: `REFERENCES entities(table_name)`
+- **EXCEPTION 2**: `permissions` uses `permission_name TEXT` as the PRIMARY KEY (no `id` column)
+  - The name is what module packages seed, what every generated RLS policy embeds as a
+    literal, what `has_permission()` takes and what an OAuth scope carries; a serial id
+    would be minted per database and mean nothing outside it (deployment is one database
+    per tenant)
+  - Foreign keys to it reference `permission_name`, and they carry `ON UPDATE CASCADE`
+    so a rename propagates. `modules.view_permission` is the one that must also be
+    `DEFERRABLE INITIALLY DEFERRED`: it and its permission's `module_id` point at each
+    other, so the module row has to be inserted first
+  - Names are restricted to `^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$` — the same alphabet `module_slug` accepts, so a scaffold can mint `<slug>:<verb>`; see the CHECK in 0020 for what it excludes and why
+- **EXCEPTION 3**: `fields` uses a GENERATED TEXT column as PRIMARY KEY
+  - `id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY`
   - There is also a UNIQUE constraint on `(table_name, field_name)`
   - When referencing fields, use the generated `id` or the composite `(table_name, field_name)`
-- **EXCEPTION 3**: Junction tables use COMPOSITE PRIMARY KEYS (no `id` column)
-  - `user_roles`: `PRIMARY KEY (user_id, role_id)`
-  - `role_permissions`: `PRIMARY KEY (role_id, permission_id)`
-  - `permission_hierarchy`: `PRIMARY KEY (including_permission_id, included_permission_id)`
-  - These tables do NOT have an `id` column - the composite key IS the primary key
+- **EXCEPTION 4**: the four junction tables have a GENERATED TEXT `id` **plus** a UNIQUE
+  on the pair. The unique pair is the real key; the generated `id` is what makes the row
+  addressable by a single column, per the rule above. They are not composite-keyed.
+  - `user_roles`: `id` from `user_id || '.' || role_id`, `UNIQUE (user_id, role_id)`
+  - `role_permissions`: `id` from `role_id || '.' || permission_name`, `UNIQUE (role_id, permission_name)`
+  - `user_permissions`: `id` from `user_id || '.' || permission_name`, `UNIQUE (user_id, permission_name)`
+  - `permission_hierarchy`: `id` from `including_permission_name || '.' || included_permission_name`,
+    `UNIQUE (including_permission_name, included_permission_name)`
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
 - **ABSOLUTELY NO NULL VALUES ALLOWED** unless explicitly instructed otherwise
@@ -314,8 +331,9 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
   - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
   - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
 - **The ONLY exceptions** (columns that should NOT have defaults):
-  - **Foreign key columns** that are part of composite primary keys or junction tables
-  - **Composite primary key components** in many-to-many relationship tables
+  - **A TEXT primary key** (`entities.table_name`, `permissions.permission_name`): a
+    default would let a row be saved under the empty string, and it can only be there once
+  - **The foreign key columns of a junction table** (`user_roles.user_id`, `role_permissions.permission_name`, ...)
   - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
 - **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead (unless the format auto-computes to nullable)
 - When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
@@ -355,7 +373,7 @@ The `fields` table uses a JSON Schema-based format system:
 - **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text', 'reference', 'enum')
   - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text'
   - Specific formats: 'email', 'url', 'date', 'date-time', 'int32', 'int64', 'float', 'double', etc.
-  - Foreign key format: 'reference' (mapped to INTEGER type for foreign key relationships)
+  - Foreign key format: 'reference' (typed after the referenced entity's key column, not after the format)
   - Enum format: 'enum' (mapped to TEXT type with CHECK constraint for allowed values)
 - **input_type** column: UI rendering hint - ENUM with allowed values `['default', 'required', 'readonly', 'disabled', 'hidden']`
 - **width** column: UI width hint - ENUM with allowed values `['default', 's', 'm', 'w']` (default/auto, small, medium, wide)
@@ -371,12 +389,13 @@ The `fields` table uses a JSON Schema-based format system:
   - 'clear': ON DELETE SET NULL - sets foreign key to NULL when referenced record is deleted
 - **format_to_data_type()** function: Maps format values to PostgreSQL data types for CREATE/ALTER TABLE statements
 - **format_to_json_type()** function: Maps format values to JSON Schema primitive types (used by get_schema())
+- **field_data_type()** / **field_json_type()**: the same two answers for a whole field rather than a bare format. They differ only for `reference` and `parent`, which take the type of the key they point at, so a reference to `users` is INTEGER/integer and one to `entities` or `permissions` is TEXT/string. Use these wherever a `reference_table` is at hand; the column and the key it is constrained to have to agree
 - When adding fields, use lowercase format values and appropriate input_type/width/ctype enum values
 
 **Foreign Key Support**
 The system supports automatic foreign key creation and management:
 - Use format='reference' with reference_table set to create a foreign key
-- Foreign key fields are mapped to INTEGER type and reference the target table's id_column
+- A foreign key field takes the type of the target entity's id_column, and references it
 - Indexes are automatically created for foreign key columns (idx_<table>_<field>)
 - ON DELETE behavior is controlled by reference_delete_mode:
   - 'restrict': Prevents deletion of referenced records (referential integrity)

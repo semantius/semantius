@@ -38,8 +38,8 @@ RESET ROLE;
 -- user1 should now be able to query roles
 -- =====================================================
 
-INSERT INTO user_permissions (user_id, permission_id)
-SELECT u.id, p.id
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, p.permission_name
 FROM users u, permissions p
 WHERE u.external_id = 'user1'
   AND p.permission_name = 'admin';
@@ -58,7 +58,7 @@ RESET ROLE;
 -- Clean up: remove admin from user1
 DELETE FROM user_permissions
 WHERE user_id = (SELECT id FROM users WHERE external_id = 'user1')
-  AND permission_id = (SELECT id FROM permissions WHERE permission_name = 'admin');
+  AND permission_name = 'admin';
 
 -- =====================================================
 -- TEST 4: user_permissions table exists
@@ -87,7 +87,7 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST 7: user_permissions fields metadata exists (5 fields: id, user_id, permission_id, granted_at, granted_by)
+-- TEST 7: user_permissions fields metadata exists (5 fields: id, user_id, permission_name, granted_at, granted_by)
 -- =====================================================
 
 SELECT is(
@@ -104,8 +104,8 @@ SELECT is(
 INSERT INTO permissions (permission_name, description, module_id)
 VALUES ('test:test', 'Temporary test permission', 1);
 
-INSERT INTO user_permissions (user_id, permission_id)
-SELECT u.id, p.id
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, p.permission_name
 FROM users u, permissions p
 WHERE u.external_id = 'user1'
   AND p.permission_name = 'test:test';
@@ -113,7 +113,7 @@ WHERE u.external_id = 'user1'
 -- Verify the record exists
 SELECT is(
     (SELECT COUNT(*)::integer FROM user_permissions up
-     JOIN permissions p ON up.permission_id = p.id
+     JOIN permissions p ON up.permission_name = p.permission_name
      WHERE p.permission_name = 'test:test'),
     1,
     'user_permissions should have test:test assigned to user1'
@@ -125,7 +125,7 @@ DELETE FROM permissions WHERE permission_name = 'test:test';
 -- Verify cascade deletion
 SELECT is(
     (SELECT COUNT(*)::integer FROM user_permissions up
-     WHERE up.permission_id NOT IN (SELECT id FROM permissions)),
+     WHERE up.permission_name NOT IN (SELECT permission_name FROM permissions)),
     0,
     'Deleting a permission should cascade-delete user_permissions records'
 );
@@ -137,8 +137,8 @@ SELECT is(
 
 INSERT INTO users (external_id, email) VALUES ('TEST', 'test_user@test.com');
 
-INSERT INTO user_permissions (user_id, permission_id)
-SELECT u.id, p.id
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, p.permission_name
 FROM users u, permissions p
 WHERE u.external_id = 'TEST'
   AND p.permission_name = 'admin';

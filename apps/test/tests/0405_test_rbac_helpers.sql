@@ -32,7 +32,7 @@
 -- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(77);
+SELECT plan(76);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -324,23 +324,17 @@ SELECT is((SELECT is_valid FROM rbac.validate_oauth_scopes('user1', 'admin')), f
 -- =====================================================
 -- GROUP 8: primitives the request role may not reach at all
 -- =====================================================
--- Two functions have no safe caller-facing form, so they are revoked rather than
--- guarded. rbac.upsert_user_from_jwt writes the users table and takes the
--- subject as a parameter, which would let any session create a principal that
--- never authenticated or refresh a foreign last_seen - the column the first-user
--- bootstrap in 0050 reads. rbac.validate_permission_exists is a definer with no
--- identity check, reached only from definer triggers. Both are asserted as
--- user3, the administrator: this is a missing grant, not a missing permission,
--- so admin does not help.
+-- rbac.upsert_user_from_jwt has no safe caller-facing form, so it is revoked
+-- rather than guarded: it writes the users table and takes the subject as a
+-- parameter, which would let any session create a principal that never
+-- authenticated or refresh a foreign last_seen - the column the first-user
+-- bootstrap in 0050 reads. Asserted as user3, the administrator: this is a
+-- missing grant, not a missing permission, so admin does not help.
 
 SELECT throws_ok(
     $$SELECT rbac.upsert_user_from_jwt('ghost', 'ghost@test.com')$$,
     '42501', NULL,
     'upsert_user_from_jwt: not callable by the request role, admin included');
-SELECT throws_ok(
-    $$SELECT rbac.validate_permission_exists('admin')$$,
-    '42501', NULL,
-    'validate_permission_exists: not callable by the request role, admin included');
 
 -- get_userinfo() is the supported way in and is unaffected: it is SECURITY
 -- DEFINER and passes rbac.uid(), so it still provisions and refreshes the

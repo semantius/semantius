@@ -40,40 +40,34 @@ DECLARE
     cycle_exists BOOLEAN;
     max_depth INTEGER;
 BEGIN
-    -- Validate that both including and included permissions exist (redundant with FK but explicit)
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.including_permission_id) THEN
-        RAISE EXCEPTION 'Including permission with Id % does not exist', NEW.including_permission_id;
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM permissions WHERE id = NEW.included_permission_id) THEN
-        RAISE EXCEPTION 'Included permission with Id % does not exist', NEW.included_permission_id;
-    END IF;
-    
+    -- Both permissions are known to exist: the two foreign keys on this table
+    -- reject the row before this trigger is reached.
+
     -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the included can reach the including through existing paths
     WITH RECURSIVE hierarchy_path AS (
         -- Start from the proposed included
-        SELECT included_permission_id AS permission_id, 1 AS depth
+        SELECT included_permission_name AS permission_name, 1 AS depth
         FROM permission_hierarchy
-        WHERE including_permission_id = NEW.included_permission_id
-        
+        WHERE including_permission_name = NEW.included_permission_name
+
         UNION ALL
-        
+
         -- Recursively follow the hierarchy
-        SELECT ph.included_permission_id, hp.depth + 1
+        SELECT ph.included_permission_name, hp.depth + 1
         FROM permission_hierarchy ph
-        INNER JOIN hierarchy_path hp ON ph.including_permission_id = hp.permission_id
+        INNER JOIN hierarchy_path hp ON ph.including_permission_name = hp.permission_name
         WHERE hp.depth < 11  -- Stop at depth 11
     )
-    SELECT 
-        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_id = NEW.including_permission_id),
+    SELECT
+        EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_name = NEW.including_permission_name),
         COALESCE(MAX(depth), 0)
     INTO cycle_exists, max_depth
     FROM hierarchy_path;
-    
+
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission Id % cannot be both ancestor and descendant of permission Id %', 
-            NEW.including_permission_id, NEW.included_permission_id;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %',
+            NEW.including_permission_name, NEW.included_permission_name;
     END IF;
     
     IF max_depth >= 11 THEN
@@ -453,7 +447,6 @@ RETURNS BOOLEAN AS $$
 DECLARE
     v_oauth_scopes TEXT;
     v_has_permission BOOLEAN;
-    v_permission_id INTEGER;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id, where the rule is
     -- explained. Note that the admin test runs through rbac.has_permission and
@@ -473,49 +466,37 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Get the permission_id for the requested permission
-    SELECT id INTO v_permission_id
-    FROM permissions
-    WHERE permission_name = p_permission_name;
-    
-    -- If permission doesn't exist, return false
-    IF v_permission_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
-    
     -- Check if user has the permission (including hierarchy)
     -- Using recursive CTE to follow the hierarchy
     v_has_permission := EXISTS (
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
-        SELECT DISTINCT p.id AS permission_id
+        SELECT DISTINCT rp.permission_name
         FROM users u
         JOIN user_roles ur ON u.id = ur.user_id
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Direct per-user permissions
-        SELECT DISTINCT p.id AS permission_id
+        SELECT DISTINCT up.permission_name
         FROM users u
         JOIN user_permissions up ON u.id = up.user_id
-        JOIN permissions p ON up.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Add implied permissions (included in hierarchy)
-        SELECT DISTINCT ph.included_permission_id
+        SELECT DISTINCT ph.included_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT 1 FROM permission_tree
-    WHERE permission_id = v_permission_id
+    WHERE permission_name = p_permission_name
     );
     
     -- If user doesn't have the permission, return false immediately
@@ -536,7 +517,7 @@ BEGIN
     RETURN EXISTS (
         WITH RECURSIVE permission_tree AS (
             -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.id AS permission_id
+            SELECT DISTINCT p.permission_name
             FROM permissions p
             WHERE p.permission_name = ANY(
                 -- Separators normalized: any run of commas or whitespace.
@@ -547,12 +528,12 @@ BEGIN
             UNION
             
             -- Add implied permissions
-            SELECT DISTINCT ph.included_permission_id
+            SELECT DISTINCT ph.included_permission_name
             FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
+            JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
         )
         SELECT 1 FROM permission_tree
-        WHERE permission_id = v_permission_id
+        WHERE permission_name = p_permission_name
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
@@ -847,32 +828,29 @@ BEGIN
     RETURN QUERY
     WITH RECURSIVE permission_tree AS (
         -- Direct permissions from roles
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT rp.permission_name
         FROM users u
         JOIN user_roles ur ON u.id = ur.user_id
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
-        JOIN permissions p ON rp.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Direct per-user permissions
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT up.permission_name
         FROM users u
         JOIN user_permissions up ON u.id = up.user_id
-        JOIN permissions p ON up.permission_id = p.id
         WHERE u.external_id = p_external_id
           AND u.is_disabled = FALSE
         
         UNION
         
         -- Implied permissions
-        SELECT DISTINCT p.id AS permission_id, p.permission_name
+        SELECT DISTINCT ph.included_permission_name
         FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_id = ph.including_permission_id
-        JOIN permissions p ON ph.included_permission_id = p.id
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT DISTINCT pt.permission_name
     FROM permission_tree pt
@@ -963,25 +941,6 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
-
--- Validate that a permission exists
--- Note: no rbac.uid() here — this function is called by triggers
--- during migrations when there is no JWT context.
--- Its callers (create_dd_table in 0070, queue_validate_permissions in 0170) are
--- SECURITY DEFINER, so it needs no grant to the request role and is revoked from
--- it below: a definer with no identity check is not something to leave reachable
--- over RPC, even when all it answers is whether a permission name is registered.
-CREATE OR REPLACE FUNCTION rbac.validate_permission_exists(p_permission_name TEXT)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM permissions WHERE permission_name = p_permission_name
-    );
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION rbac.validate_permission_exists IS 
-'Validates that a permission exists in the permissions table.';
 
 -- =====================================================
 -- HELPER FUNCTIONS
@@ -1141,9 +1100,9 @@ BEGIN
     -- If Administrator role exists, grant the new permission to it
     IF v_administrator_role_id IS NOT NULL THEN
         -- Upsert into role_permissions - insert or update if already exists
-        INSERT INTO role_permissions (role_id, permission_id)
-        VALUES (v_administrator_role_id, NEW.id)
-        ON CONFLICT (role_id, permission_id) 
+        INSERT INTO role_permissions (role_id, permission_name)
+        VALUES (v_administrator_role_id, NEW.permission_name)
+        ON CONFLICT (role_id, permission_name) 
         DO UPDATE SET granted_at = CURRENT_TIMESTAMP;
     END IF;
     
@@ -1163,9 +1122,3 @@ CREATE TRIGGER auto_grant_permission_to_administrator
 -- Revoke default PUBLIC execute on all rbac functions defined above
 -- Must come AFTER all CREATE FUNCTION statements
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
-
--- rbac.validate_permission_exists is reached only from SECURITY DEFINER trigger
--- functions (see its header); the default privileges above hand it to the
--- request role along with every other function in this schema, so it takes an
--- explicit revoke to keep it off the RPC surface.
-REVOKE EXECUTE ON FUNCTION rbac.validate_permission_exists(TEXT) FROM semantius_user;
