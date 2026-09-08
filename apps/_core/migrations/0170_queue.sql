@@ -97,7 +97,7 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.queue_name IS DISTINCT FROM NEW.queue_name THEN
-        RAISE EXCEPTION 'Cannot change queue_name after creation';
+        RAISE EXCEPTION 'Cannot change queue_name after creation' USING ERRCODE = '90501';
     END IF;
     RETURN NEW;
 END;
@@ -186,7 +186,7 @@ BEGIN
         IF current_setting('dd.table_rename', TRUE) = OLD.table_name || ':' || NEW.table_name THEN
             RETURN NEW;
         END IF;
-        RAISE EXCEPTION 'Cannot change table_name on a queue table event';
+        RAISE EXCEPTION 'Cannot change table_name on a queue table event' USING ERRCODE = '90502';
     END IF;
     RETURN NEW;
 END;
@@ -328,7 +328,9 @@ BEGIN
     FROM queues q WHERE q.id = NEW.queue_id;
 
     IF v_queue_name IS NULL THEN
-        RAISE EXCEPTION 'Parent queue not found for queue_id %', NEW.queue_id;
+        RAISE EXCEPTION 'Parent queue not found for queue_id ${queue_id}'
+            USING ERRCODE = '90503',
+                  HINT = jsonb_build_object('queue_id', NEW.queue_id)::text;
     END IF;
 
     -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
@@ -481,11 +483,13 @@ BEGIN
 
     IF NOT FOUND THEN
         IF rbac.has_permission('admin') THEN
-            RAISE EXCEPTION 'Queue "%" is not registered', p_queue_name
-                USING ERRCODE = 'undefined_object';
+            RAISE EXCEPTION 'Queue ${queue} is not registered'
+                USING ERRCODE = '90504',
+                      HINT = jsonb_build_object('queue', p_queue_name)::text;
         END IF;
-        RAISE EXCEPTION 'Permission denied for queue "%"', p_queue_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied for queue ${queue}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90105', 'queue', p_queue_name)::text;
     END IF;
 
     -- The columns are NOT NULL and validated, the fallback is belt and braces.

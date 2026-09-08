@@ -70,8 +70,9 @@ BEGIN
 
         -- Validate the target user exists
         IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id % does not exist', p_user_id
-                USING ERRCODE = 'invalid_parameter_value';
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
         END IF;
 
         v_target_user_id := p_user_id;
@@ -215,8 +216,9 @@ BEGIN
 
         -- Validate the target user exists
         IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id % does not exist', p_user_id
-                USING ERRCODE = 'invalid_parameter_value';
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
         END IF;
 
         v_target_user_id := p_user_id;
@@ -273,7 +275,7 @@ BEGIN
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'API key not found'
-            USING ERRCODE = 'no_data_found';
+            USING ERRCODE = '90402';
     END IF;
 
     -- If the key belongs to another user, require admin permission

@@ -618,8 +618,9 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.ctype := '';  -- users cannot mint a core marker on a new field
     ELSIF NEW.ctype IS DISTINCT FROM OLD.ctype THEN
-        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field "%"', NEW.field_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field ${field_name}'
+            USING ERRCODE = '90214',
+                  HINT = jsonb_build_object('field_name', NEW.field_name)::text;
     END IF;
     RETURN NEW;
 END;
@@ -754,7 +755,9 @@ BEGIN
             AND is_pk = TRUE 
             AND field_name <> NEW.field_name
         ) THEN
-            RAISE EXCEPTION 'Table % already has a primary key', NEW.table_name;
+            RAISE EXCEPTION 'Table ${table} already has a primary key'
+                USING ERRCODE = '90215',
+                      HINT = jsonb_build_object('table', NEW.table_name)::text;
         END IF;
         
         -- Add primary key constraint
@@ -779,7 +782,9 @@ BEGIN
         WHERE table_name = NEW.reference_table;
         
         IF v_ref_id_column IS NULL THEN
-            RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                USING ERRCODE = '90212',
+                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
         END IF;
         
         -- Determine ON DELETE behavior based on reference_delete_mode
@@ -1222,7 +1227,9 @@ BEGIN
     -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
     -- for standalone field deletions.
     IF coalesce(OLD.ctype, '') <> '' THEN
-        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (ctype id/label/audit/core) cannot be deleted.', OLD.field_name;
+        RAISE EXCEPTION 'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.'
+            USING ERRCODE = '90217',
+                  HINT = jsonb_build_object('field_name', OLD.field_name)::text;
     END IF;
     
     -- Check if the parent table is managed

@@ -46,7 +46,7 @@ BEGIN
 
     -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
     INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
@@ -111,14 +111,16 @@ BEGIN
     
     -- Verify user was created/found successfully
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = %', v_external_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
     
     -- Verify user exists in users table
     IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'User not found in users table: user_id = ${user_id}'
+            USING ERRCODE = '90009',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     -- Build roles array with role details
@@ -181,8 +183,9 @@ BEGIN
     
     -- Final safety check (should never be NULL after previous validations)
     IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     RETURN v_result;

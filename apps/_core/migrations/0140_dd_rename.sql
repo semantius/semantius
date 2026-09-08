@@ -396,7 +396,9 @@ BEGIN
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;
             ELSE
-                RAISE EXCEPTION 'Cannot rename core system field "%"', OLD.field_name;
+                RAISE EXCEPTION 'Cannot rename core system field ${field_name}'
+                    USING ERRCODE = '90218',
+                          HINT = jsonb_build_object('field_name', OLD.field_name)::text;
             END IF;
         END IF;
 
@@ -494,7 +496,9 @@ BEGIN
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
         -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
         IF coalesce(OLD.ctype, '') <> '' THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         -- field_data_type, not format_to_data_type: a reference takes the type
@@ -506,9 +510,16 @@ BEGIN
 
         IF v_old_type <> v_new_type THEN
             RAISE EXCEPTION
-                'Cannot change format of field "%" from "%" to "%" because it would require '
-                'changing the column type from % to %. Drop and recreate the field instead.',
-                OLD.field_name, OLD.format, NEW.format, v_old_type, v_new_type;
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', OLD.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_type,
+                          'new_type',   v_new_type)::text;
         END IF;
     END IF;
 

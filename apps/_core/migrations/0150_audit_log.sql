@@ -469,7 +469,9 @@ DECLARE
     v_has_row_trigger BOOLEAN;
 BEGIN
     IF pkey_cols = ARRAY[]::TEXT[] THEN
-        RAISE EXCEPTION 'Table % cannot be audited because it has no primary key', $1;
+        RAISE EXCEPTION 'Table ${table} cannot be audited because it has no primary key'
+            USING ERRCODE = '90601',
+                  HINT = jsonb_build_object('table', $1)::text;
     END IF;
 
     -- audit_i_u_d is the UPDATE trigger. A trigger of that name that also fires

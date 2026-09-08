@@ -23,6 +23,43 @@
 -- CHECK predicate is per-row, this holds regardless of statement shape (A4).
 
 -- =====================================================
+-- STEP 0: Error-hint merge used by the generated trigger
+-- =====================================================
+-- The merge is additive and the key already present wins - jsonb || takes the
+-- right operand. That direction is what makes a cascaded write keep the
+-- innermost entity and rule, and what lets a 42501 keep its own hint.code;
+-- swapping the operands inverts both silently.
+--
+-- The cast is guarded rather than tested with a leading brace: text that starts
+-- with one can still be malformed, and a raise in here would replace the error
+-- the caller is trying to report.
+CREATE OR REPLACE FUNCTION public.jl_error_hint(p_hint TEXT, p_add JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_obj JSONB;
+BEGIN
+    IF p_hint IS NULL OR p_hint = '' THEN
+        v_obj := '{}'::jsonb;
+    ELSE
+        BEGIN
+            v_obj := p_hint::jsonb;
+        EXCEPTION WHEN OTHERS THEN
+            v_obj := NULL;
+        END;
+        IF v_obj IS NULL OR jsonb_typeof(v_obj) <> 'object' THEN
+            v_obj := jsonb_build_object('hint', p_hint);
+        END IF;
+    END IF;
+    RETURN (p_add || v_obj)::text;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
+'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
 
@@ -40,6 +77,7 @@ DECLARE
     v_logic_lit TEXT;
     v_code TEXT;
     v_message TEXT;
+    v_rule_hint TEXT;
     v_has_computed BOOLEAN;
     v_writeback TEXT;
     v_all_logic TEXT;
@@ -110,10 +148,14 @@ BEGIN
         v_item := v_entity.computed_fields -> v_idx;
         v_name := v_item ->> 'name';
         IF v_name IS NULL OR v_name = '' THEN
-            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "name"', v_idx, p_table_name;
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90901',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
         SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
@@ -121,19 +163,39 @@ BEGIN
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
         -- The field name is admin-supplied text that lands inside the generated
-        -- function body: it is emitted as a quoted literal (with RAISE's %
-        -- placeholders escaped) so quotes or dollar signs in it cannot break out
-        -- of the string.
+        -- function body: it is emitted as a quoted literal so quotes or dollar
+        -- signs in it cannot break out of the string. It is a value handed to
+        -- jsonb_build_object, never a RAISE format string, so nothing in it
+        -- needs escaping.
+        --
+        -- WHEN SQLSTATE '90000' catches the whole of class 90, not that one
+        -- code: PostgreSQL treats a SQLSTATE ending in three zeroes as a
+        -- category and matches every code whose first two characters agree.
+        -- Our own catalog errors therefore pass through untouched, and only
+        -- everything else is re-raised with the locating keys merged in.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION %s, SQLERRM;
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'field',  %s));
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
-            quote_literal('computed_fields[' || replace(v_name, '%', '%%') || ']: %'),
+            quote_literal(v_name),
             v_path_sql);
     END LOOP;
 
@@ -142,34 +204,86 @@ $BLOCK$,
         v_item := v_entity.validation_rules -> v_idx;
         v_code := v_item ->> 'code';
         v_message := v_item ->> 'message';
+        v_rule_hint := v_item ->> 'hint';
         IF v_code IS NULL OR v_code = '' THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "code"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
+                USING ERRCODE = '90902',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF v_message IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "message"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+                USING ERRCODE = '90903',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90904',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
+
+        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
+        -- five uppercase alphanumerics as an ERRCODE, so a code like
+        -- "must_be_positive" installs happily and then fails at write time,
+        -- inside a trigger, on a row that has nothing to do with it.
+        --
+        -- "platform" is a naming convention, not a trust boundary - a
+        -- dictionary administrator can write it, and already writes the rule's
+        -- logic and message anyway.
+        IF (v_item ->> 'source_module') = 'platform' THEN
+            IF v_code !~ '^90[0-9]{3}$' THEN
+                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
+                    USING ERRCODE = '90906',
+                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+            END IF;
+        ELSIF v_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
+                USING ERRCODE = '90905',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+        END IF;
+
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 
-        -- code and message are admin-supplied text that lands inside the generated
-        -- function body: both are emitted as quoted literals, with RAISE's %
-        -- placeholders escaped where the literal is used as a RAISE format string.
+        -- code, message and hint are admin-supplied text that lands inside the
+        -- generated function body, all three emitted as quoted literals so a
+        -- quote or a dollar sign cannot break out of the string. None of them
+        -- is a RAISE format string: the message is passed as the argument of a
+        -- '%' format instead, which is what lets a rule author write a percent
+        -- sign without escaping it.
+        --
+        -- An error thrown while the rule's logic runs is not the rule failing,
+        -- so it travels out as itself; the handler is the one above.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION %s, SQLERRM;
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'rule',   %s));
     END;
     IF NOT jl_truthy(v_result) THEN
-        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = %s;
+        RAISE EXCEPTION '%%', %s USING ERRCODE = %s, HINT = %s;
     END IF;
 $BLOCK$,
             v_logic_lit,
-            quote_literal('validation_rules[' || replace(v_code, '%', '%%') || ']: %'),
-            quote_literal(replace(v_message, '%', '%%')),
-            quote_literal('rule code: ' || v_code));
+            quote_literal(v_code),
+            quote_literal(v_message),
+            quote_literal(v_code),
+            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
+                quote_literal(v_code) ||
+                CASE WHEN v_rule_hint IS NULL THEN ''
+                     ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
+                ')::text');
     END LOOP;
 
     -- Write-back tail. Validation rules never modify the row, so a validation-only
@@ -202,6 +316,10 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
     v_uid_text text;
+    v_err_state text;
+    v_err_msg text;
+    v_err_detail text;
+    v_err_hint text;
 BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.

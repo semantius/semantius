@@ -118,14 +118,14 @@ SELECT is((SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
 -- GROUP 4: generated compute/validate trigger quoting (S13)
 -- =====================================================
 UPDATE entities
-   SET validation_rules = $$[{"code":"it's a \"code\" 100%","message":"50% off isn't allowed","jsonlogic":{"!=":[{"var":"note"},"bad"]}}]$$::jsonb,
+   SET validation_rules = $$[{"code":"99401","message":"50% off isn't allowed","jsonlogic":{"!=":[{"var":"note"},"bad"]}}]$$::jsonb,
        computed_fields  = $$[{"name":"it's computed","jsonlogic":{"var":"note"}}]$$::jsonb
  WHERE table_name = 'dv_probe';
 
 SELECT lives_ok($$INSERT INTO dv_probe (label, note) VALUES ('r2', 'fine')$$,
-    'rules whose code, name and message contain quotes and percent signs compile and pass');
+    'rules whose name and message contain quotes and percent signs compile and pass');
 SELECT throws_ok($$INSERT INTO dv_probe (label, note) VALUES ('r3', 'bad')$$,
-    '23514', $$50% off isn't allowed$$,
+    '99401', $$50% off isn't allowed$$,
     'a failing rule raises its message verbatim (percent sign and quote intact)');
 SELECT throws_like($$INSERT INTO dv_probe (label, note) VALUES ('r4', 'bad')$$,
     '%50\% off isn''t allowed%',

@@ -48,7 +48,7 @@ SELECT ok(
 -- Test 4: Attempt to delete role 1 from user 1001 should fail
 SELECT throws_ok(
     'DELETE FROM user_roles WHERE user_id = 1001 AND role_id = 1',
-    'P0001',
+    '42501',
     'Cannot delete role 1 (User) from user. All users must have the User role.',
     'Deleting role 1 from user 1001 should raise an exception'
 );
@@ -56,7 +56,7 @@ SELECT throws_ok(
 -- Test 5: Attempt to delete role 1 from newly created user should fail
 SELECT throws_ok(
     'DELETE FROM user_roles WHERE user_id = 9001 AND role_id = 1',
-    'P0001',
+    '42501',
     'Cannot delete role 1 (User) from user. All users must have the User role.',
     'Deleting role 1 from new user 9001 should raise an exception'
 );

@@ -141,7 +141,7 @@ SELECT ok((public.queue_read('rpc_q', 99999, 1)->0->>'vt')::timestamptz <= clock
     'queue_read: the visibility timeout is clamped to one hour');
 SELECT is(jsonb_array_length(public.queue_read('rpc_q', 0, 10)), 1,
     'queue_read: the clamped read still leased exactly one message');
-SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, '42704', NULL,
+SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, '90504', NULL,
     'queue_read: an admin is told the queue is not registered');
 
 RESET ROLE;

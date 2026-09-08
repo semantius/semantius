@@ -57,9 +57,12 @@ SELECT lives_ok($$SELECT rbac.require_any_permission('admin', 'nwind:view')$$,
 SELECT throws_ok($$SELECT rbac.require_any_permission('admin', 'user:manage')$$,
     '42501', NULL,
     'require_any_permission: raises insufficient_privilege when none is held');
-SELECT throws_like($$SELECT rbac.require_any_permission('admin', 'user:manage')$$,
-    '%one of (admin, user:manage) required%',
-    'require_any_permission: the message lists the acceptable permissions');
+-- The message is a template now, so the list of permissions travels in the
+-- hint where a client can put it into its own sentence.
+SELECT is(
+    catch_error_hint($$SELECT rbac.require_any_permission('admin', 'user:manage')$$),
+    '{"code": "90102", "permissions": "admin, user:manage"}'::jsonb,
+    'require_any_permission: the hint carries the acceptable permissions');
 
 -- =====================================================
 -- GROUP 2: get_current_user_permissions / whoami (user2)
@@ -148,7 +151,7 @@ SELECT is((SELECT reason FROM rbac.validate_oauth_scopes('user2', 'nwind:view'))
 SELECT is((SELECT count(*)::int FROM rbac.validate_oauth_scopes('user2', '')),
     0, 'validate_oauth_scopes: an empty request yields no rows');
 SELECT throws_ok($$SELECT * FROM rbac.validate_oauth_scopes('', 'nwind:view')$$,
-    'P0001', 'external_id cannot be null or empty',
+    '90007', 'external_id cannot be null or empty',
     'validate_oauth_scopes: empty external_id is rejected');
 
 -- =====================================================

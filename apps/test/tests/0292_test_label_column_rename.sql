@@ -93,8 +93,8 @@ SELECT is(
 SELECT throws_ok(
     $$UPDATE fields SET field_name = 'new_id'
       WHERE table_name = 'lblren1' AND field_name = 'id'$$,
-    'P0001',
-    'Cannot rename core system field "id"',
+    '90218',
+    'Cannot rename core system field ${field_name}',
     'Renaming id column should still be rejected'
 );
 
@@ -105,8 +105,8 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$UPDATE fields SET field_name = 'new_created'
       WHERE table_name = 'lblren1' AND field_name = 'created_at'$$,
-    'P0001',
-    'Cannot rename core system field "created_at"',
+    '90218',
+    'Cannot rename core system field ${field_name}',
     'Renaming created_at column should still be rejected'
 );
 

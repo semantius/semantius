@@ -61,19 +61,20 @@ SELECT throws_ok(
 );
 
 -- An unknown subject is a different refusal: the claims are well formed but no
--- users row matches, which ensure_context_initialized reports as 28000.
+-- users row matches. It is still 42501 on the wire, so PostgREST keeps
+-- answering 403, and hint.code is what separates it: 90006, not 90001.
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', 'no-such-subject', true);
 
 SELECT throws_ok(
     $$ SELECT public.jl_request_context() $$,
-    '28000', NULL,
+    '42501', NULL,
     'unknown subject: jl_request_context() raises rather than returning a null user'
 );
 
 SELECT throws_ok(
     $$ SELECT count(*) FROM public.ctx_gate $$,
-    '28000', NULL,
+    '42501', NULL,
     'unknown subject: a SELECT on a rule-bearing table raises'
 );
 

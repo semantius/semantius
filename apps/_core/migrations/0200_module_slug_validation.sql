@@ -21,7 +21,7 @@ DROP FUNCTION IF EXISTS auto_set_module_slug();
 
 UPDATE entities
 SET validation_rules = validation_rules || '[{
-    "code": "valid_module_slug",
+    "code": "90702",
     "message": "module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''",
     "source_module": "platform",
     "jsonlogic": {

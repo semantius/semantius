@@ -3,7 +3,7 @@
 -- reserved variables ($today, $now, $user_id), and validation-rule enforcement.
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(42);
 
 SELECT authenticate_as('user3');
 
@@ -87,7 +87,7 @@ VALUES ('cv_features_test', 'cv_feature', 'Feature', 'Features', 'Feature scorin
         }}
     ]'::jsonb,
     '[
-        {"code": "release_only_when_committed",
+        {"code": "99003",
          "message": "release_id only allowed once feature is planned, in_progress, or shipped",
          "jsonlogic": {
             "or": [
@@ -201,7 +201,7 @@ SELECT throws_ok(
     $$INSERT INTO cv_features_test (label, reach_score, impact_score, confidence_score, effort_score,
         feature_status, release_id)
       VALUES ('Feature E', 10, 3, 70, 2, 'idea', 'r-2.0')$$,
-    '23514',
+    '99003',
     'release_id only allowed once feature is planned, in_progress, or shipped',
     'INSERT rejected when release_id set on non-committed feature_status');
 
@@ -215,7 +215,7 @@ SELECT throws_ok(
     $$UPDATE cv_features_test
         SET feature_status = 'idea', release_id = 'r-3.0'
       WHERE label = 'Feature C'$$,
-    '23514',
+    '99003',
     'release_id only allowed once feature is planned, in_progress, or shipped',
     'UPDATE rejected when validation fails');
 
@@ -331,10 +331,135 @@ VALUES ('cv_bad_logic_test', 'cv_bad', 'Bad', 'Bad', 'Bad logic',
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('cv_bad_logic_test', 'broken', 'Broken', 'text', 10);
 
-SELECT throws_like(
-    $$INSERT INTO cv_bad_logic_test (label) VALUES ('boom')$$,
-    '%computed_fields[broken]:%',
-    'Evaluation error in computed field surfaces with rule name');
+-- The wrapper adds where the error happened and changes nothing else: the
+-- message is the evaluator's own, unprefixed, because the message is what a
+-- client falls back to when it has no translation for the code, and a prefix
+-- is an interpolation. docs/error-contract.md, "The generated trigger".
+SELECT is(
+    catch_error($$INSERT INTO cv_bad_logic_test (label) VALUES ('boom')$$) ->> 'message',
+    'Unrecognized operation: ${op}',
+    'Evaluation error in a computed field keeps its own message, unprefixed');
+
+-- An unknown operator is one of ours, so it travels as itself: class 90 is
+-- passed through untouched, keys and all, because the number is already the
+-- whole identity.
+SELECT is(
+    catch_error_hint($$INSERT INTO cv_bad_logic_test (label) VALUES ('boom')$$),
+    '{"op": "unknown_op"}'::jsonb,
+    'A class 90 error out of a computed field passes through untouched');
+
+-- PostgreSQL's own errors do get stamped, because nothing else in them says
+-- which rule produced them. Modulo by zero is the shortest way to raise one
+-- from inside a computed field.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    computed_fields)
+VALUES ('cv_divzero_test', 'cv_divzero', 'Div', 'Divs', 'Division probe',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "ratio", "jsonlogic": {"%": [1, 0]}}]'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('cv_divzero_test', 'ratio', 'Ratio', 'integer', 10);
+
+SELECT is(
+    catch_error_hint($$INSERT INTO cv_divzero_test (label) VALUES ('boom')$$),
+    '{"entity": "cv_divzero_test", "field": "ratio"}'::jsonb,
+    'A PostgreSQL error out of a computed field is stamped with the entity and the field');
+
+-- =====================================================
+-- An error raised inside a validation rule keeps its identity
+-- =====================================================
+-- The rule did not fail here - something inside its logic raised - so the error
+-- travels out as itself and only gains the two keys that say where it came
+-- from.
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    validation_rules)
+VALUES ('cv_rule_error_test', 'cv_rule_error', 'Rule Error', 'Rule Errors', 'Raising rule',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"code": "99001", "message": "never reached",
+       "jsonlogic": {"throw_error": "Order is already shipped"}}]'::jsonb);
+
+SELECT is(
+    catch_error($$INSERT INTO cv_rule_error_test (label) VALUES ('x')$$) - 'hint',
+    '{"code": "99000", "message": "Order is already shipped", "details": ""}'::jsonb,
+    'Error raised inside a rule keeps its SQLSTATE, message and DETAIL');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO cv_rule_error_test (label) VALUES ('x')$$),
+    '{"entity": "cv_rule_error_test", "rule": "99001"}'::jsonb,
+    'Error raised inside a rule is stamped with the entity and the rule');
+
+-- =====================================================
+-- A rule code has to be a SQLSTATE
+-- =====================================================
+-- The code is what the failure raises, so a name that PL/pgSQL cannot raise is
+-- refused when the entity is saved rather than when the rule first fires on
+-- somebody's write.
+
+SELECT throws_ok(
+    $$UPDATE entities SET validation_rules =
+        '[{"code": "must_be_positive", "message": "m", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_rule_error_test'$$,
+    '90905',
+    'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}',
+    'a rule code outside class 99 is rejected when the entity is saved');
+
+SELECT throws_ok(
+    $$UPDATE entities SET validation_rules =
+        '[{"code": "99009", "message": "m", "source_module": "platform", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_rule_error_test'$$,
+    '90906',
+    'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}',
+    'a platform rule carrying a class 99 code is rejected when the entity is saved');
+
+-- =====================================================
+-- A cascaded write names the innermost entity
+-- =====================================================
+-- A row trigger on one entity can write a second one, whose own compute/validate
+-- trigger may fail. The keys must name the entity whose rule actually raised,
+-- because that is what scopes the translation of a class 99 code.
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    validation_rules)
+VALUES ('cv_cascade_inner', 'cv_cascade_inner', 'Inner', 'Inners', 'Inner entity',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"code": "99002", "message": "never reached",
+       "jsonlogic": {"throw_error": "inner rule refused the write"}}]'::jsonb);
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    computed_fields)
+VALUES ('cv_cascade_outer', 'cv_cascade_outer', 'Outer', 'Outers', 'Outer entity',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "echo", "jsonlogic": {"var": "label"}}]'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('cv_cascade_outer', 'echo', 'Echo', 'text', 10);
+
+-- CREATE TRIGGER needs the TRIGGER privilege on the table, which the request
+-- role does not hold, so the cascade is wired as the owner and only the write
+-- below is made as the user.
+RESET ROLE;
+
+CREATE FUNCTION public.cv_cascade_fn() RETURNS TRIGGER AS $CASCADE$
+BEGIN
+    INSERT INTO public.cv_cascade_inner (label) VALUES (NEW.label);
+    RETURN NEW;
+END;
+$CASCADE$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE TRIGGER cv_cascade_trigger AFTER INSERT ON cv_cascade_outer
+    FOR EACH ROW EXECUTE FUNCTION public.cv_cascade_fn();
+
+SET ROLE semantius_user;
+
+SELECT is(
+    catch_error_hint($$INSERT INTO cv_cascade_outer (label) VALUES ('x')$$),
+    '{"entity": "cv_cascade_inner", "rule": "99002"}'::jsonb,
+    'A cascaded write is stamped with the innermost entity and its rule');
 
 -- =====================================================
 -- Trigger drop on entity update / delete

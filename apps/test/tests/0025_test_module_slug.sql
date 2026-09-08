@@ -79,8 +79,8 @@ SELECT is((SELECT module_slug FROM modules WHERE module_name = 'Long Slug'),    
 -- =====================================================
 -- TEST: Invalid slugs rejected by JsonLogic validation
 -- =====================================================
--- The JsonLogic validation rule raises with ERRCODE '23514' and a message
--- starting with "module_slug must be lowercase...".
+-- The JsonLogic validation rule is a platform rule, so its code is its own
+-- SQLSTATE: 90702, with the message the catalog lists for it.
 
 SELECT throws_like(
     $$INSERT INTO modules (module_name, module_slug) VALUES ('Leading Hyphen', '-invalid')$$,

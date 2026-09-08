@@ -307,14 +307,14 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES ('ctx_mode_literal', 'ctx_mode_literal_item', 'Ctx Mode Literal', 'Ctx Mode Literals',
     'conditional context probe', 1, 'public:read', 'admin', 'id', 'label',
-    '[{"code":"no_delete","message":"deletion is not allowed",
+    '[{"code":"99501","message":"deletion is not allowed",
        "jsonlogic":{"!=":[{"var":"$mode"},"delete"]}}]'::jsonb);
 
 INSERT INTO ctx_mode_literal (label) VALUES ('keep me');
 
 SELECT throws_ok(
     $$ DELETE FROM ctx_mode_literal $$,
-    '23514', NULL,
+    '99501', NULL,
     '$mode guard blocks a DELETE when the rule names the variable'
 );
 
@@ -322,14 +322,14 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES ('ctx_mode_computed', 'ctx_mode_computed_item', 'Ctx Mode Computed', 'Ctx Mode Computeds',
     'conditional context probe, computed key', 1, 'public:read', 'admin', 'id', 'label',
-    '[{"code":"no_delete","message":"deletion is not allowed",
+    '[{"code":"99501","message":"deletion is not allowed",
        "jsonlogic":{"!=":[{"var":{"cat":["$mo","de"]}},"delete"]}}]'::jsonb);
 
 INSERT INTO ctx_mode_computed (label) VALUES ('keep me too');
 
 SELECT throws_ok(
     $$ DELETE FROM ctx_mode_computed $$,
-    '23514', NULL,
+    '99501', NULL,
     '$mode guard blocks a DELETE when the rule builds the variable name'
 );
 
@@ -338,7 +338,7 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES ('ctx_old_computed', 'ctx_old_computed_item', 'Ctx Old Computed', 'Ctx Old Computeds',
     'conditional context probe, computed $old key', 1, 'public:read', 'admin', 'id', 'label',
-    '[{"code":"write_once","message":"label is write-once",
+    '[{"code":"99502","message":"label is write-once",
        "jsonlogic":{"or":[{"==":[{"var":"$old"},null]},
                           {"==":[{"var":{"cat":["$ol","d.label"]}},{"var":"label"}]}]}}]'::jsonb);
 
@@ -346,7 +346,7 @@ INSERT INTO ctx_old_computed (label) VALUES ('original');
 
 SELECT throws_ok(
     $$ UPDATE ctx_old_computed SET label = 'changed' $$,
-    '23514', NULL,
+    '99502', NULL,
     '$old guard blocks an UPDATE when the rule builds the variable name'
 );
 
@@ -356,7 +356,7 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES ('ctx_no_old', 'ctx_no_old_item', 'Ctx No Old', 'Ctx No Olds',
     'conditional context probe, no old reference', 1, 'public:read', 'admin', 'id', 'label',
-    '[{"code":"nonempty","message":"label required","jsonlogic":{"!=":[{"var":"label"},""]}}]'::jsonb);
+    '[{"code":"99503","message":"label required","jsonlogic":{"!=":[{"var":"label"},""]}}]'::jsonb);
 
 SELECT is(
     (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

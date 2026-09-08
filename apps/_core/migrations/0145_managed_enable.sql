@@ -473,7 +473,7 @@ BEGIN
     IF OLD.table_name <> NEW.table_name THEN
         -- Allow only when this is a cascade triggered by rename_dd_table()
         IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
-            RAISE EXCEPTION 'Cannot change table_name of a field';
+            RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
         END IF;
         -- Cascade rename: metadata has been updated; no DDL needed here
         RETURN NEW;
@@ -483,18 +483,22 @@ BEGIN
     -- no exception here — just continue with the rest of the DDL using NEW.field_name.
 
     IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+        RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
 
     -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
     -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
     IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
+                USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
 
@@ -558,9 +562,16 @@ BEGIN
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
-                'Cannot change format of field "%" from "%" to "%" because it would require '
-                'changing the column type from % to %.',
-                NEW.field_name, OLD.format, NEW.format, v_old_data_type, v_new_data_type;
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', NEW.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_data_type,
+                          'new_type',   v_new_data_type)::text;
         END IF;
 
         RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
@@ -631,7 +642,9 @@ BEGIN
                 FROM entities WHERE table_name = NEW.reference_table;
 
                 IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                    RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                        USING ERRCODE = '90212',
+                              HINT = jsonb_build_object('table', NEW.reference_table)::text;
                 END IF;
 
                 IF NEW.reference_delete_mode = 'clear' THEN
@@ -1033,8 +1046,9 @@ BEGIN
         RETURN NEW;
     END IF;
     IF NEW.field_name ~ '^_' THEN
-        RAISE EXCEPTION 'Field name "%" is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)', NEW.field_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'Field name ${field_name} is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)'
+            USING ERRCODE = '90224',
+                  HINT = jsonb_build_object('field_name', NEW.field_name)::text;
     END IF;
     RETURN NEW;
 END;
@@ -1067,39 +1081,48 @@ BEGIN
     END IF;
 
     IF dd_is_junction(NEW.table_name) THEN
-        RAISE EXCEPTION 'label_parent cannot be set on junction entity "%"', NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent cannot be set on junction entity ${table}'
+            USING ERRCODE = '90225',
+                  HINT = jsonb_build_object('table', NEW.table_name)::text;
     END IF;
 
     SELECT format, reference_table INTO v_fmt, v_ref
       FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_parent;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'label_parent "%" is not a field of entity "%"', NEW.label_parent, NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} is not a field of entity ${table}'
+            USING ERRCODE = '90226',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent,
+                                            'table', NEW.table_name)::text;
     END IF;
 
     IF NOT dd_is_fk_format(v_fmt) OR COALESCE(v_ref, '') = '' THEN
-        RAISE EXCEPTION 'label_parent "%" on "%" must name a reference/parent field', NEW.label_parent, NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} on ${table} must name a reference/parent field'
+            USING ERRCODE = '90227',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent,
+                                            'table', NEW.table_name)::text;
     END IF;
 
     IF v_ref = NEW.table_name THEN
-        RAISE EXCEPTION 'label_parent "%" must not be self-referential (the identity spine must be acyclic)', NEW.label_parent
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} must not be self-referential (the identity spine must be acyclic)'
+            USING ERRCODE = '90228',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent)::text;
     END IF;
 
     IF dd_is_junction(v_ref) THEN
-        RAISE EXCEPTION 'label_parent "%" must not target junction entity "%"', NEW.label_parent, v_ref
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} must not target junction entity ${table}'
+            USING ERRCODE = '90229',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent, 'table', v_ref)::text;
     END IF;
 
     -- Walk the committed spine chain from the target; returning to this entity is a cycle.
     v_cur := v_ref;
     WHILE COALESCE(v_cur, '') <> '' AND v_hops < 64 LOOP
         IF v_cur = NEW.table_name THEN
-            RAISE EXCEPTION 'label_parent on "%" via "%" would create a cycle in the identity spine', NEW.table_name, NEW.label_parent
-                USING ERRCODE = 'check_violation';
+            RAISE EXCEPTION 'label_parent on ${table} via ${label_parent} would create a cycle in the identity spine'
+                USING ERRCODE = '90230',
+                      HINT = jsonb_build_object('table', NEW.table_name,
+                                                'label_parent', NEW.label_parent)::text;
         END IF;
         v_cur := dd_spine_parent(v_cur);
         v_hops := v_hops + 1;

@@ -299,14 +299,14 @@ SELECT is(
 
 SELECT is(
     (SELECT validation_rules->0->>'code' FROM entities WHERE table_name = 'roles'),
-    'origin_immutable_roles',
-    'roles validation rule 0 is origin_immutable_roles'
+    '90203',
+    'roles validation rule 0 is the roles.origin immutability rule'
 );
 
 SELECT is(
     (SELECT validation_rules->1->>'code' FROM entities WHERE table_name = 'roles'),
-    'system_role_slug_immutable',
-    'roles validation rule 1 is system_role_slug_immutable'
+    '90204',
+    'roles validation rule 1 is the system role slug immutability rule'
 );
 
 -- Verify validation_rules are set on permission_hierarchy entity
@@ -318,8 +318,8 @@ SELECT is(
 
 SELECT is(
     (SELECT validation_rules->0->>'code' FROM entities WHERE table_name = 'permission_hierarchy'),
-    'origin_immutable_hierarchy',
-    'permission_hierarchy validation rule 0 is origin_immutable_hierarchy'
+    '90205',
+    'permission_hierarchy validation rule 0 is the origin immutability rule'
 );
 
 -- Verify source_module tag is set
@@ -350,7 +350,7 @@ SELECT is(
 -- UPDATE origin from user to model should be blocked (origin is strictly immutable)
 SELECT throws_ok(
     $$UPDATE roles SET origin = 'model' WHERE role_name = 'Rule Test User Role'$$,
-    '23514',
+    '90203',
     NULL,
     'UPDATE origin from user to model is blocked by validation rule'
 );
@@ -358,7 +358,7 @@ SELECT throws_ok(
 -- UPDATE origin from user to model_master should be blocked (origin is strictly immutable)
 SELECT throws_ok(
     $$UPDATE roles SET origin = 'model_master' WHERE role_name = 'Rule Test User Role'$$,
-    '23514',
+    '90203',
     NULL,
     'UPDATE origin from user to model_master is blocked by validation rule'
 );
@@ -367,7 +367,7 @@ SELECT throws_ok(
 INSERT INTO roles (role_name, origin) VALUES ('Rule Test Model Role', 'model');
 SELECT throws_ok(
     $$UPDATE roles SET origin = 'user' WHERE role_name = 'Rule Test Model Role'$$,
-    '23514',
+    '90203',
     NULL,
     'UPDATE origin from model to user is blocked by validation rule'
 );
@@ -379,7 +379,7 @@ SELECT throws_ok(
 -- Changing slug on a system-origin role should be blocked
 SELECT throws_ok(
     $$UPDATE roles SET slug = 'changed_slug' WHERE role_name = 'Administrator'$$,
-    '23514',
+    '90204',
     NULL,
     'Changing slug on system-origin role is blocked'
 );
@@ -410,7 +410,7 @@ SELECT throws_ok(
     $$UPDATE permission_hierarchy
       SET origin = 'model_master'
       WHERE id = (SELECT id FROM permission_hierarchy LIMIT 1)$$,
-    '23514',
+    '90205',
     NULL,
     'UPDATE origin on permission_hierarchy is blocked by validation rule'
 );

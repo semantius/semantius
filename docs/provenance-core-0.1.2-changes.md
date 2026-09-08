@@ -16,6 +16,15 @@ mechanic: columns are added by **editing the base migrations**, not by adding a 
 migration - the project is in prototyping mode, where there are no upgrade scripts and a fresh
 install is the only install.
 
+
+> **SQLSTATEs in this document are superseded.** It was written before
+> `docs/error-contract.md`, when every rejection fell to `23514`, `P0001` or
+> `42501`. The rules and guards it describes are unchanged, but each now raises
+> its own catalog number: the three write-once rules raise `90201`, `90202` and
+> `90701`, the aliases append-only guard raises `90213`, a core field's delete
+> guard raises `90217`, and clearing `ctype` raises `90214`. Read the code
+> column of the error contract, not this page.
+
 ---
 
 ## 1. TL;DR

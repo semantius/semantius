@@ -164,7 +164,7 @@ SELECT ok(
 -- =====================================================
 SELECT throws_ok(
     $$INSERT INTO fields (table_name, field_name, title, format) VALUES ('lt_scorecards', '_secret', 'X', 'text')$$,
-    '23514', NULL,
+    '90224', NULL,
     'F1: field name starting with "_" is rejected');
 
 -- The "_label" SUFFIX is NOT reserved: denormalized display columns like customer_label are common.
@@ -191,12 +191,12 @@ SELECT is(
 
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'score_date' WHERE table_name = 'lt_scorecards'$$,
-    '23514', NULL,
+    '90227', NULL,
     'F6: label_parent naming a non-FK field is rejected');
 
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'no_such_field' WHERE table_name = 'lt_scorecards'$$,
-    '23514', NULL,
+    '90226', NULL,
     'F7: label_parent naming a non-existent field is rejected');
 
 -- self-reference (§2): a spine FK pointing at its own entity is rejected
@@ -204,7 +204,7 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, referenc
 VALUES ('lt_candidates', 'self_ref', 'Self', 'reference', 50, 'lt_candidates', 'clear');
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'self_ref' WHERE table_name = 'lt_candidates'$$,
-    '23514', NULL,
+    '90228', NULL,
     'F8a: self-referential label_parent is rejected');
 
 -- cycle (§10): candidates -> applications -> candidates
@@ -212,7 +212,7 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, referenc
 VALUES ('lt_candidates', 'app_ref', 'App', 'reference', 60, 'lt_applications', 'clear');
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'app_ref' WHERE table_name = 'lt_candidates'$$,
-    '23514', NULL,
+    '90230', NULL,
     'F8b: a label_parent edit forming a cycle is rejected');
 
 -- label_parent targeting a junction (F10) and set on a junction (F11)
@@ -220,12 +220,12 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, referenc
 VALUES ('lt_scorecards', 'link_ref', 'Link', 'reference', 70, 'lt_link', 'clear');
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'link_ref' WHERE table_name = 'lt_scorecards'$$,
-    '23514', NULL,
+    '90229', NULL,
     'F10: label_parent targeting a junction is rejected');
 
 SELECT throws_ok(
     $$UPDATE entities SET label_parent = 'left_id' WHERE table_name = 'lt_link'$$,
-    '23514', NULL,
+    '90225', NULL,
     'F11: label_parent set on a junction entity is rejected');
 
 -- =====================================================

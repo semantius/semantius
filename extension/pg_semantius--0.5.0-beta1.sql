@@ -1880,13 +1880,17 @@ BEGIN
     FROM hierarchy_path;
 
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %',
-            NEW.including_permission_name, NEW.included_permission_name;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}'
+            USING ERRCODE = '90210',
+                  HINT = jsonb_build_object(
+                      'including', NEW.including_permission_name,
+                      'included',  NEW.included_permission_name)::text;
     END IF;
     
     IF max_depth >= 11 THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be %', 
-            max_depth + 1;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}'
+            USING ERRCODE = '90211',
+                  HINT = jsonb_build_object('depth', max_depth + 1)::text;
     END IF;
     
     RETURN NEW;
@@ -1945,12 +1949,14 @@ BEGIN
             EXCEPTION
                 WHEN OTHERS THEN
                     RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                        USING ERRCODE = 'insufficient_privilege';
+                        USING ERRCODE = 'insufficient_privilege',
+                              HINT = jsonb_build_object('code', '90001')::text;
             END;
 
             IF supabase_claims IS NULL THEN
                 RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                    USING ERRCODE = 'insufficient_privilege';
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90001')::text;
             END IF;
 
             -- Normalize: convert all Supabase JSON properties to Neon-style settings
@@ -1989,13 +1995,15 @@ BEGIN
     -- Validate role
     IF v_role IS DISTINCT FROM 'authenticated' THEN
         RAISE EXCEPTION 'Authentication required: JWT role claim must be authenticated'
-            USING ERRCODE = 'insufficient_privilege';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90002')::text;
     END IF;
 
     -- Validate sub
     IF sub_value IS NULL OR sub_value = '' THEN
         RAISE EXCEPTION 'Authentication required: JWT sub claim is missing'
-            USING ERRCODE = 'insufficient_privilege';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90003')::text;
     END IF;
 
     -- Validate JWT audience against _settings if a jwt_aud entry is configured.
@@ -2008,8 +2016,9 @@ BEGIN
         v_jwt_aud := current_setting('request.jwt.claim.aud', true);
 
         IF v_jwt_aud IS NULL OR v_jwt_aud = '' THEN
-            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing (expected %)', v_required_aud
-                USING ERRCODE = 'insufficient_privilege';
+            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing (expected ${expected})'
+                USING ERRCODE = 'insufficient_privilege',
+                      HINT = jsonb_build_object('code', '90004', 'expected', v_required_aud)::text;
         END IF;
 
         -- Try to parse aud as JSON (array or string).
@@ -2020,8 +2029,11 @@ BEGIN
         EXCEPTION WHEN invalid_text_representation THEN
             -- Plain (non-JSON) string — compare directly
             IF v_jwt_aud != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
             RETURN sub_value;
         END;
@@ -2029,14 +2041,20 @@ BEGIN
         IF jsonb_typeof(v_aud_json) = 'array' THEN
             -- aud is a JSON array — the required audience must be one of the elements
             IF NOT (v_aud_json ? v_required_aud) THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
         ELSE
             -- aud is a JSON scalar string — extract text and compare
             IF v_aud_json #>> '{}' != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
         END IF;
     END IF;
@@ -2219,8 +2237,9 @@ BEGIN
     
     -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'User not found: %. Client must call get_userinfo() on first login to create user record.', v_external_id
-            USING ERRCODE = 'invalid_authorization_specification';
+        RAISE EXCEPTION 'User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
     
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
@@ -2501,8 +2520,12 @@ RETURNS void AS $$
 BEGIN
     PERFORM rbac.uid();
     IF NOT rbac.has_permission(p_permission_name) THEN
-        RAISE EXCEPTION 'Permission denied: % required', p_permission_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied: ${permission} required'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code',       '90101',
+                      'hint',       'Ask an administrator to grant ${permission}',
+                      'permission', p_permission_name)::text;
     END IF;
 END;
 -- STABLE so PostgREST serves it over GET; raising is not a side effect.
@@ -2604,8 +2627,11 @@ RETURNS void AS $$
 BEGIN
     PERFORM rbac.uid();
     IF NOT rbac.has_any_permission(VARIADIC p_permission_names) THEN
-        RAISE EXCEPTION 'Permission denied: one of (%) required', array_to_string(p_permission_names, ', ')
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied: one of (${permissions}) required'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code',        '90102',
+                      'permissions', array_to_string(p_permission_names, ', '))::text;
     END IF;
 END;
 -- STABLE, as rbac.require_permission.
@@ -2719,7 +2745,7 @@ BEGIN
 
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
     IF p_requested_scopes IS NULL OR trim(p_requested_scopes) = '' THEN
@@ -2952,7 +2978,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede');
+      VALUES ('_core.0030_rbac_functions', 'ed2fdf230b7424ef6ff95daec0b9313392268338dea0384013df87c63caf0772');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3465,7 +3491,8 @@ BEGIN
             RETURN OLD;
         END IF;
         RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
-            USING ERRCODE = 'P0001';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90103')::text;
     END IF;
     
     RETURN OLD;
@@ -3552,8 +3579,10 @@ BEGIN
           AND u.is_disabled = FALSE
     ) THEN
         RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
-            USING ERRCODE = 'P0001',
-                  HINT = 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code', '90104',
+                      'hint', 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.')::text;
     END IF;
 
     RETURN NULL;
@@ -3696,7 +3725,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', 'ffe938e8499aba831441ed0fe51634448c99c2781f306bb5574e49d37313a5ec');
+      VALUES ('_core.0050_rbac_rls', 'd649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3939,7 +3968,9 @@ BEGIN
     IF NEW.reference_table != '' THEN
         -- Check if the referenced table exists
         IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = NEW.reference_table) THEN
-            RAISE EXCEPTION 'Referenced table "%" not found in entities', NEW.reference_table;
+            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                USING ERRCODE = '90212',
+                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
         END IF;
     END IF;
     RETURN NEW;
@@ -4083,7 +4114,7 @@ LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT (NEW.catalog_entity_aliases @> OLD.catalog_entity_aliases) THEN
         RAISE EXCEPTION 'catalog_entity_aliases is append-only: existing alias elements cannot be removed or rewritten'
-            USING ERRCODE = '23514';
+            USING ERRCODE = '90213';
     END IF;
     RETURN NEW;
 END;
@@ -4110,20 +4141,20 @@ CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"catalog_entity_code_write_once","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
-     '[{"code":"catalog_field_code_write_once","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb),
+     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
-     '[{"code":"catalog_module_code_write_once","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
+     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
-     '[{"code":"origin_immutable_roles","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"system_role_slug_immutable","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
+     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
     ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb),
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
-     '[{"code":"origin_immutable_hierarchy","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
+     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
 
 -- Stamp the pure junctions explicitly (entity_type='junction' is authoritative; see dd_is_junction
 -- in 0145). The structural test is two parent FK legs with no relationship payload of their own —
@@ -4437,7 +4468,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', 'f62856532dc376e1a302a1ce4ac8f6cb06814cc6d188fd7d9746a9f4d0b4a688');
+      VALUES ('_core.0060_dd_schema', '9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -5066,8 +5097,9 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.ctype := '';  -- users cannot mint a core marker on a new field
     ELSIF NEW.ctype IS DISTINCT FROM OLD.ctype THEN
-        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field "%"', NEW.field_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'ctype is system-managed and cannot be changed on field ${field_name}'
+            USING ERRCODE = '90214',
+                  HINT = jsonb_build_object('field_name', NEW.field_name)::text;
     END IF;
     RETURN NEW;
 END;
@@ -5202,7 +5234,9 @@ BEGIN
             AND is_pk = TRUE 
             AND field_name <> NEW.field_name
         ) THEN
-            RAISE EXCEPTION 'Table % already has a primary key', NEW.table_name;
+            RAISE EXCEPTION 'Table ${table} already has a primary key'
+                USING ERRCODE = '90215',
+                      HINT = jsonb_build_object('table', NEW.table_name)::text;
         END IF;
         
         -- Add primary key constraint
@@ -5227,7 +5261,9 @@ BEGIN
         WHERE table_name = NEW.reference_table;
         
         IF v_ref_id_column IS NULL THEN
-            RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                USING ERRCODE = '90212',
+                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
         END IF;
         
         -- Determine ON DELETE behavior based on reference_delete_mode
@@ -5670,7 +5706,9 @@ BEGIN
     -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
     -- for standalone field deletions.
     IF coalesce(OLD.ctype, '') <> '' THEN
-        RAISE EXCEPTION 'Cannot delete core system field "%". Core fields (ctype id/label/audit/core) cannot be deleted.', OLD.field_name;
+        RAISE EXCEPTION 'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.'
+            USING ERRCODE = '90217',
+                  HINT = jsonb_build_object('field_name', OLD.field_name)::text;
     END IF;
     
     -- Check if the parent table is managed
@@ -6446,7 +6484,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '4b384e4a30a659d9c43b728b16f86e35f712ae44ce5758cd59982341a0509b7e');
+      VALUES ('_core.0070_dd_functions', '48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7608,8 +7646,9 @@ BEGIN
 
         -- Validate the target user exists
         IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id % does not exist', p_user_id
-                USING ERRCODE = 'invalid_parameter_value';
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
         END IF;
 
         v_target_user_id := p_user_id;
@@ -7753,8 +7792,9 @@ BEGIN
 
         -- Validate the target user exists
         IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id % does not exist', p_user_id
-                USING ERRCODE = 'invalid_parameter_value';
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
         END IF;
 
         v_target_user_id := p_user_id;
@@ -7811,7 +7851,7 @@ BEGIN
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'API key not found'
-            USING ERRCODE = 'no_data_found';
+            USING ERRCODE = '90402';
     END IF;
 
     -- If the key belongs to another user, require admin permission
@@ -7847,7 +7887,7 @@ $pgsem__core_0110_apikeys$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0110_apikeys', '29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf');
+      VALUES ('_core.0110_apikeys', '6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -8312,7 +8352,9 @@ BEGIN
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;
             ELSE
-                RAISE EXCEPTION 'Cannot rename core system field "%"', OLD.field_name;
+                RAISE EXCEPTION 'Cannot rename core system field ${field_name}'
+                    USING ERRCODE = '90218',
+                          HINT = jsonb_build_object('field_name', OLD.field_name)::text;
             END IF;
         END IF;
 
@@ -8410,7 +8452,9 @@ BEGIN
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
         -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
         IF coalesce(OLD.ctype, '') <> '' THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         -- field_data_type, not format_to_data_type: a reference takes the type
@@ -8422,9 +8466,16 @@ BEGIN
 
         IF v_old_type <> v_new_type THEN
             RAISE EXCEPTION
-                'Cannot change format of field "%" from "%" to "%" because it would require '
-                'changing the column type from % to %. Drop and recreate the field instead.',
-                OLD.field_name, OLD.format, NEW.format, v_old_type, v_new_type;
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', OLD.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_type,
+                          'new_type',   v_new_type)::text;
         END IF;
     END IF;
 
@@ -8788,7 +8839,7 @@ $pgsem__core_0140_dd_rename$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648');
+      VALUES ('_core.0140_dd_rename', '1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9272,7 +9323,7 @@ BEGIN
     IF OLD.table_name <> NEW.table_name THEN
         -- Allow only when this is a cascade triggered by rename_dd_table()
         IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
-            RAISE EXCEPTION 'Cannot change table_name of a field';
+            RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
         END IF;
         -- Cascade rename: metadata has been updated; no DDL needed here
         RETURN NEW;
@@ -9282,18 +9333,22 @@ BEGIN
     -- no exception here — just continue with the rest of the DDL using NEW.field_name.
 
     IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+        RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
 
     -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
     -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
     IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
+                USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
 
@@ -9357,9 +9412,16 @@ BEGIN
 
         IF v_old_data_type <> v_new_data_type THEN
             RAISE EXCEPTION
-                'Cannot change format of field "%" from "%" to "%" because it would require '
-                'changing the column type from % to %.',
-                NEW.field_name, OLD.format, NEW.format, v_old_data_type, v_new_data_type;
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', NEW.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_data_type,
+                          'new_type',   v_new_data_type)::text;
         END IF;
 
         RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
@@ -9430,7 +9492,9 @@ BEGIN
                 FROM entities WHERE table_name = NEW.reference_table;
 
                 IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                    RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                        USING ERRCODE = '90212',
+                              HINT = jsonb_build_object('table', NEW.reference_table)::text;
                 END IF;
 
                 IF NEW.reference_delete_mode = 'clear' THEN
@@ -9832,8 +9896,9 @@ BEGIN
         RETURN NEW;
     END IF;
     IF NEW.field_name ~ '^_' THEN
-        RAISE EXCEPTION 'Field name "%" is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)', NEW.field_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'Field name ${field_name} is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)'
+            USING ERRCODE = '90224',
+                  HINT = jsonb_build_object('field_name', NEW.field_name)::text;
     END IF;
     RETURN NEW;
 END;
@@ -9866,39 +9931,48 @@ BEGIN
     END IF;
 
     IF dd_is_junction(NEW.table_name) THEN
-        RAISE EXCEPTION 'label_parent cannot be set on junction entity "%"', NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent cannot be set on junction entity ${table}'
+            USING ERRCODE = '90225',
+                  HINT = jsonb_build_object('table', NEW.table_name)::text;
     END IF;
 
     SELECT format, reference_table INTO v_fmt, v_ref
       FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_parent;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'label_parent "%" is not a field of entity "%"', NEW.label_parent, NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} is not a field of entity ${table}'
+            USING ERRCODE = '90226',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent,
+                                            'table', NEW.table_name)::text;
     END IF;
 
     IF NOT dd_is_fk_format(v_fmt) OR COALESCE(v_ref, '') = '' THEN
-        RAISE EXCEPTION 'label_parent "%" on "%" must name a reference/parent field', NEW.label_parent, NEW.table_name
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} on ${table} must name a reference/parent field'
+            USING ERRCODE = '90227',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent,
+                                            'table', NEW.table_name)::text;
     END IF;
 
     IF v_ref = NEW.table_name THEN
-        RAISE EXCEPTION 'label_parent "%" must not be self-referential (the identity spine must be acyclic)', NEW.label_parent
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} must not be self-referential (the identity spine must be acyclic)'
+            USING ERRCODE = '90228',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent)::text;
     END IF;
 
     IF dd_is_junction(v_ref) THEN
-        RAISE EXCEPTION 'label_parent "%" must not target junction entity "%"', NEW.label_parent, v_ref
-            USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'label_parent ${label_parent} must not target junction entity ${table}'
+            USING ERRCODE = '90229',
+                  HINT = jsonb_build_object('label_parent', NEW.label_parent, 'table', v_ref)::text;
     END IF;
 
     -- Walk the committed spine chain from the target; returning to this entity is a cycle.
     v_cur := v_ref;
     WHILE COALESCE(v_cur, '') <> '' AND v_hops < 64 LOOP
         IF v_cur = NEW.table_name THEN
-            RAISE EXCEPTION 'label_parent on "%" via "%" would create a cycle in the identity spine', NEW.table_name, NEW.label_parent
-                USING ERRCODE = 'check_violation';
+            RAISE EXCEPTION 'label_parent on ${table} via ${label_parent} would create a cycle in the identity spine'
+                USING ERRCODE = '90230',
+                      HINT = jsonb_build_object('table', NEW.table_name,
+                                                'label_parent', NEW.label_parent)::text;
         END IF;
         v_cur := dd_spine_parent(v_cur);
         v_hops := v_hops + 1;
@@ -10051,7 +10125,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '01814712b33990532c9dc6eb1df989206363d3c272d8b793126407f0009a0ede');
+      VALUES ('_core.0145_managed_enable', '536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10531,7 +10605,9 @@ DECLARE
     v_has_row_trigger BOOLEAN;
 BEGIN
     IF pkey_cols = ARRAY[]::TEXT[] THEN
-        RAISE EXCEPTION 'Table % cannot be audited because it has no primary key', $1;
+        RAISE EXCEPTION 'Table ${table} cannot be audited because it has no primary key'
+            USING ERRCODE = '90601',
+                  HINT = jsonb_build_object('table', $1)::text;
     END IF;
 
     -- audit_i_u_d is the UPDATE trigger. A trigger of that name that also fires
@@ -11021,7 +11097,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', 'c05c8b40cbc18a0c522d8f5834cee0fc92487821842ecb9d21ca7676bc026d60');
+      VALUES ('_core.0150_audit_log', '5f61ca5cf7b8805f60b8d31160b83b08d28f84744a1e55469b71f21378cfbdbe');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13280,7 +13356,7 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.queue_name IS DISTINCT FROM NEW.queue_name THEN
-        RAISE EXCEPTION 'Cannot change queue_name after creation';
+        RAISE EXCEPTION 'Cannot change queue_name after creation' USING ERRCODE = '90501';
     END IF;
     RETURN NEW;
 END;
@@ -13369,7 +13445,7 @@ BEGIN
         IF current_setting('dd.table_rename', TRUE) = OLD.table_name || ':' || NEW.table_name THEN
             RETURN NEW;
         END IF;
-        RAISE EXCEPTION 'Cannot change table_name on a queue table event';
+        RAISE EXCEPTION 'Cannot change table_name on a queue table event' USING ERRCODE = '90502';
     END IF;
     RETURN NEW;
 END;
@@ -13511,7 +13587,9 @@ BEGIN
     FROM queues q WHERE q.id = NEW.queue_id;
 
     IF v_queue_name IS NULL THEN
-        RAISE EXCEPTION 'Parent queue not found for queue_id %', NEW.queue_id;
+        RAISE EXCEPTION 'Parent queue not found for queue_id ${queue_id}'
+            USING ERRCODE = '90503',
+                  HINT = jsonb_build_object('queue_id', NEW.queue_id)::text;
     END IF;
 
     -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
@@ -13664,11 +13742,13 @@ BEGIN
 
     IF NOT FOUND THEN
         IF rbac.has_permission('admin') THEN
-            RAISE EXCEPTION 'Queue "%" is not registered', p_queue_name
-                USING ERRCODE = 'undefined_object';
+            RAISE EXCEPTION 'Queue ${queue} is not registered'
+                USING ERRCODE = '90504',
+                      HINT = jsonb_build_object('queue', p_queue_name)::text;
         END IF;
-        RAISE EXCEPTION 'Permission denied for queue "%"', p_queue_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied for queue ${queue}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90105', 'queue', p_queue_name)::text;
     END IF;
 
     -- The columns are NOT NULL and validated, the fallback is belt and braces.
@@ -13818,7 +13898,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', '358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0');
+      VALUES ('_core.0170_queue', '3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13852,6 +13932,43 @@ $pgsem__core_0170_queue$;
 -- CHECK predicate is per-row, this holds regardless of statement shape (A4).
 
 -- =====================================================
+-- STEP 0: Error-hint merge used by the generated trigger
+-- =====================================================
+-- The merge is additive and the key already present wins - jsonb || takes the
+-- right operand. That direction is what makes a cascaded write keep the
+-- innermost entity and rule, and what lets a 42501 keep its own hint.code;
+-- swapping the operands inverts both silently.
+--
+-- The cast is guarded rather than tested with a leading brace: text that starts
+-- with one can still be malformed, and a raise in here would replace the error
+-- the caller is trying to report.
+CREATE OR REPLACE FUNCTION public.jl_error_hint(p_hint TEXT, p_add JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_obj JSONB;
+BEGIN
+    IF p_hint IS NULL OR p_hint = '' THEN
+        v_obj := '{}'::jsonb;
+    ELSE
+        BEGIN
+            v_obj := p_hint::jsonb;
+        EXCEPTION WHEN OTHERS THEN
+            v_obj := NULL;
+        END;
+        IF v_obj IS NULL OR jsonb_typeof(v_obj) <> 'object' THEN
+            v_obj := jsonb_build_object('hint', p_hint);
+        END IF;
+    END IF;
+    RETURN (p_add || v_obj)::text;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
+'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
 
@@ -13869,6 +13986,7 @@ DECLARE
     v_logic_lit TEXT;
     v_code TEXT;
     v_message TEXT;
+    v_rule_hint TEXT;
     v_has_computed BOOLEAN;
     v_writeback TEXT;
     v_all_logic TEXT;
@@ -13939,10 +14057,14 @@ BEGIN
         v_item := v_entity.computed_fields -> v_idx;
         v_name := v_item ->> 'name';
         IF v_name IS NULL OR v_name = '' THEN
-            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "name"', v_idx, p_table_name;
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'computed_fields[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90901',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
         SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
@@ -13950,19 +14072,39 @@ BEGIN
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
         -- The field name is admin-supplied text that lands inside the generated
-        -- function body: it is emitted as a quoted literal (with RAISE's %
-        -- placeholders escaped) so quotes or dollar signs in it cannot break out
-        -- of the string.
+        -- function body: it is emitted as a quoted literal so quotes or dollar
+        -- signs in it cannot break out of the string. It is a value handed to
+        -- jsonb_build_object, never a RAISE format string, so nothing in it
+        -- needs escaping.
+        --
+        -- WHEN SQLSTATE '90000' catches the whole of class 90, not that one
+        -- code: PostgreSQL treats a SQLSTATE ending in three zeroes as a
+        -- category and matches every code whose first two characters agree.
+        -- Our own catalog errors therefore pass through untouched, and only
+        -- everything else is re-raised with the locating keys merged in.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION %s, SQLERRM;
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'field',  %s));
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
-            quote_literal('computed_fields[' || replace(v_name, '%', '%%') || ']: %'),
+            quote_literal(v_name),
             v_path_sql);
     END LOOP;
 
@@ -13971,34 +14113,86 @@ $BLOCK$,
         v_item := v_entity.validation_rules -> v_idx;
         v_code := v_item ->> 'code';
         v_message := v_item ->> 'message';
+        v_rule_hint := v_item ->> 'hint';
         IF v_code IS NULL OR v_code = '' THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "code"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
+                USING ERRCODE = '90902',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF v_message IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "message"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+                USING ERRCODE = '90903',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
         IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[%] on "%" is missing required "jsonlogic"', v_idx, p_table_name;
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90904',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
+
+        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
+        -- five uppercase alphanumerics as an ERRCODE, so a code like
+        -- "must_be_positive" installs happily and then fails at write time,
+        -- inside a trigger, on a row that has nothing to do with it.
+        --
+        -- "platform" is a naming convention, not a trust boundary - a
+        -- dictionary administrator can write it, and already writes the rule's
+        -- logic and message anyway.
+        IF (v_item ->> 'source_module') = 'platform' THEN
+            IF v_code !~ '^90[0-9]{3}$' THEN
+                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
+                    USING ERRCODE = '90906',
+                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+            END IF;
+        ELSIF v_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
+                USING ERRCODE = '90905',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+        END IF;
+
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 
-        -- code and message are admin-supplied text that lands inside the generated
-        -- function body: both are emitted as quoted literals, with RAISE's %
-        -- placeholders escaped where the literal is used as a RAISE format string.
+        -- code, message and hint are admin-supplied text that lands inside the
+        -- generated function body, all three emitted as quoted literals so a
+        -- quote or a dollar sign cannot break out of the string. None of them
+        -- is a RAISE format string: the message is passed as the argument of a
+        -- '%' format instead, which is what lets a rule author write a percent
+        -- sign without escaping it.
+        --
+        -- An error thrown while the rule's logic runs is not the rule failing,
+        -- so it travels out as itself; the handler is the one above.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION %s, SQLERRM;
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'rule',   %s));
     END;
     IF NOT jl_truthy(v_result) THEN
-        RAISE EXCEPTION %s USING ERRCODE = '23514', DETAIL = %s;
+        RAISE EXCEPTION '%%', %s USING ERRCODE = %s, HINT = %s;
     END IF;
 $BLOCK$,
             v_logic_lit,
-            quote_literal('validation_rules[' || replace(v_code, '%', '%%') || ']: %'),
-            quote_literal(replace(v_message, '%', '%%')),
-            quote_literal('rule code: ' || v_code));
+            quote_literal(v_code),
+            quote_literal(v_message),
+            quote_literal(v_code),
+            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
+                quote_literal(v_code) ||
+                CASE WHEN v_rule_hint IS NULL THEN ''
+                     ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
+                ')::text');
     END LOOP;
 
     -- Write-back tail. Validation rules never modify the row, so a validation-only
@@ -14031,6 +14225,10 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
     v_uid_text text;
+    v_err_state text;
+    v_err_msg text;
+    v_err_detail text;
+    v_err_hint text;
 BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
@@ -14416,7 +14614,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', '04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e');
+      VALUES ('_core.0180_computed_validation', 'b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14473,7 +14671,7 @@ BEGIN
 
     -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
     INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
@@ -14538,14 +14736,16 @@ BEGIN
     
     -- Verify user was created/found successfully
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = %', v_external_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
     
     -- Verify user exists in users table
     IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'User not found in users table: user_id = ${user_id}'
+            USING ERRCODE = '90009',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     -- Build roles array with role details
@@ -14608,8 +14808,9 @@ BEGIN
     
     -- Final safety check (should never be NULL after previous validations)
     IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     RETURN v_result;
@@ -14638,7 +14839,7 @@ $pgsem__core_0190_user_name_claims$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0190_user_name_claims', '3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264');
+      VALUES ('_core.0190_user_name_claims', '8390dd134ec63504c6a89b7e05490949bba5327038871f0b28a618b0a75d9f60');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14670,7 +14871,7 @@ DROP FUNCTION IF EXISTS auto_set_module_slug();
 
 UPDATE entities
 SET validation_rules = validation_rules || '[{
-    "code": "valid_module_slug",
+    "code": "90702",
     "message": "module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''",
     "source_module": "platform",
     "jsonlogic": {
@@ -14697,7 +14898,7 @@ $pgsem__core_0200_module_slug_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0200_module_slug_validation', 'e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd');
+      VALUES ('_core.0200_module_slug_validation', '9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15151,6 +15352,8 @@ DECLARE
     temp_str text;
     -- for text ops
     txt_a text; txt_b text;
+    -- for throw_error
+    err_code text; err_hint jsonb; err_name text; err_value jsonb;
 BEGIN
     -- Handle NULL rule
     IF rule IS NULL THEN RETURN 'null'::jsonb; END IF;
@@ -15775,10 +15978,58 @@ BEGIN
     END IF;
 
     -- ===================== throw_error =====================
-    -- Raises an exception with the given message.
-    -- Usage: {"throw_error":"message"}
+    -- Raises an error a client can localize (docs/error-contract.md).
+    -- Usage: {"throw_error":"Order is already shipped"}
+    --        {"throw_error":["Order ${id} is already shipped", "99017",
+    --                        ["id", {"var":"id"}]]}
+    --
+    -- The parameters are a FLAT list of name, value, name, value rather than an
+    -- object, because JsonLogic reads a single-key object as an operator call:
+    -- {"id": 3} would be dispatched as the operator `id` and die with
+    -- "Unrecognized operation". The list arrives already evaluated by the
+    -- depth-first pass above, so each value keeps the type its expression
+    -- produced - which is the point: ICU selects plurals on the JSON type, and
+    -- a number arriving as "3" would neither pluralize nor localize.
     IF op = 'throw_error' THEN
-        RAISE EXCEPTION '%', jl_to_text(a) USING ERRCODE = '23514';
+        err_code := CASE WHEN b IS NULL OR jsonb_typeof(b) = 'null'
+                         THEN '99000' ELSE jl_to_text(b) END;
+        IF err_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'throw_error code must be a class 99 number, not ${code_given}'
+                USING ERRCODE = '90911',
+                      HINT = jsonb_build_object('code_given', err_code)::text;
+        END IF;
+
+        err_hint := '{}'::jsonb;
+        IF c IS NOT NULL AND jsonb_typeof(c) = 'array' THEN
+            IF jsonb_array_length(c) % 2 <> 0 THEN
+                RAISE EXCEPTION 'throw_error parameters must be a flat list of name and value pairs'
+                    USING ERRCODE = '90914';
+            END IF;
+            FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
+                err_name  := c ->> (i * 2);
+                err_value := c -> (i * 2 + 1);
+                -- The generated validation trigger merges entity, rule and
+                -- field into this object, and its merge keeps whatever is
+                -- already there, so a rule that set one of them would win over
+                -- the trigger that actually knows where the error happened.
+                -- hint and code are the contract's other two reserved keys.
+                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
+                        USING ERRCODE = '90912',
+                              HINT = jsonb_build_object('name', err_name)::text;
+                END IF;
+                IF jsonb_typeof(err_value) IN ('object', 'array') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} must be a scalar value, not ${json_type}'
+                        USING ERRCODE = '90913',
+                              HINT = jsonb_build_object('name', err_name,
+                                                        'json_type', jsonb_typeof(err_value))::text;
+                END IF;
+                err_hint := err_hint || jsonb_build_object(err_name, err_value);
+            END LOOP;
+        END IF;
+
+        RAISE EXCEPTION '%', jl_to_text(a)
+            USING ERRCODE = err_code, HINT = err_hint::text;
     END IF;
 
     -- ===================== is_raci_actor =====================
@@ -15806,7 +16057,9 @@ BEGIN
     END IF;
 
     -- Unknown operator
-    RAISE EXCEPTION 'Unrecognized operation: %', op;
+    RAISE EXCEPTION 'Unrecognized operation: ${op}'
+        USING ERRCODE = '90910',
+              HINT = jsonb_build_object('op', op)::text;
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
@@ -16009,7 +16262,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', 'e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6');
+      VALUES ('_core.0210_raci', 'edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17588,7 +17841,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"1dba2ad3a11ac231fd238fe63b0ac2b81b09fb3e503f0b5eaf4a2d22dff18ede","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"ffe938e8499aba831441ed0fe51634448c99c2781f306bb5574e49d37313a5ec","_core.0060_dd_schema":"f62856532dc376e1a302a1ce4ac8f6cb06814cc6d188fd7d9746a9f4d0b4a688","_core.0070_dd_functions":"4b384e4a30a659d9c43b728b16f86e35f712ae44ce5758cd59982341a0509b7e","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"9f55589a84bece7c2e05055f79a4eedf9052e4764f546ce2bf1a6e7d73d19648","_core.0145_managed_enable":"01814712b33990532c9dc6eb1df989206363d3c272d8b793126407f0009a0ede","_core.0150_audit_log":"c05c8b40cbc18a0c522d8f5834cee0fc92487821842ecb9d21ca7676bc026d60","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"358033756fe3864bfa41b4abc8b9f48a05b10dd90532b4793cd2b9c6d6fcdab0","_core.0180_computed_validation":"04de568248284071ef43b44487c3d28507dc62de4dd26e57d4675eaaef2bb54e","_core.0190_user_name_claims":"3b94884f3d452ecd0d42d3085a391c5061ff32aef8bdfc2e2faaae70f2f9f264","_core.0200_module_slug_validation":"e4492c5f92429df2446c996b244d382d063d79fe4e04e11bb44a7d8073dcbadd","_core.0210_raci":"e26e234de2f4463cbe61b5f87ff10156c063a3b37372329f2a333cb3aad68bb6","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"ed2fdf230b7424ef6ff95daec0b9313392268338dea0384013df87c63caf0772","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b","_core.0070_dd_functions":"48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6","_core.0145_managed_enable":"536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49","_core.0150_audit_log":"5f61ca5cf7b8805f60b8d31160b83b08d28f84744a1e55469b71f21378cfbdbe","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f","_core.0190_user_name_claims":"8390dd134ec63504c6a89b7e05490949bba5327038871f0b28a618b0a75d9f60","_core.0200_module_slug_validation":"9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e","_core.0210_raci":"edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

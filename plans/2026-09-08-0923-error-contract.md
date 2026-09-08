@@ -1,13 +1,13 @@
 # Error contract and catalog
 
-The contract itself is `docs/error-contract.md`; this file is only the order
-of work and what proves each step. Deleted when the last step lands. Draft:
-nothing below is approved for implementation yet.
+The contract itself is `docs/error-contract.md`, numbers and constraint names
+included; this file is only the order of work and what proves each step.
+Deleted when the last step lands.
 
 ## Why
 
-Clients cannot localize our errors: 120 `RAISE EXCEPTION` sites in
-`apps/_core/migrations` (32 of them vendored pgmq), about 83 templates outside
+Clients cannot localize our errors: 118 `RAISE EXCEPTION` sites in
+`apps/_core/migrations` (31 of them vendored pgmq), about 83 templates outside
 pgmq, 60 of them with values interpolated into English text, and the SQLSTATE
 as the only identity (44 sites set one, the rest fall to P0001), shared with
 PostgreSQL's own errors. The generated compute/validate trigger in
@@ -29,33 +29,45 @@ plain-text HINTs.
   standard code is ever raised by us.
 - `validation_rules[].code` becomes the SQLSTATE of the failure: 99xxx for
   custom rules, which includes every `nwind` rule, and a catalog 90xxx code
-  for the platform rules core ships in `0060` (`"source_module": "platform"`).
+  for the platform rules core ships in `0060` and `0200`
+  (`"source_module": "platform"`, a naming convention, not a trust boundary).
   Non-matching codes are rejected on save.
-- The catalog is the hand-written `docs/error-catalog.md` plus a lint that
-  fails the build on drift. No catalog table, no raise helper.
+- The catalog is hand-written, lives in `docs/error-contract.md` next to the
+  rules, and is a reference for whoever writes a translation or the next
+  error. No catalog table, no lint, no raise helper.
+- The table 404 answer in `0080_public_functions.sql` is intentional and out
+  of scope: its two branches keep the messages they have, and `0341` is not
+  touched.
 - Placeholders are `${name}`, because PostgreSQL's own messages contain braces.
 
 ## Order of work
 
 | Row | Step | What | Proof |
 |---|---|---|---|
-| E2 | 1 | `docs/error-contract.md` | file exists; every later step cites it |
-| E1 | 2 | `0180`: class 90 passes through; class 99 is re-raised with `entity` (table name) and `rule` merged into the hint object, same SQLSTATE, message and DETAIL; every other error keeps its SQLSTATE/message/DETAIL/HINT and gets `entity` plus `rule` or `field` merged in, no message prefix | pgTAP: throw_error inside a rule arrives with its code, its parameters, `hint.entity` and `hint.rule`; a nested `set_record` failure names the inner entity; `0320` asserts the keys |
-| E3 | 3 | `packages/cli/commands/lint_errors.ts` (including the parameter-value check: no `::text` or `format()` inside a hint object) + `deno task lint-errors` + `docs/error-catalog.md` skeleton (domain blocks, install rows, constraint names) | lint fails on a synthetic violation; on the unconverted tree it lists every site step 6 must convert, and that list is the step 6 worklist |
-| E4 | 4 | `0180`: rule failure raises `rule.code` (99xxx) with `{"hint", "entity", "rule"}`; builder validates code shape and placeholder grammar; builder errors get 909xx codes; the six platform rules in `0060` get catalog 90xxx codes | `0320` and `0425` rewritten with class 99 codes; `0340` asserts the platform rules' 90xxx codes; invalid code rejected on entity save |
-| E5 | 5 | `0210`: `throw_error` three-argument form, default `99000`, code and reserved-name validation; parameter values keep their evaluated jsonb type, an object or array value is a 909xx error; `Unrecognized operation` under a 909xx code | `0016` covers every form and asserts `jsonb_typeof` of a number, a boolean and a string parameter |
-| E6 | 6 | convert every client-reachable site domain by domain (0030, 0050, 0060, 0070, 0080, 0110, 0140, 0145, 0150, 0170, 0190, 0210) to its 90xxx code; `cache_current` moves from DETAIL to HINT; superseded copies untouched | `lint-errors` clean with only the install-time exemptions, and a step in `.github/workflows/test.yml` runs `deno task lint` and `deno task lint-errors` from here on; full test run green; `0341` asserts that a hidden table and a missing table return byte-identical code, message, hint and detail from `get_schema`, `build_schema_for_table` and the record RPCs (today the two branches in `0080` use different messages) |
-| E7 | 7 | `apps/test/tests/0470_test_error_contract.sql` | behavioral checks of shape, wrapper pass-through, throw_error forms, and the JSON type of every parameter exercised (numbers as numbers, `cache_current` as a boolean) |
-| E8 | 8 | `deno task bundle-sql`; extension README Errors table equals the install rows; `docs/test-coverage.md` if required | bundles regenerated; README table matches |
+| E2 | 1 | `docs/error-contract.md` | landed |
+| E1 | 2 | `0180`: class 90 passes through; every other error keeps its SQLSTATE, message, DETAIL and HINT and gains `entity` plus `rule` or `field` in the hint object, no message prefix | landed: `0320` asserts the message is unprefixed, the keys are added, and a cascaded write names the innermost entity |
+| E3 | 3 | the ten domain blocks and the constraint-name table as sections of `docs/error-contract.md` | landed: headings exist, client rows empty, 39 constraints listed |
+| E4 | 4 | landed.  `0180`: a failing rule raises `rule.code` (99xxx) with `{"hint", "entity", "rule"}`; the builder validates code shape and placeholder grammar and raises 909xx when they are wrong; the seven platform rules in `0060` and `0200` get catalog 90xxx codes | `0320` and `0425` rewritten with class 99 codes; `0340` asserts the platform rules' codes; an invalid code is rejected on entity save |
+| E5 | 5 | landed.  `0210`: `throw_error` three-argument form, default `99000`, code and reserved-name validation; a parameter keeps the jsonb type its expression evaluated to, an object or array value is a 909xx error; `Unrecognized operation` under a 909xx code | `0016` covers every form and asserts `jsonb_typeof` of a number, a boolean and a string parameter |
+| E6 | 6 | landed, 0080 excepted.  convert every client-reachable site to its 90xxx code, file by file (0030 including the no-`users`-row 28000 in `rbac.user_id`, 0050, 0060, 0070 where 0140 and 0145 do not replace it, 0080 except the 404 branches, 0110, 0140, 0145, 0150, 0170, 0190, 0210), writing each row into the contract as it lands; `cache_current` moves from DETAIL to HINT; superseded copies untouched | full test run green, with the existing tests updated where a converted message or code breaks them |
+| E7 | 7 | landed.  `deno task bundle-sql`; `deno task extension <version>` | bundles and the extension SQL regenerated from the edited migrations |
 
-Steps 1 and 2 have no dependency on each other; 3 before 6 so the conversion
-is checked as it lands; 4 and 5 after 3 for the same reason.
+3 before 6 so a converted site has a row to write into; 4 and 5 before 6 so
+the rule and `throw_error` paths are settled before the sites move.
+
+## What is left
+
+- The table 404 answer in `0080_public_functions.sql` is out of scope by
+  decision, so its six sites keep 42P01 with no catalog number and the 903xx
+  block has no rows. `cache_current` stays in DETAIL for the same reason.
+- The wire check below has not been run: it needs the Data API, and the
+  pgdocker harness has no HTTP front.
+- The extension install path (`pgdocker/pg-ext-retest.sh`) has not been run;
+  only the migrate path has.
 
 ## Verification
 
 ```
-deno task lint-errors
-deno task test
 deno task retest --confirm
 deno task lint-sql --database-url ...
 deno task bundle-sql
@@ -66,9 +78,8 @@ Wire check against the Neon project the CLI tests run on (the `DATABASE_URL`
 of `.env.local`), through its Data API, which is PostgREST; the pgdocker
 harness has no HTTP front and cannot show a status: a `throw_error` from a
 rule returns 400 with a 99xxx `code` and a JSON `hint`; a permission failure
-returns 403 (401 without a token) with 42501 and its 901xx `hint.code`; a
-missing entity returns 404 with its 903xx `hint.code`; an expired token still
-returns PostgREST's own 401.
+returns 403 (401 without a token) with 42501 and its 901xx `hint.code`; an
+expired token still returns PostgREST's own 401.
 
 ## Follow-ups, not owned here
 

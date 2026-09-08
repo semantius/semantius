@@ -66,13 +66,17 @@ BEGIN
     FROM hierarchy_path;
 
     IF cycle_exists THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission % cannot be both ancestor and descendant of permission %',
-            NEW.including_permission_name, NEW.included_permission_name;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}'
+            USING ERRCODE = '90210',
+                  HINT = jsonb_build_object(
+                      'including', NEW.including_permission_name,
+                      'included',  NEW.included_permission_name)::text;
     END IF;
     
     IF max_depth >= 11 THEN
-        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be %', 
-            max_depth + 1;
+        RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}'
+            USING ERRCODE = '90211',
+                  HINT = jsonb_build_object('depth', max_depth + 1)::text;
     END IF;
     
     RETURN NEW;
@@ -131,12 +135,14 @@ BEGIN
             EXCEPTION
                 WHEN OTHERS THEN
                     RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                        USING ERRCODE = 'insufficient_privilege';
+                        USING ERRCODE = 'insufficient_privilege',
+                              HINT = jsonb_build_object('code', '90001')::text;
             END;
 
             IF supabase_claims IS NULL THEN
                 RAISE EXCEPTION 'Authentication required: No valid JWT claims found'
-                    USING ERRCODE = 'insufficient_privilege';
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90001')::text;
             END IF;
 
             -- Normalize: convert all Supabase JSON properties to Neon-style settings
@@ -175,13 +181,15 @@ BEGIN
     -- Validate role
     IF v_role IS DISTINCT FROM 'authenticated' THEN
         RAISE EXCEPTION 'Authentication required: JWT role claim must be authenticated'
-            USING ERRCODE = 'insufficient_privilege';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90002')::text;
     END IF;
 
     -- Validate sub
     IF sub_value IS NULL OR sub_value = '' THEN
         RAISE EXCEPTION 'Authentication required: JWT sub claim is missing'
-            USING ERRCODE = 'insufficient_privilege';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90003')::text;
     END IF;
 
     -- Validate JWT audience against _settings if a jwt_aud entry is configured.
@@ -194,8 +202,9 @@ BEGIN
         v_jwt_aud := current_setting('request.jwt.claim.aud', true);
 
         IF v_jwt_aud IS NULL OR v_jwt_aud = '' THEN
-            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing (expected %)', v_required_aud
-                USING ERRCODE = 'insufficient_privilege';
+            RAISE EXCEPTION 'Authentication required: JWT audience claim is missing (expected ${expected})'
+                USING ERRCODE = 'insufficient_privilege',
+                      HINT = jsonb_build_object('code', '90004', 'expected', v_required_aud)::text;
         END IF;
 
         -- Try to parse aud as JSON (array or string).
@@ -206,8 +215,11 @@ BEGIN
         EXCEPTION WHEN invalid_text_representation THEN
             -- Plain (non-JSON) string — compare directly
             IF v_jwt_aud != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
             RETURN sub_value;
         END;
@@ -215,14 +227,20 @@ BEGIN
         IF jsonb_typeof(v_aud_json) = 'array' THEN
             -- aud is a JSON array — the required audience must be one of the elements
             IF NOT (v_aud_json ? v_required_aud) THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
         ELSE
             -- aud is a JSON scalar string — extract text and compare
             IF v_aud_json #>> '{}' != v_required_aud THEN
-                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected %, got %)', v_required_aud, v_jwt_aud
-                    USING ERRCODE = 'insufficient_privilege';
+                RAISE EXCEPTION 'Authentication required: JWT audience does not match (expected ${expected}, got ${actual})'
+                    USING ERRCODE = 'insufficient_privilege',
+                          HINT = jsonb_build_object('code', '90005',
+                                                    'expected', v_required_aud,
+                                                    'actual',   v_jwt_aud)::text;
             END IF;
         END IF;
     END IF;
@@ -405,8 +423,9 @@ BEGIN
     
     -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'User not found: %. Client must call get_userinfo() on first login to create user record.', v_external_id
-            USING ERRCODE = 'invalid_authorization_specification';
+        RAISE EXCEPTION 'User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
     
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
@@ -687,8 +706,12 @@ RETURNS void AS $$
 BEGIN
     PERFORM rbac.uid();
     IF NOT rbac.has_permission(p_permission_name) THEN
-        RAISE EXCEPTION 'Permission denied: % required', p_permission_name
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied: ${permission} required'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code',       '90101',
+                      'hint',       'Ask an administrator to grant ${permission}',
+                      'permission', p_permission_name)::text;
     END IF;
 END;
 -- STABLE so PostgREST serves it over GET; raising is not a side effect.
@@ -790,8 +813,11 @@ RETURNS void AS $$
 BEGIN
     PERFORM rbac.uid();
     IF NOT rbac.has_any_permission(VARIADIC p_permission_names) THEN
-        RAISE EXCEPTION 'Permission denied: one of (%) required', array_to_string(p_permission_names, ', ')
-            USING ERRCODE = 'insufficient_privilege';
+        RAISE EXCEPTION 'Permission denied: one of (${permissions}) required'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code',        '90102',
+                      'permissions', array_to_string(p_permission_names, ', '))::text;
     END IF;
 END;
 -- STABLE, as rbac.require_permission.
@@ -905,7 +931,7 @@ BEGIN
 
     -- Validate inputs
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
     IF p_requested_scopes IS NULL OR trim(p_requested_scopes) = '' THEN

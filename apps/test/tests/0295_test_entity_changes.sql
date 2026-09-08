@@ -245,7 +245,7 @@ SELECT ok(
 -- =====================================================
 
 UPDATE entities
-SET validation_rules = '[{"code":"POSITIVE_ID","message":"ID must be positive","jsonlogic":{">":[{"var":"id"},0]}}]'::jsonb
+SET validation_rules = '[{"code":"99201","message":"ID must be positive","jsonlogic":{">":[{"var":"id"},0]}}]'::jsonb
 WHERE table_name = 'eptest4';
 
 SELECT ok(
@@ -357,7 +357,7 @@ SELECT ok(
 -- =====================================================
 
 UPDATE entities
-SET validation_rules = '[{"code":"LABEL_REQUIRED","message":"Label must not be empty","jsonlogic":{"!=":[{"var":"item_name"},""]}}]'::jsonb
+SET validation_rules = '[{"code":"99202","message":"Label must not be empty","jsonlogic":{"!=":[{"var":"item_name"},""]}}]'::jsonb
 WHERE table_name = 'eptest4';
 
 -- The compute_validate function should still exist (rebuilt with new rules)
@@ -433,7 +433,7 @@ SELECT ok(
 -- Simultaneously remove select_rule and add validation_rules
 UPDATE entities
 SET select_rule = '{}'::jsonb,
-    validation_rules = '[{"code":"CHK","message":"check","jsonlogic":{"==":[1,1]}}]'::jsonb
+    validation_rules = '[{"code":"99203","message":"check","jsonlogic":{"==":[1,1]}}]'::jsonb
 WHERE table_name = 'eptest4';
 
 -- select_rule function should be gone

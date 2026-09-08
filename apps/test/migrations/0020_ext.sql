@@ -81,3 +81,63 @@ BEGIN
     RETURN substring(full_key FROM 1 FOR length(full_key) - position('-' IN reverse(full_key)));
 END;
 $$ LANGUAGE plpgsql;
+
+-- Helper: run a statement and return the four error fields PostgREST puts on
+-- the wire, so a test can assert the whole shape of an error and not only its
+-- SQLSTATE and message, which is all pgTAP's throws_ok compares. Returns JSON
+-- null when the statement does not raise. The handler rolls the statement's
+-- subtransaction back, so nothing it wrote survives the call.
+CREATE OR REPLACE FUNCTION catch_error(p_sql TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_state TEXT;
+    v_message TEXT;
+    v_detail TEXT;
+    v_hint TEXT;
+BEGIN
+    EXECUTE p_sql;
+    RETURN 'null'::jsonb;
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+        v_state   = RETURNED_SQLSTATE,
+        v_message = MESSAGE_TEXT,
+        v_detail  = PG_EXCEPTION_DETAIL,
+        v_hint    = PG_EXCEPTION_HINT;
+    RETURN jsonb_build_object(
+        'code',    v_state,
+        'message', v_message,
+        'details', v_detail,
+        'hint',    v_hint);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Helper: the hint of a raised error, parsed as the JSON object the error
+-- contract puts there. JSON null when the statement did not raise, and the
+-- string itself wrapped under "hint" when it is not an object - the same
+-- reading a client does.
+CREATE OR REPLACE FUNCTION catch_error_hint(p_sql TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_err JSONB;
+    v_hint TEXT;
+    v_obj JSONB;
+BEGIN
+    v_err := catch_error(p_sql);
+    IF v_err = 'null'::jsonb THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_hint := v_err ->> 'hint';
+    IF v_hint IS NULL OR v_hint = '' THEN
+        RETURN '{}'::jsonb;
+    END IF;
+    BEGIN
+        v_obj := v_hint::jsonb;
+    EXCEPTION WHEN OTHERS THEN
+        v_obj := NULL;
+    END;
+    IF v_obj IS NULL OR jsonb_typeof(v_obj) <> 'object' THEN
+        RETURN jsonb_build_object('hint', v_hint);
+    END IF;
+    RETURN v_obj;
+END;
+$$ LANGUAGE plpgsql;

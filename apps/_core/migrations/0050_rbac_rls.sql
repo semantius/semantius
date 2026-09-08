@@ -377,7 +377,8 @@ BEGIN
             RETURN OLD;
         END IF;
         RAISE EXCEPTION 'Cannot delete role 1 (User) from user. All users must have the User role.'
-            USING ERRCODE = 'P0001';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90103')::text;
     END IF;
     
     RETURN OLD;
@@ -464,8 +465,10 @@ BEGIN
           AND u.is_disabled = FALSE
     ) THEN
         RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
-            USING ERRCODE = 'P0001',
-                  HINT = 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.';
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code', '90104',
+                      'hint', 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.')::text;
     END IF;
 
     RETURN NULL;

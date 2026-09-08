@@ -35,13 +35,13 @@ SELECT is(
 -- ── Lock on UPDATE: ctype is immutable for users ─────────────────────────────
 SELECT throws_ok(
     $$UPDATE fields SET ctype = 'core' WHERE table_name = 'lk_probe' AND field_name = 'sneaky'$$,
-    '42501',
+    '90214',
     NULL,
     'user cannot set ctype on an existing field (immutable)');
 
 SELECT throws_ok(
     $$UPDATE fields SET ctype = '' WHERE table_name = 'lk_probe' AND field_name = 'id'$$,
-    '42501',
+    '90214',
     NULL,
     'user cannot clear the id column''s ctype to escape protection');
 
@@ -50,7 +50,7 @@ SELECT throws_ok(
 -- delete guard blocks it because entities.view_permission carries ctype='core'.
 SELECT throws_ok(
     $$DELETE FROM fields WHERE table_name = 'entities' AND field_name = 'view_permission'$$,
-    'P0001',
+    '90217',
     NULL,
     'a core (ctype=core) metadata column cannot be deleted');
 

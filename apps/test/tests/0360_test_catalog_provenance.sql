@@ -75,7 +75,10 @@ SELECT lives_ok($$UPDATE entities SET entity_type='junction' WHERE table_name='p
 -- =====================================================
 -- GROUP 6: catalog_entity_aliases array CHECK + round-trip; catalog_owner_module soft pointer
 -- =====================================================
-SELECT throws_ok($$UPDATE entities SET catalog_entity_aliases='{}'::jsonb WHERE table_name='prov_e'$$, '23514', NULL, 'catalog_entity_aliases rejects a non-array (object)');
+-- The append-only trigger is a BEFORE trigger, so it answers before the
+-- catalog_entity_aliases_is_array CHECK can: an object is not a superset of the
+-- array already there.
+SELECT throws_ok($$UPDATE entities SET catalog_entity_aliases='{}'::jsonb WHERE table_name='prov_e'$$, '90213', NULL, 'catalog_entity_aliases rejects a non-array (object)');
 SELECT lives_ok($$UPDATE entities SET catalog_entity_aliases='[{"alias_code":"suppliers","source_domain":"erp","source_module":"erp-procurement","decided":"2026-06-12"}]'::jsonb WHERE table_name='prov_e'$$, 'catalog_entity_aliases accepts an array of objects');
 SELECT is((SELECT catalog_entity_aliases->0->>'alias_code' FROM entities WHERE table_name='prov_e'), 'suppliers', 'catalog_entity_aliases round-trip reads element 0');
 SELECT lives_ok($$UPDATE entities SET catalog_owner_module='module-not-deployed-yet' WHERE table_name='prov_e'$$, 'catalog_owner_module accepts a not-yet-existing slug (soft pointer, not FK)');
@@ -89,7 +92,7 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
 VALUES ('prov_wo', 'prov_wo', 'Prov WO', 'Prov WOs', 'write-once probe', 1, 'public:read', 'admin', 'id', 'label', 'vendors');
 SELECT is((SELECT catalog_entity_code FROM entities WHERE table_name='prov_wo'), 'vendors', 'INSERT with a non-empty catalog_entity_code is allowed (stamping path)');
 SELECT throws_ok($$UPDATE entities SET catalog_entity_code='other' WHERE table_name='prov_wo'$$,
-    '23514', 'catalog_entity_code is write-once: it cannot be changed once set',
+    '90201', 'catalog_entity_code is write-once: it cannot be changed once set',
     'catalog_entity_code rewrite (value->other) rejected with code + message');
 SELECT lives_ok($$UPDATE entities SET description='changed' WHERE table_name='prov_wo'$$, 'unchanged-code UPDATE is allowed');
 SELECT lives_ok($$UPDATE entities SET catalog_entity_code='backfilled' WHERE table_name='prov_e'$$, 'catalog_entity_code backfill (empty -> value) is allowed');
@@ -99,21 +102,21 @@ SELECT lives_ok($$DELETE FROM entities WHERE table_name='prov_wo'$$, 'DELETE of 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, catalog_field_code)
 VALUES ('prov_e', 'status', 'Status', 'text', 50, 'default', 'default', 'status');
 SELECT is((SELECT catalog_field_code FROM fields WHERE table_name='prov_e' AND field_name='status'), 'status', 'field created with a catalog_field_code');
-SELECT throws_ok($$UPDATE fields SET catalog_field_code='other' WHERE table_name='prov_e' AND field_name='status'$$, '23514', NULL, 'catalog_field_code rewrite is rejected');
+SELECT throws_ok($$UPDATE fields SET catalog_field_code='other' WHERE table_name='prov_e' AND field_name='status'$$, '90202', NULL, 'catalog_field_code rewrite is rejected');
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width)
 VALUES ('prov_e', 'note', 'Note', 'text', 60, 'default', 'default');
 SELECT lives_ok($$UPDATE fields SET catalog_field_code='note' WHERE table_name='prov_e' AND field_name='note'$$, 'catalog_field_code backfill (empty -> value) is allowed');
 
 -- catalog_module_code: create a module with a code, reject rewrite; verify the rule coexists with valid_module_slug.
 INSERT INTO modules (module_name, module_slug, catalog_module_code) VALUES ('Prov Mod WO', 'prov_mod_wo', 'ATS-CANDIDATE-CRM');
-SELECT throws_ok($$UPDATE modules SET catalog_module_code='OTHER' WHERE module_slug='prov_mod_wo'$$, '23514', NULL, 'catalog_module_code rewrite is rejected');
+SELECT throws_ok($$UPDATE modules SET catalog_module_code='OTHER' WHERE module_slug='prov_mod_wo'$$, '90701', NULL, 'catalog_module_code rewrite is rejected');
 SELECT is((SELECT jsonb_array_length(validation_rules) FROM entities WHERE table_name='modules'), 2, 'modules keeps 2 validation rules (write-once appended, valid_module_slug not clobbered)');
 
 -- =====================================================
 -- GROUP 8: catalog_entity_aliases append-only (prov_e currently carries [suppliers])
 -- =====================================================
 SELECT lives_ok($$UPDATE entities SET catalog_entity_aliases='[{"alias_code":"suppliers","source_domain":"erp","source_module":"erp-procurement","decided":"2026-06-12"},{"alias_code":"partners","source_domain":"procurement","source_module":"procurement-core","decided":"2026-06-12"}]'::jsonb WHERE table_name='prov_e'$$, 'append-only: adding an element is allowed');
-SELECT throws_ok($$UPDATE entities SET catalog_entity_aliases='[{"alias_code":"partners","source_domain":"procurement","source_module":"procurement-core","decided":"2026-06-12"}]'::jsonb WHERE table_name='prov_e'$$, '23514', NULL, 'append-only: removing an existing element is rejected');
+SELECT throws_ok($$UPDATE entities SET catalog_entity_aliases='[{"alias_code":"partners","source_domain":"procurement","source_module":"procurement-core","decided":"2026-06-12"}]'::jsonb WHERE table_name='prov_e'$$, '90213', NULL, 'append-only: removing an existing element is rejected');
 SELECT lives_ok($$UPDATE entities SET catalog_entity_aliases='[{"alias_code":"partners","source_domain":"procurement","source_module":"procurement-core","decided":"2026-06-12"},{"alias_code":"suppliers","source_domain":"erp","source_module":"erp-procurement","decided":"2026-06-12"}]'::jsonb WHERE table_name='prov_e'$$, 'append-only: reordering existing elements is allowed (@> is order-insensitive)');
 
 -- =====================================================
@@ -127,8 +130,8 @@ SELECT lives_ok($$INSERT INTO modules (module_name, module_slug, catalog_module_
 -- =====================================================
 -- GROUP 10: core-column protection (inherited from ctype='core')
 -- =====================================================
-SELECT throws_ok($$DELETE FROM fields WHERE table_name='entities' AND field_name='catalog_entity_code'$$, 'P0001', NULL, 'a new core column cannot be deleted');
-SELECT throws_ok($$UPDATE fields SET ctype='' WHERE table_name='entities' AND field_name='entity_type'$$, '42501', NULL, 'the ctype of a new core column cannot be cleared by an admin');
+SELECT throws_ok($$DELETE FROM fields WHERE table_name='entities' AND field_name='catalog_entity_code'$$, '90217', NULL, 'a new core column cannot be deleted');
+SELECT throws_ok($$UPDATE fields SET ctype='' WHERE table_name='entities' AND field_name='entity_type'$$, '90214', NULL, 'the ctype of a new core column cannot be cleared by an admin');
 
 -- =====================================================
 -- GROUP 11: rename survival (the rename-discovery substrate)

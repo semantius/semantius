@@ -30,19 +30,19 @@ SELECT is(
 
 SELECT throws_ok(
     $$DELETE FROM user_roles WHERE user_id = 1003 AND role_id = 2$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'removing the role from the last Administrator is refused');
 
 SELECT throws_ok(
     $$DELETE FROM users WHERE id = 1003$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'deleting the last Administrator is refused, cascade included');
 
 SELECT throws_ok(
     $$UPDATE users SET is_disabled = TRUE WHERE id = 1003$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'disabling the last Administrator is refused');
 
@@ -50,7 +50,7 @@ SELECT throws_ok(
 -- once at the end, so it cannot be walked past one row at a time.
 SELECT throws_ok(
     $$DELETE FROM user_roles WHERE role_id = 2$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'deleting every Administrator row at once is refused');
 
@@ -69,7 +69,7 @@ UPDATE modules SET default_admin_role_id = NULL WHERE default_admin_role_id = 2;
 
 SELECT throws_ok(
     $$DELETE FROM roles WHERE id = 2$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'with the reference gone, the guard refuses the delete that would cascade');
 
@@ -93,7 +93,7 @@ SELECT is(
 -- The floor moves with it: user1 is the last one now.
 SELECT throws_ok(
     $$DELETE FROM user_roles WHERE user_id = 1001 AND role_id = 2$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'the guard follows the last remaining holder, whoever that is');
 
@@ -105,7 +105,7 @@ UPDATE users SET is_disabled = TRUE WHERE id = 1003;
 
 SELECT throws_ok(
     $$DELETE FROM user_roles WHERE user_id = 1001 AND role_id = 2$$,
-    'P0001',
+    '42501',
     'This would leave the system without an enabled Administrator',
     'a disabled holder of the role does not satisfy the guard');
 

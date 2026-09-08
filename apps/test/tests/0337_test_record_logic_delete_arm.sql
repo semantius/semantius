@@ -28,13 +28,13 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
 VALUES ('rl_delete_test', 'rl_delete', 'Lockable', 'Lockables', 'DELETE-arm probe',
     1, 'public:read', 'admin', 'id', 'label',
     '[
-        {"code": "no_delete_when_locked",
+        {"code": "99301",
          "message": "locked records cannot be deleted",
          "jsonlogic": {"or": [
             {"!=": [{"var": "$mode"}, "delete"]},
             {"!=": [{"var": "locked"}, true]}
          ]}},
-        {"code": "old_present_on_delete",
+        {"code": "99302",
          "message": "$old must be present on delete",
          "jsonlogic": {"or": [
             {"!=": [{"var": "$mode"}, "delete"]},
@@ -70,7 +70,7 @@ SELECT lives_ok(
 -- DELETE of a LOCKED row is blocked by the validation rule ($mode = delete, locked = true).
 SELECT throws_ok(
     $$DELETE FROM rl_delete_test WHERE label = 'keep-me'$$,
-    '23514',
+    '99301',
     'locked records cannot be deleted',
     'DELETE of a locked row is aborted by the validation rule');
 

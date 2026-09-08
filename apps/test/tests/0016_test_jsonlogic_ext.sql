@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(81);
+SELECT plan(92);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -588,7 +588,7 @@ SELECT throws_ok(
         '{}'::jsonb
     )
     $$,
-    '23514',
+    '99000',
     'Order is already shipped',
     'throw_error: should raise exception with given message'
 );
@@ -611,9 +611,113 @@ SELECT throws_ok(
         '{}'::jsonb
     )
     $$,
-    '23514',
+    '99000',
     'condition met',
     'throw_error: should throw when if condition is true'
+);
+
+-- throw_error: the three-argument form carries a code and parameters, and each
+-- parameter keeps the JSON type its expression evaluated to. That is the whole
+-- point of the shape: a client formats with ICU, whose plural and number rules
+-- select on the JSON type, so a number arriving as "3" would neither pluralize
+-- nor localize. docs/error-contract.md, "Parameter values".
+SELECT throws_ok(
+    $$
+    SELECT evaluate_json_logic(
+        '{"throw_error":["Order ${id} is already shipped", "99017", ["id", {"var":"id"}]]}'::jsonb,
+        '{"id": 42}'::jsonb
+    )
+    $$,
+    '99017',
+    'Order ${id} is already shipped',
+    'throw_error: the three-argument form raises the code it was given'
+);
+
+SELECT is(
+    catch_error_hint($$
+        SELECT evaluate_json_logic(
+            '{"throw_error":["Order ${id} is already shipped", "99017", ["id", {"var":"id"}]]}'::jsonb,
+            '{"id": 42}'::jsonb)
+    $$),
+    '{"id": 42}'::jsonb,
+    'throw_error: the parameters arrive as the JSON hint object'
+);
+
+SELECT is(
+    jsonb_typeof(catch_error_hint($$
+        SELECT evaluate_json_logic(
+            '{"throw_error":["m", "99017", ["n", {"var":"n"}]]}'::jsonb,
+            '{"n": 3}'::jsonb)
+    $$) -> 'n'),
+    'number',
+    'throw_error: a numeric parameter arrives as a JSON number'
+);
+
+SELECT is(
+    jsonb_typeof(catch_error_hint($$
+        SELECT evaluate_json_logic(
+            '{"throw_error":["m", "99017", ["flag", {"var":"flag"}]]}'::jsonb,
+            '{"flag": true}'::jsonb)
+    $$) -> 'flag'),
+    'boolean',
+    'throw_error: a boolean parameter arrives as a JSON boolean'
+);
+
+SELECT is(
+    jsonb_typeof(catch_error_hint($$
+        SELECT evaluate_json_logic(
+            '{"throw_error":["m", "99017", ["who", {"var":"who"}]]}'::jsonb,
+            '{"who": "ann"}'::jsonb)
+    $$) -> 'who'),
+    'string',
+    'throw_error: a text parameter arrives as a JSON string'
+);
+
+SELECT is(
+    catch_error_hint($$
+        SELECT evaluate_json_logic('{"throw_error":"plain"}'::jsonb, '{}'::jsonb)
+    $$),
+    '{}'::jsonb,
+    'throw_error: the one-argument form carries an empty hint object'
+);
+
+-- The code is the SQLSTATE the failure raises, so it has to be one, and class
+-- 99 is the space reserved for whoever writes the rule.
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"throw_error":["m", "42501", []]}'::jsonb, '{}'::jsonb)$$,
+    '90911',
+    'throw_error code must be a class 99 number, not ${code_given}',
+    'throw_error: a code outside class 99 is refused'
+);
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"throw_error":["m", "99017", ["entity", "x"]]}'::jsonb, '{}'::jsonb)$$,
+    '90912',
+    'throw_error parameter ${name} uses a reserved name',
+    'throw_error: a reserved parameter name is refused'
+);
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"throw_error":["m", "99017", ["rows", {"var":"rows"}]]}'::jsonb, '{"rows": [1, 2]}'::jsonb)$$,
+    '90913',
+    'throw_error parameter ${name} must be a scalar value, not ${json_type}',
+    'throw_error: an array parameter value is refused'
+);
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"throw_error":["m", "99017", ["id"]]}'::jsonb, '{}'::jsonb)$$,
+    '90914',
+    'throw_error parameters must be a flat list of name and value pairs',
+    'throw_error: an odd-length parameter list is refused'
+);
+
+-- An unknown operator is a rule-authoring mistake, and carries the operator it
+-- could not find as a parameter rather than baked into the sentence.
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"no_such_op":[1,2]}'::jsonb, '{}'::jsonb)$$,
+    '90910',
+    'Unrecognized operation: ${op}',
+    'an unknown operator raises 90910 with the name in the hint'
 );
 
 -- =====================================================
@@ -629,7 +733,7 @@ SELECT throws_ok(
         '{}'::jsonb
     )
     $$,
-    '23514',
+    '99000',
     'Cannot modify sample module',
     'complex: set_record + throw_error should throw when condition matches'
 );

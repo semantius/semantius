@@ -628,24 +628,24 @@ select authenticate_as('user3');
 -- Test that attempting to delete a core field (created_at) raises an error
 SELECT throws_ok(
     'DELETE FROM fields WHERE table_name = ''customers'' AND field_name = ''created_at''',
-    'P0001',
-    'Cannot delete core system field "created_at". Core fields (ctype id/label/audit/core) cannot be deleted.',
+    '90217',
+    'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.',
     'Deleting created_at field should raise an exception'
 );
 
 -- Test that attempting to delete a core field (id) raises an error
 SELECT throws_ok(
     'DELETE FROM fields WHERE table_name = ''customers'' AND field_name = ''id''',
-    'P0001',
-    'Cannot delete core system field "id". Core fields (ctype id/label/audit/core) cannot be deleted.',
+    '90217',
+    'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.',
     'Deleting id field should raise an exception'
 );
 
 -- Test that attempting to change format of a core field raises an error
 SELECT throws_ok(
     'UPDATE fields SET format = ''text'' WHERE table_name = ''customers'' AND field_name = ''created_at''',
-    'P0001',
-    'Cannot change format of core system field "created_at"',
+    '90219',
+    'Cannot change format of core system field ${field_name}',
     'Changing format of created_at field should raise an exception'
 );
 

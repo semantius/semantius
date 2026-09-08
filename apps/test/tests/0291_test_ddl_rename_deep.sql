@@ -50,7 +50,7 @@ INSERT INTO entities (
     -- computed_fields: derive full_title from parent_name
     '[{"name":"full_title","jsonlogic":{"cat":[{"var":"parent_name"}," (parent)"]}}]'::jsonb,
     -- validation_rules: parent_name must not be empty
-    '[{"code":"name_required","message":"parent_name is required","jsonlogic":{"!!":[{"var":"parent_name"}]}}]'::jsonb,
+    '[{"code":"99101","message":"parent_name is required","jsonlogic":{"!!":[{"var":"parent_name"}]}}]'::jsonb,
     -- select_rule: allow all (admin has permission)
     '{"has_permission":"nwind:manage"}'::jsonb
 );
@@ -177,7 +177,7 @@ SELECT is(
 -- Verify validation rule works (reject empty parent_name)
 SELECT throws_ok(
     $$INSERT INTO rn_parents (parent_name) VALUES ('')$$,
-    '23514',
+    '99101',
     NULL,
     'parents: validation rejects empty parent_name'
 );
@@ -480,7 +480,7 @@ SELECT is(
 -- Verify validation still works after rename
 SELECT throws_ok(
     $$INSERT INTO rn_eltern (parent_name) VALUES ('')$$,
-    '23514',
+    '99101',
     NULL,
     'eltern: validation still rejects empty parent_name after rename'
 );

@@ -159,14 +159,14 @@ SELECT set_config('app.context_initialized', NULL, false);
 -- Test 12
 SELECT throws_ok(
     $$ SELECT rbac.has_permission('public:read') $$,
-    '28000', NULL,
+    '42501', NULL,
     'RLS should fail with error when user does not exist in database'
 );
 
 -- Test 13
 SELECT throws_ok(
     $$ SELECT COUNT(*) FROM public.products $$,
-    '28000', NULL,
+    '42501', NULL,
     'Querying RLS-protected table should fail when user does not exist'
 );
 

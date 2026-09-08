@@ -339,7 +339,7 @@ SELECT lives_ok(
 SELECT throws_ok(
     $$UPDATE fields SET format = 'int32'
       WHERE table_name = 'qwertz2' AND field_name = 'type_chg_field'$$,
-    'P0001',
+    '90223',
     NULL,
     'Changing format from text to int32 (TEXT→INTEGER) should be rejected'
 );
@@ -353,7 +353,7 @@ SELECT is(
 
 -- =====================================================
 -- TEST 10: format change — FAILURE (reference → text on a managed entity)
--- The BEFORE UPDATE trigger rejects the INTEGER → TEXT type change (P0001)
+-- The BEFORE UPDATE trigger rejects the INTEGER → TEXT type change (90223)
 -- before the reference_table_requires_reference_format check (23514) can fire.
 -- (Only managed entities run this guard — unmanaged ones skip it.)
 -- =====================================================
@@ -361,7 +361,7 @@ SELECT is(
 SELECT throws_ok(
     $$UPDATE fields SET format = 'text'
       WHERE table_name = 'qwertz2' AND field_name = 'rtzup3'$$,
-    'P0001',
+    '90223',
     NULL,
     'Should reject UPDATE when format is changed from "reference" to "text" (type change INTEGER→TEXT)'
 );
