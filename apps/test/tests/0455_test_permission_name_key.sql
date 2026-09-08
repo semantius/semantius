@@ -21,13 +21,16 @@ SELECT authenticate_as('user3');
 -- GROUP 1: a permission something still names cannot be deleted
 -- =====================================================
 
--- An entity: every nwind entity names nwind:view. RESTRICT reports 23001
--- (restrict_violation); the deferred NO ACTION on modules below reports the
--- ordinary 23503, which is the only externally visible difference between the
--- two modes here.
+-- An entity: every nwind entity names nwind:view. RESTRICT and NO ACTION both
+-- report 23503 (foreign_key_violation) - PostgreSQL emits the same SQLSTATE for
+-- either mode, so the error code does not tell them apart and 23001
+-- (restrict_violation) never appears. What separates them is when the check
+-- runs: RESTRICT fires immediately and cannot be deferred, which is why the
+-- module case below has to force its deferred constraint IMMEDIATE to see the
+-- refusal before commit, and why GROUP 2's cascade succeeds.
 SELECT throws_ok(
     $$DELETE FROM permissions WHERE permission_name = 'nwind:view'$$,
-    '23001', NULL,
+    '23503', NULL,
     'a permission an entity names cannot be deleted');
 
 -- A queue. The two permission columns are dictionary-created references, so
@@ -38,7 +41,7 @@ INSERT INTO queues (queue_name, view_permission) VALUES ('pnk_q', 'pnk:queue');
 
 SELECT throws_ok(
     $$DELETE FROM permissions WHERE permission_name = 'pnk:queue'$$,
-    '23001', NULL,
+    '23503', NULL,
     'a permission a queue names cannot be deleted');
 
 -- A module. modules.view_permission is the one deferred constraint in the

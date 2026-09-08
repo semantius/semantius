@@ -13,7 +13,7 @@
 -- Module/role/permission ids are never hard-coded (the nwind module reuses the id the old CRM module had).
 BEGIN;
 
-SELECT plan(155);
+SELECT plan(156);
 
 -- =====================================================
 -- SETUP (user3): resolve the nwind module id, create the ephemeral probe
@@ -145,6 +145,14 @@ SELECT is(
     ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::INTEGER,
     (SELECT nwind_module_id FROM sch_ids),
     'get_schema() table object should contain module_id of the nwind module'
+);
+
+-- Test table.module_slug — denormalized from modules so a consumer holding a schema can call
+-- get_module_cubes(), which matches on the slug and not on module_id.
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'table'->>'module_slug',
+    'nwind',
+    'get_schema() table object should contain the module_slug of the nwind module'
 );
 
 -- Test table.view_permission

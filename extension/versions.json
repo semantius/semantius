@@ -13,7 +13,7 @@
         "_core/0060_dd_schema": "f62856532dc376e1a302a1ce4ac8f6cb06814cc6d188fd7d9746a9f4d0b4a688",
         "_core/0070_dd_functions": "4b384e4a30a659d9c43b728b16f86e35f712ae44ce5758cd59982341a0509b7e",
         "_core/0072_apply_core_fts": "09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34",
-        "_core/0080_public_functions": "29fe41ae19020ddf793b719c64b355b0d407e6a3f2c9360706e84bf9b37cc503",
+        "_core/0080_public_functions": "670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79",
         "_core/0090_notify_triggers": "30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767",
         "_core/0110_apikeys": "29b7c9b935400c1c0c9e25f8c8cc003b134a36fdf9c2060e4e1a194a38092bcf",
         "_core/0130_create_tables_view_compat": "220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f",

@@ -447,7 +447,18 @@ BEGIN
         '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
         'title', v_table_record.singular_label,
         'description', v_table_record.description,
-        'table', row_to_json(v_table_record),
+        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
+        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
+        -- only the numeric id must fetch the module list before it can ask for the rest of the
+        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
+        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+        -- The rest of the module row is a different matter: settings, dashboard_config, the
+        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
+        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
+        -- an entity's view_permission is often public:read. They stay in get_user_modules().
+        'table', to_jsonb(v_table_record) || jsonb_build_object(
+            'module_slug',
+            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
         'type', 'object',
         'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
                                 FROM all_props), '{}'::json),
