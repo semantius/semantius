@@ -15,7 +15,7 @@
 --  12. the request role cannot write the log it appears in
 BEGIN;
 
-SELECT plan(43);
+SELECT plan(50);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -492,6 +492,88 @@ SELECT is(
     ARRAY['INSERT', 'UPDATE'],
     'an upsert logs one INSERT and one UPDATE across the two trigger shapes'
 );
+
+-- =====================================================
+-- TEST 19b: last_seen is presence, not evidence - a heartbeat writes no
+-- audit row, an attempt to move updated_at directly writes none either, and
+-- neither does a genuine no-op; a real change still logs exactly one row
+-- with updated_at bumped. All four run against user1's own row: CURRENT_TIMESTAMP
+-- is transaction start, so proving a bump by value needs an OLD reading from
+-- outside this transaction - user1's row was last touched by the seed
+-- migration, a separate, already-committed transaction, so any real change
+-- made here reads later than it regardless of how many statements this
+-- transaction has already run.
+-- =====================================================
+
+DELETE FROM audit_record_logs
+WHERE table_name = 'users'
+  AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1';
+
+UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE external_id = 'user1';
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1'),
+    0,
+    'a last_seen-only UPDATE on users writes no audit row'
+);
+
+UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE external_id = 'user1';
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1'),
+    0,
+    'an UPDATE naming only updated_at writes no audit row (the column resets itself)'
+);
+
+UPDATE users SET email = email WHERE external_id = 'user1';
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1'),
+    0,
+    'a genuine no-op UPDATE (SET email = email) writes no audit row'
+);
+
+UPDATE users SET email = 'audit-real-change@test.com' WHERE external_id = 'user1';
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1'),
+    1,
+    'a real change still writes exactly one audit row'
+);
+
+SELECT ok(
+    (SELECT (record ->> 'updated_at')::timestamptz > (old_record ->> 'updated_at')::timestamptz
+     FROM audit_record_logs
+     WHERE table_name = 'users'
+       AND COALESCE(record ->> 'external_id', old_record ->> 'external_id') = 'user1'),
+    'a real change still bumps updated_at'
+);
+
+SELECT is(
+    (SELECT t.tgnargs::integer FROM pg_trigger t
+     JOIN pg_class c ON t.tgrelid = c.oid
+     WHERE c.relname = 'users' AND c.relnamespace = 'public'::regnamespace
+       AND t.tgname = 'audit_i_u_d'),
+    1,
+    'audit_i_u_d on users carries exactly one ignored-column argument (last_seen)'
+);
+
+-- pgTAP cannot count calls; this proves the early exit is reachable before
+-- any helper runs, which is what makes a skipped row free rather than merely
+-- unlogged. pgdocker/measure_hot_path.ts counts the calls for real.
+SELECT ok(strpos(p.prosrc, 'RETURN NEW') > 0
+      AND strpos(p.prosrc, 'RETURN NEW') < strpos(p.prosrc, 'audit.primary_key_columns('),
+    'insert_update_delete_trigger: the skip returns before any helper is called')
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'audit' AND p.proname = 'insert_update_delete_trigger';
 
 -- =====================================================
 -- TEST 20: DDL audit logs use user_id (not session user name)

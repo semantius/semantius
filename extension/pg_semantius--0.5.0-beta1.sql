@@ -282,13 +282,35 @@ COMMENT ON SCHEMA common IS 'Shared database objects and functions used across m
 -- Function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION common.update_updated_at_column()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_ignored TEXT[];
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
+    IF TG_NARGS > 0 THEN
+        -- Generated columns are left out of the comparison. A stored or
+        -- virtual generated column follows its base columns, so it can never
+        -- be the sole reason for a bump, and PostgreSQL leaves its value in
+        -- NEW unspecified inside a BEFORE trigger. The catalog read costs one
+        -- indexed lookup per row and runs only for tables that opt in.
+        SELECT array_agg(attname::text) INTO v_ignored
+        FROM pg_attribute
+        WHERE attrelid = TG_RELID AND attnum > 0 AND NOT attisdropped AND attgenerated <> '';
+        -- Every operand is an explicitly cast TEXT[], never a bare literal:
+        -- with an untyped 'updated_at' on the right, PostgreSQL's || operator
+        -- resolution picks the anyarray||anyarray candidate and tries to parse
+        -- the literal as array syntax, raising "malformed array literal"
+        -- instead of appending it as an element.
+        v_ignored := TG_ARGV || COALESCE(v_ignored, ARRAY[]::TEXT[]) || ARRAY['updated_at'];
+        IF (to_jsonb(NEW) - v_ignored) = (to_jsonb(OLD) - v_ignored) THEN
+            NEW.updated_at := OLD.updated_at;
+            RETURN NEW;
+        END IF;
+    END IF;
+    NEW.updated_at := CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = common;
 
-COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
+COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification. Given trigger arguments, first compares NEW and OLD ignoring updated_at, any generated column and the named arguments; a row that agrees outside those columns leaves updated_at untouched rather than bumping it, so a client cannot move it by resubmitting one either, and tables that pass no arguments keep the unconditional bump.';
 
 -- Explicit, for the reason given above. A trigger function needs no EXECUTE
 -- privilege to fire: PostgreSQL checks it once, at CREATE TRIGGER time. Every
@@ -336,7 +358,7 @@ $pgsem__core_0010_create_core$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0010_create_core', '457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e');
+      VALUES ('_core.0010_create_core', 'e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1730,7 +1752,7 @@ CREATE TRIGGER update_roles_updated_at
 
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
 
 -- =====================================================
 -- INDEXES
@@ -1803,7 +1825,7 @@ $pgsem__core_0020_rbac_schema$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', '0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e');
+      VALUES ('_core.0020_rbac_schema', 'c6b7ba8e0103311d798d3883ef0f6cf3d1c34b381757e3c6d27b73993cd4f722');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -2064,7 +2086,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE — cached per transaction.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
 
 -- =====================================================
 -- USER MANAGEMENT
@@ -2208,9 +2230,12 @@ BEGIN
     -- calling it costs a real function call on every permission check. The
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
-        -- Once per transaction: the flag is transaction-local, because a
-        -- session-scoped write is the one side effect a ROLLBACK cannot undo.
-        PERFORM rbac.uid();
+        -- Just the one-time notice here; the uid() gate below serves this
+        -- branch too. Once per transaction: the flag is transaction-local,
+        -- because a session-scoped write is the one side effect a ROLLBACK
+        -- cannot undo. An unauthenticated bearer session sees this WARNING
+        -- before the 42501 that the gate below still raises for it, which is
+        -- harmless - the notice is only asserted in authenticated sessions.
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
             RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
             PERFORM set_config('app.bearer_cache_notice', 'sent', true);
@@ -2228,25 +2253,28 @@ BEGIN
         END IF;
     END IF;
 
-    -- Cold path. rbac.uid() validates the claims and returns the subject; it is
-    -- the only place an identity is established.
+    -- Cold path: the one call that establishes identity for both branches above.
     v_external_id := rbac.uid();
-    
-    -- Read-only lookup: Get user_id without modifying database
-    v_user_id := rbac.get_user_by_external_id(v_external_id);
-    
+
+    -- Direct lookup rather than rbac.get_user_by_external_id(): that wrapper's
+    -- self-or-admin guard re-validates the same claims a second time, purely to
+    -- confirm a subject cannot fail to be itself, since its argument is the
+    -- external_id this function just resolved one line up. This function is
+    -- already a definer, so nothing is lost by reading the row directly instead.
+    SELECT id INTO v_user_id FROM users WHERE external_id = v_external_id AND is_disabled = FALSE;
+
     -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
-    
+
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
     -- This expensive recursive CTE runs only once per request
     SELECT string_agg(permission_name, ',' ORDER BY permission_name)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
     
     -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
     -- Using true (LOCAL) ensures these are automatically cleared when the transaction ends,
@@ -2403,9 +2431,9 @@ BEGIN
     -- a warm check that frame dominates, and a warm check is what almost every
     -- call is.
     --
-    -- The copies must stay in step. has_any_permission and
-    -- ensure_context_initialized carry the same test, and
-    -- 0446_test_rbac_hot_path.sql asserts the ordering below in all three.
+    -- The copies must stay in step. has_any_permission, ensure_context_initialized
+    -- and rbac.user_id() carry the same test, and 0446_test_rbac_hot_path.sql
+    -- asserts the ordering below in all four.
     --
     -- The bearer test stays ahead of the cache read, and must. The app.*
     -- settings are ordinary GUCs with no owner: whoever holds the session can
@@ -2644,6 +2672,66 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- PERMISSION QUERIES
 -- =====================================================
 
+-- Get all effective permissions for a user by internal id, with no subject to
+-- check and therefore no self-or-admin guard of its own.
+--
+-- permissions is keyed by permission_name and every FK carries the name, so no
+-- join to permissions or roles is needed to answer this - unlike the CTE this
+-- replaces, which joined roles only to get from user_roles to role_permissions.
+--
+-- Not SECURITY DEFINER, deliberately: every caller - rbac.get_user_permissions
+-- below, rbac.ensure_context_initialized and public.get_userinfo - is itself
+-- SECURITY DEFINER, so a call reached from any of them already runs as the
+-- owner (semantius_owner, BYPASSRLS, or the installing role on managed
+-- platforms, which 0050 requires to be BYPASSRLS; no table here carries FORCE
+-- ROW LEVEL SECURITY) regardless of this function's own label. That keeps it
+-- outside guard test 0060_test_security.sql's rule that every definer calls
+-- rbac.uid(): an internal helper with no identity of its own to authenticate
+-- should not satisfy that rule by pretense.
+CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id INTEGER)
+RETURNS TABLE (permission_name TEXT) AS $$
+BEGIN
+    -- A disabled user has no permissions. The comparison with FALSE is on
+    -- purpose: is_disabled is nullable and NULL must keep meaning "no permissions".
+    IF p_user_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM users WHERE id = p_user_id AND is_disabled = FALSE
+    ) THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    WITH RECURSIVE permission_tree AS (
+        SELECT rp.permission_name
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        WHERE ur.user_id = p_user_id
+        UNION
+        SELECT up.permission_name
+        FROM user_permissions up
+        WHERE up.user_id = p_user_id
+        UNION
+        SELECT ph.included_permission_name
+        FROM permission_tree pt
+        JOIN permission_hierarchy ph ON ph.including_permission_name = pt.permission_name
+    )
+    SELECT pt.permission_name FROM permission_tree pt ORDER BY pt.permission_name;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.get_user_permissions_by_id IS
+'Returns all effective permissions for an already-resolved internal user id:
+role grants, direct per-user grants, and their hierarchy closure (UNION already
+de-duplicates, so no DISTINCT is needed per branch). A disabled or unknown id
+returns no rows. Has no subject to authenticate, so it carries no guard of its
+own - see the comment above this function for why that is safe.';
+
+-- Not a request-role capability: it takes an internal id directly, with no
+-- self-or-admin guard, because it has no subject of its own to check against
+-- one. The explicit revoke from semantius_user is required regardless of that:
+-- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
+-- this schema.
+REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(INTEGER) FROM PUBLIC, semantius_user;
+
 -- Get all effective permissions for a user (including implied)
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
     p_external_id TEXT
@@ -2651,6 +2739,8 @@ CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
 RETURNS TABLE (
     permission_name TEXT
 ) AS $$
+DECLARE
+    v_user_id INTEGER;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. The self branch is what
     -- keeps rbac.ensure_context_initialized working and is also why the guard
@@ -2665,42 +2755,21 @@ BEGIN
         RETURN;
     END IF;
 
-    RETURN QUERY
-    WITH RECURSIVE permission_tree AS (
-        -- Direct permissions from roles
-        SELECT DISTINCT rp.permission_name
-        FROM users u
-        JOIN user_roles ur ON u.id = ur.user_id
-        JOIN roles r ON ur.role_id = r.id
-        JOIN role_permissions rp ON r.id = rp.role_id
-        WHERE u.external_id = p_external_id
-          AND u.is_disabled = FALSE
-        
-        UNION
-        
-        -- Direct per-user permissions
-        SELECT DISTINCT up.permission_name
-        FROM users u
-        JOIN user_permissions up ON u.id = up.user_id
-        WHERE u.external_id = p_external_id
-          AND u.is_disabled = FALSE
-        
-        UNION
-        
-        -- Implied permissions
-        SELECT DISTINCT ph.included_permission_name
-        FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
-    )
-    SELECT DISTINCT pt.permission_name
-    FROM permission_tree pt
-    ORDER BY pt.permission_name;
+    -- No is_disabled filter here: an unknown external_id leaves v_user_id NULL,
+    -- and a disabled one resolves to a real id, but rbac.get_user_permissions_by_id
+    -- applies the same is_disabled = FALSE test on the id either way.
+    SELECT id INTO v_user_id FROM users WHERE external_id = p_external_id;
+
+    RETURN QUERY SELECT * FROM rbac.get_user_permissions_by_id(v_user_id);
 END;
 -- STABLE: reads only.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
-'Returns all effective permissions for a user, including implied permissions.';
+'Self-or-admin wrapper: resolves the subject external_id to its internal id and
+delegates to rbac.get_user_permissions_by_id for the actual permission set,
+including implied permissions. Returns no rows for an unknown or disabled
+subject, exactly as the recursive query this used to run inline.';
 
 -- Get current user's permissions (uses lazy initialization)
 CREATE OR REPLACE FUNCTION rbac.get_current_user_permissions()
@@ -2786,21 +2855,45 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Get current user's internal database Id
+-- Get current user's internal database Id. Called once per audited row on
+-- every write path (audit.current_user_id -> user_id_or_null -> user_id) and
+-- twice per statement by public.jl_request_context, so unlike the other
+-- checkers a cold call here is not a rare event confined to the first check of
+-- a transaction - it recurs per row. The warm test is therefore inlined here
+-- too, exactly as in rbac.has_permission, whose comment carries the full
+-- reasoning for the ordering and for what the subject comparison does and does
+-- not guarantee; this copy relies on the same invariants.
 CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS INTEGER AS $$
+DECLARE
+    v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            -- Cold: the direct call is the authentication gate 0060 requires
+            -- of a definer the request role can execute, and what turns a
+            -- session with no claims into 42501 rather than a NULL id.
+            PERFORM rbac.uid();
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
     RETURN current_setting('app.current_user_id', true)::INTEGER;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.user_id IS
-'Returns internal user_id for current user. Auto-initializes if needed.';
+'Returns internal user_id for current user. Warm path (an initialized context
+whose cached subject matches the live JWT sub) reads app.current_user_id
+straight back with no further call; a cold context is rebuilt via rbac.uid()
+(the authentication gate) and rbac.ensure_context_initialized(), as it always
+was.';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the
@@ -2978,7 +3071,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', 'ed2fdf230b7424ef6ff95daec0b9313392268338dea0384013df87c63caf0772');
+      VALUES ('_core.0030_rbac_functions', '93a1fa2ed19b47b7c2e6fe568f34df4884f14fc79a1d9acf1289c319c3ef7389');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10365,18 +10458,33 @@ CREATE OR REPLACE FUNCTION audit.insert_update_delete_trigger()
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    record_jsonb JSONB = to_jsonb(NEW);
-    record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, record_jsonb);
-    old_record_jsonb JSONB = to_jsonb(OLD);
-    old_record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
-    v_record_pk TEXT;
-    v_user_id INTEGER;
+    -- TG_ARGV is NULL, not empty, when the trigger has no arguments.
+    v_ignored        TEXT[] := ARRAY['updated_at'] || COALESCE(TG_ARGV, '{}'::TEXT[]);
+    record_jsonb     JSONB  := to_jsonb(NEW);
+    old_record_jsonb JSONB  := to_jsonb(OLD);
+    pkey_cols        TEXT[];
+    record_id        UUID;
+    old_record_id    UUID;
+    v_record_pk      TEXT;
+    v_user_id        INTEGER;
 BEGIN
-    -- Only ever reached for UPDATE, where both images exist; the CHECK
-    -- constraints on audit_record_logs require both, which is why this event is
-    -- not folded into the statement-level triggers. COALESCE keeps the
-    -- expression total rather than relying on that.
+    -- This trigger is AFTER UPDATE only, so NEW and OLD always both exist and
+    -- carry final generated values - a last_seen-only write leaves
+    -- search_vector recomputed to the same value, so it drops out here too. A
+    -- row that agrees with itself outside updated_at and the ignored columns
+    -- changed nothing auditable, so it is not logged: audit.enable_tracking's
+    -- comment states what that means for the tables that opt a column in.
+    IF (record_jsonb - v_ignored) = (old_record_jsonb - v_ignored) THEN
+        RETURN NEW;
+    END IF;
+
+    pkey_cols     := audit.primary_key_columns(TG_RELID);
+    record_id     := audit.to_record_id(TG_RELID, pkey_cols, record_jsonb);
+    old_record_id := audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
+    -- The CHECK constraints on audit_record_logs require both record_jsonb and
+    -- old_record_jsonb for an UPDATE row, which is why this event is not
+    -- folded into the statement-level triggers. COALESCE keeps the expression
+    -- total rather than relying on that.
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
 
@@ -10410,7 +10518,9 @@ $$;
 
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
 'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
-Captures the JWT user_id and primary key value. INSERT and DELETE are logged by
+Skips rows that change nothing outside updated_at and its own trigger arguments
+(see audit.enable_tracking), writing no row for them. Captures the JWT user_id
+and primary key value for the rows it does log. INSERT and DELETE are logged by
 the statement-level functions in this schema.';
 
 -- INSERT and DELETE are logged one statement at a time. The work the row-level
@@ -10551,7 +10661,7 @@ COMMENT ON FUNCTION audit.truncate_trigger IS
 -- STEP 6: Enable/disable audit tracking functions
 -- =====================================================
 
-CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS)
+CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS, p_ignored_columns TEXT[] DEFAULT '{}')
     RETURNS VOID
     VOLATILE
     SECURITY DEFINER
@@ -10576,13 +10686,22 @@ DECLARE
             EXECUTE FUNCTION audit.insert_trigger();',
         $1
     );
+    -- Each ignored column becomes its own quoted trigger argument (TG_ARGV
+    -- inside audit.insert_update_delete_trigger), via %L so a name needing
+    -- escaping cannot break the statement. Empty when p_ignored_columns is
+    -- empty, which leaves the call as audit.insert_update_delete_trigger() -
+    -- the same statement this function has always issued.
+    v_ignored_args TEXT = COALESCE(
+        (SELECT string_agg(quote_literal(c), ', ') FROM unnest(p_ignored_columns) AS c),
+        ''
+    );
     statement_upd TEXT = format('
         CREATE TRIGGER audit_i_u_d
             AFTER UPDATE
             ON %s
             FOR EACH ROW
-            EXECUTE FUNCTION audit.insert_update_delete_trigger();',
-        $1
+            EXECUTE FUNCTION audit.insert_update_delete_trigger(%s);',
+        $1, v_ignored_args
     );
     statement_del TEXT = format('
         CREATE TRIGGER audit_d
@@ -10651,7 +10770,11 @@ $$;
 COMMENT ON FUNCTION audit.enable_tracking IS
 'Creates audit triggers on the given table: audit_i and audit_d statement-level for
 INSERT and DELETE, audit_i_u_d row-level for UPDATE, audit_t for truncate.
-Raises an exception if the table has no primary key.';
+Raises an exception if the table has no primary key. p_ignored_columns names
+columns whose change alone (alongside updated_at, always ignored) does not make
+an UPDATE auditable: a row that changes only those columns writes no audit row
+at all, on this or any other table - a genuine no-op UPDATE always writes none,
+listed columns or not.';
 
 CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
     RETURNS VOID
@@ -10908,8 +11031,18 @@ VALUES
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
+-- Every entities row inserted by this migration - users included - takes the
+-- column default managed = TRUE, so this trigger's cascade, not the
+-- managed = FALSE catch-up loop at the end of this file, is what actually
+-- builds users' audit triggers, both here at bootstrap and on any later
+-- disable/re-enable of audit_log through the entities table. The ignored-
+-- columns argument therefore has to be decided here, table by table, or a
+-- re-toggle would rebuild audit_i_u_d with none and silently start auditing
+-- the heartbeat again.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Enable audit on newly created managed tables with audit_log=TRUE
@@ -10920,7 +11053,7 @@ BEGIN
                 WHERE t.table_schema = 'public'
                   AND t.table_name = NEW.table_name
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                 RAISE NOTICE 'Enabled audit tracking for new table "%"', NEW.table_name;
             END IF;
         END IF;
@@ -10932,7 +11065,7 @@ BEGIN
         IF OLD.audit_log IS DISTINCT FROM NEW.audit_log THEN
             IF NEW.managed THEN
                 IF NEW.audit_log THEN
-                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                     RAISE NOTICE 'Enabled audit tracking for table "%"', NEW.table_name;
                 ELSE
                     PERFORM audit.disable_tracking(NEW.table_name::REGCLASS);
@@ -10949,7 +11082,7 @@ BEGIN
                 WHERE t.table_schema = 'public'
                   AND t.table_name = NEW.table_name
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                 RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', NEW.table_name;
             END IF;
         END IF;
@@ -11078,7 +11211,7 @@ REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS, TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0150_audit_log$;
@@ -11097,7 +11230,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '5f61ca5cf7b8805f60b8d31160b83b08d28f84744a1e55469b71f21378cfbdbe');
+      VALUES ('_core.0150_audit_log', 'c7c19be57f967c61eb7877c184167d8803632ecda7eef29fcaf50c4900a22faf');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14665,42 +14798,75 @@ CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
 )
 RETURNS INTEGER AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_id           INTEGER;
+    v_last_seen    TIMESTAMPTZ;
+    v_email        TEXT;
+    v_display_name TEXT;
+    v_first_name   TEXT;
+    v_last_name    TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
+    SELECT id, last_seen, email, display_name, first_name, last_name
+      INTO v_id, v_last_seen, v_email, v_display_name, v_first_name, v_last_name
+      FROM users WHERE external_id = p_external_id;
+
+    IF FOUND THEN
+        -- Each test below is the SET expression of the UPDATE compared with
+        -- the stored value, so the row is written exactly when the write
+        -- would change it, or when the heartbeat is older than the throttle.
+        -- last_seen IS NULL is tested on its own: NULL < timestamp is never true.
+        IF v_last_seen IS NULL
+           OR v_last_seen < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+           OR v_email        IS DISTINCT FROM COALESCE(p_email, v_email)
+           OR v_display_name IS DISTINCT FROM COALESCE(NULLIF(p_display_name, ''), v_display_name)
+           OR v_first_name   IS DISTINCT FROM COALESCE(NULLIF(p_first_name, ''), v_first_name)
+           OR v_last_name    IS DISTINCT FROM COALESCE(NULLIF(p_last_name, ''), v_last_name)
+        THEN
+            UPDATE users
+               SET last_seen    = CURRENT_TIMESTAMP,
+                   email        = COALESCE(p_email, email),
+                   display_name = COALESCE(NULLIF(p_display_name, ''), display_name),
+                   first_name   = COALESCE(NULLIF(p_first_name, ''), first_name),
+                   last_name    = COALESCE(NULLIF(p_last_name, ''), last_name)
+             WHERE id = v_id;
+        END IF;
+        RETURN v_id;
+    END IF;
+
+    -- First login. ON CONFLICT covers two first logins racing: the loser
+    -- updates the winner's row once, unthrottled, which is harmless.
     INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
     VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
-    -- See rbac.upsert_user_from_jwt: the arbiter is the dictionary's partial
-    -- unique index, so the predicate has to be repeated for inference to work.
+    -- The arbiter is the dictionary's partial unique index, so the predicate
+    -- has to be repeated for inference to work.
     ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
-    SET last_seen = CURRENT_TIMESTAMP,
-        email = COALESCE(EXCLUDED.email, users.email),
+    SET last_seen    = CURRENT_TIMESTAMP,
+        email        = COALESCE(EXCLUDED.email, users.email),
         display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
-        first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
-        last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
-    RETURNING id INTO v_user_id;
-    
-    RETURN v_user_id;
+        first_name   = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
+        last_name    = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
+    RETURNING id INTO v_id;
+    RETURN v_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
-'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
+'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
 
 -- Provisioning is not a request-role capability. This function takes the subject
 -- as a parameter and writes to users, so a caller that could reach it could
 -- create a principal that never authenticated, overwrite another one's email, or
 -- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
--- 0050 reads. Its one caller, public.get_userinfo() below, is SECURITY DEFINER
--- and passes rbac.uid(), so it keeps working with no grant at all. The revoke
--- from semantius_user has to be explicit: 0030's ALTER DEFAULT PRIVILEGES grants
--- EXECUTE on every function created in this schema.
+-- 0050 reads. It is SECURITY INVOKER: its one caller, public.get_userinfo() below,
+-- is SECURITY DEFINER, so a call reached through get_userinfo runs as the owner
+-- regardless, and get_userinfo's own rbac.uid() call is the authentication gate -
+-- this function trusts the subject its caller already authenticated rather than
+-- repeating that check itself. The revoke from semantius_user has to be explicit:
+-- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
+-- this schema.
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
 
@@ -14740,14 +14906,7 @@ BEGIN
             USING ERRCODE = '90008',
                   HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
-    
-    -- Verify user exists in users table
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = ${user_id}'
-            USING ERRCODE = '90009',
-                  HINT = jsonb_build_object('user_id', v_user_id)::text;
-    END IF;
-    
+
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
@@ -14768,7 +14927,7 @@ BEGIN
         permission_name ORDER BY permission_name
     ), '[]'::jsonb)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
 
     -- Explicitly initialize the context cache with the permissions we just computed.
     -- This is necessary because get_user_modules() -> has_any_permission() uses
@@ -14839,7 +14998,7 @@ $pgsem__core_0190_user_name_claims$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0190_user_name_claims', '8390dd134ec63504c6a89b7e05490949bba5327038871f0b28a618b0a75d9f60');
+      VALUES ('_core.0190_user_name_claims', '1dcc5a36e66e52bfd268dbfb596928a725815f0df1963e19d80ecab84ed18f0e');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17841,7 +18000,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"457467a1f46de5309e25be0ec0e7466e8be8313246c173ff57c10f244b8e054e","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"0626e8bddf983aef6645a3da0c1b76bb913189634d73df3805c50a440884805e","_core.0030_rbac_functions":"ed2fdf230b7424ef6ff95daec0b9313392268338dea0384013df87c63caf0772","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b","_core.0070_dd_functions":"48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6","_core.0145_managed_enable":"536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49","_core.0150_audit_log":"5f61ca5cf7b8805f60b8d31160b83b08d28f84744a1e55469b71f21378cfbdbe","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f","_core.0190_user_name_claims":"8390dd134ec63504c6a89b7e05490949bba5327038871f0b28a618b0a75d9f60","_core.0200_module_slug_validation":"9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e","_core.0210_raci":"edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"c6b7ba8e0103311d798d3883ef0f6cf3d1c34b381757e3c6d27b73993cd4f722","_core.0030_rbac_functions":"93a1fa2ed19b47b7c2e6fe568f34df4884f14fc79a1d9acf1289c319c3ef7389","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b","_core.0070_dd_functions":"48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6","_core.0145_managed_enable":"536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49","_core.0150_audit_log":"c7c19be57f967c61eb7877c184167d8803632ecda7eef29fcaf50c4900a22faf","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f","_core.0190_user_name_claims":"1dcc5a36e66e52bfd268dbfb596928a725815f0df1963e19d80ecab84ed18f0e","_core.0200_module_slug_validation":"9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e","_core.0210_raci":"edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

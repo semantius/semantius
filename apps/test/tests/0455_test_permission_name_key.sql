@@ -21,27 +21,36 @@ SELECT authenticate_as('user3');
 -- GROUP 1: a permission something still names cannot be deleted
 -- =====================================================
 
--- An entity: every nwind entity names nwind:view. RESTRICT and NO ACTION both
--- report 23503 (foreign_key_violation) - PostgreSQL emits the same SQLSTATE for
--- either mode, so the error code does not tell them apart and 23001
--- (restrict_violation) never appears. What separates them is when the check
--- runs: RESTRICT fires immediately and cannot be deferred, which is why the
--- module case below has to force its deferred constraint IMMEDIATE to see the
--- refusal before commit, and why GROUP 2's cascade succeeds.
-SELECT throws_ok(
+-- An entity: every nwind entity names nwind:view. entities.view_permission is
+-- ON DELETE RESTRICT, which raises 23001 (restrict_violation) on PostgreSQL 18
+-- but 23503 (foreign_key_violation) on PG<=17 (Neon/Supabase) - the same
+-- version split apps/test/tests/0160_test_foreign_keys.sql and
+-- apps/nwind/tests/0040_test_nwind_rbac.sql work around, and the same fix:
+-- match the FK-violation message common to both codes instead of a SQLSTATE
+-- that names only one of them. RESTRICT and NO ACTION (modules.view_permission,
+-- GROUP 4) also differ in when the check runs - RESTRICT fires immediately and
+-- can never be deferred, which is why the module case below has to force its
+-- deferred constraint IMMEDIATE to see the refusal before commit, and why
+-- GROUP 2's cascade succeeds: a cascaded delete removes the naming row before
+-- a deferred NO ACTION check would ever look at it, which an immediate
+-- RESTRICT could not tolerate.
+SELECT throws_like(
     $$DELETE FROM permissions WHERE permission_name = 'nwind:view'$$,
-    '23503', NULL,
+    '%foreign key constraint%',
     'a permission an entity names cannot be deleted');
 
 -- A queue. The two permission columns are dictionary-created references, so
--- their foreign keys come from add_dd_field rather than hand-written DDL.
+-- their foreign keys come from add_dd_field rather than hand-written DDL, and
+-- add_dd_field gives a 'restrict' reference_delete_mode the same ON DELETE
+-- RESTRICT shape as the hand-written entity columns above, so it is the same
+-- version-dependent SQLSTATE and the same message-matching fix.
 INSERT INTO permissions (permission_name, description, module_id)
 VALUES ('pnk:queue', 'queue fixture', 1);
 INSERT INTO queues (queue_name, view_permission) VALUES ('pnk_q', 'pnk:queue');
 
-SELECT throws_ok(
+SELECT throws_like(
     $$DELETE FROM permissions WHERE permission_name = 'pnk:queue'$$,
-    '23503', NULL,
+    '%foreign key constraint%',
     'a permission a queue names cannot be deleted');
 
 -- A module. modules.view_permission is the one deferred constraint in the

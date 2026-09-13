@@ -40,42 +40,75 @@ CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
 )
 RETURNS INTEGER AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_id           INTEGER;
+    v_last_seen    TIMESTAMPTZ;
+    v_email        TEXT;
+    v_display_name TEXT;
+    v_first_name   TEXT;
+    v_last_name    TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
         RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
+    SELECT id, last_seen, email, display_name, first_name, last_name
+      INTO v_id, v_last_seen, v_email, v_display_name, v_first_name, v_last_name
+      FROM users WHERE external_id = p_external_id;
+
+    IF FOUND THEN
+        -- Each test below is the SET expression of the UPDATE compared with
+        -- the stored value, so the row is written exactly when the write
+        -- would change it, or when the heartbeat is older than the throttle.
+        -- last_seen IS NULL is tested on its own: NULL < timestamp is never true.
+        IF v_last_seen IS NULL
+           OR v_last_seen < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+           OR v_email        IS DISTINCT FROM COALESCE(p_email, v_email)
+           OR v_display_name IS DISTINCT FROM COALESCE(NULLIF(p_display_name, ''), v_display_name)
+           OR v_first_name   IS DISTINCT FROM COALESCE(NULLIF(p_first_name, ''), v_first_name)
+           OR v_last_name    IS DISTINCT FROM COALESCE(NULLIF(p_last_name, ''), v_last_name)
+        THEN
+            UPDATE users
+               SET last_seen    = CURRENT_TIMESTAMP,
+                   email        = COALESCE(p_email, email),
+                   display_name = COALESCE(NULLIF(p_display_name, ''), display_name),
+                   first_name   = COALESCE(NULLIF(p_first_name, ''), first_name),
+                   last_name    = COALESCE(NULLIF(p_last_name, ''), last_name)
+             WHERE id = v_id;
+        END IF;
+        RETURN v_id;
+    END IF;
+
+    -- First login. ON CONFLICT covers two first logins racing: the loser
+    -- updates the winner's row once, unthrottled, which is harmless.
     INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
     VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
-    -- See rbac.upsert_user_from_jwt: the arbiter is the dictionary's partial
-    -- unique index, so the predicate has to be repeated for inference to work.
+    -- The arbiter is the dictionary's partial unique index, so the predicate
+    -- has to be repeated for inference to work.
     ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
-    SET last_seen = CURRENT_TIMESTAMP,
-        email = COALESCE(EXCLUDED.email, users.email),
+    SET last_seen    = CURRENT_TIMESTAMP,
+        email        = COALESCE(EXCLUDED.email, users.email),
         display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
-        first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
-        last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
-    RETURNING id INTO v_user_id;
-    
-    RETURN v_user_id;
+        first_name   = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
+        last_name    = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
+    RETURNING id INTO v_id;
+    RETURN v_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
-'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. Updates last_seen timestamp. Called by get_userinfo().';
+'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
 
 -- Provisioning is not a request-role capability. This function takes the subject
 -- as a parameter and writes to users, so a caller that could reach it could
 -- create a principal that never authenticated, overwrite another one's email, or
 -- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
--- 0050 reads. Its one caller, public.get_userinfo() below, is SECURITY DEFINER
--- and passes rbac.uid(), so it keeps working with no grant at all. The revoke
--- from semantius_user has to be explicit: 0030's ALTER DEFAULT PRIVILEGES grants
--- EXECUTE on every function created in this schema.
+-- 0050 reads. It is SECURITY INVOKER: its one caller, public.get_userinfo() below,
+-- is SECURITY DEFINER, so a call reached through get_userinfo runs as the owner
+-- regardless, and get_userinfo's own rbac.uid() call is the authentication gate -
+-- this function trusts the subject its caller already authenticated rather than
+-- repeating that check itself. The revoke from semantius_user has to be explicit:
+-- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
+-- this schema.
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
 
@@ -115,14 +148,7 @@ BEGIN
             USING ERRCODE = '90008',
                   HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
-    
-    -- Verify user exists in users table
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = ${user_id}'
-            USING ERRCODE = '90009',
-                  HINT = jsonb_build_object('user_id', v_user_id)::text;
-    END IF;
-    
+
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
@@ -143,7 +169,7 @@ BEGIN
         permission_name ORDER BY permission_name
     ), '[]'::jsonb)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
 
     -- Explicitly initialize the context cache with the permissions we just computed.
     -- This is necessary because get_user_modules() -> has_any_permission() uses

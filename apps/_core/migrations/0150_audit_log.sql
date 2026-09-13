@@ -229,18 +229,33 @@ CREATE OR REPLACE FUNCTION audit.insert_update_delete_trigger()
     LANGUAGE plpgsql
 AS $$
 DECLARE
-    pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    record_jsonb JSONB = to_jsonb(NEW);
-    record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, record_jsonb);
-    old_record_jsonb JSONB = to_jsonb(OLD);
-    old_record_id UUID = audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
-    v_record_pk TEXT;
-    v_user_id INTEGER;
+    -- TG_ARGV is NULL, not empty, when the trigger has no arguments.
+    v_ignored        TEXT[] := ARRAY['updated_at'] || COALESCE(TG_ARGV, '{}'::TEXT[]);
+    record_jsonb     JSONB  := to_jsonb(NEW);
+    old_record_jsonb JSONB  := to_jsonb(OLD);
+    pkey_cols        TEXT[];
+    record_id        UUID;
+    old_record_id    UUID;
+    v_record_pk      TEXT;
+    v_user_id        INTEGER;
 BEGIN
-    -- Only ever reached for UPDATE, where both images exist; the CHECK
-    -- constraints on audit_record_logs require both, which is why this event is
-    -- not folded into the statement-level triggers. COALESCE keeps the
-    -- expression total rather than relying on that.
+    -- This trigger is AFTER UPDATE only, so NEW and OLD always both exist and
+    -- carry final generated values - a last_seen-only write leaves
+    -- search_vector recomputed to the same value, so it drops out here too. A
+    -- row that agrees with itself outside updated_at and the ignored columns
+    -- changed nothing auditable, so it is not logged: audit.enable_tracking's
+    -- comment states what that means for the tables that opt a column in.
+    IF (record_jsonb - v_ignored) = (old_record_jsonb - v_ignored) THEN
+        RETURN NEW;
+    END IF;
+
+    pkey_cols     := audit.primary_key_columns(TG_RELID);
+    record_id     := audit.to_record_id(TG_RELID, pkey_cols, record_jsonb);
+    old_record_id := audit.to_record_id(TG_RELID, pkey_cols, old_record_jsonb);
+    -- The CHECK constraints on audit_record_logs require both record_jsonb and
+    -- old_record_jsonb for an UPDATE row, which is why this event is not
+    -- folded into the statement-level triggers. COALESCE keeps the expression
+    -- total rather than relying on that.
     v_record_pk := audit.extract_record_pk(pkey_cols, COALESCE(record_jsonb, old_record_jsonb));
     v_user_id := audit.current_user_id();
 
@@ -274,7 +289,9 @@ $$;
 
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
 'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
-Captures the JWT user_id and primary key value. INSERT and DELETE are logged by
+Skips rows that change nothing outside updated_at and its own trigger arguments
+(see audit.enable_tracking), writing no row for them. Captures the JWT user_id
+and primary key value for the rows it does log. INSERT and DELETE are logged by
 the statement-level functions in this schema.';
 
 -- INSERT and DELETE are logged one statement at a time. The work the row-level
@@ -415,7 +432,7 @@ COMMENT ON FUNCTION audit.truncate_trigger IS
 -- STEP 6: Enable/disable audit tracking functions
 -- =====================================================
 
-CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS)
+CREATE OR REPLACE FUNCTION audit.enable_tracking(target_table REGCLASS, p_ignored_columns TEXT[] DEFAULT '{}')
     RETURNS VOID
     VOLATILE
     SECURITY DEFINER
@@ -440,13 +457,22 @@ DECLARE
             EXECUTE FUNCTION audit.insert_trigger();',
         $1
     );
+    -- Each ignored column becomes its own quoted trigger argument (TG_ARGV
+    -- inside audit.insert_update_delete_trigger), via %L so a name needing
+    -- escaping cannot break the statement. Empty when p_ignored_columns is
+    -- empty, which leaves the call as audit.insert_update_delete_trigger() -
+    -- the same statement this function has always issued.
+    v_ignored_args TEXT = COALESCE(
+        (SELECT string_agg(quote_literal(c), ', ') FROM unnest(p_ignored_columns) AS c),
+        ''
+    );
     statement_upd TEXT = format('
         CREATE TRIGGER audit_i_u_d
             AFTER UPDATE
             ON %s
             FOR EACH ROW
-            EXECUTE FUNCTION audit.insert_update_delete_trigger();',
-        $1
+            EXECUTE FUNCTION audit.insert_update_delete_trigger(%s);',
+        $1, v_ignored_args
     );
     statement_del TEXT = format('
         CREATE TRIGGER audit_d
@@ -515,7 +541,11 @@ $$;
 COMMENT ON FUNCTION audit.enable_tracking IS
 'Creates audit triggers on the given table: audit_i and audit_d statement-level for
 INSERT and DELETE, audit_i_u_d row-level for UPDATE, audit_t for truncate.
-Raises an exception if the table has no primary key.';
+Raises an exception if the table has no primary key. p_ignored_columns names
+columns whose change alone (alongside updated_at, always ignored) does not make
+an UPDATE auditable: a row that changes only those columns writes no audit row
+at all, on this or any other table - a genuine no-op UPDATE always writes none,
+listed columns or not.';
 
 CREATE OR REPLACE FUNCTION audit.disable_tracking(target_table REGCLASS)
     RETURNS VOID
@@ -772,8 +802,18 @@ VALUES
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
+-- Every entities row inserted by this migration - users included - takes the
+-- column default managed = TRUE, so this trigger's cascade, not the
+-- managed = FALSE catch-up loop at the end of this file, is what actually
+-- builds users' audit triggers, both here at bootstrap and on any later
+-- disable/re-enable of audit_log through the entities table. The ignored-
+-- columns argument therefore has to be decided here, table by table, or a
+-- re-toggle would rebuild audit_i_u_d with none and silently start auditing
+-- the heartbeat again.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Enable audit on newly created managed tables with audit_log=TRUE
@@ -784,7 +824,7 @@ BEGIN
                 WHERE t.table_schema = 'public'
                   AND t.table_name = NEW.table_name
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                 RAISE NOTICE 'Enabled audit tracking for new table "%"', NEW.table_name;
             END IF;
         END IF;
@@ -796,7 +836,7 @@ BEGIN
         IF OLD.audit_log IS DISTINCT FROM NEW.audit_log THEN
             IF NEW.managed THEN
                 IF NEW.audit_log THEN
-                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                     RAISE NOTICE 'Enabled audit tracking for table "%"', NEW.table_name;
                 ELSE
                     PERFORM audit.disable_tracking(NEW.table_name::REGCLASS);
@@ -813,7 +853,7 @@ BEGIN
                 WHERE t.table_schema = 'public'
                   AND t.table_name = NEW.table_name
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS);
+                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
                 RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', NEW.table_name;
             END IF;
         END IF;
@@ -942,6 +982,6 @@ REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS, TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;

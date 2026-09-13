@@ -92,7 +92,11 @@ SELECT is(
 -- =====================================================
 -- Every non-trigger SECURITY DEFINER function must call rbac.uid()
 -- directly in its source code. No allowlists, no indirect chain assumptions.
--- rbac.uid() is STABLE and cached per transaction so the cost is zero.
+-- rbac.uid() is STABLE, but that never memoizes a PL/pgSQL call: every call
+-- costs one full claims validation and one _settings read, which is why the
+-- hot paths (rbac.has_permission, has_any_permission, user_id,
+-- ensure_context_initialized) carry a warm test of their own instead of
+-- calling this guard on every check.
 -- rbac.uid itself is excluded.
 -- Trigger functions are excluded (invoked by the DB engine, not by users).
 

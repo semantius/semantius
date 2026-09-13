@@ -78,13 +78,35 @@ COMMENT ON SCHEMA common IS 'Shared database objects and functions used across m
 -- Function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION common.update_updated_at_column()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_ignored TEXT[];
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
+    IF TG_NARGS > 0 THEN
+        -- Generated columns are left out of the comparison. A stored or
+        -- virtual generated column follows its base columns, so it can never
+        -- be the sole reason for a bump, and PostgreSQL leaves its value in
+        -- NEW unspecified inside a BEFORE trigger. The catalog read costs one
+        -- indexed lookup per row and runs only for tables that opt in.
+        SELECT array_agg(attname::text) INTO v_ignored
+        FROM pg_attribute
+        WHERE attrelid = TG_RELID AND attnum > 0 AND NOT attisdropped AND attgenerated <> '';
+        -- Every operand is an explicitly cast TEXT[], never a bare literal:
+        -- with an untyped 'updated_at' on the right, PostgreSQL's || operator
+        -- resolution picks the anyarray||anyarray candidate and tries to parse
+        -- the literal as array syntax, raising "malformed array literal"
+        -- instead of appending it as an element.
+        v_ignored := TG_ARGV || COALESCE(v_ignored, ARRAY[]::TEXT[]) || ARRAY['updated_at'];
+        IF (to_jsonb(NEW) - v_ignored) = (to_jsonb(OLD) - v_ignored) THEN
+            NEW.updated_at := OLD.updated_at;
+            RETURN NEW;
+        END IF;
+    END IF;
+    NEW.updated_at := CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = common;
 
-COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification';
+COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification. Given trigger arguments, first compares NEW and OLD ignoring updated_at, any generated column and the named arguments; a row that agrees outside those columns leaves updated_at untouched rather than bumping it, so a client cannot move it by resubmitting one either, and tables that pass no arguments keep the unconditional bump.';
 
 -- Explicit, for the reason given above. A trigger function needs no EXECUTE
 -- privilege to fire: PostgreSQL checks it once, at CREATE TRIGGER time. Every

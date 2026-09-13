@@ -35,7 +35,7 @@
 -- whatever DATABASE_URL names.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(21);
 
 -- =====================================================
 -- GROUP 1: structure - the inlined test, and its ordering
@@ -72,6 +72,34 @@ SELECT ok(strpos(p.prosrc, 'oauth:%') > 0
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'rbac' AND p.proname = 'ensure_context_initialized';
 
+-- rbac.user_id() carries the same inlined test as the other two: it is called
+-- once per audited row on every write path, not only once per transaction, so
+-- it cannot afford to delegate to ensure_context_initialized() on a warm hit.
+SELECT ok(strpos(p.prosrc, 'app.context_initialized') > 0,
+    'user_id: reads the context cache itself, rather than only delegating')
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'rbac' AND p.proname = 'user_id';
+
+SELECT ok(strpos(p.prosrc, 'oauth:%') > 0
+      AND strpos(p.prosrc, 'oauth:%') < strpos(p.prosrc, 'app.context_initialized'),
+    'user_id: the bearer test precedes the cache read')
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'rbac' AND p.proname = 'user_id';
+
+-- ensure_context_initialized calls rbac.uid() exactly once now: the bearer
+-- branch used to call it a second time, unconditionally, purely to feed the
+-- once-per-transaction notice - the cold-path call below served the request
+-- either way. strpos cannot count repeats, so this counts by string length
+-- instead: each occurrence removed by replace() shortens prosrc by exactly
+-- length('rbac.uid()').
+SELECT is(
+    (SELECT (length(p.prosrc) - length(replace(p.prosrc, 'rbac.uid()', ''))) / length('rbac.uid()')
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'rbac' AND p.proname = 'ensure_context_initialized'),
+    1,
+    'ensure_context_initialized: exactly one rbac.uid() call serves both the bearer and cold branches'
+);
+
 -- The helper is no longer called on the hot path but must still exist: whoami
 -- reports through it and 0435 pins its result.
 SELECT is(rbac.is_bearer_session(), false,
@@ -101,6 +129,14 @@ SELECT is(rbac.has_any_permission('admin'), true,
     'warm hit: has_any_permission answers from the cache, not from a rebuild');
 SELECT isnt(nullif(current_setting('app.current_user_id', true), ''), NULL,
     'app.current_user_id is populated whenever app.context_initialized is true');
+
+-- Same idea, for rbac.user_id(): a hand-written but self-consistent
+-- app.current_user_id is trusted on the warm path rather than rebuilt from a
+-- fresh lookup. 1099 is not user2's real id; a rebuild would return that
+-- instead.
+SELECT set_config('app.current_user_id', '1099', true);
+SELECT is(rbac.user_id(), 1099,
+    'warm hit: user_id answers from the cache, not from a rebuild');
 
 -- =====================================================
 -- GROUP 3: a hand-written cache naming another subject is not used
@@ -138,6 +174,11 @@ SELECT throws_ok(
     $$ SELECT rbac.has_permission('') $$,
     '42501', NULL,
     'no claims: a blank permission name still raises rather than returning FALSE');
+
+SELECT throws_ok(
+    $$ SELECT rbac.user_id() $$,
+    '42501', NULL,
+    'no claims: a hand-written warm cache does not authenticate user_id() either');
 
 -- Positive control for the assertion above: the blank name itself is what
 -- returns FALSE, once the session is authenticated.

@@ -183,6 +183,9 @@ core of the remediation — today it is not):
   (`rbac.is_bearer_session()`) the cache is bypassed and the context re-derived on every
   call, because the request role can write the `app.*` GUCs there; readers that need the
   user id outside a permission check go through `rbac.user_id_or_null()`, never the raw GUC.
+  `users.last_seen` is a heartbeat, not a profile field: it is throttled to once per five
+  minutes, never bumps `updated_at`, and is not audited, on its own or through any other
+  column's write.
 - **I-jsonlogic · Evaluator/operators** — each operator correct in isolation; record-reading
   operators (`set_record`/`get_record_by_id`) enforce `access(row)`, not just `view_permission`
   (read bypass closed at the helper — b1). `evaluate_json_logic` stays callable by the request

@@ -308,7 +308,7 @@ CREATE TRIGGER update_roles_updated_at
 
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
 
 -- =====================================================
 -- INDEXES

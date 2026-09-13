@@ -250,7 +250,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE — cached per transaction.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
 
 -- =====================================================
 -- USER MANAGEMENT
@@ -394,9 +394,12 @@ BEGIN
     -- calling it costs a real function call on every permission check. The
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
-        -- Once per transaction: the flag is transaction-local, because a
-        -- session-scoped write is the one side effect a ROLLBACK cannot undo.
-        PERFORM rbac.uid();
+        -- Just the one-time notice here; the uid() gate below serves this
+        -- branch too. Once per transaction: the flag is transaction-local,
+        -- because a session-scoped write is the one side effect a ROLLBACK
+        -- cannot undo. An unauthenticated bearer session sees this WARNING
+        -- before the 42501 that the gate below still raises for it, which is
+        -- harmless - the notice is only asserted in authenticated sessions.
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
             RAISE WARNING 'pg_semantius: OAuth bearer session detected; the transaction-scoped permission cache is disabled because app.* settings are client-writable in direct SQL sessions. Permissions are re-resolved on every check, which is correct but slower.';
             PERFORM set_config('app.bearer_cache_notice', 'sent', true);
@@ -414,25 +417,28 @@ BEGIN
         END IF;
     END IF;
 
-    -- Cold path. rbac.uid() validates the claims and returns the subject; it is
-    -- the only place an identity is established.
+    -- Cold path: the one call that establishes identity for both branches above.
     v_external_id := rbac.uid();
-    
-    -- Read-only lookup: Get user_id without modifying database
-    v_user_id := rbac.get_user_by_external_id(v_external_id);
-    
+
+    -- Direct lookup rather than rbac.get_user_by_external_id(): that wrapper's
+    -- self-or-admin guard re-validates the same claims a second time, purely to
+    -- confirm a subject cannot fail to be itself, since its argument is the
+    -- external_id this function just resolved one line up. This function is
+    -- already a definer, so nothing is lost by reading the row directly instead.
+    SELECT id INTO v_user_id FROM users WHERE external_id = v_external_id AND is_disabled = FALSE;
+
     -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
-    
+
     -- OPTIMIZATION: Load all user permissions once as comma-separated string
     -- This expensive recursive CTE runs only once per request
     SELECT string_agg(permission_name, ',' ORDER BY permission_name)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
     
     -- Set PostgreSQL session variables scoped to the current transaction (LOCAL)
     -- Using true (LOCAL) ensures these are automatically cleared when the transaction ends,
@@ -589,9 +595,9 @@ BEGIN
     -- a warm check that frame dominates, and a warm check is what almost every
     -- call is.
     --
-    -- The copies must stay in step. has_any_permission and
-    -- ensure_context_initialized carry the same test, and
-    -- 0446_test_rbac_hot_path.sql asserts the ordering below in all three.
+    -- The copies must stay in step. has_any_permission, ensure_context_initialized
+    -- and rbac.user_id() carry the same test, and 0446_test_rbac_hot_path.sql
+    -- asserts the ordering below in all four.
     --
     -- The bearer test stays ahead of the cache read, and must. The app.*
     -- settings are ordinary GUCs with no owner: whoever holds the session can
@@ -830,6 +836,66 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- PERMISSION QUERIES
 -- =====================================================
 
+-- Get all effective permissions for a user by internal id, with no subject to
+-- check and therefore no self-or-admin guard of its own.
+--
+-- permissions is keyed by permission_name and every FK carries the name, so no
+-- join to permissions or roles is needed to answer this - unlike the CTE this
+-- replaces, which joined roles only to get from user_roles to role_permissions.
+--
+-- Not SECURITY DEFINER, deliberately: every caller - rbac.get_user_permissions
+-- below, rbac.ensure_context_initialized and public.get_userinfo - is itself
+-- SECURITY DEFINER, so a call reached from any of them already runs as the
+-- owner (semantius_owner, BYPASSRLS, or the installing role on managed
+-- platforms, which 0050 requires to be BYPASSRLS; no table here carries FORCE
+-- ROW LEVEL SECURITY) regardless of this function's own label. That keeps it
+-- outside guard test 0060_test_security.sql's rule that every definer calls
+-- rbac.uid(): an internal helper with no identity of its own to authenticate
+-- should not satisfy that rule by pretense.
+CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id INTEGER)
+RETURNS TABLE (permission_name TEXT) AS $$
+BEGIN
+    -- A disabled user has no permissions. The comparison with FALSE is on
+    -- purpose: is_disabled is nullable and NULL must keep meaning "no permissions".
+    IF p_user_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM users WHERE id = p_user_id AND is_disabled = FALSE
+    ) THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    WITH RECURSIVE permission_tree AS (
+        SELECT rp.permission_name
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        WHERE ur.user_id = p_user_id
+        UNION
+        SELECT up.permission_name
+        FROM user_permissions up
+        WHERE up.user_id = p_user_id
+        UNION
+        SELECT ph.included_permission_name
+        FROM permission_tree pt
+        JOIN permission_hierarchy ph ON ph.including_permission_name = pt.permission_name
+    )
+    SELECT pt.permission_name FROM permission_tree pt ORDER BY pt.permission_name;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.get_user_permissions_by_id IS
+'Returns all effective permissions for an already-resolved internal user id:
+role grants, direct per-user grants, and their hierarchy closure (UNION already
+de-duplicates, so no DISTINCT is needed per branch). A disabled or unknown id
+returns no rows. Has no subject to authenticate, so it carries no guard of its
+own - see the comment above this function for why that is safe.';
+
+-- Not a request-role capability: it takes an internal id directly, with no
+-- self-or-admin guard, because it has no subject of its own to check against
+-- one. The explicit revoke from semantius_user is required regardless of that:
+-- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
+-- this schema.
+REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(INTEGER) FROM PUBLIC, semantius_user;
+
 -- Get all effective permissions for a user (including implied)
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
     p_external_id TEXT
@@ -837,6 +903,8 @@ CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
 RETURNS TABLE (
     permission_name TEXT
 ) AS $$
+DECLARE
+    v_user_id INTEGER;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. The self branch is what
     -- keeps rbac.ensure_context_initialized working and is also why the guard
@@ -851,42 +919,21 @@ BEGIN
         RETURN;
     END IF;
 
-    RETURN QUERY
-    WITH RECURSIVE permission_tree AS (
-        -- Direct permissions from roles
-        SELECT DISTINCT rp.permission_name
-        FROM users u
-        JOIN user_roles ur ON u.id = ur.user_id
-        JOIN roles r ON ur.role_id = r.id
-        JOIN role_permissions rp ON r.id = rp.role_id
-        WHERE u.external_id = p_external_id
-          AND u.is_disabled = FALSE
-        
-        UNION
-        
-        -- Direct per-user permissions
-        SELECT DISTINCT up.permission_name
-        FROM users u
-        JOIN user_permissions up ON u.id = up.user_id
-        WHERE u.external_id = p_external_id
-          AND u.is_disabled = FALSE
-        
-        UNION
-        
-        -- Implied permissions
-        SELECT DISTINCT ph.included_permission_name
-        FROM permission_tree pt
-        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
-    )
-    SELECT DISTINCT pt.permission_name
-    FROM permission_tree pt
-    ORDER BY pt.permission_name;
+    -- No is_disabled filter here: an unknown external_id leaves v_user_id NULL,
+    -- and a disabled one resolves to a real id, but rbac.get_user_permissions_by_id
+    -- applies the same is_disabled = FALSE test on the id either way.
+    SELECT id INTO v_user_id FROM users WHERE external_id = p_external_id;
+
+    RETURN QUERY SELECT * FROM rbac.get_user_permissions_by_id(v_user_id);
 END;
 -- STABLE: reads only.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
-'Returns all effective permissions for a user, including implied permissions.';
+'Self-or-admin wrapper: resolves the subject external_id to its internal id and
+delegates to rbac.get_user_permissions_by_id for the actual permission set,
+including implied permissions. Returns no rows for an unknown or disabled
+subject, exactly as the recursive query this used to run inline.';
 
 -- Get current user's permissions (uses lazy initialization)
 CREATE OR REPLACE FUNCTION rbac.get_current_user_permissions()
@@ -972,21 +1019,45 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Get current user's internal database Id
+-- Get current user's internal database Id. Called once per audited row on
+-- every write path (audit.current_user_id -> user_id_or_null -> user_id) and
+-- twice per statement by public.jl_request_context, so unlike the other
+-- checkers a cold call here is not a rare event confined to the first check of
+-- a transaction - it recurs per row. The warm test is therefore inlined here
+-- too, exactly as in rbac.has_permission, whose comment carries the full
+-- reasoning for the ordering and for what the subject comparison does and does
+-- not guarantee; this copy relies on the same invariants.
 CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS INTEGER AS $$
+DECLARE
+    v_external_id TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Ensure context is initialized
-    PERFORM rbac.ensure_context_initialized();
-
+    IF system_user LIKE 'oauth:%' THEN
+        PERFORM rbac.ensure_context_initialized();
+    ELSE
+        v_external_id := current_setting('app.current_external_id', true);
+        IF current_setting('app.context_initialized', true) IS DISTINCT FROM 'true'
+           OR v_external_id IS NULL
+           OR v_external_id = ''
+           OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
+        THEN
+            -- Cold: the direct call is the authentication gate 0060 requires
+            -- of a definer the request role can execute, and what turns a
+            -- session with no claims into 42501 rather than a NULL id.
+            PERFORM rbac.uid();
+            PERFORM rbac.ensure_context_initialized();
+        END IF;
+    END IF;
     RETURN current_setting('app.current_user_id', true)::INTEGER;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.user_id IS
-'Returns internal user_id for current user. Auto-initializes if needed.';
+'Returns internal user_id for current user. Warm path (an initialized context
+whose cached subject matches the live JWT sub) reads app.current_user_id
+straight back with no further call; a cold context is rebuilt via rbac.uid()
+(the authentication gate) and rbac.ensure_context_initialized(), as it always
+was.';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the
