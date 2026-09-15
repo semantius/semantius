@@ -174,6 +174,7 @@ function baseBuilder(
     case "boolean":
       return { fn: "boolean", args: name };
     case "json":
+    case "jsonlogic":
     case "object":
     case "array":
       return { fn: "jsonb", args: name };
@@ -225,6 +226,7 @@ function defaultModifier(field: FieldRecord): string {
     case "time":
     case "date-time":
     case "json":
+    case "jsonlogic":
     case "object":
     case "array":
       return ""; // skip non-trivial defaults

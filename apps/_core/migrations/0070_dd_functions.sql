@@ -42,8 +42,11 @@ BEGIN
         -- Boolean format
         WHEN 'boolean' THEN 'BOOLEAN'
         
-        -- JSON formats
+        -- JSON formats. jsonlogic is stored as JSONB, unlike jsonata: a JSONata
+        -- expression is source text, a JsonLogic rule is itself a JSON value that
+        -- evaluate_json_logic() walks as jsonb.
         WHEN 'json' THEN 'JSONB'
+        WHEN 'jsonlogic' THEN 'JSONB'
         WHEN 'object' THEN 'JSONB'
         WHEN 'array' THEN 'JSONB'
         
@@ -112,8 +115,9 @@ CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
 RETURNS JSONB AS $$
 BEGIN
     RETURN CASE 
-        -- Special case: json format can accept any type
-        WHEN p_format = 'json' THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
+        -- Special case: json format can accept any type. So can jsonlogic: a rule
+        -- may be an object, an array of rule entries, or a bare literal like true.
+        WHEN p_format IN ('json', 'jsonlogic') THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
         -- Single type mappings
         WHEN p_format IN ('int32', 'int64', 'integer', 'reference', 'parent') THEN to_jsonb('integer'::text)
         WHEN p_format IN ('float', 'double', 'number') THEN to_jsonb('number'::text)

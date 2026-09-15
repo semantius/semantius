@@ -53,7 +53,7 @@ interface FieldRecord {
  */
 function formatToJsonType(format: string): string {
   // Special case: json format maps to json for simplicity
-  if (format === 'json') {
+  if (format === 'json' || format === 'jsonlogic') {
     return 'json';
   }
   

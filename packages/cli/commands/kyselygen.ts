@@ -193,6 +193,7 @@ function columnType(
       base = "boolean";
       break;
     case "json":
+    case "jsonlogic":
     case "object":
     case "array":
       used.add("Json");

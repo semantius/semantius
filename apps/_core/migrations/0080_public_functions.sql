@@ -368,7 +368,7 @@ BEGIN
                 -- For string types without explicit default, add empty string default
                 WHEN json_type::text = '"string"' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
-                WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
+                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
             END) AS property_value
         FROM ordered_fields
@@ -436,7 +436,7 @@ BEGIN
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL
-          AND format != 'json'
+          AND format NOT IN ('json', 'jsonlogic')
         ORDER BY field_order
     )
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary

@@ -13,7 +13,7 @@
 -- See docs/provenance-core-0.1.2-changes.md §7. All operations run as admin (user3).
 BEGIN;
 
-SELECT plan(62);
+SELECT plan(65);
 
 SELECT authenticate_as('user3');
 
@@ -47,6 +47,15 @@ SELECT is((public.get_schema('fields')::jsonb->'properties'->'catalog_field_code
 
 SELECT is((SELECT jsonb_array_length(enum_values) FROM fields WHERE table_name='entities' AND field_name='entity_type'), 6, 'entity_type registered with 6 enum_values');
 
+-- entity_type is chosen by whoever creates or reclassifies the entity, so the UI must render it as
+-- an editable dropdown. It is 'required' rather than 'default' because get_schema appends '' to the
+-- enum of every non-required field, and valid_entity_type rejects '': a 'default' field would
+-- advertise a value the write then fails on. 'unclassified' is the empty value instead.
+SELECT is((public.get_schema('entities')::jsonb->'properties'->'entity_type'->>'inputMode'), 'required', 'entity_type is editable (inputMode required, not readonly)');
+SELECT is((public.get_schema('entities')::jsonb->'properties'->'entity_type'->'enum'),
+          (SELECT enum_values FROM fields WHERE table_name='entities' AND field_name='entity_type'),
+          'get_schema advertises exactly the 6 values valid_entity_type accepts (no empty string)');
+
 -- =====================================================
 -- GROUP 3: defaults + additive-safety
 -- =====================================================
@@ -71,6 +80,9 @@ SELECT throws_ok($$UPDATE entities SET entity_type='' WHERE table_name='prov_e'$
 SELECT lives_ok($$UPDATE entities SET entity_type='catalog' WHERE table_name='prov_e'$$, 'entity_type accepts catalog');
 SELECT lives_ok($$UPDATE entities SET entity_type='operational_workflow' WHERE table_name='prov_e'$$, 'entity_type accepts operational_workflow');
 SELECT lives_ok($$UPDATE entities SET entity_type='junction' WHERE table_name='prov_e'$$, 'entity_type accepts junction');
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, entity_type)
+VALUES ('prov_typed', 'prov_typed', 'Prov Typed', 'Prov Typeds', 'entity_type given at create', 1, 'public:read', 'admin', 'id', 'label', 'catalog');
+SELECT is((SELECT entity_type FROM entities WHERE table_name='prov_typed'), 'catalog', 'entity_type can be assigned when the entity is created');
 
 -- =====================================================
 -- GROUP 6: catalog_entity_aliases array CHECK + round-trip; catalog_owner_module soft pointer

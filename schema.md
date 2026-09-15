@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-07T09:13:51.731Z
+**Generated:** 2026-09-15T15:08:08.730Z
 
 ---
 
@@ -211,11 +211,11 @@ Catalog of tables in Semantius
 | `is_child` (core) | boolean | Is Child | Whether table has any parent relationships (auto-computed) | boolean | false | - | 118 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `edit_mode` (core) | enum | Edit Mode | UI edit mode for records of this table: auto, sidebar, modal, or page | string | false | auto | 119 | default | default | core | false | ["auto","sidebar","modal","page"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `cube_mode` (core) | enum | Cube Mode | Cube mode for OLAP cube generation | string | false | auto | 121 | default | default | core | false | ["disabled","auto"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `entity_type` (core) | enum | Entity Type | Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally. | string | false | unclassified | 122 | readonly | default | core | false | ["operational_workflow","operational_record","catalog","junction","computed","unclassified"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `entity_type` (core) | enum | Entity Type | Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally. | string | false | unclassified | 122 | required | default | core | false | ["operational_workflow","operational_record","catalog","junction","computed","unclassified"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `audit_log` (core) | boolean | Audit Log | When enabled, DML operations on this table are logged to the audit log | boolean | false | false | 122 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `computed_fields` (core) | json | Computed Fields | JsonLogic derivations evaluated on every write | json | false | - | 123 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `validation_rules` (core) | json | Validation Rules | JsonLogic invariants that must hold for the write to succeed | json | false | - | 124 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `select_rule` (core) | json | Select Rule | JsonLogic rule for per-row FOR SELECT RLS policy | json | false | - | 125 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `computed_fields` (core) | jsonlogic | Computed Fields | JsonLogic derivations evaluated on every write | json | false | - | 123 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `validation_rules` (core) | jsonlogic | Validation Rules | JsonLogic invariants that must hold for the write to succeed | json | false | - | 124 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `select_rule` (core) | jsonlogic | Select Rule | JsonLogic rule for per-row FOR SELECT RLS policy | json | false | - | 125 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `catalog_entity_code` (core) | text | Catalog Entity Code | Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline. | string | false | - | 126 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `catalog_owner_module` (core) | text | Catalog Owner Module | For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local. | string | false | - | 127 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `catalog_entity_aliases` (core) | json | Catalog Entity Aliases | Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target. | json | false | [] | 129 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
@@ -263,7 +263,7 @@ Catalog of the fields that make up a table
 | `id` 🔑 (id) | text | Id | Generated identifier (table_name.field_name) | string | true | - | 10 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `table_name` (core) | parent | Table Name | - | string | false | - | 20 | default | default | core | true | - | 2 | entities | cascade | has fields | - | - | false | auto | [object Object] | - |
 | `field_name` (core) | text | Field Name | Physical column name in database | string | false | - | 30 | required | default | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `format` (core) | enum | Format | JSON Schema format or primitive type | string | false | text | 40 | required | default | core | false | ["json","html","text","multiline","code","jsonata","reference","parent","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `format` (core) | enum | Format | JSON Schema format or primitive type | string | false | text | 40 | required | default | core | false | ["json","html","text","multiline","code","jsonata","jsonlogic","reference","parent","enum","date","time","date-time","duration","uri","uri-reference","uri-template","url","email","hostname","ipv4","ipv6","regex","uuid","json-pointer","json-pointer-uri-fragment","relative-json-pointer","byte","int32","int64","float","double","password","binary","string","number","integer","boolean","object","array","null"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `title` (label) | text | Title | Human-readable display name for the field | string | false | - | 50 | required | default | label | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `description` (core) | text | Description | - | string | false | - | 60 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `is_pk` (core) | boolean | Is Primary Key | - | boolean | false | - | 70 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
@@ -282,7 +282,7 @@ Catalog of the fields that make up a table
 | `plural_label_parent` (core) | text | Plural Label Parent | Custom plural label for the parent entity (overrides default when set) | string | false | - | 220 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `unique_value` (core) | boolean | Unique Value | When TRUE, enforces a partial unique index (NULL and empty strings are not enforced) | boolean | false | - | 230 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `cube_type` (core) | enum | Cube Type | - | string | false | auto | 240 | required | default | core | false | ["auto","dimension","measure","disabled"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
-| `input_type_rule` (core) | json | Input Type Rule | JsonLogic condition for field visibility | json | false | - | 250 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
+| `input_type_rule` (core) | jsonlogic | Input Type Rule | JsonLogic condition for field visibility | json | false | - | 250 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `catalog_field_code` (core) | text | Catalog Field Code | Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Empty = created outside the deploy pipeline. | string | false | - | 260 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 
 ---
@@ -438,53 +438,6 @@ System permissions that can be assigned to roles
 
 ---
 
-## Entity: processes
-
-RACI process catalog
-
-| field_name | label | value |
-|------------|-------|-------|
-| table_name | Table Name | `processes` |
-| singular | Singular | process |
-| plural | Plural | processes |
-| singular_label | Singular Label | Process |
-| plural_label | Plural Label | Processes |
-| icon_url | Icon URL | - |
-| description | Description | RACI process catalog |
-| module_id | Module Id | 1 |
-| view_permission | View Permission | `admin` |
-| edit_permission | Edit Permission | `admin` |
-| id_column | Id Column | `id` |
-| label_column | Label Column | `name` |
-| label_parent | Label Parent | - |
-| order_column | Order Column | - |
-| managed | Managed | true |
-| searchable | Searchable | true |
-| is_child | Is Child | false |
-| edit_mode | Edit Mode | auto |
-| cube_mode | Cube Mode | auto |
-| entity_type | Entity Type | unclassified |
-| audit_log | Audit Log | false |
-| computed_fields | Computed Fields |  |
-| validation_rules | Validation Rules |  |
-| select_rule | Select Rule | [object Object] |
-| catalog_entity_code | Catalog Entity Code | - |
-| catalog_owner_module | Catalog Owner Module | - |
-| catalog_entity_aliases | Catalog Entity Aliases |  |
-
-### Fields
-
-| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `name` (label) | text | Name | Display name of the process | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `module_id` | reference | Module | Owning module | integer | false | - | 20 | default | default | - | false | - | 2 | modules | clear | has | - | - | false | auto | [object Object] | - |
-| `process_key` | text | Process Key | Stable snake_case identifier, unique within module | string | false | - | 30 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `description` | multiline | Description | Detailed description of the process | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `ordering` | integer | Ordering | Optional display ordering | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-
----
-
 ## Entity: process_gates
 
 Governance registry: maps entity transitions to processes
@@ -534,24 +487,24 @@ Governance registry: maps entity transitions to processes
 
 ---
 
-## Entity: queues
+## Entity: processes
 
-Message queues backed by pgmq
+RACI process catalog
 
 | field_name | label | value |
 |------------|-------|-------|
-| table_name | Table Name | `queues` |
-| singular | Singular | queue |
-| plural | Plural | queues |
-| singular_label | Singular Label | Queue |
-| plural_label | Plural Label | Queues |
+| table_name | Table Name | `processes` |
+| singular | Singular | process |
+| plural | Plural | processes |
+| singular_label | Singular Label | Process |
+| plural_label | Plural Label | Processes |
 | icon_url | Icon URL | - |
-| description | Description | Message queues backed by pgmq |
+| description | Description | RACI process catalog |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
-| label_column | Label Column | `queue_name` |
+| label_column | Label Column | `name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
 | managed | Managed | true |
@@ -572,10 +525,12 @@ Message queues backed by pgmq
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `name` (label) | text | Name | Display name of the process | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
-| `queue_name` (label) | text | Queue | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
-| `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | [object Object] | - |
-| `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | [object Object] | - |
+| `module_id` | reference | Module | Owning module | integer | false | - | 20 | default | default | - | false | - | 2 | modules | clear | has | - | - | false | auto | [object Object] | - |
+| `process_key` | text | Process Key | Stable snake_case identifier, unique within module | string | false | - | 30 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `description` | multiline | Description | Detailed description of the process | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `ordering` | integer | Ordering | Optional display ordering | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
 
 ---
 
@@ -622,6 +577,51 @@ Maps table DML events to queues
 | `table_name` | reference | Table | Table whose DML events are captured | string | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | [object Object] | - |
 | `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | [object Object] | - |
 | `event_name` (label) | text | Queue Table Event | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+
+---
+
+## Entity: queues
+
+Message queues backed by pgmq
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queues` |
+| singular | Singular | queue |
+| plural | Plural | queues |
+| singular_label | Singular Label | Queue |
+| plural_label | Plural Label | Queues |
+| icon_url | Icon URL | - |
+| description | Description | Message queues backed by pgmq |
+| module_id | Module Id | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| label_column | Label Column | `queue_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| entity_type | Entity Type | unclassified |
+| audit_log | Audit Log | false |
+| computed_fields | Computed Fields |  |
+| validation_rules | Validation Rules |  |
+| select_rule | Select Rule | [object Object] |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases |  |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | [object Object] | - |
+| `queue_name` (label) | text | Queue | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | [object Object] | - |
+| `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | [object Object] | - |
+| `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | [object Object] | - |
 
 ---
 

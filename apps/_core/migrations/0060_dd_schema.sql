@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS fields (
     CONSTRAINT valid_format CHECK (
         format IN (
             -- Custom SemSchema formats
-            'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
+            'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'jsonlogic', 'reference', 'parent', 'enum',
             -- Standard JSON Schema formats
             'date', 'time', 'date-time', 'duration',
             'uri', 'uri-reference', 'uri-template', 'url',
@@ -442,7 +442,7 @@ DECLARE
   -- Define all enum value arrays in one place
   format_values TEXT[] := ARRAY[
     -- Custom SemSchema formats
-    'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
+    'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'jsonlogic', 'reference', 'parent', 'enum',
     -- Standard JSON Schema formats
     'date', 'time', 'date-time', 'duration',
     'uri', 'uri-reference', 'uri-template', 'url',
@@ -523,7 +523,7 @@ BEGIN
       ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        ''),
       ('fields', 'cube_type',            'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
-      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        ''),
+      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'jsonlogic', FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        ''),
       ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        ''),
       ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        ''),
       ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '');
@@ -548,7 +548,7 @@ BEGIN
     ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
     ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
     ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
-    ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
+    ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","jsonlogic","object","array"]]},"hidden","default"]}')
   ) AS r(field_name, rule)
   WHERE fields.table_name = 'fields' AND fields.field_name = r.field_name;
 END $$;
@@ -572,10 +572,10 @@ VALUES
     ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        ''),
     ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        ''),
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'json',      FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'json',      FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'readonly', 'default', 'core', FALSE, '', '', ''),
+    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        ''),
+    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        ''),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'jsonlogic', FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        ''),
+    ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'required', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
     ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
