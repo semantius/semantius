@@ -93,7 +93,7 @@ The two escape hatches, in the order they become relevant:
   `semantius.reapply('<app>.<migration>')` that re-runs one named migration and
   updates its checksum. Only the migrations a re-release actually touched need
   to be re-runnable, and they are known - so make them re-runnable as part of
-  the edit. Blanket re-apply is not an option: across the 34 `_core` migrations
+  the edit. Blanket re-apply is not an option: across the 28 `_core` migrations
   there are 66 `CREATE TRIGGER` against 13 `DROP TRIGGER IF EXISTS`, 36
   `CREATE INDEX` without `IF NOT EXISTS`, 76 seed `INSERT`s and 28
   `ALTER TABLE ... ADD COLUMN`, so re-running an arbitrary migration fails or

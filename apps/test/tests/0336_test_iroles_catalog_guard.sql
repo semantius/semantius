@@ -11,8 +11,7 @@
 -- (user_process_raci), generalized to ALL views so a future view can't silently reintroduce
 -- the leak.
 --
--- EXPECTED: green on current code (b4 set user_process_raci security_invoker; the compat
--- `tables` view already had it). It goes red the moment any public policy is authored to a
+-- EXPECTED: green on current code (b4 set user_process_raci security_invoker). It goes red the moment any public policy is authored to a
 -- role other than semantius_user, or any public view is created without security_invoker.
 BEGIN;
 

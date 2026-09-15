@@ -296,7 +296,7 @@ $BLOCK$,
     -- A static call caches the target row type's tuple descriptor in the plpgsql
     -- expression's fn_extra and does NOT refresh it when the table gains a column
     -- LATER in the SAME transaction — so a column added and set after this trigger
-    -- first fired (e.g. entities.order_column added in 0270 then set here) would be
+    -- first fired (e.g. an order column provisioned and then set in the same install) would be
     -- silently dropped, reverting that write. This only surfaces in a single-txn
     -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
     -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor

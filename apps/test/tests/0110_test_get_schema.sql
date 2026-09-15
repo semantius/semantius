@@ -367,9 +367,10 @@ SELECT is(
     'get_schema() should map double format to number type'
 );
 
-SELECT ok(
-    NOT ((public.get_schema('sch_probe')::jsonb)->'properties'->'ratio' ? 'format'),
-    'get_schema() should NOT include format field for double (type mapper only)'
+SELECT is(
+    (public.get_schema('sch_probe')::jsonb)->'properties'->'ratio'->>'format',
+    'double',
+    'get_schema() should include format double for the double field'
 );
 
 -- Test number type mapping for the number format (orders.freight)
@@ -412,15 +413,17 @@ SELECT is(
     'get_schema() should return correct field_order for customer_id field (30)'
 );
 
--- Test that int32 format does NOT appear in output (only type: integer)
-SELECT ok(
-    NOT ((public.get_schema('customers')::jsonb)->'properties'->'id' ? 'format'),
-    'get_schema() should NOT include format field for int32 (only type: integer)'
+-- Test that the int32 format appears in output alongside type: integer
+SELECT is(
+    (public.get_schema('customers')::jsonb)->'properties'->'id'->>'format',
+    'int32',
+    'get_schema() should include format int32 for the int32 id field'
 );
 
-SELECT ok(
-    NOT ((public.get_schema('products')::jsonb)->'properties'->'units_in_stock' ? 'format'),
-    'get_schema() should NOT include format field for int32 units_in_stock'
+SELECT is(
+    (public.get_schema('products')::jsonb)->'properties'->'units_in_stock'->>'format',
+    'int32',
+    'get_schema() should include format int32 for units_in_stock'
 );
 
 -- Test enum support for orders.status field
@@ -445,10 +448,11 @@ SELECT ok(
     'get_schema() enum array should contain "shipped"'
 );
 
--- Test that enum fields do NOT include format property
-SELECT ok(
-    NOT ((public.get_schema('orders')::jsonb)->'properties'->'status' ? 'format'),
-    'get_schema() should NOT include format field for enum fields'
+-- Test that enum fields include the format property
+SELECT is(
+    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'format',
+    'enum',
+    'get_schema() should include format enum for enum fields'
 );
 
 -- Test default empty string for string fields

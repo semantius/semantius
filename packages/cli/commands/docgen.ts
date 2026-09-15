@@ -48,42 +48,16 @@ interface FieldRecord {
 }
 
 /**
- * Convert format value to JSON Schema type(s)
- * Mimics the logic from format_to_json_type PostgreSQL function
+ * The JSON Schema type documented for a format, read from the database's format
+ * list (dd_formats()). A format whose values may be of several types (json,
+ * jsonlogic) documents as `json`; a name the list does not know as `string`.
  */
-function formatToJsonType(format: string): string {
-  // Special case: json format maps to json for simplicity
-  if (format === 'json' || format === 'jsonlogic') {
+function formatToJsonType(format: string, typeByFormat: Map<string, unknown>): string {
+  const type = typeByFormat.get(format);
+  if (Array.isArray(type)) {
     return 'json';
   }
-  
-  // Single type mappings
-  if (['int32', 'int64', 'integer', 'reference', 'parent'].includes(format)) {
-    return 'integer';
-  }
-  
-  if (['float', 'double', 'number'].includes(format)) {
-    return 'number';
-  }
-  
-  if (format === 'boolean') {
-    return 'boolean';
-  }
-  
-  if (format === 'array') {
-    return 'array';
-  }
-  
-  if (format === 'object') {
-    return 'object';
-  }
-  
-  if (format === 'null') {
-    return 'null';
-  }
-  
-  // Default to string for all other formats
-  return 'string';
+  return typeof type === 'string' ? type : 'string';
 }
 
 /**
@@ -93,14 +67,18 @@ function formatToJsonType(format: string): string {
  * or `permissions` documents as string and one to `users` as integer. Falls
  * back to the field's own format when the referenced entity's key is unknown.
  */
-function fieldJsonType(field: FieldRecord, keyFormatByTable: Map<string, string>): string {
+function fieldJsonType(
+  field: FieldRecord,
+  keyFormatByTable: Map<string, string>,
+  typeByFormat: Map<string, unknown>,
+): string {
   if ((field.format === 'reference' || field.format === 'parent') && field.reference_table) {
     const keyFormat = keyFormatByTable.get(field.reference_table);
     if (keyFormat) {
-      return formatToJsonType(keyFormat);
+      return formatToJsonType(keyFormat, typeByFormat);
     }
   }
-  return formatToJsonType(field.format);
+  return formatToJsonType(field.format, typeByFormat);
 }
 
 export async function docgenCommand(databaseUrl: string): Promise<void> {
@@ -127,6 +105,13 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     );
     const keyFormatByTable = new Map(
       keyFormatsResult.rows.map((r) => [r.table_name, r.format] as const),
+    );
+
+    const formatTypesResult = await client.queryObject<{ format: string; type: unknown }>(
+      "SELECT key AS format, value->'type' AS type FROM json_each(dd_formats())"
+    );
+    const typeByFormat = new Map(
+      formatTypesResult.rows.map((r) => [r.format, r.type] as const),
     );
     
     console.log(`Found ${entitiesResult.rows.length} entities for _core module`);
@@ -225,7 +210,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
         const values = displayColumns.map(colName => {
           // Special handling for computed 'type' column
           if (colName === 'type') {
-            return fieldJsonType(field, keyFormatByTable);
+            return fieldJsonType(field, keyFormatByTable, typeByFormat);
           }
           
           const value = field[colName as keyof FieldRecord];

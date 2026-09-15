@@ -291,8 +291,7 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 - **STANDARD**: most tables use an auto-incrementing INTEGER column named `id`
   - Examples: users, modules, roles, webhook_receivers, webhook_receiver_logs
 - **EXCEPTION 1**: `entities` uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
-  - The table was called `tables` until 0140 renamed it; `tables` survives only as the
-    updatable compatibility view created by 0130
+  - The table was called `tables` until 0140 renamed it
   - Foreign keys to it reference `table_name`: `REFERENCES entities(table_name)`
 - **EXCEPTION 2**: `permissions` uses `permission_name TEXT` as the PRIMARY KEY (no `id` column)
   - The name is what module packages seed, what every generated RLS policy embeds as a
@@ -340,7 +339,7 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 
 **CRITICAL: Schema vs Sample Data Placement**
 - **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code
-  - Table definitions (INSERT INTO tables, fields)
+  - Table definitions (INSERT INTO entities, fields)
   - Functions, triggers, RLS policies
   - Constraints, indexes, foreign keys
   - NO sample/seed data records
@@ -371,7 +370,7 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 **Fields Table Structure**
 The `fields` table uses a JSON Schema-based format system:
 - **format** column: Stores JSON Schema format values (e.g., 'email', 'date', 'int32', 'boolean', 'text', 'reference', 'enum')
-  - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null', 'text'
+  - Primitive types: 'string', 'number', 'integer', 'boolean', 'object', 'array', 'text'
   - Specific formats: 'email', 'url', 'date', 'date-time', 'int32', 'int64', 'float', 'double', etc.
   - Foreign key format: 'reference' (typed after the referenced entity's key column, not after the format)
   - Enum format: 'enum' (mapped to TEXT type with CHECK constraint for allowed values)
@@ -404,13 +403,13 @@ The system supports automatic foreign key creation and management:
 - Example: `format='reference', reference_table='regions', reference_delete_mode='restrict'`
 
 **CRITICAL: Full-Text Search and Searchable Flags - AUTO-COMPUTED**
-- **tables.searchable column is AUTO-COMPUTED** - NEVER manually set it in INSERT or UPDATE statements
-- **tables.searchable is TRUE** when ANY related field has searchable=TRUE
-- **tables.searchable is FALSE** when NO related fields have searchable=TRUE
+- **entities.searchable column is AUTO-COMPUTED** - NEVER manually set it in INSERT or UPDATE statements
+- **entities.searchable is TRUE** when ANY related field has searchable=TRUE
+- **entities.searchable is FALSE** when NO related fields have searchable=TRUE
 - Automatic triggers maintain this:
-  - `handle_field_searchable_insert_trigger` / `_update_trigger` / `_delete_trigger`: statement-level triggers that update tables.searchable and rebuild `search_vector` when fields are added/updated/deleted
+  - `handle_field_searchable_insert_trigger` / `_update_trigger` / `_delete_trigger`: statement-level triggers that update entities.searchable and rebuild `search_vector` when fields are added/updated/deleted
   - `enforce_table_searchable_consistency_trigger`: Prevents manual overrides, always recomputes from fields
-- When inserting into the `tables` table, **NEVER include the searchable column** - it will be computed automatically
+- When inserting into the `entities` table, **NEVER include the searchable column** - it will be computed automatically
 - The searchable column in fields controls whether individual fields are included in full-text search
 - System automatically creates/drops `search_vector` column and GIN index based on searchable fields
 - **Rebuilding `search_vector` locks the table.** It is `ADD COLUMN ... GENERATED ... STORED`: a full heap rewrite under ACCESS EXCLUSIVE that blocks readers as well as writers and rebuilds every index on the table, about 650 ms per 100k rows and linear. Rebuilds are coalesced to one per table per statement and skipped when the generated expression is unchanged (fingerprint in the `search_vector` column comment), but any real change to the searchable field set of a large table belongs in a maintenance window
@@ -422,7 +421,7 @@ The system supports automatic foreign key creation and management:
 **get_schema() Function Behavior**
 The `public.get_schema()` function returns JSON Schema with:
 - **fieldOrder**: Each property includes its field_order value for proper UI ordering
-- **format field**: Only included for string-based formats (email, url, date, etc.), NOT for type mappers (int32, float, double, etc.)
+- **format field**: Always included, the field's own format
 - **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
 - **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
 - **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
@@ -432,7 +431,7 @@ The `public.get_schema()` function returns JSON Schema with:
   - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
   - NOT included in the required array since they are auto-maintained by database triggers
   - Should not be submitted in INSERT/UPDATE operations
-- **table object**: The get_schema() output includes a 'table' object with ALL columns from the tables table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, label_column, managed, searchable, created_at, updated_at)
+- **table object**: The get_schema() output includes a 'table' object with ALL columns from the entities table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, label_column, managed, searchable, created_at, updated_at)
 - **properties object**: The get_schema() output includes a 'properties' object with ALL columns from the fields table as field properties
 
 **CRITICAL: JSON Field Naming Convention**

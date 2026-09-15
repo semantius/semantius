@@ -46,32 +46,34 @@ RETURNS JSONB AS $$
 DECLARE
     v_external_id TEXT;
     v_email TEXT;
+    v_display_name TEXT;
+    v_first_name TEXT;
+    v_last_name TEXT;
     v_user_id INTEGER;
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
+    v_modules JSONB;
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
 
-    -- Get email from JWT if available
+    -- Get claims from JWT
     v_email := current_setting('request.jwt.claim.email', true);
+    v_display_name := current_setting('request.jwt.claim.name', true);
+    v_first_name := current_setting('request.jwt.claim.given_name', true);
+    v_last_name := current_setting('request.jwt.claim.family_name', true);
 
     -- Create or update user record and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
     
     -- Verify user was created/found successfully
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = %', v_external_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
-    
-    -- Verify user exists in users table
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
-    END IF;
-    
+
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
@@ -92,7 +94,7 @@ BEGIN
         permission_name ORDER BY permission_name
     ), '[]'::jsonb)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
 
     -- Explicitly initialize the context cache with the permissions we just computed.
     -- This is necessary because get_user_modules() -> has_any_permission() uses
@@ -107,17 +109,24 @@ BEGIN
     ), true);
     PERFORM set_config('app.context_initialized', 'true', true);
 
+    -- Build modules array (filtered by permissions via helper function)
+    v_modules := public.get_user_modules();
+    
     -- Build the final JSON result
     SELECT jsonb_build_object(
         'user_id', u.id,
         'external_id', u.external_id,
         'email', u.email,
+        'display_name', u.display_name,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
         'is_disabled', u.is_disabled,
         'created_at', u.created_at,
         'updated_at', u.updated_at,
         'last_seen', u.last_seen,
         'roles', v_roles,
-        'permissions', v_permissions
+        'permissions', v_permissions,
+        'modules', v_modules
     )
     INTO v_result
     FROM users u
@@ -125,16 +134,17 @@ BEGIN
     
     -- Final safety check (should never be NULL after previous validations)
     IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION public.get_userinfo IS 
-'Returns current authenticated user info as JSON with nested roles, permissions, and modules (filtered by RLS via helper function). Creates/updates user record and updates last_seen. Call once when new login detected.';
+COMMENT ON FUNCTION public.get_userinfo IS
+'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
@@ -314,14 +324,7 @@ BEGIN
                 THEN jsonb_build_object('input_type_rule', input_type_rule)
                 ELSE '{}'::jsonb
             END ||
-            -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
-            CASE 
-                WHEN format IS NOT NULL 
-                     AND format != '' 
-                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
-                THEN jsonb_build_object('format', format)
-                ELSE '{}'::jsonb
-            END ||
+            jsonb_build_object('format', format) ||
             -- Add enum field if enum_values is present
             CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0

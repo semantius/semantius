@@ -4,7 +4,7 @@ Last updated 2026-09-06.
 
 Semantius stores row-visibility, computed-column and validation rules as
 JsonLogic in the data dictionary, and evaluates them with the interpreter in
-`0210_raci.sql`. That interpreter runs **once per row**, and it is opaque to the
+`0015_jsonlogic.sql`. That interpreter runs **once per row**, and it is opaque to the
 query planner: no index on a column named in a rule can ever be used to satisfy
 that rule.
 
@@ -292,9 +292,7 @@ not obvious and were each established the hard way; the rest is bookkeeping.
 
 ### The mechanical parts
 
-- a branch in `evaluate_json_logic` (`0210_raci.sql`), and the same in
-  `0015_jsonlogic.sql` if the operator is not RACI-specific — both copies, or the
-  two drift
+- a branch in `evaluate_json_logic` (`0015_jsonlogic.sql`)
 - native emission in `build_select_rule_policy` (`0180_computed_validation.sql`)
 - corpus cases in `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
   `deno task testgen_jsonlogic`
@@ -395,9 +393,8 @@ lost to named operators, recorded 2026-09-05:
 - **The backwards-compatibility argument is thin here.** Exactly one rule ships.
 
 A general JsonLogic-to-SQL translator was designed and rejected twice. It is a
-second implementation of a 44-operator language whose definition is split across
-`0015_jsonlogic.sql` and the `CREATE OR REPLACE` in `0210_raci.sql`, so the two
-drift silently, and review passes kept finding semantic divergences between the
+second implementation of a 44-operator language, so the two drift silently, and
+review passes kept finding semantic divergences between the
 interpreter and the obvious SQL mapping. Named operators exist precisely so that
 neither side has to reverse-engineer the other: an operator is defined once and
 both implementations derive from that definition, instead of two independently

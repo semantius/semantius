@@ -134,9 +134,10 @@ SELECT ok(
 );
 
 -- Test 16
-SELECT ok(
-    NOT ((public.get_schema('orders')::jsonb)->'properties'->'status' ? 'format'),
-    'orders.status (enum) should not carry a format key'
+SELECT is(
+    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'format',
+    'enum',
+    'orders.status (enum) should carry format enum'
 );
 
 -- =====================================================

@@ -24,29 +24,9 @@
 -- created_at/updated_at audit columns at 999998/999999 — never inflate the
 -- running max), or 10 for the first record.
 --
--- This generalizes (and replaces) the old fields-only auto_set_field_order()
--- trigger: the `fields` entity simply declares order_column = 'field_order'.
 
 -- =====================================================
--- 1. Add the order_column metadata column to entities
--- =====================================================
-
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS order_column TEXT NOT NULL DEFAULT '';
-
-ALTER TABLE entities ADD CONSTRAINT valid_order_column
-    CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$');
-
-COMMENT ON COLUMN entities.order_column IS 'Store a fixed row order in this column';
-
--- Dictionary metadata so the field shows up in get_schema() properties and the UI.
--- The column was added above (with its CHECK constraint), so add_dd_field()'s
--- ADD COLUMN IF NOT EXISTS is a harmless no-op here.
-INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
-VALUES
-    ('entities', 'order_column', 'Order Column', 'Store a fixed row order in this column', '', 'text', FALSE, 112, 'default', 'default', 'core', FALSE, '', '', '');
-
--- =====================================================
--- 2. Generic BEFORE INSERT auto-assign trigger function
+-- 1. Generic BEFORE INSERT auto-assign trigger function
 -- =====================================================
 -- Installed (per entity) on the physical table by handle_entity_order_column().
 -- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
@@ -103,7 +83,7 @@ COMMENT ON FUNCTION auto_set_order_value IS
 REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
 
 -- =====================================================
--- 3. Entity-level trigger: maintain the physical order column + its trigger
+-- 2. Entity-level trigger: maintain the physical order column + its trigger
 -- =====================================================
 -- Fires AFTER the structural create/enable triggers (zz_ prefix) so the physical
 -- table already exists. Idempotent and additive-safe.
@@ -178,22 +158,14 @@ CREATE TRIGGER zz_entity_order_column_update_trigger
     EXECUTE FUNCTION handle_entity_order_column();
 
 -- =====================================================
--- 4. Remove the legacy fields-only auto_set_field_order() mechanism
+-- 3. Auto-assign trigger on the fields table
 -- =====================================================
--- Superseded by the generic order_column mechanism (the `fields` entity declares
--- order_column = 'field_order' below).
-
-DROP TRIGGER IF EXISTS auto_set_field_order_trigger ON fields;
-DROP FUNCTION IF EXISTS auto_set_field_order();
-
--- =====================================================
--- 5. Declare field_order as the order column for the fields entity
--- =====================================================
--- This UPDATE fires zz_entity_order_column_update_trigger, which (re)installs the
--- generic auto-assign trigger on the physical `fields` table. field_order already
--- exists, so the ADD COLUMN IF NOT EXISTS is a no-op.
+-- The fields entity is seeded with order_column = 'field_order' (0060) before the
+-- entities trigger above exists, so its trigger is installed here.
 --
 -- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
 -- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
 -- created_at/updated_at audit columns at 999998/999999 never inflate the max.
-UPDATE entities SET order_column = 'field_order' WHERE table_name = 'fields';
+CREATE TRIGGER zz_auto_order_fields
+    BEFORE INSERT ON public.fields
+    FOR EACH ROW EXECUTE FUNCTION auto_set_order_value('field_order');

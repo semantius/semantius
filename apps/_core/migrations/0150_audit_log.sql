@@ -742,20 +742,7 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: audit_log column on entities
--- =====================================================
--- Column was added in 0060_dd_schema.sql. Nothing to do here.
-
--- =====================================================
--- STEP 9: Add field metadata for audit_log column
--- =====================================================
-
-INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('entities', 'audit_log', 'Audit Log', 'When enabled, DML operations on this table are logged to the audit log', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '');
-
--- =====================================================
--- STEP 10: Register audit tables as entities (managed=false)
+-- STEP 8: Register audit tables as entities (managed=false)
 -- =====================================================
 -- These are core system tables. managed=false means no DDL triggers fire
 -- when inserting into entities, but having entries in entities/fields makes
@@ -794,7 +781,7 @@ VALUES
     ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
 
 -- =====================================================
--- STEP 11: Trigger to manage audit tracking on entity changes
+-- STEP 9: Trigger to manage audit tracking on entity changes
 -- =====================================================
 -- Handles three scenarios:
 --   A) INSERT: enable audit on newly created managed tables
@@ -802,14 +789,8 @@ VALUES
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
--- Every entities row inserted by this migration - users included - takes the
--- column default managed = TRUE, so this trigger's cascade, not the
--- managed = FALSE catch-up loop at the end of this file, is what actually
--- builds users' audit triggers, both here at bootstrap and on any later
--- disable/re-enable of audit_log through the entities table. The ignored-
--- columns argument therefore has to be decided here, table by table, or a
--- re-toggle would rebuild audit_i_u_d with none and silently start auditing
--- the heartbeat again.
+-- The ignored columns are decided table by table, here and in the STEP 10 loop,
+-- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -879,42 +860,36 @@ COMMENT ON TRIGGER manage_audit_log_trigger ON entities IS
 'Manages audit trigger lifecycle when entities are created or modified.';
 
 -- =====================================================
--- STEP 12: Enable audit for _core tables
+-- STEP 10: Enable audit for _core tables
 -- =====================================================
--- Enable audit_log on all _core entities (system tables).
--- These don't have physical audit triggers added yet because
--- audit_log was default FALSE and they were inserted in earlier
--- migrations, but they DO have physical tables.
+-- The _core entities are seeded with audit_log = TRUE (0060) before
+-- manage_audit_log_trigger exists, so their audit triggers are built here.
 
-UPDATE entities SET audit_log = TRUE
-WHERE table_name IN (
-    'entities', 'fields', 'users', 'modules', 'roles', 'permissions',
-    'user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy'
-);
-
--- Now enable tracking on those tables that are managed and have physical tables
 DO $$
 DECLARE
     v_rec RECORD;
 BEGIN
     FOR v_rec IN
         SELECT e.table_name FROM entities e
-        WHERE e.managed = FALSE  -- _core tables are managed=false
-          AND e.audit_log = TRUE
+        WHERE e.managed
+          AND e.audit_log
     LOOP
         IF EXISTS (
             SELECT 1 FROM information_schema.tables t
             WHERE t.table_schema = 'public'
               AND t.table_name = v_rec.table_name
         ) THEN
-            PERFORM audit.enable_tracking(v_rec.table_name::REGCLASS);
+            PERFORM audit.enable_tracking(
+                v_rec.table_name::REGCLASS,
+                CASE WHEN v_rec.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END
+            );
             RAISE NOTICE 'Enabled audit tracking for core table "%"', v_rec.table_name;
         END IF;
     END LOOP;
 END $$;
 
 -- =====================================================
--- STEP 13: RLS on audit tables
+-- STEP 11: RLS on audit tables
 -- =====================================================
 -- Audit tables are in public schema, so PostgREST can expose them.
 -- RLS ensures only admin users can access audit data.

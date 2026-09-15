@@ -91,6 +91,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
+-- is_raci_actor and has_consultation call functions defined in 0210; no rule
+-- evaluated during install uses those operators.
 CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
 RETURNS jsonb AS $$
 DECLARE
@@ -124,6 +126,8 @@ DECLARE
     temp_str text;
     -- for text ops
     txt_a text; txt_b text;
+    -- for throw_error
+    err_code text; err_hint jsonb; err_name text; err_value jsonb;
 BEGIN
     -- Handle NULL rule
     IF rule IS NULL THEN RETURN 'null'::jsonb; END IF;
@@ -748,14 +752,88 @@ BEGIN
     END IF;
 
     -- ===================== throw_error =====================
-    -- Raises an exception with the given message.
-    -- Usage: {"throw_error":"message"}
+    -- Raises an error a client can localize (docs/error-contract.md).
+    -- Usage: {"throw_error":"Order is already shipped"}
+    --        {"throw_error":["Order ${id} is already shipped", "99017",
+    --                        ["id", {"var":"id"}]]}
+    --
+    -- The parameters are a FLAT list of name, value, name, value rather than an
+    -- object, because JsonLogic reads a single-key object as an operator call:
+    -- {"id": 3} would be dispatched as the operator `id` and die with
+    -- "Unrecognized operation". The list arrives already evaluated by the
+    -- depth-first pass above, so each value keeps the type its expression
+    -- produced - which is the point: ICU selects plurals on the JSON type, and
+    -- a number arriving as "3" would neither pluralize nor localize.
     IF op = 'throw_error' THEN
-        RAISE EXCEPTION '%', jl_to_text(a) USING ERRCODE = '23514';
+        err_code := CASE WHEN b IS NULL OR jsonb_typeof(b) = 'null'
+                         THEN '99000' ELSE jl_to_text(b) END;
+        IF err_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'throw_error code must be a class 99 number, not ${code_given}'
+                USING ERRCODE = '90911',
+                      HINT = jsonb_build_object('code_given', err_code)::text;
+        END IF;
+
+        err_hint := '{}'::jsonb;
+        IF c IS NOT NULL AND jsonb_typeof(c) = 'array' THEN
+            IF jsonb_array_length(c) % 2 <> 0 THEN
+                RAISE EXCEPTION 'throw_error parameters must be a flat list of name and value pairs'
+                    USING ERRCODE = '90914';
+            END IF;
+            FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
+                err_name  := c ->> (i * 2);
+                err_value := c -> (i * 2 + 1);
+                -- The generated validation trigger merges entity, rule and
+                -- field into this object, and its merge keeps whatever is
+                -- already there, so a rule that set one of them would win over
+                -- the trigger that actually knows where the error happened.
+                -- hint and code are the contract's other two reserved keys.
+                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
+                        USING ERRCODE = '90912',
+                              HINT = jsonb_build_object('name', err_name)::text;
+                END IF;
+                IF jsonb_typeof(err_value) IN ('object', 'array') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} must be a scalar value, not ${json_type}'
+                        USING ERRCODE = '90913',
+                              HINT = jsonb_build_object('name', err_name,
+                                                        'json_type', jsonb_typeof(err_value))::text;
+                END IF;
+                err_hint := err_hint || jsonb_build_object(err_name, err_value);
+            END LOOP;
+        END IF;
+
+        RAISE EXCEPTION '%', jl_to_text(a)
+            USING ERRCODE = err_code, HINT = err_hint::text;
+    END IF;
+
+    -- ===================== is_raci_actor =====================
+    -- Returns true when the current user holds a role with the given
+    -- RACI letter for the process governing (entity, to_state).
+    -- Usage: {"is_raci_actor": ["table_name", "state", "accountable"]}
+    IF op = 'is_raci_actor' THEN
+        IF is_raci_actor(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
+    -- ===================== has_consultation =====================
+    -- Returns true when an acted consulted raci_events row exists for
+    -- the record under (entity, to_state). Backs C-block gates.
+    -- Usage: {"has_consultation": ["table_name", "state", {"var":"id"}]}
+    IF op = 'has_consultation' THEN
+        IF has_consultation(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
     END IF;
 
     -- Unknown operator
-    RAISE EXCEPTION 'Unrecognized operation: %', op;
+    RAISE EXCEPTION 'Unrecognized operation: ${op}'
+        USING ERRCODE = '90910',
+              HINT = jsonb_build_object('op', op)::text;
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 

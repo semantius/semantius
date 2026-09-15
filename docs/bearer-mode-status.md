@@ -241,8 +241,8 @@ REVOKE EXECUTE ON FUNCTION rbac.write_context(TEXT, INTEGER, TEXT, TEXT)
 ```
 
 Replace the hand-rolled writers with a call to it: the tail of
-`ensure_context_initialized` in `0030` and the two `get_userinfo` bodies in
-`0080` and `0190` (they pre-fill the cache
+`ensure_context_initialized` in `0030` and the `get_userinfo` body in
+`0080` (it pre-fills the cache
 because a just-created user is not yet visible to the STABLE checkers in the
 same statement).
 

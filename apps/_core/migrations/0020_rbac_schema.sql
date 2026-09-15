@@ -28,7 +28,8 @@ CREATE TABLE modules (
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
+    version INTEGER NOT NULL DEFAULT 0,
+    version_date TIMESTAMPTZ,
     CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
@@ -36,42 +37,9 @@ CREATE TABLE modules (
 -- Matches the format the DDL triggers apply (plural label + blank line + description),
 -- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
 COMMENT ON TABLE modules IS E'Modules\n\nGroups of related tables and permissions';
-COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module';
 COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
 COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
-
--- =====================================================
--- AUTO-SET MODULE SLUG TRIGGER
--- =====================================================
--- Automatically generates module_slug from module_name when not provided
-
-CREATE OR REPLACE FUNCTION auto_set_module_slug()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
-        NEW.module_slug := lower(regexp_replace(NEW.module_name, '[^a-zA-Z0-9]+', '_', 'g'));
-        -- Collapse consecutive underscores into a single one
-        NEW.module_slug := regexp_replace(NEW.module_slug, '_+', '_', 'g');
-        -- Remove leading/trailing underscores
-        NEW.module_slug := trim(both '_' from NEW.module_slug);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_module_slug IS
-'Trigger function that auto-generates module_slug from module_name when not provided';
-
-CREATE TRIGGER auto_set_module_slug_trigger
-    BEFORE INSERT OR UPDATE ON modules
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_module_slug();
-
-COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
-'Auto-generates module_slug from module_name when not explicitly provided';
-
--- Revoke default PUBLIC execute on trigger function
-REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 
 -- =====================================================
 -- PERMISSIONS AND ROLES
@@ -106,7 +74,7 @@ CREATE TABLE permissions (
     -- with a primary key violation.
     --
     -- Everything else is allowed, and the segment alphabet deliberately equals
-    -- the one modules.module_slug accepts (0200_module_slug_validation.sql:
+    -- the one modules.module_slug accepts (rule 90702 in 0060_dd_schema.sql:
     -- ^[a-z0-9][a-z0-9_-]*$, hyphens included), because a module scaffold mints
     -- <slug>:<verb>. Narrowing this without narrowing that would make a module
     -- slugged service-catalog unable to name its own permissions.
@@ -180,16 +148,16 @@ CREATE TABLE users (
     -- included: an API key resolves to users.id, and the JWT minted from it
     -- carries this column as its sub. A user brings theirs from the
     -- authentication provider (get_userinfo upserts on it); there is no
-    -- default, so a user row saved without one is refused. An agent (is_agent,
-    -- 0210) saved without one, or with an empty one, gets a generated identity
+    -- default, so a user row saved without one is refused. An agent (is_agent)
+    -- saved without one, or with an empty one, gets a generated identity
     -- from the trigger in 0210: 'agent:' plus a random UUID. An empty or blank
     -- string is refused for both (users_external_id_not_empty, below), so no
     -- row can exist that no session could ever act as.
     --
-    -- Uniqueness is not declared here. The data dictionary owns it: 0190 sets
-    -- fields.unique_value for this column, which builds users_external_id_unique
-    -- as a partial index excluding NULL and ''. With the empty string refused
-    -- that index is total in effect. A UNIQUE constraint here would be a second
+    -- Uniqueness is not declared here. The data dictionary owns it:
+    -- fields.unique_value is set for this column, and users_external_id_unique
+    -- is the partial index it stands for, excluding NULL and ''. With the empty
+    -- string refused that index is total in effect. A UNIQUE constraint here would be a second
     -- index over the same column. Callers upserting on this column must repeat
     -- the index predicate so PostgreSQL can infer the arbiter.
     external_id TEXT NOT NULL,
@@ -200,11 +168,16 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ,
+    first_name TEXT DEFAULT '',
+    last_name TEXT DEFAULT '',
+    is_agent BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT users_external_id_not_empty CHECK (btrim(external_id) <> '')
 );
 
 COMMENT ON TABLE users IS 'Users and agents';
 COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>. Never empty.';
+COMMENT ON COLUMN users.is_agent IS
+'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- User-Role mapping
 CREATE TABLE user_roles (

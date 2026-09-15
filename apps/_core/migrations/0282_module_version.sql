@@ -1,27 +1,11 @@
 -- =====================================================
 -- MODULE VERSION TRACKING
 -- =====================================================
--- Adds version and version_date columns to modules table.
+-- Maintains modules.version and modules.version_date.
 -- Automatically increments version and sets version_date when
 -- modules or any related table (entities, roles, permissions,
 -- processes) is modified.
 -- =====================================================
-
--- =====================================================
--- ADD COLUMNS TO MODULES TABLE
--- =====================================================
-
-ALTER TABLE modules ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE modules ADD COLUMN version_date TIMESTAMPTZ;
-
--- =====================================================
--- ADD FIELD METADATA
--- =====================================================
-
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', ''),
-    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '');
 
 -- =====================================================
 -- TRIGGER FUNCTION: bump_module_version

@@ -1,7 +1,7 @@
 -- Test module_slug validation
 --
 -- module_slug must be explicitly provided. The format is validated by a
--- JsonLogic rule on the modules entity (see 0200_module_slug_validation.sql).
+-- JsonLogic rule on the modules entity (rule 90702, 0060_dd_schema.sql).
 -- Allowed: lowercase a-z, 0-9, '-', '_'. First character must be a-z or 0-9.
 -- Empty string is allowed (column default).
 

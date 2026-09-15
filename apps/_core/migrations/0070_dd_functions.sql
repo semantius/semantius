@@ -114,19 +114,7 @@ COMMENT ON FUNCTION field_data_type IS
 CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
 RETURNS JSONB AS $$
 BEGIN
-    RETURN CASE 
-        -- Special case: json format can accept any type. So can jsonlogic: a rule
-        -- may be an object, an array of rule entries, or a bare literal like true.
-        WHEN p_format IN ('json', 'jsonlogic') THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
-        -- Single type mappings
-        WHEN p_format IN ('int32', 'int64', 'integer', 'reference', 'parent') THEN to_jsonb('integer'::text)
-        WHEN p_format IN ('float', 'double', 'number') THEN to_jsonb('number'::text)
-        WHEN p_format = 'boolean' THEN to_jsonb('boolean'::text)
-        WHEN p_format IN ('array') THEN to_jsonb('array'::text)
-        WHEN p_format IN ('object') THEN to_jsonb('object'::text)
-        WHEN p_format = 'null' THEN to_jsonb('null'::text)
-        ELSE to_jsonb('string'::text)
-    END;
+    RETURN dd_formats()::jsonb -> p_format -> 'type';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
@@ -564,35 +552,6 @@ CREATE TRIGGER update_table_comment_trigger
     EXECUTE FUNCTION update_dd_table_comment();
 
 -- =====================================================
--- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
--- =====================================================
--- When a new field is inserted with field_order = 0 (the default),
--- automatically assign it to max(field_order) + 10 for that table,
--- so new fields are always appended to the end of the fields list.
-
-CREATE OR REPLACE FUNCTION auto_set_field_order()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.field_order = 0 THEN
-        SELECT COALESCE(MAX(field_order), 0) + 10
-        INTO NEW.field_order
-        FROM fields
-        WHERE table_name = NEW.table_name;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_field_order IS
-'Trigger function that auto-assigns field_order to max(field_order)+10 when field_order=0 is inserted.';
-
--- Apply trigger BEFORE INSERT on fields (must run before add_dd_field)
-CREATE TRIGGER auto_set_field_order_trigger
-    BEFORE INSERT ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_field_order();
-
--- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
@@ -639,8 +598,6 @@ CREATE TRIGGER fields_ctype_lock
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION lock_field_ctype();
-
-REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
 -- =====================================================
 -- TRIGGER FUNCTION: ADD FIELD ON INSERT
@@ -908,55 +865,72 @@ CREATE TRIGGER add_field_trigger
 -- TRIGGER FUNCTION: UPDATE FIELD ON UPDATE
 -- =====================================================
 
+-- apply_field_ddl() (0145) and the BEFORE trigger validate_field_rename_and_format
+-- (0140) are defined later; no fields row is updated during install before both exist.
 CREATE OR REPLACE FUNCTION update_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_alter_sql TEXT;
-    v_new_data_type TEXT;
-    v_is_managed BOOLEAN;
-    v_ref_id_column TEXT;
-    v_fk_name TEXT;
-    v_idx_name TEXT;
-    v_on_delete TEXT;
-    v_comment TEXT;
+    v_alter_sql      TEXT;
+    v_old_data_type  TEXT;
+    v_new_data_type  TEXT;
+    v_is_managed     BOOLEAN;
+    v_ref_id_column  TEXT;
+    v_fk_name        TEXT;
+    v_idx_name       TEXT;
+    v_on_delete      TEXT;
+    v_comment        TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
 
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
-        RAISE EXCEPTION 'Cannot change table_name of a field';
+        -- Allow only when this is a cascade triggered by rename_dd_table()
+        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+            RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
+        END IF;
+        -- Cascade rename: metadata has been updated; no DDL needed here
+        RETURN NEW;
     END IF;
-    
-    IF OLD.field_name <> NEW.field_name THEN
-        RAISE EXCEPTION 'Cannot rename field. Drop and recreate instead.';
-    END IF;
-    
+
+    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
+    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
+
     IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+        RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
-    
+
     -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
-    -- DD-managed core column). Core fields can only have metadata updates (title, description,
-    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
-    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
     IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
+                USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
-    
+
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still keep the column comment in sync even if not managed
-        IF OLD.title IS DISTINCT FROM NEW.title
-           OR OLD.format IS DISTINCT FROM NEW.format
-           OR OLD.description IS DISTINCT FROM NEW.description
-           OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        -- Keep the column comment in sync even if not managed, but only when the
+        -- physical column actually exists (an unmanaged entity may be metadata-only
+        -- with no physical table/column to comment on).
+        IF (OLD.title IS DISTINCT FROM NEW.title
+            OR OLD.format IS DISTINCT FROM NEW.format
+            OR OLD.description IS DISTINCT FROM NEW.description
+            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name   = NEW.table_name
+                 AND column_name  = NEW.field_name
+           ) THEN
             v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
             IF v_comment IS NOT NULL THEN
                 EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
@@ -968,7 +942,20 @@ BEGIN
         RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;
-    
+
+    -- If the physical column is missing from a managed table (e.g. it was defined
+    -- while managed=false), create it now with the new field values and return.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.field_name
+    ) THEN
+        PERFORM apply_field_ddl(NEW);
+        RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+
     -- Keep column comment in sync when title/format/description/enum values change
     IF OLD.title IS DISTINCT FROM NEW.title
        OR OLD.format IS DISTINCT FROM NEW.format
@@ -982,55 +969,58 @@ BEGIN
         END IF;
     END IF;
 
-    -- Allow updating format (which changes data type)
+    -- Handle format change
     IF OLD.format <> NEW.format THEN
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
         v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-        v_alter_sql := format(
-            'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
-            NEW.table_name,
-            NEW.field_name,
-            v_new_data_type
-        );
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" type to % (format: %) in table "%"',
-            NEW.field_name, v_new_data_type, NEW.format, NEW.table_name;
-    END IF;
-    
-    -- Handle nullable change when format changes (e.g., text→reference would change nullability)
-    IF OLD.format <> NEW.format THEN
-        IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
-            IF is_nullable(NEW.format) THEN
-                v_alter_sql := format(
-                    'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
-            ELSE
-                v_alter_sql := format(
-                    'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
-            END IF;
-            EXECUTE v_alter_sql;
-            RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, is_nullable(NEW.format), NEW.table_name;
+
+        IF v_old_data_type <> v_new_data_type THEN
+            RAISE EXCEPTION
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', NEW.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_data_type,
+                          'new_type',   v_new_data_type)::text;
         END IF;
+
+        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
+            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
     END IF;
-    
+
+    -- Allow updating nullable constraint (derived from format)
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
+    END IF;
+
     -- Allow updating default value
     IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
         IF NEW.default_value IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                NEW.table_name,
-                NEW.field_name
+                NEW.table_name, NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                NEW.table_name,
-                NEW.field_name,
+                NEW.table_name, NEW.field_name,
                 quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
@@ -1038,39 +1028,39 @@ BEGIN
         RAISE NOTICE 'Changed column "%" default value in table "%"',
             NEW.field_name, NEW.table_name;
     END IF;
-    
+
     -- Handle foreign key reference changes
     IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
-        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
-        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
-        
-        -- Check if reference_table or reference_delete_mode changed
-        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR 
+        v_fk_name  := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s',  NEW.table_name, NEW.field_name);
+
+        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
            (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
-           (OLD.format <> NEW.format) THEN
-            
-            -- Drop existing foreign key constraint if it exists
+           (OLD.format <> NEW.format)
+        THEN
+            -- Drop existing FK constraint if it exists
             IF OLD.format IN ('reference', 'parent') THEN
                 EXECUTE format(
                     'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                    NEW.table_name,
-                    v_fk_name
+                    NEW.table_name, v_fk_name
                 );
                 RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
             END IF;
-            
-            -- Add new foreign key constraint if format is now 'reference' or 'parent'
-            IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
-                -- Get the id_column of the referenced table
+
+            -- Add new FK constraint
+            IF NEW.format IN ('reference', 'parent')
+               AND NEW.reference_table IS NOT NULL
+               AND NEW.reference_table != ''
+            THEN
                 SELECT id_column INTO v_ref_id_column
-                FROM entities
-                WHERE table_name = NEW.reference_table;
-                
+                FROM entities WHERE table_name = NEW.reference_table;
+
                 IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                    RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                        USING ERRCODE = '90212',
+                              HINT = jsonb_build_object('table', NEW.reference_table)::text;
                 END IF;
-                
-                -- Determine ON DELETE behavior
+
                 IF NEW.reference_delete_mode = 'clear' THEN
                     v_on_delete := 'SET NULL';
                 ELSIF NEW.reference_delete_mode = 'cascade' THEN
@@ -1078,128 +1068,111 @@ BEGIN
                 ELSE
                     v_on_delete := 'RESTRICT';
                 END IF;
-                
-                -- Add foreign key constraint
+
                 v_alter_sql := format(
                     'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-                    NEW.table_name,
-                    v_fk_name,
-                    NEW.field_name,
-                    NEW.reference_table,
-                    v_ref_id_column,
-                    v_on_delete
+                    NEW.table_name, v_fk_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete
                 );
                 EXECUTE v_alter_sql;
-                
-                -- Create index for foreign key if it doesn't exist
+
                 v_alter_sql := format(
                     'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
-                    v_idx_name,
-                    NEW.table_name,
-                    NEW.field_name
+                    v_idx_name, NEW.table_name, NEW.field_name
                 );
                 EXECUTE v_alter_sql;
-                
+
                 RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
-                    v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
+                    v_fk_name, NEW.table_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete;
             ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
-                -- Drop index if format changed from reference/parent to something else
-                EXECUTE format(
-                    'DROP INDEX IF EXISTS %I',
-                    v_idx_name
-                );
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_idx_name);
                 RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END IF;
     END IF;
-    
+
     -- Handle enum CHECK constraint changes
     IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
         DECLARE
-            v_check_name TEXT;
+            v_check_name      TEXT;
             v_enum_values_sql TEXT;
-            v_effective_enum JSONB;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
-            
-            -- Check if enum_values, input_type, or format changed
+
             IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
                OR (OLD.format <> NEW.format)
                OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
-                
-                -- Drop existing CHECK constraint if it exists
                 IF OLD.format = 'enum' THEN
                     EXECUTE format(
                         'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        NEW.table_name,
-                        v_check_name
+                        NEW.table_name, v_check_name
                     );
                     RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
                 END IF;
-                
-                -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
-                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
 
-                    -- Build SQL array from JSONB array for IN clause
+                IF NEW.format = 'enum'
+                   AND NEW.enum_values IS NOT NULL
+                   AND jsonb_typeof(NEW.enum_values) = 'array'
+                   AND jsonb_array_length(NEW.enum_values) > 0
+                THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
                         FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
-                    
-                    -- Add CHECK constraint
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        NEW.table_name,
-                        v_check_name,
-                        NEW.field_name,
-                        v_enum_values_sql
+                        NEW.table_name, v_check_name, NEW.field_name, v_enum_values_sql
                     );
                     EXECUTE v_alter_sql;
-                    
                     RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
                         v_check_name, NEW.table_name, NEW.field_name;
                 END IF;
             END IF;
         END;
     END IF;
-    
+
     -- Handle unique_value changes
     IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
         DECLARE
             v_unique_idx_name TEXT;
-            v_where_clause TEXT;
+            v_where_clause    TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
             IF NEW.unique_value THEN
-                -- Create partial unique index
                 IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                    v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
+                    v_where_clause := format('%I IS NOT NULL AND %I != ''''',
+                        NEW.field_name, NEW.field_name);
                 ELSE
                     v_where_clause := format('%I IS NOT NULL', NEW.field_name);
                 END IF;
                 EXECUTE format(
                     'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
-                    v_unique_idx_name,
-                    NEW.table_name,
-                    NEW.field_name,
-                    v_where_clause
+                    v_unique_idx_name, NEW.table_name, NEW.field_name, v_where_clause
                 );
-                RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+                RAISE NOTICE 'Created unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
             ELSE
-                -- Drop unique index
                 EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
-                RAISE NOTICE 'Dropped unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+                RAISE NOTICE 'Dropped unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION update_dd_field IS 
-'Trigger function that updates column properties when a field is updated.';
+COMMENT ON FUNCTION update_dd_field IS
+'Trigger function that updates column properties when a field is updated.
+table_name changes are allowed only as part of a cascade from rename_dd_table().
+field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
+format changes that alter the underlying data type are rejected by the BEFORE trigger.
+When the physical column is missing from a managed table (e.g. defined while managed=false),
+the column is created via apply_field_ddl() and the function returns early.';
 
 -- Apply trigger AFTER UPDATE on fields
 CREATE TRIGGER update_field_trigger

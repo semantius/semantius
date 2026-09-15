@@ -84,7 +84,7 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
 -- check is a pending trigger event, and PostgreSQL refuses ALTER TABLE on a
 -- table that has one; declaring the constraint before the seed would leave the
 -- seed's own INSERT queued and 0050's ALTER TABLE modules ENABLE ROW LEVEL
--- SECURITY - and the ALTERs in 0282 and 0284 - would fail with SQLSTATE 55006.
+-- SECURITY - and any later ALTER TABLE modules - would fail with SQLSTATE 55006.
 -- That is invisible when each migration runs in its own transaction and fatal
 -- when the extension installer runs all of them in one. ADD CONSTRAINT
 -- validates the rows already present with a single scan instead, queuing

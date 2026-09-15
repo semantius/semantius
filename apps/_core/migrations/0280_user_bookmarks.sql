@@ -29,7 +29,7 @@ INSERT INTO entities (
     table_name, singular, singular_label, plural_label,
     description, module_id, view_permission, edit_permission,
     id_column, label_column,
-    select_rule
+    select_rule, order_column
 )
 VALUES (
     'user_bookmarks',
@@ -42,7 +42,8 @@ VALUES (
     'user:read',
     'id',
     'title',
-    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb
+    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb,
+    'row_order'
 );
 
 -- =====================================================
@@ -107,13 +108,3 @@ CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
     FOR INSERT
     TO semantius_user
     WITH CHECK ((SELECT rbac.has_permission('user:read')) AND user_id = rbac.user_id());
-
--- =====================================================
--- STEP 5: Enable drag-and-drop row ordering
--- =====================================================
--- Triggers handle_entity_order_column() to:
---   • ALTER TABLE user_bookmarks ADD COLUMN row_order INTEGER NOT NULL DEFAULT 0
---   • install the zz_auto_order_user_bookmarks BEFORE INSERT trigger that
---     auto-assigns MAX(row_order)+10 (or 10 for the first row) when row_order=0
-
-UPDATE entities SET order_column = 'row_order' WHERE table_name = 'user_bookmarks';

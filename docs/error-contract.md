@@ -46,7 +46,7 @@ two classes PostgreSQL leaves empty:
 - **Class 99 is custom.** Errors a rule author raises, from `throw_error` or
   from a failing validation rule, carry a `99xxx` code minted by that author.
   A validation rule that core itself ships, marked `"source_module":
-  "platform"` in `0060_dd_schema.sql` and `0200_module_slug_validation.sql`,
+  "platform"` in `0060_dd_schema.sql`,
   is not custom: it fails with a class 90 catalog code like every other error
   of ours. The split between the two classes is a naming convention that
   keeps admin-minted numbers clear of the catalog's, not a trust boundary:

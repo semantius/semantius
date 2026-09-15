@@ -724,6 +724,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
+-- is_raci_actor and has_consultation call functions defined in 0210; no rule
+-- evaluated during install uses those operators.
 CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
 RETURNS jsonb AS $$
 DECLARE
@@ -757,6 +759,8 @@ DECLARE
     temp_str text;
     -- for text ops
     txt_a text; txt_b text;
+    -- for throw_error
+    err_code text; err_hint jsonb; err_name text; err_value jsonb;
 BEGIN
     -- Handle NULL rule
     IF rule IS NULL THEN RETURN 'null'::jsonb; END IF;
@@ -1381,14 +1385,88 @@ BEGIN
     END IF;
 
     -- ===================== throw_error =====================
-    -- Raises an exception with the given message.
-    -- Usage: {"throw_error":"message"}
+    -- Raises an error a client can localize (docs/error-contract.md).
+    -- Usage: {"throw_error":"Order is already shipped"}
+    --        {"throw_error":["Order ${id} is already shipped", "99017",
+    --                        ["id", {"var":"id"}]]}
+    --
+    -- The parameters are a FLAT list of name, value, name, value rather than an
+    -- object, because JsonLogic reads a single-key object as an operator call:
+    -- {"id": 3} would be dispatched as the operator `id` and die with
+    -- "Unrecognized operation". The list arrives already evaluated by the
+    -- depth-first pass above, so each value keeps the type its expression
+    -- produced - which is the point: ICU selects plurals on the JSON type, and
+    -- a number arriving as "3" would neither pluralize nor localize.
     IF op = 'throw_error' THEN
-        RAISE EXCEPTION '%', jl_to_text(a) USING ERRCODE = '23514';
+        err_code := CASE WHEN b IS NULL OR jsonb_typeof(b) = 'null'
+                         THEN '99000' ELSE jl_to_text(b) END;
+        IF err_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'throw_error code must be a class 99 number, not ${code_given}'
+                USING ERRCODE = '90911',
+                      HINT = jsonb_build_object('code_given', err_code)::text;
+        END IF;
+
+        err_hint := '{}'::jsonb;
+        IF c IS NOT NULL AND jsonb_typeof(c) = 'array' THEN
+            IF jsonb_array_length(c) % 2 <> 0 THEN
+                RAISE EXCEPTION 'throw_error parameters must be a flat list of name and value pairs'
+                    USING ERRCODE = '90914';
+            END IF;
+            FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
+                err_name  := c ->> (i * 2);
+                err_value := c -> (i * 2 + 1);
+                -- The generated validation trigger merges entity, rule and
+                -- field into this object, and its merge keeps whatever is
+                -- already there, so a rule that set one of them would win over
+                -- the trigger that actually knows where the error happened.
+                -- hint and code are the contract's other two reserved keys.
+                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
+                        USING ERRCODE = '90912',
+                              HINT = jsonb_build_object('name', err_name)::text;
+                END IF;
+                IF jsonb_typeof(err_value) IN ('object', 'array') THEN
+                    RAISE EXCEPTION 'throw_error parameter ${name} must be a scalar value, not ${json_type}'
+                        USING ERRCODE = '90913',
+                              HINT = jsonb_build_object('name', err_name,
+                                                        'json_type', jsonb_typeof(err_value))::text;
+                END IF;
+                err_hint := err_hint || jsonb_build_object(err_name, err_value);
+            END LOOP;
+        END IF;
+
+        RAISE EXCEPTION '%', jl_to_text(a)
+            USING ERRCODE = err_code, HINT = err_hint::text;
+    END IF;
+
+    -- ===================== is_raci_actor =====================
+    -- Returns true when the current user holds a role with the given
+    -- RACI letter for the process governing (entity, to_state).
+    -- Usage: {"is_raci_actor": ["table_name", "state", "accountable"]}
+    IF op = 'is_raci_actor' THEN
+        IF is_raci_actor(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
+    END IF;
+
+    -- ===================== has_consultation =====================
+    -- Returns true when an acted consulted raci_events row exists for
+    -- the record under (entity, to_state). Backs C-block gates.
+    -- Usage: {"has_consultation": ["table_name", "state", {"var":"id"}]}
+    IF op = 'has_consultation' THEN
+        IF has_consultation(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
+            RETURN 'true'::jsonb;
+        ELSE
+            RETURN 'false'::jsonb;
+        END IF;
     END IF;
 
     -- Unknown operator
-    RAISE EXCEPTION 'Unrecognized operation: %', op;
+    RAISE EXCEPTION 'Unrecognized operation: ${op}'
+        USING ERRCODE = '90910',
+              HINT = jsonb_build_object('op', op)::text;
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
@@ -1433,7 +1511,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9');
+      VALUES ('_core.0015_jsonlogic', '7e5214f2afbc1ab11a41805d2b5c8a61e0c701f6e6b2027c5779763bd2771d9b');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1472,7 +1550,8 @@ CREATE TABLE modules (
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT valid_module_slug CHECK (module_slug = '' OR module_slug ~ '^[a-z0-9_]+$'),
+    version INTEGER NOT NULL DEFAULT 0,
+    version_date TIMESTAMPTZ,
     CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
@@ -1480,42 +1559,9 @@ CREATE TABLE modules (
 -- Matches the format the DDL triggers apply (plural label + blank line + description),
 -- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
 COMMENT ON TABLE modules IS E'Modules\n\nGroups of related tables and permissions';
-COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module. Auto-generated from module_name if not provided.';
+COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module';
 COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
 COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
-
--- =====================================================
--- AUTO-SET MODULE SLUG TRIGGER
--- =====================================================
--- Automatically generates module_slug from module_name when not provided
-
-CREATE OR REPLACE FUNCTION auto_set_module_slug()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
-        NEW.module_slug := lower(regexp_replace(NEW.module_name, '[^a-zA-Z0-9]+', '_', 'g'));
-        -- Collapse consecutive underscores into a single one
-        NEW.module_slug := regexp_replace(NEW.module_slug, '_+', '_', 'g');
-        -- Remove leading/trailing underscores
-        NEW.module_slug := trim(both '_' from NEW.module_slug);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_module_slug IS
-'Trigger function that auto-generates module_slug from module_name when not provided';
-
-CREATE TRIGGER auto_set_module_slug_trigger
-    BEFORE INSERT OR UPDATE ON modules
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_module_slug();
-
-COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
-'Auto-generates module_slug from module_name when not explicitly provided';
-
--- Revoke default PUBLIC execute on trigger function
-REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 
 -- =====================================================
 -- PERMISSIONS AND ROLES
@@ -1550,7 +1596,7 @@ CREATE TABLE permissions (
     -- with a primary key violation.
     --
     -- Everything else is allowed, and the segment alphabet deliberately equals
-    -- the one modules.module_slug accepts (0200_module_slug_validation.sql:
+    -- the one modules.module_slug accepts (rule 90702 in 0060_dd_schema.sql:
     -- ^[a-z0-9][a-z0-9_-]*$, hyphens included), because a module scaffold mints
     -- <slug>:<verb>. Narrowing this without narrowing that would make a module
     -- slugged service-catalog unable to name its own permissions.
@@ -1624,16 +1670,16 @@ CREATE TABLE users (
     -- included: an API key resolves to users.id, and the JWT minted from it
     -- carries this column as its sub. A user brings theirs from the
     -- authentication provider (get_userinfo upserts on it); there is no
-    -- default, so a user row saved without one is refused. An agent (is_agent,
-    -- 0210) saved without one, or with an empty one, gets a generated identity
+    -- default, so a user row saved without one is refused. An agent (is_agent)
+    -- saved without one, or with an empty one, gets a generated identity
     -- from the trigger in 0210: 'agent:' plus a random UUID. An empty or blank
     -- string is refused for both (users_external_id_not_empty, below), so no
     -- row can exist that no session could ever act as.
     --
-    -- Uniqueness is not declared here. The data dictionary owns it: 0190 sets
-    -- fields.unique_value for this column, which builds users_external_id_unique
-    -- as a partial index excluding NULL and ''. With the empty string refused
-    -- that index is total in effect. A UNIQUE constraint here would be a second
+    -- Uniqueness is not declared here. The data dictionary owns it:
+    -- fields.unique_value is set for this column, and users_external_id_unique
+    -- is the partial index it stands for, excluding NULL and ''. With the empty
+    -- string refused that index is total in effect. A UNIQUE constraint here would be a second
     -- index over the same column. Callers upserting on this column must repeat
     -- the index predicate so PostgreSQL can infer the arbiter.
     external_id TEXT NOT NULL,
@@ -1644,11 +1690,16 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMPTZ,
+    first_name TEXT DEFAULT '',
+    last_name TEXT DEFAULT '',
+    is_agent BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT users_external_id_not_empty CHECK (btrim(external_id) <> '')
 );
 
 COMMENT ON TABLE users IS 'Users and agents';
 COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>. Never empty.';
+COMMENT ON COLUMN users.is_agent IS
+'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- User-Role mapping
 CREATE TABLE user_roles (
@@ -1825,7 +1876,7 @@ $pgsem__core_0020_rbac_schema$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', 'c6b7ba8e0103311d798d3883ef0f6cf3d1c34b381757e3c6d27b73993cd4f722');
+      VALUES ('_core.0020_rbac_schema', '24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -2150,36 +2201,84 @@ COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 -- NOT called by RLS policies (they use read-only lookup)
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
-    p_email TEXT DEFAULT NULL
+    p_email TEXT DEFAULT NULL,
+    p_display_name TEXT DEFAULT NULL,
+    p_first_name TEXT DEFAULT NULL,
+    p_last_name TEXT DEFAULT NULL
 )
 RETURNS INTEGER AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_id           INTEGER;
+    v_last_seen    TIMESTAMPTZ;
+    v_email        TEXT;
+    v_display_name TEXT;
+    v_first_name   TEXT;
+    v_last_name    TEXT;
 BEGIN
-    PERFORM rbac.uid();
-
-    -- Validate external_id is not empty
     IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty';
+        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
     END IF;
 
-    INSERT INTO users (external_id, email, last_seen)
-    VALUES (p_external_id, p_email, CURRENT_TIMESTAMP)
-    -- The predicate is not decoration: the only unique index on external_id is
-    -- the dictionary's partial one, and PostgreSQL infers an arbiter index only
-    -- from a predicate that matches. Without it this raises "no unique or
-    -- exclusion constraint matching the ON CONFLICT specification".
-    ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
-    SET last_seen = CURRENT_TIMESTAMP,
-        email = COALESCE(EXCLUDED.email, users.email)
-    RETURNING id INTO v_user_id;
-    
-    RETURN v_user_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+    SELECT id, last_seen, email, display_name, first_name, last_name
+      INTO v_id, v_last_seen, v_email, v_display_name, v_first_name, v_last_name
+      FROM users WHERE external_id = p_external_id;
 
-COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS 
-'Creates or updates user record from JWT claims. Updates last_seen timestamp. Called by get_userinfo().';
+    IF FOUND THEN
+        -- Each test below is the SET expression of the UPDATE compared with
+        -- the stored value, so the row is written exactly when the write
+        -- would change it, or when the heartbeat is older than the throttle.
+        -- last_seen IS NULL is tested on its own: NULL < timestamp is never true.
+        IF v_last_seen IS NULL
+           OR v_last_seen < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+           OR v_email        IS DISTINCT FROM COALESCE(p_email, v_email)
+           OR v_display_name IS DISTINCT FROM COALESCE(NULLIF(p_display_name, ''), v_display_name)
+           OR v_first_name   IS DISTINCT FROM COALESCE(NULLIF(p_first_name, ''), v_first_name)
+           OR v_last_name    IS DISTINCT FROM COALESCE(NULLIF(p_last_name, ''), v_last_name)
+        THEN
+            UPDATE users
+               SET last_seen    = CURRENT_TIMESTAMP,
+                   email        = COALESCE(p_email, email),
+                   display_name = COALESCE(NULLIF(p_display_name, ''), display_name),
+                   first_name   = COALESCE(NULLIF(p_first_name, ''), first_name),
+                   last_name    = COALESCE(NULLIF(p_last_name, ''), last_name)
+             WHERE id = v_id;
+        END IF;
+        RETURN v_id;
+    END IF;
+
+    -- First login. ON CONFLICT covers two first logins racing: the loser
+    -- updates the winner's row once, unthrottled, which is harmless.
+    INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
+    VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
+    -- The arbiter is the dictionary's partial unique index, so the predicate
+    -- has to be repeated for inference to work.
+    ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
+    SET last_seen    = CURRENT_TIMESTAMP,
+        email        = COALESCE(EXCLUDED.email, users.email),
+        display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
+        first_name   = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
+        last_name    = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
+'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
+
+-- Provisioning is not a request-role capability. This function takes the subject
+-- as a parameter and writes to users, so a caller that could reach it could
+-- create a principal that never authenticated, overwrite another one's email, or
+-- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
+-- 0050 reads. It is SECURITY INVOKER: its one caller, public.get_userinfo()
+-- (0080), is SECURITY DEFINER, so a call reached through get_userinfo runs as
+-- the owner regardless, and get_userinfo's own rbac.uid() call is the
+-- authentication gate - this function trusts the subject its caller already
+-- authenticated rather than repeating that check itself. The revoke from semantius_user has to be explicit:
+-- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
+-- this schema.
+REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
 
 -- =====================================================
 -- REQUEST CONTEXT - LAZY INITIALIZATION
@@ -2465,8 +2564,8 @@ BEGIN
     -- and request.jwt.claim.sub are both transaction-local and both written by
     -- the same cold pass. The Neon path returns the setting verbatim, the
     -- Supabase fan-out writes it before re-reading it, the PostgreSQL 18
-    -- override rewrites it from system_user, and the two get_userinfo prefills
-    -- assign rbac.uid() to it.
+    -- override rewrites it from system_user, and the get_userinfo prefill
+    -- assigns rbac.uid() to it.
     IF system_user LIKE 'oauth:%' THEN
         PERFORM rbac.ensure_context_initialized();
     ELSE
@@ -3071,7 +3170,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '93a1fa2ed19b47b7c2e6fe568f34df4884f14fc79a1d9acf1289c319c3ef7389');
+      VALUES ('_core.0030_rbac_functions', 'b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3166,7 +3265,7 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
 -- check is a pending trigger event, and PostgreSQL refuses ALTER TABLE on a
 -- table that has one; declaring the constraint before the seed would leave the
 -- seed's own INSERT queued and 0050's ALTER TABLE modules ENABLE ROW LEVEL
--- SECURITY - and the ALTERs in 0282 and 0284 - would fail with SQLSTATE 55006.
+-- SECURITY - and any later ALTER TABLE modules - would fail with SQLSTATE 55006.
 -- That is invisible when each migration runs in its own transaction and fatal
 -- when the extension installer runs all of them in one. ADD CONSTRAINT
 -- validates the rows already present with a single scan instead, queuing
@@ -3196,7 +3295,7 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0040_rbac_seed', '692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623');
+      VALUES ('_core.0040_rbac_seed', '5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3873,6 +3972,7 @@ CREATE TABLE IF NOT EXISTS entities (
     catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- closed data-class axis (write tier derives from it)
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
+    order_column TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -3899,7 +3999,8 @@ CREATE TABLE IF NOT EXISTS entities (
     -- seed runs before the add_dd_field trigger exists, so no DD-built CHECK is generated.
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
-    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array')
+    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -3927,6 +4028,7 @@ COMMENT ON COLUMN entities.id_column IS 'Name of primary key column (created aut
 COMMENT ON COLUMN entities.label_column IS 'Name of label/display column (created automatically)';
 COMMENT ON COLUMN entities.managed IS 'When false, automatic DDL execution for table and field changes is disabled';
 COMMENT ON COLUMN entities.audit_log IS 'When TRUE, DML operations on this table are logged to audit_record_logs';
+COMMENT ON COLUMN entities.order_column IS 'Store a fixed row order in this column';
 COMMENT ON COLUMN entities.computed_fields IS
 'Ordered list of {name, jsonlogic, description?} entries. Each entry derives the named field from the same record before write. Default [].';
 COMMENT ON COLUMN entities.validation_rules IS
@@ -3941,7 +4043,8 @@ COMMENT ON COLUMN entities.select_rule IS
 
 CREATE TABLE IF NOT EXISTS fields (
     id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
-    table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE,
+    -- ON UPDATE CASCADE carries a rename of entities.table_name (0140) to the fields rows.
+    table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
     field_name TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
@@ -3984,22 +4087,6 @@ CREATE TABLE IF NOT EXISTS fields (
     
     -- Validate field_name follows PostgreSQL naming conventions
     CONSTRAINT valid_field_name CHECK (field_name ~ '^[a-z_][a-z0-9_]*$'),
-    
-    -- Validate format is a known format
-    CONSTRAINT valid_format CHECK (
-        format IN (
-            -- Custom SemSchema formats
-            'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
-            -- Standard JSON Schema formats
-            'date', 'time', 'date-time', 'duration',
-            'uri', 'uri-reference', 'uri-template', 'url',
-            'email', 'hostname', 'ipv4', 'ipv6', 'regex', 'uuid',
-            'json-pointer', 'json-pointer-uri-fragment', 'relative-json-pointer',
-            'byte', 'int32', 'int64', 'float', 'double', 'password', 'binary',
-            -- Primitive types from JSON Schema
-            'string', 'number', 'integer', 'boolean', 'object', 'array', 'null'
-        )
-    ),
     
 
     
@@ -4231,34 +4318,242 @@ CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
 -- These are marked with a non-empty ctype (core) to indicate they are protected system columns
 
 -- Insert entities metadata for core tables
-INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules)
-VALUES 
-    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
-     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb),
-    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
-     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}}]'::jsonb),
-    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
-     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb),
-    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
-    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
-    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb),
-    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
-     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb);
-
--- Stamp the pure junctions explicitly (entity_type='junction' is authoritative; see dd_is_junction
--- in 0145). The structural test is two parent FK legs with no relationship payload of their own —
--- audit/provenance columns (assigned_at/assigned_by, granted_at/granted_by, origin, created_at)
+--
+-- entity_type: the pure junctions are stamped explicitly (entity_type='junction' is authoritative; see
+-- dd_is_junction in 0145). The structural test is two parent FK legs with no relationship payload of their
+-- own — audit/provenance columns (assigned_at/assigned_by, granted_at/granted_by, origin, created_at)
 -- don't count. permission_hierarchy qualifies: its two legs both point at permissions and its only
 -- non-leg fields are origin (provenance) and created_at (audit). Stamping it is authoritative — the
 -- dd_is_junction heuristic alone would miss it because origin is not an audit-named/ctype column.
--- Runs before the entity_type-watching triggers (0145), so it's a plain seed-time stamp; the
--- label-function backfill at the end of 0145 then builds the junction-shaped labels for all entities.
-UPDATE entities SET entity_type = 'junction'
-WHERE table_name IN ('user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy');
+-- This seed runs before the entity_type-watching triggers (0145); the label-function backfill at the
+-- end of 0145 then builds the junction-shaped labels for all entities.
+--
+-- Rule 90702 accepts an empty module_slug: it is the column default and not every flow sets a slug.
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column)
+VALUES 
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, ''),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
+     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order'),
+    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, ''),
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
+     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'unclassified', TRUE, ''),
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
+     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, ''),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'unclassified', TRUE, ''),
+    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
+    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
+    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
+    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
+     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '');
+
+-- =====================================================
+-- FIELD FORMATS
+-- =====================================================
+-- SemSchema's formats.json, verbatim. json, not jsonb: jsonb does not keep key
+-- order, and the key order is the order the fields.format enum offers.
+
+CREATE OR REPLACE FUNCTION dd_formats()
+RETURNS json LANGUAGE sql IMMUTABLE SET search_path = public
+AS $f$ SELECT $formats${
+  "json": {
+    "type": [
+      "object",
+      "array",
+      "string",
+      "number",
+      "integer",
+      "boolean",
+      "null"
+    ],
+    "description": "JSON value, or JSON text that parses to one"
+  },
+  "html": {
+    "type": "string",
+    "description": "HTML markup; must contain at least one tag"
+  },
+  "text": {
+    "type": "string",
+    "description": "Single-line text; no format check"
+  },
+  "multiline": {
+    "type": "string",
+    "description": "Multi-line text; no format check"
+  },
+  "code": {
+    "type": "string",
+    "description": "Source code; no format check"
+  },
+  "jsonata": {
+    "type": "string",
+    "description": "JSONata expression; no format check"
+  },
+  "jsonlogic": {
+    "type": [
+      "object",
+      "array",
+      "string",
+      "number",
+      "integer",
+      "boolean",
+      "null"
+    ],
+    "description": "JsonLogic rule, checked against the operators of the Semantius backend"
+  },
+  "reference": {
+    "type": "integer",
+    "description": "Key of a record in another entity"
+  },
+  "parent": {
+    "type": "integer",
+    "description": "Key of the record that owns this one"
+  },
+  "enum": {
+    "type": "string",
+    "description": "One of the values listed in enum"
+  },
+  "date": {
+    "type": "string",
+    "description": "Full date, RFC 3339 (2026-09-15)"
+  },
+  "time": {
+    "type": "string",
+    "description": "Time of day, RFC 3339 (14:30:00Z)"
+  },
+  "date-time": {
+    "type": "string",
+    "description": "Date and time, RFC 3339 (2026-09-15T14:30:00Z)"
+  },
+  "duration": {
+    "type": "string",
+    "description": "Duration, ISO 8601 (P3DT4H)"
+  },
+  "uri": {
+    "type": "string",
+    "description": "Absolute URI, RFC 3986; Unicode allowed as in an IRI (https://müller.de/straße); validates the same as iri"
+  },
+  "uri-reference": {
+    "type": "string",
+    "description": "URI or relative reference, RFC 3986; Unicode allowed as in an IRI (/straße, #top); validates the same as iri-reference"
+  },
+  "iri": {
+    "type": "string",
+    "description": "Absolute IRI, RFC 3987 (https://müller.de/straße); validates the same as uri"
+  },
+  "iri-reference": {
+    "type": "string",
+    "description": "IRI or relative reference, RFC 3987 (/straße, #top); validates the same as uri-reference"
+  },
+  "uri-template": {
+    "type": "string",
+    "description": "URI template, RFC 6570 (/users/{id})"
+  },
+  "url": {
+    "type": "string",
+    "description": "URL with an http, https or ftp scheme"
+  },
+  "email": {
+    "type": "string",
+    "description": "Email address, RFC 5321; Unicode allowed as in RFC 6531 (jörg@müller.de); validates the same as idn-email"
+  },
+  "idn-email": {
+    "type": "string",
+    "description": "Internationalized email address, RFC 6531 (jörg@müller.de); validates the same as email"
+  },
+  "hostname": {
+    "type": "string",
+    "description": "Host name, RFC 1123; Unicode allowed as in RFC 5890 (müller.de, xn--mller-kva.de); validates the same as idn-hostname"
+  },
+  "idn-hostname": {
+    "type": "string",
+    "description": "Internationalized host name, RFC 5890 (müller.de, xn--mller-kva.de); validates the same as hostname"
+  },
+  "ipv4": {
+    "type": "string",
+    "description": "IPv4 address"
+  },
+  "ipv6": {
+    "type": "string",
+    "description": "IPv6 address"
+  },
+  "regex": {
+    "type": "string",
+    "description": "Regular expression"
+  },
+  "uuid": {
+    "type": "string",
+    "description": "UUID, RFC 4122"
+  },
+  "json-pointer": {
+    "type": "string",
+    "description": "JSON Pointer, RFC 6901 (/a/0)"
+  },
+  "json-pointer-uri-fragment": {
+    "type": "string",
+    "description": "JSON Pointer as a URI fragment (#/a/0)"
+  },
+  "relative-json-pointer": {
+    "type": "string",
+    "description": "Relative JSON Pointer (1/a)"
+  },
+  "byte": {
+    "type": "string",
+    "description": "Base64-encoded data"
+  },
+  "binary": {
+    "type": "string",
+    "description": "Binary data; no format check"
+  },
+  "password": {
+    "type": "string",
+    "description": "Password; no format check"
+  },
+  "int32": {
+    "type": "integer",
+    "description": "Signed 32-bit integer"
+  },
+  "int64": {
+    "type": "integer",
+    "description": "Signed 64-bit integer"
+  },
+  "float": {
+    "type": "number",
+    "description": "Single-precision floating-point number"
+  },
+  "double": {
+    "type": "number",
+    "description": "Double-precision floating-point number"
+  },
+  "string": {
+    "type": "string",
+    "description": "Any string"
+  },
+  "number": {
+    "type": "number",
+    "description": "Any number"
+  },
+  "integer": {
+    "type": "integer",
+    "description": "Any integer"
+  },
+  "boolean": {
+    "type": "boolean",
+    "description": "true or false"
+  },
+  "object": {
+    "type": "object",
+    "description": "Any JSON object"
+  },
+  "array": {
+    "type": "array",
+    "description": "Any JSON array"
+  }
+}$formats$::json $f$;
+
+COMMENT ON FUNCTION dd_formats() IS
+'The field formats (SemSchema formats.json): format name -> {type, description}, in the order the fields.format enum offers them.';
+
+REVOKE EXECUTE ON FUNCTION dd_formats() FROM PUBLIC;
 
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
@@ -4269,18 +4564,9 @@ WHERE table_name IN ('user_roles', 'role_permissions', 'user_permissions', 'perm
 DO $$
 DECLARE
   -- Define all enum value arrays in one place
-  format_values TEXT[] := ARRAY[
-    -- Custom SemSchema formats
-    'json', 'html', 'text', 'multiline', 'code', 'jsonata', 'reference', 'parent', 'enum',
-    -- Standard JSON Schema formats
-    'date', 'time', 'date-time', 'duration',
-    'uri', 'uri-reference', 'uri-template', 'url',
-    'email', 'hostname', 'ipv4', 'ipv6', 'regex', 'uuid',
-    'json-pointer', 'json-pointer-uri-fragment', 'relative-json-pointer',
-    'byte', 'int32', 'int64', 'float', 'double', 'password', 'binary',
-    -- Primitive types from JSON Schema
-    'string', 'number', 'integer', 'boolean', 'object', 'array', 'null'
-  ];
+  format_values TEXT[] := ARRAY(
+    SELECT k FROM json_object_keys(dd_formats()) WITH ORDINALITY AS t(k, n) ORDER BY n
+  );
   input_type_values TEXT[] := ARRAY['default', 'required', 'readonly', 'disabled', 'hidden'];
   width_values TEXT[] := ARRAY['default', 's', 'm', 'w'];
   ctype_values TEXT[] := ARRAY['', 'id', 'label', 'audit', 'core'];
@@ -4290,6 +4576,11 @@ DECLARE
   cube_type_values TEXT[] := ARRAY['auto', 'dimension', 'measure', 'disabled'];
 BEGIN
   -- Add enum constraints
+  EXECUTE format(
+    'ALTER TABLE fields ADD CONSTRAINT valid_format CHECK (format = ANY(%L))',
+    format_values
+  );
+
   EXECUTE format(
     'ALTER TABLE fields ADD CONSTRAINT valid_input_type CHECK (input_type = ANY(%L))',
     input_type_values
@@ -4328,34 +4619,36 @@ BEGIN
   -- Insert field metadata for fields table using the same enum arrays
   -- Note: fields table has a generated primary key (id = table_name || '.' || field_name)
   -- All field definitions for the fields table are consolidated here with NO duplication
-  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
+  -- input_type_rule: the format-dependent fields default to 'hidden' and become visible/required
+  -- only when the selected format makes them meaningful.
+  INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, enum_values, reference_table, reference_delete_mode, relationship_label, input_type_rule)
   VALUES
-      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  10,     'readonly', 'default', 'id',    FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', 'core',  TRUE,  NULL,                            'entities',  'cascade', 'has fields'),
-      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 30,     'required', 'default', 'core',  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, 40,     'required', 'default', 'core',  FALSE, to_jsonb(format_values),         '',          '',        ''),
-      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label', TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       'core',  TRUE,  NULL,                            '',          '',        ''),
-      ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        ''),
-      ('fields', 'width',                'Width',                '',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, to_jsonb(width_values),          '',          '',        ''),
-      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, to_jsonb(ctype_values),          '',          '',        ''),
-      ('fields', 'searchable',           'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'enum_values',          'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'precision',            'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_table',      'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 180,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', 'core',  FALSE, to_jsonb(reference_delete_mode_values), '', '',     ''),
-      ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',   'has',      'text',      FALSE, 200,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 210,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        ''),
-      ('fields', 'cube_type',            'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        ''),
-      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'json',      FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        ''),
-      ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        ''),
-      ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '');
+      ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  10,     'readonly', 'default', 'id',    FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'table_name',           'Table Name',           '',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', 'core',  TRUE,  NULL,                            'entities',  'cascade', 'has fields', '{}'::jsonb),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 30,     'required', 'default', 'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, 40,     'required', 'default', 'core',  FALSE, to_jsonb(format_values),         '',          '',        '', '{}'::jsonb),
+      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label', TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'is_pk',                'Is Primary Key',       '',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'default_value',        'Default Value',        '',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'::jsonb),
+      ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'input_type',           'Input Type',           '',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
+      ('fields', 'width',                'Width',                '',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, to_jsonb(width_values),          '',          '',        '', '{}'::jsonb),
+      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, to_jsonb(ctype_values),          '',          '',        '', '{}'::jsonb),
+      ('fields', 'searchable',           'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
+      ('fields', 'enum_values',          'Enum Values',          'JSON array of allowed enum values',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
+      ('fields', 'precision',            'Precision',            'Decimal scale used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
+      ('fields', 'reference_table',      'Reference Table',      'Table name for foreign key relationships',                               '',         'text',      FALSE, 180,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','ON DELETE behavior: restrict, clear, or cascade',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', 'core',  FALSE, to_jsonb(reference_delete_mode_values), '', '',     '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
+      ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity',   'has',      'text',      FALSE, 200,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity (overrides default when set)','',        'text',      FALSE, 210,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
+      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity (overrides default when set)', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
+      ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index (NULL and empty strings are not enforced)', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        '', '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","jsonlogic","object","array"]]},"hidden","default"]}'::jsonb),
+      ('fields', 'cube_type',            'Cube Type',            '',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        '', '{}'::jsonb),
+      ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic condition for field visibility',                               '',         'jsonlogic', FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        '', '{}'::jsonb),
+      ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb);
 
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
@@ -4363,121 +4656,96 @@ BEGIN
       ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, 119, 'default', 'default', 'core', FALSE, to_jsonb(edit_mode_values), '', '', ''),
       ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, 121, 'default', 'default', 'core', FALSE, to_jsonb(cube_mode_values), '', '', '');
 
-  -- Conditional visibility rules for format-dependent fields on the fields table.
-  -- These fields default to 'hidden' and become visible/required only when the
-  -- selected format makes them meaningful.
-  UPDATE fields SET input_type_rule = rule::jsonb
-  FROM (VALUES
-    ('enum_values',          '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'),
-    ('precision',            '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'),
-    ('reference_table',      '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
-    ('reference_delete_mode','{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
-    ('relationship_label',   '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'),
-    ('singular_label_parent','{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
-    ('plural_label_parent',  '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'),
-    ('default_value',        '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'),
-    ('searchable',           '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'),
-    ('unique_value',         '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","object","array"]]},"hidden","default"]}')
-  ) AS r(field_name, rule)
-  WHERE fields.table_name = 'fields' AND fields.field_name = r.field_name;
 END $$;
 
 -- Insert fields metadata for entities table
-INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+-- entity_type is a closed enum; its enum_values mirror the valid_entity_type CHECK inline in
+-- CREATE TABLE entities (exactly 6 values).
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values)
 VALUES
-    ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  1,   'required', 'default', 'id',   TRUE,  '', '',        ''),
-    ('entities', 'singular',       'Singular',       'Singular form of table name (auto-derived from table_name when blank)', '', 'text',      FALSE, 10,  'default',  'default', 'core', TRUE,  '', '',        ''),
-    ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, 20,  'readonly', 'default', 'core', TRUE,  '', '',        ''),
-    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports',          '',             'text',      FALSE, 30,  'default',  'default', 'label',TRUE,  '', '',        ''),
-    ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports',            '',             'text',      FALSE, 40,  'default',  'default', 'core', TRUE,  '', '',        ''),
-    ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        ''),
-    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains'),
-    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'reference', FALSE, 80,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing'),
-    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing'),
-    ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        ''),
-    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'json',      FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'json',      FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'json',      FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        ''),
-    ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'readonly', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', ''),
-    ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        ''),
-    ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '');
-
--- entity_type is a closed enum; the physical CHECK is inline in CREATE TABLE entities (exactly 6
--- values). Set the DD enum_values for UI/get_schema, mirroring how module_type is handled below.
-UPDATE fields SET enum_values = '["operational_workflow", "operational_record", "catalog", "junction", "computed", "unclassified"]'::jsonb
-WHERE table_name = 'entities' AND field_name = 'entity_type';
+    ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  1,   'required', 'default', 'id',   TRUE,  '', '',        '', NULL),
+    ('entities', 'singular',       'Singular',       'Singular form of table name (auto-derived from table_name when blank)', '', 'text',      FALSE, 10,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, 20,  'readonly', 'default', 'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports',          '',             'text',      FALSE, 30,  'default',  'default', 'label',TRUE,  '', '',        '', NULL),
+    ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports',            '',             'text',      FALSE, 40,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'module_id',      'Module Id',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains', NULL),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table',         'public:read',  'reference', FALSE, 80,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
+    ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', '', NULL),
+    ('entities', 'order_column',   'Order Column',   'Store a fixed row order in this column',                '',             'text',      FALSE, 112, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'managed',        'Managed',        'When false, automatic DDL execution is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'audit_log',      'Audit Log',      'When enabled, DML operations on this table are logged to the audit log', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '', 'has', NULL),
+    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '',             'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','',     'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'jsonlogic', FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'entity_type',    'Entity Type',    'Data-class axis (operational_workflow|operational_record|catalog|junction|computed|unclassified). Write tier derives from it; unclassified = absent/derive-locally.', 'unclassified', 'enum', FALSE, 122, 'required', 'default', 'core', FALSE, '', '', '', '["operational_workflow", "operational_record", "catalog", "junction", "computed", "unclassified"]'::jsonb),
+    ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Empty = created outside the deploy pipeline.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', '', NULL),
+    ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', '', NULL),
+    ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 129, 'default', 'w', 'core', FALSE, '', '', '', NULL),
+    ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL),
+    ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL);
 
 -- Insert fields metadata for users table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
 VALUES
-    ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-    ('users', 'external_id', 'External Id', 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', ''),
-    ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', ''),
-    ('users', 'display_name', 'Display Name', '', 'text', FALSE, 25, 'default', 'default', 'core', TRUE, '', ''),
-    ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, 30, 'default', 'default', 'core', FALSE, '', ''),
-    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, 35, 'default', 'w', 'core', FALSE, '', ''),
-    ('users', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '', ''),
-    ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '', ''),
-    ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '');
+    ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
+    ('users', 'external_id', 'External Id', 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
+    ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', '', '', FALSE),
+    ('users', 'first_name', 'First Name', 'First name from JWT given_name claim', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'last_name', 'Last Name', 'Last name from JWT family_name claim', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'display_name', 'Display Name', '', 'text', FALSE, 25, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, 30, 'default', 'default', 'core', FALSE, '', '', '', FALSE),
+    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, 35, 'default', 'w', 'core', FALSE, '', '', '', FALSE),
+    ('users', 'is_agent', 'Is Agent', 'When TRUE this user is a service principal (agent)', 'boolean', FALSE, 100, 'default', 'default', '', FALSE, '', '', 'false', FALSE),
+    ('users', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
+    ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
+    ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE);
 
 -- Insert fields metadata for modules table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values)
 VALUES
-    ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', ''),
-    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', ''),
-    ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', ''),
-    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', ''),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict'),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module', 'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', ''),
-    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'access_scope', 'Access Scope', 'Basic for simple read/edit; full for role tiers, approvals & gating', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', ''),
-    ('modules', 'manage_permission', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
-    ('modules', 'admin_permission', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear'),
-    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
-    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
-    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear'),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', ''),
-    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', ''),
-    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', 'audit', FALSE, '', ''),
-    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', 'audit', FALSE, '', '');
+    ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL),
+    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL),
+    ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL),
+    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict', NULL),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module', 'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'access_scope', 'Access Scope', 'Basic for simple read/edit; full for role tiers, approvals & gating', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', '', '["basic", "full"]'::jsonb),
+    ('modules', 'manage_permission', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL),
+    ('modules', 'admin_permission', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL),
+    ('modules', 'dashboard_config', 'Dashboard Configuration', '', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', '', NULL),
+    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '', NULL),
+    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', 'audit', FALSE, '', '', NULL),
+    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', 'audit', FALSE, '', '', NULL);
 
--- Set enum_values for module_type field
-UPDATE fields SET enum_values = '["domain", "master"]'::jsonb WHERE table_name = 'modules' AND field_name = 'module_type';
-
--- Set enum_values for access_scope field (DB column default is 'basic')
-UPDATE fields SET enum_values = '["basic", "full"]'::jsonb WHERE table_name = 'modules' AND field_name = 'access_scope';
-
--- Insert fields metadata for roles table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+-- Insert fields metadata for roles table (slug's unique_value matches the UNIQUE constraint on the table)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, unique_value, enum_values)
 VALUES
-    ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      ''),
-    ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      ''),
-    ('roles', 'slug',        'Slug',        'Snake_case unique identifier for role, auto-generated from role_name', 'text', FALSE, 15, 'readonly', 'default', 'core', FALSE, '', '', ''),
-    ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Empty = created outside the pipeline.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', ''),
-    ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      ''),
-    ('roles', 'origin',      'Origin',      '', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', ''),
-    ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains'),
-    ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      ''),
-    ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '');
-
--- Mark roles.slug as unique (matches UNIQUE constraint on actual table)
-UPDATE fields SET unique_value = TRUE WHERE table_name = 'roles' AND field_name = 'slug';
-
--- Set enum_values for roles.origin field
-UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'roles' AND field_name = 'origin';
+    ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL),
+    ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL),
+    ('roles', 'slug',        'Slug',        'Snake_case unique identifier for role, auto-generated from role_name', 'text', FALSE, 15, 'readonly', 'default', 'core', FALSE, '', '', '', TRUE, NULL),
+    ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Empty = created outside the pipeline.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL),
+    ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL),
+    ('roles', 'origin',      'Origin',      '', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE, '["system", "model", "model_master", "user"]'::jsonb),
+    ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL),
+    ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL),
+    ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL);
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -4493,55 +4761,40 @@ VALUES
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '');
 
 -- Insert fields metadata for user_roles table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
-    ('user_roles', 'id',          'Id',          'Generated identifier (user_id.role_id)',  'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',      '',        ''),
-    ('user_roles', 'user_id',     'User Id',     'User this role is assigned to',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users', 'cascade', 'has roles'),
-    ('user_roles', 'role_id',     'Role Id',     'Role assigned to the user',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'roles', 'cascade', 'assigned to'),
-    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',      '',        ''),
-    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users', 'clear',   'has assigned');
-
-UPDATE fields SET singular_label_parent = 'Role', plural_label_parent = 'Roles' WHERE table_name = 'user_roles' AND field_name = 'user_id';
-UPDATE fields SET singular_label_parent = 'User', plural_label_parent = 'Users' WHERE table_name = 'user_roles' AND field_name = 'role_id';
+    ('user_roles', 'id',          'Id',          'Generated identifier (user_id.role_id)',  'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',      '',        '', '', ''),
+    ('user_roles', 'user_id',     'User Id',     'User this role is assigned to',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users', 'cascade', 'has roles', 'Role', 'Roles'),
+    ('user_roles', 'role_id',     'Role Id',     'Role assigned to the user',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'roles', 'cascade', 'assigned to', 'User', 'Users'),
+    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',      '',        '', '', ''),
+    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users', 'clear',   'has assigned', '', '');
 
 -- Insert fields metadata for role_permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
-    ('role_permissions', 'id',              'Id',              'Generated identifier (role_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        ''),
-    ('role_permissions', 'role_id',         'Role Id',         'Role this permission is granted to',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions'),
-    ('role_permissions', 'permission_name', 'Permission Name', 'Permission granted to the role',                 'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to'),
-    ('role_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        ''),
-    ('role_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted');
-
-UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'role_id';
-UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'role_permissions' AND field_name = 'permission_name';
+    ('role_permissions', 'id',              'Id',              'Generated identifier (role_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        '', '', ''),
+    ('role_permissions', 'role_id',         'Role Id',         'Role this permission is granted to',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions', 'Permission', 'Permissions'),
+    ('role_permissions', 'permission_name', 'Permission Name', 'Permission granted to the role',                 'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Permission', 'Permissions'),
+    ('role_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        '', '', ''),
+    ('role_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
 
 -- Insert fields metadata for user_permissions table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
-    ('user_permissions', 'id',              'Id',              'Generated identifier (user_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
-    ('user_permissions', 'user_id',         'User Id',         'User this permission is granted to',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions'),
-    ('user_permissions', 'permission_name', 'Permission Name', 'Permission granted to the user',                 'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to'),
-    ('user_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        ''),
-    ('user_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted');
-
-UPDATE fields SET singular_label_parent = 'Permission', plural_label_parent = 'Permissions' WHERE table_name = 'user_permissions' AND field_name = 'user_id';
-UPDATE fields SET singular_label_parent = 'User',       plural_label_parent = 'Users'       WHERE table_name = 'user_permissions' AND field_name = 'permission_name';
+    ('user_permissions', 'id',              'Id',              'Generated identifier (user_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', ''),
+    ('user_permissions', 'user_id',         'User Id',         'User this permission is granted to',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions', 'Permission', 'Permissions'),
+    ('user_permissions', 'permission_name', 'Permission Name', 'Permission granted to the user',                 'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to', 'User', 'Users'),
+    ('user_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        '', '', ''),
+    ('user_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
 
 -- Insert fields metadata for permission_hierarchy table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent, enum_values)
 VALUES
-    ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        ''),
-    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission that includes other permissions',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes'),
-    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one',                'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in'),
-    ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        ''),
-    ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '');
-
-UPDATE fields SET singular_label_parent = 'Includes',    plural_label_parent = 'Includes'    WHERE table_name = 'permission_hierarchy' AND field_name = 'including_permission_name';
-UPDATE fields SET singular_label_parent = 'Included in', plural_label_parent = 'Included in' WHERE table_name = 'permission_hierarchy' AND field_name = 'included_permission_name';
-
--- Set enum_values for permission_hierarchy.origin field
-UPDATE fields SET enum_values = '["system", "model", "model_master", "user"]'::jsonb WHERE table_name = 'permission_hierarchy' AND field_name = 'origin';
+    ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', '', NULL),
+    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission that includes other permissions',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes', 'Includes', 'Includes', NULL),
+    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one',                'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL),
+    ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created',                             'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb),
+    ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '', '', '', NULL);
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
@@ -4561,7 +4814,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b');
+      VALUES ('_core.0060_dd_schema', '0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -4614,8 +4867,11 @@ BEGIN
         -- Boolean format
         WHEN 'boolean' THEN 'BOOLEAN'
         
-        -- JSON formats
+        -- JSON formats. jsonlogic is stored as JSONB, unlike jsonata: a JSONata
+        -- expression is source text, a JsonLogic rule is itself a JSON value that
+        -- evaluate_json_logic() walks as jsonb.
         WHEN 'json' THEN 'JSONB'
+        WHEN 'jsonlogic' THEN 'JSONB'
         WHEN 'object' THEN 'JSONB'
         WHEN 'array' THEN 'JSONB'
         
@@ -4683,18 +4939,7 @@ COMMENT ON FUNCTION field_data_type IS
 CREATE OR REPLACE FUNCTION format_to_json_type(p_format TEXT)
 RETURNS JSONB AS $$
 BEGIN
-    RETURN CASE 
-        -- Special case: json format can accept any type
-        WHEN p_format = 'json' THEN to_jsonb(ARRAY['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'])
-        -- Single type mappings
-        WHEN p_format IN ('int32', 'int64', 'integer', 'reference', 'parent') THEN to_jsonb('integer'::text)
-        WHEN p_format IN ('float', 'double', 'number') THEN to_jsonb('number'::text)
-        WHEN p_format = 'boolean' THEN to_jsonb('boolean'::text)
-        WHEN p_format IN ('array') THEN to_jsonb('array'::text)
-        WHEN p_format IN ('object') THEN to_jsonb('object'::text)
-        WHEN p_format = 'null' THEN to_jsonb('null'::text)
-        ELSE to_jsonb('string'::text)
-    END;
+    RETURN dd_formats()::jsonb -> p_format -> 'type';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
@@ -5132,35 +5377,6 @@ CREATE TRIGGER update_table_comment_trigger
     EXECUTE FUNCTION update_dd_table_comment();
 
 -- =====================================================
--- TRIGGER FUNCTION: AUTO-SET FIELD ORDER ON INSERT
--- =====================================================
--- When a new field is inserted with field_order = 0 (the default),
--- automatically assign it to max(field_order) + 10 for that table,
--- so new fields are always appended to the end of the fields list.
-
-CREATE OR REPLACE FUNCTION auto_set_field_order()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.field_order = 0 THEN
-        SELECT COALESCE(MAX(field_order), 0) + 10
-        INTO NEW.field_order
-        FROM fields
-        WHERE table_name = NEW.table_name;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_field_order IS
-'Trigger function that auto-assigns field_order to max(field_order)+10 when field_order=0 is inserted.';
-
--- Apply trigger BEFORE INSERT on fields (must run before add_dd_field)
-CREATE TRIGGER auto_set_field_order_trigger
-    BEFORE INSERT ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_field_order();
-
--- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
@@ -5207,8 +5423,6 @@ CREATE TRIGGER fields_ctype_lock
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION lock_field_ctype();
-
-REVOKE EXECUTE ON FUNCTION auto_set_field_order() FROM PUBLIC;
 
 -- =====================================================
 -- TRIGGER FUNCTION: ADD FIELD ON INSERT
@@ -5476,55 +5690,72 @@ CREATE TRIGGER add_field_trigger
 -- TRIGGER FUNCTION: UPDATE FIELD ON UPDATE
 -- =====================================================
 
+-- apply_field_ddl() (0145) and the BEFORE trigger validate_field_rename_and_format
+-- (0140) are defined later; no fields row is updated during install before both exist.
 CREATE OR REPLACE FUNCTION update_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_alter_sql TEXT;
-    v_new_data_type TEXT;
-    v_is_managed BOOLEAN;
-    v_ref_id_column TEXT;
-    v_fk_name TEXT;
-    v_idx_name TEXT;
-    v_on_delete TEXT;
-    v_comment TEXT;
+    v_alter_sql      TEXT;
+    v_old_data_type  TEXT;
+    v_new_data_type  TEXT;
+    v_is_managed     BOOLEAN;
+    v_ref_id_column  TEXT;
+    v_fk_name        TEXT;
+    v_idx_name       TEXT;
+    v_on_delete      TEXT;
+    v_comment        TEXT;
 BEGIN
     -- Check if the parent table is managed
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
 
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
-        RAISE EXCEPTION 'Cannot change table_name of a field';
+        -- Allow only when this is a cascade triggered by rename_dd_table()
+        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+            RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
+        END IF;
+        -- Cascade rename: metadata has been updated; no DDL needed here
+        RETURN NEW;
     END IF;
-    
-    IF OLD.field_name <> NEW.field_name THEN
-        RAISE EXCEPTION 'Cannot rename field. Drop and recreate instead.';
-    END IF;
-    
+
+    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
+    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
+
     IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field';
+        RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
-    
+
     -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
-    -- DD-managed core column). Core fields can only have metadata updates (title, description,
-    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
-    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
+    -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
     IF coalesce(OLD.ctype, '') <> '' THEN
         IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+                USING ERRCODE = '90219',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
         IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
+            RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
+                USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
-    
+
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
-        -- Still keep the column comment in sync even if not managed
-        IF OLD.title IS DISTINCT FROM NEW.title
-           OR OLD.format IS DISTINCT FROM NEW.format
-           OR OLD.description IS DISTINCT FROM NEW.description
-           OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
+        -- Keep the column comment in sync even if not managed, but only when the
+        -- physical column actually exists (an unmanaged entity may be metadata-only
+        -- with no physical table/column to comment on).
+        IF (OLD.title IS DISTINCT FROM NEW.title
+            OR OLD.format IS DISTINCT FROM NEW.format
+            OR OLD.description IS DISTINCT FROM NEW.description
+            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
+           AND EXISTS (
+               SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name   = NEW.table_name
+                 AND column_name  = NEW.field_name
+           ) THEN
             v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
             IF v_comment IS NOT NULL THEN
                 EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
@@ -5536,7 +5767,20 @@ BEGIN
         RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;
-    
+
+    -- If the physical column is missing from a managed table (e.g. it was defined
+    -- while managed=false), create it now with the new field values and return.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = NEW.table_name
+          AND column_name  = NEW.field_name
+    ) THEN
+        PERFORM apply_field_ddl(NEW);
+        RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
+        RETURN NEW;
+    END IF;
+
     -- Keep column comment in sync when title/format/description/enum values change
     IF OLD.title IS DISTINCT FROM NEW.title
        OR OLD.format IS DISTINCT FROM NEW.format
@@ -5550,55 +5794,58 @@ BEGIN
         END IF;
     END IF;
 
-    -- Allow updating format (which changes data type)
+    -- Handle format change
     IF OLD.format <> NEW.format THEN
+        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
         v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-        v_alter_sql := format(
-            'ALTER TABLE %I ALTER COLUMN %I TYPE %s',
-            NEW.table_name,
-            NEW.field_name,
-            v_new_data_type
-        );
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" type to % (format: %) in table "%"',
-            NEW.field_name, v_new_data_type, NEW.format, NEW.table_name;
-    END IF;
-    
-    -- Handle nullable change when format changes (e.g., text→reference would change nullability)
-    IF OLD.format <> NEW.format THEN
-        IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
-            IF is_nullable(NEW.format) THEN
-                v_alter_sql := format(
-                    'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
-            ELSE
-                v_alter_sql := format(
-                    'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
-            END IF;
-            EXECUTE v_alter_sql;
-            RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-                NEW.field_name, is_nullable(NEW.format), NEW.table_name;
+
+        IF v_old_data_type <> v_new_data_type THEN
+            RAISE EXCEPTION
+                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
+                'because it would require changing the column type from ${old_type} to ${new_type}. '
+                'Drop and recreate the field instead.'
+                USING ERRCODE = '90223',
+                      HINT = jsonb_build_object(
+                          'field_name', NEW.field_name,
+                          'old_format', OLD.format,
+                          'new_format', NEW.format,
+                          'old_type',   v_old_data_type,
+                          'new_type',   v_new_data_type)::text;
         END IF;
+
+        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
+            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
     END IF;
-    
+
+    -- Allow updating nullable constraint (derived from format)
+    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
+        IF is_nullable(NEW.format) THEN
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        ELSE
+            v_alter_sql := format(
+                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
+                NEW.table_name, NEW.field_name
+            );
+        END IF;
+        EXECUTE v_alter_sql;
+        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
+            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
+    END IF;
+
     -- Allow updating default value
     IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
         IF NEW.default_value IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                NEW.table_name,
-                NEW.field_name
+                NEW.table_name, NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                NEW.table_name,
-                NEW.field_name,
+                NEW.table_name, NEW.field_name,
                 quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
@@ -5606,39 +5853,39 @@ BEGIN
         RAISE NOTICE 'Changed column "%" default value in table "%"',
             NEW.field_name, NEW.table_name;
     END IF;
-    
+
     -- Handle foreign key reference changes
     IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
-        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
-        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
-        
-        -- Check if reference_table or reference_delete_mode changed
-        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR 
+        v_fk_name  := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s',  NEW.table_name, NEW.field_name);
+
+        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
            (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
-           (OLD.format <> NEW.format) THEN
-            
-            -- Drop existing foreign key constraint if it exists
+           (OLD.format <> NEW.format)
+        THEN
+            -- Drop existing FK constraint if it exists
             IF OLD.format IN ('reference', 'parent') THEN
                 EXECUTE format(
                     'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                    NEW.table_name,
-                    v_fk_name
+                    NEW.table_name, v_fk_name
                 );
                 RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
             END IF;
-            
-            -- Add new foreign key constraint if format is now 'reference' or 'parent'
-            IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
-                -- Get the id_column of the referenced table
+
+            -- Add new FK constraint
+            IF NEW.format IN ('reference', 'parent')
+               AND NEW.reference_table IS NOT NULL
+               AND NEW.reference_table != ''
+            THEN
                 SELECT id_column INTO v_ref_id_column
-                FROM entities
-                WHERE table_name = NEW.reference_table;
-                
+                FROM entities WHERE table_name = NEW.reference_table;
+
                 IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
+                    RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                        USING ERRCODE = '90212',
+                              HINT = jsonb_build_object('table', NEW.reference_table)::text;
                 END IF;
-                
-                -- Determine ON DELETE behavior
+
                 IF NEW.reference_delete_mode = 'clear' THEN
                     v_on_delete := 'SET NULL';
                 ELSIF NEW.reference_delete_mode = 'cascade' THEN
@@ -5646,128 +5893,111 @@ BEGIN
                 ELSE
                     v_on_delete := 'RESTRICT';
                 END IF;
-                
-                -- Add foreign key constraint
+
                 v_alter_sql := format(
                     'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-                    NEW.table_name,
-                    v_fk_name,
-                    NEW.field_name,
-                    NEW.reference_table,
-                    v_ref_id_column,
-                    v_on_delete
+                    NEW.table_name, v_fk_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete
                 );
                 EXECUTE v_alter_sql;
-                
-                -- Create index for foreign key if it doesn't exist
+
                 v_alter_sql := format(
                     'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
-                    v_idx_name,
-                    NEW.table_name,
-                    NEW.field_name
+                    v_idx_name, NEW.table_name, NEW.field_name
                 );
                 EXECUTE v_alter_sql;
-                
+
                 RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
-                    v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
+                    v_fk_name, NEW.table_name, NEW.field_name,
+                    NEW.reference_table, v_ref_id_column, v_on_delete;
             ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
-                -- Drop index if format changed from reference/parent to something else
-                EXECUTE format(
-                    'DROP INDEX IF EXISTS %I',
-                    v_idx_name
-                );
+                EXECUTE format('DROP INDEX IF EXISTS %I', v_idx_name);
                 RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END IF;
     END IF;
-    
+
     -- Handle enum CHECK constraint changes
     IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
         DECLARE
-            v_check_name TEXT;
+            v_check_name      TEXT;
             v_enum_values_sql TEXT;
-            v_effective_enum JSONB;
+            v_effective_enum  JSONB;
         BEGIN
             v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
-            
-            -- Check if enum_values, input_type, or format changed
+
             IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
                OR (OLD.format <> NEW.format)
                OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
-                
-                -- Drop existing CHECK constraint if it exists
                 IF OLD.format = 'enum' THEN
                     EXECUTE format(
                         'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        NEW.table_name,
-                        v_check_name
+                        NEW.table_name, v_check_name
                     );
                     RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
                 END IF;
-                
-                -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
-                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
 
-                    -- Build SQL array from JSONB array for IN clause
+                IF NEW.format = 'enum'
+                   AND NEW.enum_values IS NOT NULL
+                   AND jsonb_typeof(NEW.enum_values) = 'array'
+                   AND jsonb_array_length(NEW.enum_values) > 0
+                THEN
+                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
                         FROM jsonb_array_elements_text(v_effective_enum) AS value
                     );
-                    
-                    -- Add CHECK constraint
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        NEW.table_name,
-                        v_check_name,
-                        NEW.field_name,
-                        v_enum_values_sql
+                        NEW.table_name, v_check_name, NEW.field_name, v_enum_values_sql
                     );
                     EXECUTE v_alter_sql;
-                    
                     RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
                         v_check_name, NEW.table_name, NEW.field_name;
                 END IF;
             END IF;
         END;
     END IF;
-    
+
     -- Handle unique_value changes
     IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
         DECLARE
             v_unique_idx_name TEXT;
-            v_where_clause TEXT;
+            v_where_clause    TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
             IF NEW.unique_value THEN
-                -- Create partial unique index
                 IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                    v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
+                    v_where_clause := format('%I IS NOT NULL AND %I != ''''',
+                        NEW.field_name, NEW.field_name);
                 ELSE
                     v_where_clause := format('%I IS NOT NULL', NEW.field_name);
                 END IF;
                 EXECUTE format(
                     'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
-                    v_unique_idx_name,
-                    NEW.table_name,
-                    NEW.field_name,
-                    v_where_clause
+                    v_unique_idx_name, NEW.table_name, NEW.field_name, v_where_clause
                 );
-                RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+                RAISE NOTICE 'Created unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
             ELSE
-                -- Drop unique index
                 EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
-                RAISE NOTICE 'Dropped unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
+                RAISE NOTICE 'Dropped unique index "%" for field "%.%"',
+                    v_unique_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION update_dd_field IS 
-'Trigger function that updates column properties when a field is updated.';
+COMMENT ON FUNCTION update_dd_field IS
+'Trigger function that updates column properties when a field is updated.
+table_name changes are allowed only as part of a cascade from rename_dd_table().
+field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
+format changes that alter the underlying data type are rejected by the BEFORE trigger.
+When the physical column is missing from a managed table (e.g. defined while managed=false),
+the column is created via apply_field_ddl() and the function returns early.';
 
 -- Apply trigger AFTER UPDATE on fields
 CREATE TRIGGER update_field_trigger
@@ -6577,7 +6807,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc');
+      VALUES ('_core.0070_dd_functions', 'a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -6692,32 +6922,34 @@ RETURNS JSONB AS $$
 DECLARE
     v_external_id TEXT;
     v_email TEXT;
+    v_display_name TEXT;
+    v_first_name TEXT;
+    v_last_name TEXT;
     v_user_id INTEGER;
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
+    v_modules JSONB;
 BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
 
-    -- Get email from JWT if available
+    -- Get claims from JWT
     v_email := current_setting('request.jwt.claim.email', true);
+    v_display_name := current_setting('request.jwt.claim.name', true);
+    v_first_name := current_setting('request.jwt.claim.given_name', true);
+    v_last_name := current_setting('request.jwt.claim.family_name', true);
 
     -- Create or update user record and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email);
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
     
     -- Verify user was created/found successfully
     IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = %', v_external_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
     END IF;
-    
-    -- Verify user exists in users table
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_user_id) THEN
-        RAISE EXCEPTION 'User not found in users table: user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
-    END IF;
-    
+
     -- Build roles array with role details
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
@@ -6738,7 +6970,7 @@ BEGIN
         permission_name ORDER BY permission_name
     ), '[]'::jsonb)
     INTO v_permissions
-    FROM rbac.get_user_permissions(v_external_id);
+    FROM rbac.get_user_permissions_by_id(v_user_id);
 
     -- Explicitly initialize the context cache with the permissions we just computed.
     -- This is necessary because get_user_modules() -> has_any_permission() uses
@@ -6753,17 +6985,24 @@ BEGIN
     ), true);
     PERFORM set_config('app.context_initialized', 'true', true);
 
+    -- Build modules array (filtered by permissions via helper function)
+    v_modules := public.get_user_modules();
+    
     -- Build the final JSON result
     SELECT jsonb_build_object(
         'user_id', u.id,
         'external_id', u.external_id,
         'email', u.email,
+        'display_name', u.display_name,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
         'is_disabled', u.is_disabled,
         'created_at', u.created_at,
         'updated_at', u.updated_at,
         'last_seen', u.last_seen,
         'roles', v_roles,
-        'permissions', v_permissions
+        'permissions', v_permissions,
+        'modules', v_modules
     )
     INTO v_result
     FROM users u
@@ -6771,16 +7010,17 @@ BEGIN
     
     -- Final safety check (should never be NULL after previous validations)
     IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = %', v_user_id
-            USING ERRCODE = 'data_exception';
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
     END IF;
     
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION public.get_userinfo IS 
-'Returns current authenticated user info as JSON with nested roles, permissions, and modules (filtered by RLS via helper function). Creates/updates user record and updates last_seen. Call once when new login detected.';
+COMMENT ON FUNCTION public.get_userinfo IS
+'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
@@ -6960,14 +7200,7 @@ BEGIN
                 THEN jsonb_build_object('input_type_rule', input_type_rule)
                 ELSE '{}'::jsonb
             END ||
-            -- Add format field only for string-based formats (email, url, etc), not for type mappers (int32, float, etc) or enum
-            CASE 
-                WHEN format IS NOT NULL 
-                     AND format != '' 
-                     AND format NOT IN ('int32', 'int64', 'integer', 'float', 'double', 'number', 'boolean', 'object', 'array', 'null', 'enum')
-                THEN jsonb_build_object('format', format)
-                ELSE '{}'::jsonb
-            END ||
+            jsonb_build_object('format', format) ||
             -- Add enum field if enum_values is present
             CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
@@ -7014,7 +7247,7 @@ BEGIN
                 -- For string types without explicit default, add empty string default
                 WHEN json_type::text = '"string"' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
-                WHEN format = 'json' THEN jsonb_build_object('default', '{}'::jsonb)
+                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
             END) AS property_value
         FROM ordered_fields
@@ -7082,7 +7315,7 @@ BEGIN
           AND field_name != v_table_record.id_column
           AND field_name NOT IN ('created_at', 'updated_at')
           AND default_value IS NULL
-          AND format != 'json'
+          AND format NOT IN ('json', 'jsonlogic')
         ORDER BY field_order
     )
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
@@ -7421,7 +7654,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79');
+      VALUES ('_core.0080_public_functions', '86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7986,64 +8219,6 @@ $pgsem__core_0110_apikeys$;
     v_skipped := v_skipped + 1;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0130_create_tables_view_compat') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0130_create_tables_view_compat';
-    BEGIN
-      EXECUTE $pgsem__core_0130_create_tables_view_compat$-- =====================================================
--- BACKWARD COMPATIBILITY VIEW
--- =====================================================
--- Create an updatable view named "tables" that maps to "entities" table
--- This ensures external applications using the old "tables" name continue to work
--- Goal: semantius uses "entities", but old apps can still use "tables" view
--- =====================================================
-
--- Create a simple view that maps to entities table
--- PostgreSQL automatically makes this view updatable because:
--- 1. It selects from a single table (entities)
--- 2. It uses only simple column references (no expressions, aggregates, etc.)
--- 3. It doesn't use GROUP BY, HAVING, LIMIT, OFFSET, DISTINCT, UNION, etc.
--- This means INSERT, UPDATE, and DELETE operations work transparently without INSTEAD OF triggers
-CREATE OR REPLACE VIEW tables AS
-SELECT * FROM entities;
-
-COMMENT ON VIEW tables IS 
-'Backward compatibility view for entities table. PostgreSQL automatically makes this view updatable, allowing INSERT/UPDATE/DELETE operations to work transparently. External apps can continue using "tables" name while semantius uses "entities".';
--- =====================================================
--- SECURITY: Enable RLS and Grant Permissions
--- =====================================================
--- Views don't automatically inherit RLS from underlying tables
--- We must explicitly enable RLS and grant permissions
-
--- Enable Row Level Security on the view
-ALTER VIEW tables SET (security_invoker = true);
-
--- Grant permissions to semantius_user role
-GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
-
--- Note: The view will use the RLS policies from the underlying entities table
--- because we set security_invoker = true, which makes the view execute with
--- the permissions of the invoking user rather than the view owner$pgsem__core_0130_create_tables_view_compat$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0130_create_tables_view_compat', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0130_create_tables_view_compat', '220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0140_dd_rename') THEN
     RAISE NOTICE 'pg_semantius: applying _core.0140_dd_rename';
     BEGIN
@@ -8057,22 +8232,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON tables TO semantius_user;
 --   3. fields.format change → reject when underlying data type would change
 
 -- =====================================================
--- STEP 1: Add ON UPDATE CASCADE to fields → entities FK
--- =====================================================
--- Required so that renaming entities.table_name automatically cascades
--- the metadata update to all related fields rows.
-
-ALTER TABLE fields DROP CONSTRAINT IF EXISTS fields_table_name_fkey;
-
-ALTER TABLE fields
-    ADD CONSTRAINT fields_table_name_fkey
-    FOREIGN KEY (table_name)
-    REFERENCES entities(table_name)
-    ON DELETE CASCADE
-    ON UPDATE CASCADE;
-
--- =====================================================
--- STEP 2: TRIGGER FUNCTION: RENAME TABLE ON entities.table_name UPDATE
+-- STEP 1: TRIGGER FUNCTION: RENAME TABLE ON entities.table_name UPDATE
 -- =====================================================
 -- Fires BEFORE UPDATE on entities when table_name changes.
 -- Renames the physical table and sets a transaction-local session variable
@@ -8309,7 +8469,7 @@ COMMENT ON TRIGGER rename_table_trigger ON entities IS
 'Renames the physical database table when entities.table_name is updated';
 
 -- =====================================================
--- STEP 2b: TRIGGER FUNCTION: CASCADE reference_table ON entities.table_name UPDATE
+-- STEP 1b: TRIGGER FUNCTION: CASCADE reference_table ON entities.table_name UPDATE
 -- =====================================================
 -- Fires AFTER UPDATE on entities when table_name changes.
 -- Updates fields.reference_table in every field across ALL tables that currently
@@ -8347,7 +8507,7 @@ COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
 'Updates fields.reference_table and rebuilds FK constraints when entities.table_name is renamed';
 
 -- =====================================================
--- STEP 2c: TRIGGER FUNCTION: CASCADE set_record entity refs ON entities.table_name UPDATE
+-- STEP 1c: TRIGGER FUNCTION: CASCADE set_record entity refs ON entities.table_name UPDATE
 -- =====================================================
 -- Fires AFTER UPDATE on entities when table_name changes.
 -- Scans all entities for JsonLogic set_record references to the old table name
@@ -8402,7 +8562,7 @@ COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
 'Updates set_record entity name references in JsonLogic rules when entities.table_name is renamed';
 
 -- =====================================================
--- STEP 3: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
+-- STEP 2: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
 -- =====================================================
 -- Fires BEFORE UPDATE on fields.
 -- Handles two things:
@@ -8590,328 +8750,6 @@ CREATE TRIGGER validate_field_rename_and_format_trigger
 COMMENT ON TRIGGER validate_field_rename_and_format_trigger ON fields IS
 'Renames column and validates format compatibility on field updates';
 
--- =====================================================
--- STEP 4: Update update_dd_field() to handle the new semantics
--- =====================================================
--- Changes:
---   • table_name change: allow when the session variable set by rename_dd_table
---     confirms this is a cascade from an entity rename; reject otherwise.
---   • field_name change: no longer raise an exception — the BEFORE trigger
---     already renamed the physical column.  The AFTER trigger must use
---     NEW.field_name (already the renamed column name) for all subsequent DDL.
---   • format change: skip ALTER COLUMN TYPE when the data type is unchanged
---     (same-type format changes like email→hostname).  Incompatible type
---     changes are blocked by the BEFORE trigger before this code is reached.
-
-CREATE OR REPLACE FUNCTION update_dd_field()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_alter_sql TEXT;
-    v_old_data_type TEXT;
-    v_new_data_type TEXT;
-    v_is_managed BOOLEAN;
-    v_ref_id_column TEXT;
-    v_fk_name TEXT;
-    v_idx_name TEXT;
-    v_on_delete TEXT;
-BEGIN
-    -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
-
-    -- Prevent changing critical attributes
-    IF OLD.table_name <> NEW.table_name THEN
-        -- Allow only when this is a cascade triggered by rename_dd_table()
-        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
-            RAISE EXCEPTION 'Cannot change table_name of a field';
-        END IF;
-        -- Cascade rename: metadata has been updated; no DDL needed here
-        RETURN NEW;
-    END IF;
-
-    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
-    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
-
-    IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field';
-    END IF;
-
-    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
-    -- DD-managed core column). Core fields can only have metadata updates (title, description,
-    -- field_order, input_type, width). ctype itself is immutable + privilege-locked by the
-    -- fields_ctype_lock trigger, so it cannot be cleared to escape this guard.
-    IF coalesce(OLD.ctype, '') <> '' THEN
-        IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field "%"', OLD.field_name;
-        END IF;
-
-        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field "%"', OLD.field_name;
-        END IF;
-    END IF;
-
-    -- Skip DDL operations if table is not managed (but allow metadata updates like description)
-    IF NOT v_is_managed THEN
-        -- Still allow updating column comments even if not managed
-        IF OLD.description IS DISTINCT FROM NEW.description THEN
-            IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS %L',
-                    NEW.table_name,
-                    NEW.field_name,
-                    NEW.description
-                );
-            ELSE
-                EXECUTE format(
-                    'COMMENT ON COLUMN %I.%I IS NULL',
-                    NEW.table_name,
-                    NEW.field_name
-                );
-            END IF;
-        END IF;
-
-        RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
-        RETURN NEW;
-    END IF;
-
-    -- Update column comment if description changed
-    IF OLD.description IS DISTINCT FROM NEW.description THEN
-        IF NEW.description IS NOT NULL AND trim(NEW.description) != '' THEN
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS %L',
-                NEW.table_name,
-                NEW.field_name,
-                NEW.description
-            );
-        ELSE
-            EXECUTE format(
-                'COMMENT ON COLUMN %I.%I IS NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
-        END IF;
-    END IF;
-
-    -- Handle format change
-    -- The BEFORE trigger already rejected incompatible type changes, so at this
-    -- point OLD and NEW formats always map to the same data type.
-    -- Only execute ALTER COLUMN TYPE when the mapped type actually differs
-    -- (this guards against edge cases and keeps DDL minimal).
-    IF OLD.format <> NEW.format THEN
-        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
-        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-
-        IF v_old_data_type <> v_new_data_type THEN
-            -- Defensive check: BEFORE trigger should have prevented this
-            RAISE EXCEPTION
-                'Cannot change format of field "%" from "%" to "%" because it would require '
-                'changing the column type from % to %.',
-                NEW.field_name, OLD.format, NEW.format, v_old_data_type, v_new_data_type;
-        END IF;
-
-        -- Same underlying type — no ALTER needed; log the format change only
-        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
-            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
-    END IF;
-
-    -- Allow updating nullable constraint (derived from format)
-    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
-        IF is_nullable(NEW.format) THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                NEW.table_name,
-                NEW.field_name
-            );
-        END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
-    END IF;
-
-    -- Allow updating default value
-    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-        IF NEW.default_value IS NULL THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                NEW.table_name,
-                NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                NEW.table_name,
-                NEW.field_name,
-                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
-            );
-        END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" default value in table "%"',
-            NEW.field_name, NEW.table_name;
-    END IF;
-
-    -- Handle foreign key reference changes
-    IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
-        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
-        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
-
-        -- Check if reference_table or reference_delete_mode changed
-        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
-           (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
-           (OLD.format <> NEW.format) THEN
-
-            -- Drop existing foreign key constraint if it exists
-            IF OLD.format IN ('reference', 'parent') THEN
-                EXECUTE format(
-                    'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                    NEW.table_name,
-                    v_fk_name
-                );
-                RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
-            END IF;
-
-            -- Add new foreign key constraint if format is now 'reference' or 'parent'
-            IF NEW.format IN ('reference', 'parent') AND NEW.reference_table IS NOT NULL AND NEW.reference_table != '' THEN
-                -- Get the id_column of the referenced table
-                SELECT id_column INTO v_ref_id_column
-                FROM entities
-                WHERE table_name = NEW.reference_table;
-
-                IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table "%" not found', NEW.reference_table;
-                END IF;
-
-                -- Determine ON DELETE behavior
-                IF NEW.reference_delete_mode = 'clear' THEN
-                    v_on_delete := 'SET NULL';
-                ELSE
-                    v_on_delete := 'RESTRICT';
-                END IF;
-
-                -- Add foreign key constraint
-                v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-                    NEW.table_name,
-                    v_fk_name,
-                    NEW.field_name,
-                    NEW.reference_table,
-                    v_ref_id_column,
-                    v_on_delete
-                );
-                EXECUTE v_alter_sql;
-
-                -- Create index for foreign key if it doesn't exist
-                v_alter_sql := format(
-                    'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
-                    v_idx_name,
-                    NEW.table_name,
-                    NEW.field_name
-                );
-                EXECUTE v_alter_sql;
-
-                RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
-                    v_fk_name, NEW.table_name, NEW.field_name, NEW.reference_table, v_ref_id_column, v_on_delete;
-            ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
-                -- Drop index if format changed from reference/parent to something else
-                EXECUTE format(
-                    'DROP INDEX IF EXISTS %I',
-                    v_idx_name
-                );
-                RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
-            END IF;
-        END IF;
-    END IF;
-
-    -- Handle enum CHECK constraint changes
-    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
-        DECLARE
-            v_check_name TEXT;
-            v_enum_values_sql TEXT;
-        BEGIN
-            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
-
-            -- Check if enum_values changed or format changed
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values) OR (OLD.format <> NEW.format) THEN
-
-                -- Drop existing CHECK constraint if it exists
-                IF OLD.format = 'enum' THEN
-                    EXECUTE format(
-                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        NEW.table_name,
-                        v_check_name
-                    );
-                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
-                END IF;
-
-                -- Add new CHECK constraint if format is now 'enum'
-                IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_array_length(NEW.enum_values) > 0 THEN
-                    -- Build SQL array from JSONB array for IN clause
-                    v_enum_values_sql := (
-                        SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(NEW.enum_values) AS value
-                    );
-
-                    -- Add CHECK constraint
-                    v_alter_sql := format(
-                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        NEW.table_name,
-                        v_check_name,
-                        NEW.field_name,
-                        v_enum_values_sql
-                    );
-                    EXECUTE v_alter_sql;
-
-                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
-                        v_check_name, NEW.table_name, NEW.field_name;
-                END IF;
-            END IF;
-        END;
-    END IF;
-
-    -- Handle unique_value changes
-    IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
-        DECLARE
-            v_unique_idx_name TEXT;
-            v_where_clause TEXT;
-        BEGIN
-            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
-            IF NEW.unique_value THEN
-                -- Create partial unique index
-                IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                    v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
-                ELSE
-                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
-                END IF;
-                EXECUTE format(
-                    'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
-                    v_unique_idx_name,
-                    NEW.table_name,
-                    NEW.field_name,
-                    v_where_clause
-                );
-                RAISE NOTICE 'Created unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
-            ELSE
-                -- Drop unique index
-                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
-                RAISE NOTICE 'Dropped unique index "%" for field "%.%"', v_unique_idx_name, NEW.table_name, NEW.field_name;
-            END IF;
-        END;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION update_dd_field IS
-'Trigger function that updates column properties when a field is updated.
-table_name changes are allowed only as part of a cascade from rename_dd_table().
-field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
-format changes that alter the underlying data type are rejected by the BEFORE trigger.';
-
 -- Revoke default PUBLIC execute on the new functions
 REVOKE EXECUTE ON FUNCTION rename_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rename_dd_reference_tables() FROM PUBLIC;
@@ -8932,7 +8770,7 @@ $pgsem__core_0140_dd_rename$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6');
+      VALUES ('_core.0140_dd_rename', '5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9389,319 +9227,9 @@ CREATE TRIGGER enable_table_trigger
 COMMENT ON TRIGGER enable_table_trigger ON entities IS
 'Creates the physical table and adds missing columns when managed changes from false to true.';
 
--- =====================================================
--- UPDATE update_dd_field: create missing column first
--- =====================================================
--- When a field belonging to a managed table is updated but the physical
--- column does not yet exist, create it via apply_field_ddl() before
--- attempting any ALTER operations.
-
-CREATE OR REPLACE FUNCTION update_dd_field()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_alter_sql      TEXT;
-    v_old_data_type  TEXT;
-    v_new_data_type  TEXT;
-    v_is_managed     BOOLEAN;
-    v_ref_id_column  TEXT;
-    v_fk_name        TEXT;
-    v_idx_name       TEXT;
-    v_on_delete      TEXT;
-    v_comment        TEXT;
-BEGIN
-    -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
-
-    -- Prevent changing critical attributes
-    IF OLD.table_name <> NEW.table_name THEN
-        -- Allow only when this is a cascade triggered by rename_dd_table()
-        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
-            RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
-        END IF;
-        -- Cascade rename: metadata has been updated; no DDL needed here
-        RETURN NEW;
-    END IF;
-
-    -- field_name was renamed by validate_field_rename_and_format() BEFORE trigger;
-    -- no exception here — just continue with the rest of the DDL using NEW.field_name.
-
-    IF OLD.is_pk <> NEW.is_pk THEN
-        RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
-    END IF;
-
-    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
-    -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
-    IF coalesce(OLD.ctype, '') <> '' THEN
-        IF OLD.format <> NEW.format THEN
-            RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
-                USING ERRCODE = '90219',
-                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
-        END IF;
-
-        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-            RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
-                USING ERRCODE = '90220',
-                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
-        END IF;
-    END IF;
-
-    -- Skip DDL operations if table is not managed (but allow metadata updates like description)
-    IF NOT v_is_managed THEN
-        -- Keep the column comment in sync even if not managed, but only when the
-        -- physical column actually exists (an unmanaged entity may be metadata-only
-        -- with no physical table/column to comment on).
-        IF (OLD.title IS DISTINCT FROM NEW.title
-            OR OLD.format IS DISTINCT FROM NEW.format
-            OR OLD.description IS DISTINCT FROM NEW.description
-            OR OLD.enum_values IS DISTINCT FROM NEW.enum_values)
-           AND EXISTS (
-               SELECT 1 FROM information_schema.columns
-               WHERE table_schema = 'public'
-                 AND table_name   = NEW.table_name
-                 AND column_name  = NEW.field_name
-           ) THEN
-            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
-            IF v_comment IS NOT NULL THEN
-                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
-            ELSE
-                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
-            END IF;
-        END IF;
-
-        RAISE NOTICE 'Skipping DDL operations for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
-        RETURN NEW;
-    END IF;
-
-    -- If the physical column is missing from a managed table (e.g. it was defined
-    -- while managed=false), create it now with the new field values and return.
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name   = NEW.table_name
-          AND column_name  = NEW.field_name
-    ) THEN
-        PERFORM apply_field_ddl(NEW);
-        RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
-        RETURN NEW;
-    END IF;
-
-    -- Keep column comment in sync when title/format/description/enum values change
-    IF OLD.title IS DISTINCT FROM NEW.title
-       OR OLD.format IS DISTINCT FROM NEW.format
-       OR OLD.description IS DISTINCT FROM NEW.description
-       OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
-        v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
-        IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
-        ELSE
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
-        END IF;
-    END IF;
-
-    -- Handle format change
-    IF OLD.format <> NEW.format THEN
-        v_old_data_type := field_data_type(OLD.format, OLD."precision", OLD.reference_table);
-        v_new_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-
-        IF v_old_data_type <> v_new_data_type THEN
-            RAISE EXCEPTION
-                'Cannot change format of field ${field_name} from ${old_format} to ${new_format} '
-                'because it would require changing the column type from ${old_type} to ${new_type}. '
-                'Drop and recreate the field instead.'
-                USING ERRCODE = '90223',
-                      HINT = jsonb_build_object(
-                          'field_name', NEW.field_name,
-                          'old_format', OLD.format,
-                          'new_format', NEW.format,
-                          'old_type',   v_old_data_type,
-                          'new_type',   v_new_data_type)::text;
-        END IF;
-
-        RAISE NOTICE 'Changed format of column "%" from "%" to "%" in table "%" (data type unchanged: %)',
-            NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
-    END IF;
-
-    -- Allow updating nullable constraint (derived from format)
-    IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
-        IF is_nullable(NEW.format) THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                NEW.table_name, NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                NEW.table_name, NEW.field_name
-            );
-        END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" nullable to % in table "%"',
-            NEW.field_name, is_nullable(NEW.format), NEW.table_name;
-    END IF;
-
-    -- Allow updating default value
-    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-        IF NEW.default_value IS NULL THEN
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                NEW.table_name, NEW.field_name
-            );
-        ELSE
-            v_alter_sql := format(
-                'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                NEW.table_name, NEW.field_name,
-                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
-            );
-        END IF;
-        EXECUTE v_alter_sql;
-        RAISE NOTICE 'Changed column "%" default value in table "%"',
-            NEW.field_name, NEW.table_name;
-    END IF;
-
-    -- Handle foreign key reference changes
-    IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
-        v_fk_name  := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
-        v_idx_name := format('idx_%s_%s',  NEW.table_name, NEW.field_name);
-
-        IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
-           (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
-           (OLD.format <> NEW.format)
-        THEN
-            -- Drop existing FK constraint if it exists
-            IF OLD.format IN ('reference', 'parent') THEN
-                EXECUTE format(
-                    'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                    NEW.table_name, v_fk_name
-                );
-                RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
-            END IF;
-
-            -- Add new FK constraint
-            IF NEW.format IN ('reference', 'parent')
-               AND NEW.reference_table IS NOT NULL
-               AND NEW.reference_table != ''
-            THEN
-                SELECT id_column INTO v_ref_id_column
-                FROM entities WHERE table_name = NEW.reference_table;
-
-                IF v_ref_id_column IS NULL THEN
-                    RAISE EXCEPTION 'Referenced table ${table} not found in entities'
-                        USING ERRCODE = '90212',
-                              HINT = jsonb_build_object('table', NEW.reference_table)::text;
-                END IF;
-
-                IF NEW.reference_delete_mode = 'clear' THEN
-                    v_on_delete := 'SET NULL';
-                ELSIF NEW.reference_delete_mode = 'cascade' THEN
-                    v_on_delete := 'CASCADE';
-                ELSE
-                    v_on_delete := 'RESTRICT';
-                END IF;
-
-                v_alter_sql := format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-                    NEW.table_name, v_fk_name, NEW.field_name,
-                    NEW.reference_table, v_ref_id_column, v_on_delete
-                );
-                EXECUTE v_alter_sql;
-
-                v_alter_sql := format(
-                    'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
-                    v_idx_name, NEW.table_name, NEW.field_name
-                );
-                EXECUTE v_alter_sql;
-
-                RAISE NOTICE 'Updated foreign key "%" from %.% to %.% with ON DELETE %',
-                    v_fk_name, NEW.table_name, NEW.field_name,
-                    NEW.reference_table, v_ref_id_column, v_on_delete;
-            ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
-                EXECUTE format('DROP INDEX IF EXISTS %I', v_idx_name);
-                RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
-            END IF;
-        END IF;
-    END IF;
-
-    -- Handle enum CHECK constraint changes
-    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
-        DECLARE
-            v_check_name      TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum  JSONB;
-        BEGIN
-            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
-
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
-               OR (OLD.format <> NEW.format)
-               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
-                IF OLD.format = 'enum' THEN
-                    EXECUTE format(
-                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        NEW.table_name, v_check_name
-                    );
-                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
-                END IF;
-
-                IF NEW.format = 'enum'
-                   AND NEW.enum_values IS NOT NULL
-                   AND jsonb_typeof(NEW.enum_values) = 'array'
-                   AND jsonb_array_length(NEW.enum_values) > 0
-                THEN
-                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
-                    v_enum_values_sql := (
-                        SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(v_effective_enum) AS value
-                    );
-                    v_alter_sql := format(
-                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        NEW.table_name, v_check_name, NEW.field_name, v_enum_values_sql
-                    );
-                    EXECUTE v_alter_sql;
-                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
-                        v_check_name, NEW.table_name, NEW.field_name;
-                END IF;
-            END IF;
-        END;
-    END IF;
-
-    -- Handle unique_value changes
-    IF OLD.unique_value IS DISTINCT FROM NEW.unique_value THEN
-        DECLARE
-            v_unique_idx_name TEXT;
-            v_where_clause    TEXT;
-        BEGIN
-            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
-            IF NEW.unique_value THEN
-                IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                    v_where_clause := format('%I IS NOT NULL AND %I != ''''',
-                        NEW.field_name, NEW.field_name);
-                ELSE
-                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
-                END IF;
-                EXECUTE format(
-                    'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
-                    v_unique_idx_name, NEW.table_name, NEW.field_name, v_where_clause
-                );
-                RAISE NOTICE 'Created unique index "%" for field "%.%"',
-                    v_unique_idx_name, NEW.table_name, NEW.field_name;
-            ELSE
-                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
-                RAISE NOTICE 'Dropped unique index "%" for field "%.%"',
-                    v_unique_idx_name, NEW.table_name, NEW.field_name;
-            END IF;
-        END;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION update_dd_field IS
-'Trigger function that updates column properties when a field is updated.
-table_name changes are allowed only as part of a cascade from rename_dd_table().
-field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
-format changes that alter the underlying data type are rejected by the BEFORE trigger.
-When the physical column is missing from a managed table (e.g. defined while managed=false),
-the column is created via apply_field_ddl() and the function returns early.';
+-- users.external_id is seeded unique_value in 0060, before the dictionary triggers
+-- exist, so the partial index they would build for it is built here.
+CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id) WHERE external_id IS NOT NULL AND external_id != '';
 
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
@@ -10218,7 +9746,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49');
+      VALUES ('_core.0145_managed_enable', 'dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10971,20 +10499,7 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: audit_log column on entities
--- =====================================================
--- Column was added in 0060_dd_schema.sql. Nothing to do here.
-
--- =====================================================
--- STEP 9: Add field metadata for audit_log column
--- =====================================================
-
-INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('entities', 'audit_log', 'Audit Log', 'When enabled, DML operations on this table are logged to the audit log', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '');
-
--- =====================================================
--- STEP 10: Register audit tables as entities (managed=false)
+-- STEP 8: Register audit tables as entities (managed=false)
 -- =====================================================
 -- These are core system tables. managed=false means no DDL triggers fire
 -- when inserting into entities, but having entries in entities/fields makes
@@ -11023,7 +10538,7 @@ VALUES
     ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
 
 -- =====================================================
--- STEP 11: Trigger to manage audit tracking on entity changes
+-- STEP 9: Trigger to manage audit tracking on entity changes
 -- =====================================================
 -- Handles three scenarios:
 --   A) INSERT: enable audit on newly created managed tables
@@ -11031,14 +10546,8 @@ VALUES
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
--- Every entities row inserted by this migration - users included - takes the
--- column default managed = TRUE, so this trigger's cascade, not the
--- managed = FALSE catch-up loop at the end of this file, is what actually
--- builds users' audit triggers, both here at bootstrap and on any later
--- disable/re-enable of audit_log through the entities table. The ignored-
--- columns argument therefore has to be decided here, table by table, or a
--- re-toggle would rebuild audit_i_u_d with none and silently start auditing
--- the heartbeat again.
+-- The ignored columns are decided table by table, here and in the STEP 10 loop,
+-- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -11108,42 +10617,36 @@ COMMENT ON TRIGGER manage_audit_log_trigger ON entities IS
 'Manages audit trigger lifecycle when entities are created or modified.';
 
 -- =====================================================
--- STEP 12: Enable audit for _core tables
+-- STEP 10: Enable audit for _core tables
 -- =====================================================
--- Enable audit_log on all _core entities (system tables).
--- These don't have physical audit triggers added yet because
--- audit_log was default FALSE and they were inserted in earlier
--- migrations, but they DO have physical tables.
+-- The _core entities are seeded with audit_log = TRUE (0060) before
+-- manage_audit_log_trigger exists, so their audit triggers are built here.
 
-UPDATE entities SET audit_log = TRUE
-WHERE table_name IN (
-    'entities', 'fields', 'users', 'modules', 'roles', 'permissions',
-    'user_roles', 'role_permissions', 'user_permissions', 'permission_hierarchy'
-);
-
--- Now enable tracking on those tables that are managed and have physical tables
 DO $$
 DECLARE
     v_rec RECORD;
 BEGIN
     FOR v_rec IN
         SELECT e.table_name FROM entities e
-        WHERE e.managed = FALSE  -- _core tables are managed=false
-          AND e.audit_log = TRUE
+        WHERE e.managed
+          AND e.audit_log
     LOOP
         IF EXISTS (
             SELECT 1 FROM information_schema.tables t
             WHERE t.table_schema = 'public'
               AND t.table_name = v_rec.table_name
         ) THEN
-            PERFORM audit.enable_tracking(v_rec.table_name::REGCLASS);
+            PERFORM audit.enable_tracking(
+                v_rec.table_name::REGCLASS,
+                CASE WHEN v_rec.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END
+            );
             RAISE NOTICE 'Enabled audit tracking for core table "%"', v_rec.table_name;
         END IF;
     END LOOP;
 END $$;
 
 -- =====================================================
--- STEP 13: RLS on audit tables
+-- STEP 11: RLS on audit tables
 -- =====================================================
 -- Audit tables are in public schema, so PostgREST can expose them.
 -- RLS ensures only admin users can access audit data.
@@ -11230,7 +10733,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', 'c7c19be57f967c61eb7877c184167d8803632ecda7eef29fcaf50c4900a22faf');
+      VALUES ('_core.0150_audit_log', '7549351458a8f15af047f1322fa19b356adf3c046a3fae2fe3932b3208f20f86');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14338,7 +13841,7 @@ $BLOCK$,
     -- A static call caches the target row type's tuple descriptor in the plpgsql
     -- expression's fn_extra and does NOT refresh it when the table gains a column
     -- LATER in the SAME transaction — so a column added and set after this trigger
-    -- first fired (e.g. entities.order_column added in 0270 then set here) would be
+    -- first fired (e.g. an order column provisioned and then set in the same install) would be
     -- silently dropped, reverting that write. This only surfaces in a single-txn
     -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
     -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
@@ -14747,317 +14250,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', 'b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0190_user_name_claims') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0190_user_name_claims';
-    BEGIN
-      EXECUTE $pgsem__core_0190_user_name_claims$-- =====================================================
--- MIGRATION: Add first_name and last_name to users,
--- populate display_name from JWT name claim
--- =====================================================
--- JWT claims given_name and family_name are now stored
--- as first_name and last_name in the users table.
--- JWT name claim is stored as display_name (column already exists).
--- sub (external_id) is NOT NULL and never empty (0020), and unique through
--- the dictionary index built below.
-
--- Add columns
-ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT '';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT DEFAULT '';
-
--- Mark external_id as unique in the data dictionary. This is what BUILDS the
--- only unique index on the column, and it is partial: it excludes ''. Since
--- 0020 refuses the empty string, the index is total in effect, and the
--- unique_value: true that get_schema() reports for this column is accurate.
-UPDATE fields SET unique_value = TRUE WHERE table_name = 'users' AND field_name = 'external_id';
-
--- Add data dictionary entries for the new fields
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('users', 'first_name', 'First Name', 'First name from JWT given_name claim', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', ''),
-    ('users', 'last_name',  'Last Name',  'Last name from JWT family_name claim', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '')
-ON CONFLICT DO NOTHING;
-
--- =====================================================
--- Update upsert_user_from_jwt to accept display_name/first_name/last_name
--- Drop the old 2-parameter version first, then create the new 5-parameter version
--- =====================================================
-DROP FUNCTION IF EXISTS rbac.upsert_user_from_jwt(TEXT, TEXT);
-
-CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
-    p_external_id TEXT,
-    p_email TEXT DEFAULT NULL,
-    p_display_name TEXT DEFAULT NULL,
-    p_first_name TEXT DEFAULT NULL,
-    p_last_name TEXT DEFAULT NULL
-)
-RETURNS INTEGER AS $$
-DECLARE
-    v_id           INTEGER;
-    v_last_seen    TIMESTAMPTZ;
-    v_email        TEXT;
-    v_display_name TEXT;
-    v_first_name   TEXT;
-    v_last_name    TEXT;
-BEGIN
-    IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
-        RAISE EXCEPTION 'external_id cannot be null or empty' USING ERRCODE = '90007';
-    END IF;
-
-    SELECT id, last_seen, email, display_name, first_name, last_name
-      INTO v_id, v_last_seen, v_email, v_display_name, v_first_name, v_last_name
-      FROM users WHERE external_id = p_external_id;
-
-    IF FOUND THEN
-        -- Each test below is the SET expression of the UPDATE compared with
-        -- the stored value, so the row is written exactly when the write
-        -- would change it, or when the heartbeat is older than the throttle.
-        -- last_seen IS NULL is tested on its own: NULL < timestamp is never true.
-        IF v_last_seen IS NULL
-           OR v_last_seen < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
-           OR v_email        IS DISTINCT FROM COALESCE(p_email, v_email)
-           OR v_display_name IS DISTINCT FROM COALESCE(NULLIF(p_display_name, ''), v_display_name)
-           OR v_first_name   IS DISTINCT FROM COALESCE(NULLIF(p_first_name, ''), v_first_name)
-           OR v_last_name    IS DISTINCT FROM COALESCE(NULLIF(p_last_name, ''), v_last_name)
-        THEN
-            UPDATE users
-               SET last_seen    = CURRENT_TIMESTAMP,
-                   email        = COALESCE(p_email, email),
-                   display_name = COALESCE(NULLIF(p_display_name, ''), display_name),
-                   first_name   = COALESCE(NULLIF(p_first_name, ''), first_name),
-                   last_name    = COALESCE(NULLIF(p_last_name, ''), last_name)
-             WHERE id = v_id;
-        END IF;
-        RETURN v_id;
-    END IF;
-
-    -- First login. ON CONFLICT covers two first logins racing: the loser
-    -- updates the winner's row once, unthrottled, which is harmless.
-    INSERT INTO users (external_id, email, display_name, first_name, last_name, last_seen)
-    VALUES (p_external_id, p_email, COALESCE(p_display_name, ''), COALESCE(p_first_name, ''), COALESCE(p_last_name, ''), CURRENT_TIMESTAMP)
-    -- The arbiter is the dictionary's partial unique index, so the predicate
-    -- has to be repeated for inference to work.
-    ON CONFLICT (external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO UPDATE
-    SET last_seen    = CURRENT_TIMESTAMP,
-        email        = COALESCE(EXCLUDED.email, users.email),
-        display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
-        first_name   = COALESCE(NULLIF(EXCLUDED.first_name, ''), users.first_name),
-        last_name    = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name)
-    RETURNING id INTO v_id;
-    RETURN v_id;
-END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
-'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
-
--- Provisioning is not a request-role capability. This function takes the subject
--- as a parameter and writes to users, so a caller that could reach it could
--- create a principal that never authenticated, overwrite another one's email, or
--- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
--- 0050 reads. It is SECURITY INVOKER: its one caller, public.get_userinfo() below,
--- is SECURITY DEFINER, so a call reached through get_userinfo runs as the owner
--- regardless, and get_userinfo's own rbac.uid() call is the authentication gate -
--- this function trusts the subject its caller already authenticated rather than
--- repeating that check itself. The revoke from semantius_user has to be explicit:
--- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
--- this schema.
-REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
-
--- =====================================================
--- Update get_userinfo to pass first_name/last_name from JWT claims
--- and include them in the response
--- =====================================================
-CREATE OR REPLACE FUNCTION public.get_userinfo()
-RETURNS JSONB AS $$
-DECLARE
-    v_external_id TEXT;
-    v_email TEXT;
-    v_display_name TEXT;
-    v_first_name TEXT;
-    v_last_name TEXT;
-    v_user_id INTEGER;
-    v_result JSONB;
-    v_roles JSONB;
-    v_permissions JSONB;
-    v_modules JSONB;
-BEGIN
-    -- Get current user from JWT
-    v_external_id := rbac.uid();
-
-    -- Get claims from JWT
-    v_email := current_setting('request.jwt.claim.email', true);
-    v_display_name := current_setting('request.jwt.claim.name', true);
-    v_first_name := current_setting('request.jwt.claim.given_name', true);
-    v_last_name := current_setting('request.jwt.claim.family_name', true);
-
-    -- Create or update user record and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
-    
-    -- Verify user was created/found successfully
-    IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
-            USING ERRCODE = '90008',
-                  HINT = jsonb_build_object('external_id', v_external_id)::text;
-    END IF;
-
-    -- Build roles array with role details
-    SELECT COALESCE(jsonb_agg(
-        jsonb_build_object(
-            'role_id', r.id,
-            'role_name', r.role_name,
-            'description', r.description,
-            'module_id', r.module_id,
-            'assigned_at', ur.assigned_at
-        ) ORDER BY r.role_name
-    ), '[]'::jsonb)
-    INTO v_roles
-    FROM user_roles ur
-    JOIN roles r ON ur.role_id = r.id
-    WHERE ur.user_id = v_user_id;
-    
-    -- Build permissions array (all effective permissions including inherited)
-    SELECT COALESCE(jsonb_agg(
-        permission_name ORDER BY permission_name
-    ), '[]'::jsonb)
-    INTO v_permissions
-    FROM rbac.get_user_permissions_by_id(v_user_id);
-
-    -- Explicitly initialize the context cache with the permissions we just computed.
-    -- This is necessary because get_user_modules() -> has_any_permission() uses
-    -- ensure_context_initialized() which may see a stale snapshot (STABLE function)
-    -- when the user was just created in this same function call.
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
-    PERFORM set_config('app.current_external_id', v_external_id, true);
-    PERFORM set_config('app.user_permissions', COALESCE(
-        (SELECT string_agg(p.value #>> '{}', ',' ORDER BY p.value #>> '{}')
-         FROM jsonb_array_elements(v_permissions) AS p(value)),
-        ''
-    ), true);
-    PERFORM set_config('app.context_initialized', 'true', true);
-
-    -- Build modules array (filtered by permissions via helper function)
-    v_modules := public.get_user_modules();
-    
-    -- Build the final JSON result
-    SELECT jsonb_build_object(
-        'user_id', u.id,
-        'external_id', u.external_id,
-        'email', u.email,
-        'display_name', u.display_name,
-        'first_name', u.first_name,
-        'last_name', u.last_name,
-        'is_disabled', u.is_disabled,
-        'created_at', u.created_at,
-        'updated_at', u.updated_at,
-        'last_seen', u.last_seen,
-        'roles', v_roles,
-        'permissions', v_permissions,
-        'modules', v_modules
-    )
-    INTO v_result
-    FROM users u
-    WHERE u.id = v_user_id;
-    
-    -- Final safety check (should never be NULL after previous validations)
-    IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
-            USING ERRCODE = '90010',
-                  HINT = jsonb_build_object('user_id', v_user_id)::text;
-    END IF;
-    
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_userinfo IS
-'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
-$pgsem__core_0190_user_name_claims$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0190_user_name_claims', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0190_user_name_claims', '1dcc5a36e66e52bfd268dbfb596928a725815f0df1963e19d80ecab84ed18f0e');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0200_module_slug_validation') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0200_module_slug_validation';
-    BEGIN
-      EXECUTE $pgsem__core_0200_module_slug_validation$-- =====================================================
--- MIGRATION: module_slug validation via JsonLogic
--- =====================================================
--- Replace the SQL CHECK constraint and the auto-generation trigger that
--- 0020 originally installed on the modules table with a single JsonLogic
--- validation rule on the modules entity. Going forward, the slug must be
--- supplied explicitly by the caller and conform to the pattern below.
---
--- Allowed: lowercase a-z, 0-9, '-', '_'. First character must be a-z or
--- 0-9 (no leading '-' or '_'). Empty string is still accepted because the
--- column default is '' and not every flow sets a slug.
---
--- The DROPs below are idempotent so this migration is safe to apply to
--- production databases (where 0020 created these objects) and to fresh
--- databases (where the edited 0020 no longer creates them).
-
-ALTER TABLE modules DROP CONSTRAINT IF EXISTS valid_module_slug;
-
-DROP TRIGGER IF EXISTS auto_set_module_slug_trigger ON modules;
-DROP FUNCTION IF EXISTS auto_set_module_slug();
-
-UPDATE entities
-SET validation_rules = validation_rules || '[{
-    "code": "90702",
-    "message": "module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''",
-    "source_module": "platform",
-    "jsonlogic": {
-        "or": [
-            {"==": [{"var": "module_slug"}, ""]},
-            {"is_match": [{"var": "module_slug"}, "^[a-z0-9][a-z0-9_-]*$"]}
-        ]
-    }
-}]'::jsonb
-WHERE table_name = 'modules';
-$pgsem__core_0200_module_slug_validation$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0200_module_slug_validation', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0200_module_slug_validation', '9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e');
+      VALUES ('_core.0180_computed_validation', 'a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15084,16 +14277,10 @@ $pgsem__core_0200_module_slug_validation$;
 --              existing queue_table_events mechanism (no new code)
 
 -- =====================================================
--- STEP 1: users.is_agent — additive agent-identity flag
+-- STEP 1: agent identity
 -- =====================================================
 -- An agent is a service principal: a user that authenticates, holds
--- roles, and is audited. Flagging via is_agent (default FALSE) means
--- no behavior change for existing rows.
-
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_agent BOOLEAN NOT NULL DEFAULT FALSE;
-
-COMMENT ON COLUMN users.is_agent IS
-'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
+-- roles, and is audited.
 
 -- An agent never authenticates at an identity provider, so nothing supplies
 -- its external_id - and external_id is the identity: an API key resolves to
@@ -15127,17 +14314,6 @@ COMMENT ON TRIGGER assign_agent_external_id_trigger ON users IS
 
 -- Revoke default PUBLIC execute on trigger function
 REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
-
--- Register is_agent in the data dictionary (physical column added above).
-INSERT INTO fields (
-    table_name, field_name, title, format,
-    field_order, input_type, description, default_value,
-    reference_table, reference_delete_mode
-) VALUES (
-    'users', 'is_agent', 'Is Agent', 'boolean',
-    100, 'default', 'When TRUE this user is a service principal (agent)', 'false',
-    '', ''
-) ON CONFLICT (table_name, field_name) DO NOTHING;
 
 -- =====================================================
 -- STEP 2: processes — the RACI process catalog
@@ -15472,758 +14648,7 @@ REVOKE ALL ON user_process_raci FROM PUBLIC;
 GRANT  SELECT ON user_process_raci TO semantius_user;
 
 -- =====================================================
--- STEP 8: JsonLogic operators for is_raci_actor / has_consultation
--- =====================================================
--- Extend evaluate_json_logic with two new RACI operators so that
--- skills can author gate validation_rules using the same syntax as
--- has_permission / require_permission.
-
-CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
-RETURNS jsonb AS $$
-DECLARE
-    op text;
-    vals jsonb;
-    arr_len int;
-    pos int;
-    current_val jsonb;
-    a jsonb; b jsonb; c jsonb;
-    num_a numeric; num_b numeric; num_c numeric;
-    cmp_ab int; cmp_bc int;
-    result jsonb;
-    scoped_data jsonb;
-    scoped_logic jsonb;
-    initial_val jsonb;
-    -- for var
-    var_key text;
-    sub_props text[];
-    nav jsonb;
-    -- for missing
-    missing_arr jsonb;
-    keys_arr jsonb;
-    looked_up jsonb;
-    -- for merge
-    merge_result jsonb;
-    elem jsonb;
-    -- for substr
-    src text;
-    start_pos int;
-    end_len int;
-    temp_str text;
-    -- for text ops
-    txt_a text; txt_b text;
-    -- for throw_error
-    err_code text; err_hint jsonb; err_name text; err_value jsonb;
-BEGIN
-    -- Handle NULL rule
-    IF rule IS NULL THEN RETURN 'null'::jsonb; END IF;
-
-    -- Arrays with possible logic inside: recursively evaluate each element
-    IF jsonb_typeof(rule) = 'array' THEN
-        result := '[]'::jsonb;
-        FOR i IN 0 .. jsonb_array_length(rule) - 1 LOOP
-            result := result || jsonb_build_array(evaluate_json_logic(rule -> i, data));
-        END LOOP;
-        RETURN result;
-    END IF;
-
-    -- Not an object or multi-key object => pass through (primitive)
-    IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
-    -- Must have exactly one key to be logic.
-    -- Read the key with an expression, never a query. jsonb_object_keys is
-    -- set-returning, so any use of it needs a FROM clause, and a FROM clause
-    -- puts the statement outside PL/pgSQL's simple-expression path: it is handed
-    -- to the SQL engine to be planned and executed like any other query. This
-    -- runs once per node, and a rule as small as {"==": [{"var": "c"}, "x"]} has
-    -- two of them, on every row.
-    --
-    -- `rule - op` removing the key we found leaves '{}' exactly when it was the
-    -- only one, which is the whole single-key test. Which key $.keyvalue()
-    -- picks out of a multi-key object does not matter: any such object is
-    -- returned unchanged whichever key came first.
-    --
-    -- The NULL guard is required, not decorative: an empty object {} has no key
-    -- to find, so op is NULL, and without the guard the next line evaluates
-    -- `rule -> NULL`. An object with no keys is not logic and belongs with the
-    -- other pass-through cases. The OR is safe either way round - `NULL <> '{}'`
-    -- is NULL, and TRUE OR NULL is TRUE - so it does not depend on
-    -- short-circuit evaluation, which SQL does not promise.
-    op := jsonb_path_query_first(rule, '$.keyvalue().key') #>> '{}';
-    IF op IS NULL OR rule - op <> '{}'::jsonb THEN RETURN rule; END IF;
-
-    vals := rule -> op;
-    -- Normalize: if vals is not an array, wrap it
-    IF jsonb_typeof(vals) <> 'array' THEN
-        vals := jsonb_build_array(vals);
-    END IF;
-    arr_len := jsonb_array_length(vals);
-
-    -- ===================== if / ?: =====================
-    -- These twelve operators have to be dispatched BEFORE the depth-first
-    -- argument evaluation further down. They either short-circuit (if, and, or)
-    -- or bind their own scope (let, map, filter, reduce, all, none, some,
-    -- set_record), so their arguments must not be evaluated eagerly.
-    --
-    -- The membership test in front of them is what keeps that cheap for
-    -- everyone else. What follows is a run of separate IF statements, not an
-    -- ELSIF chain, so without the test every other operator - var, ==, +, cat,
-    -- all of them - evaluates twelve conditions that cannot match before
-    -- reaching its own, on every node of every rule on every row.
-    --
-    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
-    -- not move or change a single operator. The list must stay exactly the set
-    -- of operators implemented between here and the barrier. Adding one without
-    -- listing it here does not fail quietly - the operator falls through to the
-    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
-    -- foot of this function, which every operator's own test case will catch.
-    --
-    -- Reordering the operators themselves was measured and abandoned: it is
-    -- worth 0-2% against this guard's 5, and churns the whole file.
-    IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
-
-    IF op = 'if' OR op = '?:' THEN
-        pos := 0;
-        WHILE pos < arr_len - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(vals -> pos, data)) THEN
-                RETURN evaluate_json_logic(vals -> (pos + 1), data);
-            END IF;
-            pos := pos + 2;
-        END LOOP;
-        -- Remaining single element = else clause
-        IF arr_len = pos + 1 THEN
-            RETURN evaluate_json_logic(vals -> pos, data);
-        END IF;
-        RETURN 'null'::jsonb;
-    END IF;
-
-    -- ===================== and =====================
-    IF op = 'and' THEN
-        current_val := 'null'::jsonb;
-        FOR i IN 0 .. arr_len - 1 LOOP
-            current_val := evaluate_json_logic(vals -> i, data);
-            IF NOT jl_truthy(current_val) THEN
-                RETURN current_val;
-            END IF;
-        END LOOP;
-        RETURN current_val;
-    END IF;
-
-    -- ===================== or =====================
-    IF op = 'or' THEN
-        current_val := 'null'::jsonb;
-        FOR i IN 0 .. arr_len - 1 LOOP
-            current_val := evaluate_json_logic(vals -> i, data);
-            IF jl_truthy(current_val) THEN
-                RETURN current_val;
-            END IF;
-        END LOOP;
-        RETURN current_val;
-    END IF;
-
-    -- ===================== filter =====================
-    IF op = 'filter' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF jsonb_typeof(scoped_data) <> 'array' THEN
-            RETURN '[]'::jsonb;
-        END IF;
-        result := '[]'::jsonb;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
-                result := result || jsonb_build_array(scoped_data -> i);
-            END IF;
-        END LOOP;
-        RETURN result;
-    END IF;
-
-    -- ===================== map =====================
-    IF op = 'map' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF jsonb_typeof(scoped_data) <> 'array' THEN
-            RETURN '[]'::jsonb;
-        END IF;
-        result := '[]'::jsonb;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            result := result || jsonb_build_array(evaluate_json_logic(scoped_logic, scoped_data -> i));
-        END LOOP;
-        RETURN result;
-    END IF;
-
-    -- ===================== reduce =====================
-    IF op = 'reduce' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF arr_len >= 3 THEN
-            initial_val := evaluate_json_logic(vals -> 2, data);
-        ELSE
-            initial_val := 'null'::jsonb;
-        END IF;
-        IF jsonb_typeof(scoped_data) <> 'array' THEN
-            RETURN initial_val;
-        END IF;
-        current_val := initial_val;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            current_val := evaluate_json_logic(
-                scoped_logic,
-                jsonb_build_object('current', scoped_data -> i, 'accumulator', current_val)
-            );
-        END LOOP;
-        RETURN current_val;
-    END IF;
-
-    -- ===================== all =====================
-    IF op = 'all' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
-            RETURN 'false'::jsonb;
-        END IF;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            IF NOT jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
-                RETURN 'false'::jsonb;
-            END IF;
-        END LOOP;
-        RETURN 'true'::jsonb;
-    END IF;
-
-    -- ===================== none =====================
-    IF op = 'none' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
-            RETURN 'true'::jsonb;
-        END IF;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
-                RETURN 'false'::jsonb;
-            END IF;
-        END LOOP;
-        RETURN 'true'::jsonb;
-    END IF;
-
-    -- ===================== some =====================
-    IF op = 'some' THEN
-        scoped_data := evaluate_json_logic(vals -> 0, data);
-        scoped_logic := vals -> 1;
-        IF jsonb_typeof(scoped_data) <> 'array' OR jsonb_array_length(scoped_data) = 0 THEN
-            RETURN 'false'::jsonb;
-        END IF;
-        FOR i IN 0 .. jsonb_array_length(scoped_data) - 1 LOOP
-            IF jl_truthy(evaluate_json_logic(scoped_logic, scoped_data -> i)) THEN
-                RETURN 'true'::jsonb;
-            END IF;
-        END LOOP;
-        RETURN 'false'::jsonb;
-    END IF;
-
-    -- ===================== let =====================
-    -- Binds a named variable into data and evaluates a logic expression.
-    -- Usage: {"let":["name", value, logic]}
-    IF op = 'let' THEN
-        var_key := vals ->> 0;
-        result := evaluate_json_logic(vals -> 1, data);
-        RETURN evaluate_json_logic(vals -> 2, data || jsonb_build_object(var_key, result));
-    END IF;
-
-    -- ===================== set_record =====================
-    -- Loads an entity record by id and stores it in data under the given name.
-    -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
-    -- Calls get_record_by_id(entityName, id) and stores the result like let.
-    IF op = 'set_record' THEN
-        var_key := vals ->> 0;
-        txt_a := vals ->> 1;
-        result := evaluate_json_logic(vals -> 2, data);
-        nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
-        RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
-    END IF;
-
-
-    END IF;   -- end of the pre-evaluation operator group
-
-    -- =====================================================
-    -- All remaining operators: depth-first evaluate arguments
-    -- =====================================================
-    -- Evaluate all arguments first
-    result := '[]'::jsonb;
-    FOR i IN 0 .. arr_len - 1 LOOP
-        result := result || jsonb_build_array(evaluate_json_logic(vals -> i, data));
-    END LOOP;
-    vals := result;
-    arr_len := jsonb_array_length(vals);
-
-    -- Get convenience references
-    a := vals -> 0;
-    IF arr_len > 1 THEN b := vals -> 1; ELSE b := NULL; END IF;
-    IF arr_len > 2 THEN c := vals -> 2; ELSE c := NULL; END IF;
-
-    -- ===================== var =====================
-    IF op = 'var' THEN
-        -- a = the key/path, b = default value
-        -- If a is undefined/null/empty string, return data itself
-        IF a IS NULL OR jsonb_typeof(a) = 'null' OR (jsonb_typeof(a) = 'string' AND a #>> '{}' = '') THEN
-            RETURN data;
-        END IF;
-        var_key := jl_to_text(a);
-        sub_props := string_to_array(var_key, '.');
-        nav := data;
-        FOR i IN 1 .. array_length(sub_props, 1) LOOP
-            IF nav IS NULL OR jsonb_typeof(nav) = 'null' THEN
-                -- not found, return default
-                IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
-            END IF;
-            -- Try object key or array index
-            IF jsonb_typeof(nav) = 'array' THEN
-                BEGIN
-                    nav := nav -> sub_props[i]::int;
-                EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
-                    IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
-                END;
-            ELSE
-                nav := nav -> sub_props[i];
-            END IF;
-            IF nav IS NULL THEN
-                IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
-            END IF;
-        END LOOP;
-        RETURN nav;
-    END IF;
-
-    -- ===================== missing =====================
-    IF op = 'missing' THEN
-        -- Arguments can be individual keys or a single array of keys
-        IF arr_len = 1 AND jsonb_typeof(a) = 'array' THEN
-            keys_arr := a;
-        ELSE
-            keys_arr := vals;
-        END IF;
-        missing_arr := '[]'::jsonb;
-        FOR i IN 0 .. jsonb_array_length(keys_arr) - 1 LOOP
-            looked_up := evaluate_json_logic(jsonb_build_object('var', keys_arr -> i), data);
-            IF jsonb_typeof(looked_up) = 'null' OR (jsonb_typeof(looked_up) = 'string' AND looked_up #>> '{}' = '') THEN
-                missing_arr := missing_arr || jsonb_build_array(keys_arr -> i);
-            END IF;
-        END LOOP;
-        RETURN missing_arr;
-    END IF;
-
-    -- ===================== missing_some =====================
-    IF op = 'missing_some' THEN
-        -- a = need_count, b = array of keys
-        num_a := jl_to_number(a);
-        -- Compute missing using the missing operator
-        missing_arr := evaluate_json_logic(jsonb_build_object('missing', b), data);
-        IF jsonb_array_length(b) - jsonb_array_length(missing_arr) >= num_a THEN
-            RETURN '[]'::jsonb;
-        ELSE
-            RETURN missing_arr;
-        END IF;
-    END IF;
-
-    -- ===================== == =====================
-    IF op = '==' THEN
-        RETURN to_jsonb(jl_loose_eq(a, b));
-    END IF;
-
-    -- ===================== === =====================
-    IF op = '===' THEN
-        -- Strict equality: types must match
-        IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'false'::jsonb; END IF;
-        RETURN to_jsonb(a = b);
-    END IF;
-
-    -- ===================== != =====================
-    IF op = '!=' THEN
-        RETURN to_jsonb(NOT jl_loose_eq(a, b));
-    END IF;
-
-    -- ===================== !== =====================
-    IF op = '!==' THEN
-        IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'true'::jsonb; END IF;
-        RETURN to_jsonb(a <> b);
-    END IF;
-
-    -- ===================== ! =====================
-    IF op = '!' THEN
-        RETURN to_jsonb(NOT jl_truthy(a));
-    END IF;
-
-    -- ===================== !! =====================
-    IF op = '!!' THEN
-        RETURN to_jsonb(jl_truthy(a));
-    END IF;
-
-    -- ===================== > >= < <= =====================
-    -- Two strings compare as text in code-point order (COLLATE "C"), which is
-    -- what JavaScript's own operators do and therefore what the reference
-    -- implementation does; any other pair is coerced to numbers through
-    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
-    -- three-argument between form of < and <= applies the rule to each pair.
-    IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
-        IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
-            txt_a := a #>> '{}';
-            txt_b := b #>> '{}';
-            cmp_ab := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
-                           WHEN txt_a COLLATE "C" > txt_b THEN 1
-                           ELSE 0 END;
-        ELSE
-            num_a := jl_to_number(a);
-            num_b := jl_to_number(b);
-            cmp_ab := CASE WHEN num_a < num_b THEN -1
-                           WHEN num_a > num_b THEN 1
-                           ELSE 0 END;
-        END IF;
-        IF op = '>' THEN RETURN to_jsonb(cmp_ab > 0); END IF;
-        IF op = '>=' THEN RETURN to_jsonb(cmp_ab >= 0); END IF;
-        IF c IS NULL THEN
-            RETURN to_jsonb(CASE WHEN op = '<' THEN cmp_ab < 0 ELSE cmp_ab <= 0 END);
-        END IF;
-        IF jsonb_typeof(b) = 'string' AND jsonb_typeof(c) = 'string' THEN
-            txt_a := b #>> '{}';
-            txt_b := c #>> '{}';
-            cmp_bc := CASE WHEN txt_a COLLATE "C" < txt_b THEN -1
-                           WHEN txt_a COLLATE "C" > txt_b THEN 1
-                           ELSE 0 END;
-        ELSE
-            num_b := jl_to_number(b);
-            num_c := jl_to_number(c);
-            cmp_bc := CASE WHEN num_b < num_c THEN -1
-                           WHEN num_b > num_c THEN 1
-                           ELSE 0 END;
-        END IF;
-        IF op = '<' THEN RETURN to_jsonb(cmp_ab < 0 AND cmp_bc < 0); END IF;
-        RETURN to_jsonb(cmp_ab <= 0 AND cmp_bc <= 0);
-    END IF;
-
-    -- ===================== % =====================
-    IF op = '%' THEN
-        RETURN to_jsonb(jl_to_number(a) % jl_to_number(b));
-    END IF;
-
-    -- ===================== + =====================
-    IF op = '+' THEN
-        num_a := 0;
-        FOR i IN 0 .. arr_len - 1 LOOP
-            num_a := num_a + jl_to_number(vals -> i);
-        END LOOP;
-        -- Return integer if result is integer
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
-    END IF;
-
-    -- ===================== * =====================
-    IF op = '*' THEN
-        num_a := jl_to_number(vals -> 0);
-        FOR i IN 1 .. arr_len - 1 LOOP
-            num_a := num_a * jl_to_number(vals -> i);
-        END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
-    END IF;
-
-    -- ===================== - =====================
-    IF op = '-' THEN
-        IF arr_len = 1 THEN
-            num_a := -jl_to_number(a);
-        ELSE
-            num_a := jl_to_number(a) - jl_to_number(b);
-        END IF;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
-    END IF;
-
-    -- ===================== / =====================
-    IF op = '/' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
-        IF num_b = 0 THEN RETURN 'null'::jsonb; END IF;
-        num_c := num_a / num_b;
-        IF num_c = trunc(num_c) THEN
-            RETURN to_jsonb(num_c::bigint);
-        ELSE
-            RETURN to_jsonb(num_c);
-        END IF;
-    END IF;
-
-    -- ===================== max =====================
-    IF op = 'max' THEN
-        num_a := jl_to_number(vals -> 0);
-        FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
-            IF num_b > num_a THEN num_a := num_b; END IF;
-        END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
-    END IF;
-
-    -- ===================== min =====================
-    IF op = 'min' THEN
-        num_a := jl_to_number(vals -> 0);
-        FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
-            IF num_b < num_a THEN num_a := num_b; END IF;
-        END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
-    END IF;
-
-    -- ===================== in =====================
-    IF op = 'in' THEN
-        IF b IS NULL THEN RETURN 'false'::jsonb; END IF;
-        IF jsonb_typeof(b) = 'array' THEN
-            -- Check if a is in the array
-            FOR i IN 0 .. jsonb_array_length(b) - 1 LOOP
-                IF a = b -> i THEN
-                    RETURN 'true'::jsonb;
-                END IF;
-            END LOOP;
-            RETURN 'false'::jsonb;
-        ELSIF jsonb_typeof(b) = 'string' THEN
-            -- Substring check
-            txt_a := jl_to_text(a);
-            txt_b := jl_to_text(b);
-            RETURN to_jsonb(position(txt_a in txt_b) > 0);
-        ELSE
-            RETURN 'false'::jsonb;
-        END IF;
-    END IF;
-
-    -- ===================== cat =====================
-    IF op = 'cat' THEN
-        txt_a := '';
-        FOR i IN 0 .. arr_len - 1 LOOP
-            txt_a := txt_a || jl_to_text(vals -> i);
-        END LOOP;
-        RETURN to_jsonb(txt_a);
-    END IF;
-
-    -- ===================== substr =====================
-    IF op = 'substr' THEN
-        src := jl_to_text(a);
-        start_pos := jl_to_number(b)::int;
-        -- Handle negative start: count from end
-        IF start_pos < 0 THEN
-            start_pos := length(src) + start_pos;
-            IF start_pos < 0 THEN start_pos := 0; END IF;
-        END IF;
-        IF arr_len >= 3 THEN
-            end_len := jl_to_number(c)::int;
-            IF end_len < 0 THEN
-                -- Negative length: from start_pos, take chars until end_len from end
-                temp_str := substring(src FROM start_pos + 1);
-                RETURN to_jsonb(substring(temp_str FROM 1 FOR length(temp_str) + end_len));
-            ELSE
-                RETURN to_jsonb(substring(src FROM start_pos + 1 FOR end_len));
-            END IF;
-        ELSE
-            RETURN to_jsonb(substring(src FROM start_pos + 1));
-        END IF;
-    END IF;
-
-    -- ===================== merge =====================
-    IF op = 'merge' THEN
-        merge_result := '[]'::jsonb;
-        FOR i IN 0 .. arr_len - 1 LOOP
-            elem := vals -> i;
-            IF jsonb_typeof(elem) = 'array' THEN
-                -- Concatenate array elements
-                FOR j IN 0 .. jsonb_array_length(elem) - 1 LOOP
-                    merge_result := merge_result || jsonb_build_array(elem -> j);
-                END LOOP;
-            ELSE
-                merge_result := merge_result || jsonb_build_array(elem);
-            END IF;
-        END LOOP;
-        RETURN merge_result;
-    END IF;
-
-    -- ===================== log =====================
-    IF op = 'log' THEN
-        RAISE NOTICE 'jsonlogic log: %', a;
-        RETURN a;
-    END IF;
-
-    -- ===================== has_permission =====================
-    -- Calls rbac.has_permission with the given permission name.
-    -- Returns true when the user has the permission; false otherwise.
-    IF op = 'has_permission' THEN
-        IF rbac.has_permission(jl_to_text(a)) THEN
-            RETURN 'true'::jsonb;
-        ELSE
-            RETURN 'false'::jsonb;
-        END IF;
-    END IF;
-
-    -- ===================== require_permission =====================
-    -- Calls rbac.require_permission with the given permission name.
-    -- Returns true when the user has the permission; throws an error otherwise.
-    IF op = 'require_permission' THEN
-        PERFORM rbac.require_permission(jl_to_text(a));
-        RETURN 'true'::jsonb;
-    END IF;
-
-    -- ===================== value_changed =====================
-    -- Checks if a field value has changed compared to $old.
-    -- Reads $old without the rule ever naming it. build_record_logic_trigger in
-    -- 0180_computed_validation.sql decides whether to build $old by searching the
-    -- rule text for "$old" or for this operator's name, so any new operator that
-    -- reads $old implicitly has to be added to that search or its rules will
-    -- silently see no previous row.
-    -- When $old is missing or null in data, always returns true (new record).
-    -- When $old is present, compares $old.<field> with current <field>.
-    IF op = 'value_changed' THEN
-        var_key := jl_to_text(a);
-        nav := data -> '$old';
-        -- If $old is absent or null, treat as new record => always changed
-        IF nav IS NULL OR jsonb_typeof(nav) = 'null' THEN
-            RETURN 'true'::jsonb;
-        END IF;
-        -- Compare old value with current value
-        IF (nav -> var_key) IS DISTINCT FROM (data -> var_key) THEN
-            RETURN 'true'::jsonb;
-        ELSE
-            RETURN 'false'::jsonb;
-        END IF;
-    END IF;
-
-    -- ===================== concat =====================
-    -- Concatenates all arguments into a single string.
-    -- Like SQL CONCAT: NULL/null → empty string, accepts all types.
-    -- Non-string types are converted via their JSON text representation.
-    -- Usage: {"concat":["Hello ", {"var":"name"}, " #", {"var":"id"}]}
-    IF op = 'concat' THEN
-        txt_a := '';
-        FOR i IN 0 .. arr_len - 1 LOOP
-            elem := vals -> i;
-            IF elem IS NULL OR jsonb_typeof(elem) = 'null' THEN
-                -- NULL/null → empty string
-                CONTINUE;
-            ELSIF jsonb_typeof(elem) = 'string' THEN
-                txt_a := txt_a || (elem #>> '{}');
-            ELSE
-                -- numbers, booleans, arrays, objects → JSON text
-                txt_a := txt_a || elem::text;
-            END IF;
-        END LOOP;
-        RETURN to_jsonb(txt_a);
-    END IF;
-
-    -- ===================== is_match =====================
-    -- Tests whether a string value matches a regular expression pattern.
-    -- Returns true when the value matches, false otherwise.
-    -- Null values always return false.
-    -- Usage: {"is_match":[{"var":"email"}, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}
-    IF op = 'is_match' THEN
-        txt_a := jl_to_text(a);
-        txt_b := jl_to_text(b);
-        IF txt_a IS NULL OR txt_b IS NULL THEN
-            RETURN 'false'::jsonb;
-        END IF;
-        RETURN to_jsonb(regexp_match(txt_a, txt_b) IS NOT NULL);
-    END IF;
-
-    -- ===================== throw_error =====================
-    -- Raises an error a client can localize (docs/error-contract.md).
-    -- Usage: {"throw_error":"Order is already shipped"}
-    --        {"throw_error":["Order ${id} is already shipped", "99017",
-    --                        ["id", {"var":"id"}]]}
-    --
-    -- The parameters are a FLAT list of name, value, name, value rather than an
-    -- object, because JsonLogic reads a single-key object as an operator call:
-    -- {"id": 3} would be dispatched as the operator `id` and die with
-    -- "Unrecognized operation". The list arrives already evaluated by the
-    -- depth-first pass above, so each value keeps the type its expression
-    -- produced - which is the point: ICU selects plurals on the JSON type, and
-    -- a number arriving as "3" would neither pluralize nor localize.
-    IF op = 'throw_error' THEN
-        err_code := CASE WHEN b IS NULL OR jsonb_typeof(b) = 'null'
-                         THEN '99000' ELSE jl_to_text(b) END;
-        IF err_code !~ '^99[0-9]{3}$' THEN
-            RAISE EXCEPTION 'throw_error code must be a class 99 number, not ${code_given}'
-                USING ERRCODE = '90911',
-                      HINT = jsonb_build_object('code_given', err_code)::text;
-        END IF;
-
-        err_hint := '{}'::jsonb;
-        IF c IS NOT NULL AND jsonb_typeof(c) = 'array' THEN
-            IF jsonb_array_length(c) % 2 <> 0 THEN
-                RAISE EXCEPTION 'throw_error parameters must be a flat list of name and value pairs'
-                    USING ERRCODE = '90914';
-            END IF;
-            FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
-                err_name  := c ->> (i * 2);
-                err_value := c -> (i * 2 + 1);
-                -- The generated validation trigger merges entity, rule and
-                -- field into this object, and its merge keeps whatever is
-                -- already there, so a rule that set one of them would win over
-                -- the trigger that actually knows where the error happened.
-                -- hint and code are the contract's other two reserved keys.
-                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
-                    RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
-                        USING ERRCODE = '90912',
-                              HINT = jsonb_build_object('name', err_name)::text;
-                END IF;
-                IF jsonb_typeof(err_value) IN ('object', 'array') THEN
-                    RAISE EXCEPTION 'throw_error parameter ${name} must be a scalar value, not ${json_type}'
-                        USING ERRCODE = '90913',
-                              HINT = jsonb_build_object('name', err_name,
-                                                        'json_type', jsonb_typeof(err_value))::text;
-                END IF;
-                err_hint := err_hint || jsonb_build_object(err_name, err_value);
-            END LOOP;
-        END IF;
-
-        RAISE EXCEPTION '%', jl_to_text(a)
-            USING ERRCODE = err_code, HINT = err_hint::text;
-    END IF;
-
-    -- ===================== is_raci_actor =====================
-    -- Returns true when the current user holds a role with the given
-    -- RACI letter for the process governing (entity, to_state).
-    -- Usage: {"is_raci_actor": ["table_name", "state", "accountable"]}
-    IF op = 'is_raci_actor' THEN
-        IF is_raci_actor(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
-            RETURN 'true'::jsonb;
-        ELSE
-            RETURN 'false'::jsonb;
-        END IF;
-    END IF;
-
-    -- ===================== has_consultation =====================
-    -- Returns true when an acted consulted raci_events row exists for
-    -- the record under (entity, to_state). Backs C-block gates.
-    -- Usage: {"has_consultation": ["table_name", "state", {"var":"id"}]}
-    IF op = 'has_consultation' THEN
-        IF has_consultation(jl_to_text(a), jl_to_text(b), jl_to_text(c)) THEN
-            RETURN 'true'::jsonb;
-        ELSE
-            RETURN 'false'::jsonb;
-        END IF;
-    END IF;
-
-    -- Unknown operator
-    RAISE EXCEPTION 'Unrecognized operation: ${op}'
-        USING ERRCODE = '90910',
-              HINT = jsonb_build_object('op', op)::text;
-END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
-
--- =====================================================
--- STEP 9: Generic emit trigger — process_gates driven
+-- STEP 8: Generic emit trigger — process_gates driven
 -- =====================================================
 -- raci_emit_trigger_fn fires AFTER INSERT OR UPDATE on any governed
 -- table. For each process_gates row where emits_events=TRUE and the
@@ -16392,7 +14817,7 @@ CREATE TRIGGER raci_gates_manage_emit_trigger
     EXECUTE FUNCTION raci_gates_manage_emit_trigger();
 
 -- =====================================================
--- STEP 10: Queue wiring — raci_notify
+-- STEP 9: Queue wiring — raci_notify
 -- =====================================================
 -- Table → queue is pure configuration: insert a queue and a
 -- queue_table_events row. No new trigger code is required.
@@ -16421,49 +14846,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', 'edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0220_module_slug_field_metadata') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0220_module_slug_field_metadata';
-    BEGIN
-      EXECUTE $pgsem__core_0220_module_slug_field_metadata$-- =====================================================
--- MIGRATION: module_slug field metadata
--- =====================================================
--- 0200 removed the auto-generation trigger for module_slug; the slug must now
--- be supplied explicitly by the caller. Update the dictionary metadata for the
--- modules.module_slug field accordingly so the UI reflects reality:
---   * description no longer claims auto-generation
---   * input_type becomes 'required' (was 'default')
---
--- 0060 already carries these values for fresh databases; this migration brings
--- existing/production databases (where 0060 ran before the edit) into line.
-
-UPDATE fields
-SET description = 'URL-safe unique identifier for module',
-    input_type  = 'required'
-WHERE table_name = 'modules'
-  AND field_name = 'module_slug';
-$pgsem__core_0220_module_slug_field_metadata$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0220_module_slug_field_metadata', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0220_module_slug_field_metadata', 'a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24');
+      VALUES ('_core.0210_raci', 'abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16582,61 +14965,6 @@ $pgsem__core_0230_entity_insert_defaults$;
     END;
     INSERT INTO public._versions (name, checksum)
       VALUES ('_core.0230_entity_insert_defaults', '9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0240_entities_field_metadata') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0240_entities_field_metadata';
-    BEGIN
-      EXECUTE $pgsem__core_0240_entities_field_metadata$-- =====================================================
--- MIGRATION: entities field metadata (singular, module_id input_type)
--- =====================================================
--- Adjust the dictionary metadata for two of the entities entity's own fields:
---
---   * singular   -- 0230 now auto-derives singular from table_name when blank,
---                   so it is no longer a required input ('required' -> 'default').
---   * module_id  -- every entity must belong to a module, so the module field is
---                   a required input ('default' -> 'required').
---
--- input_type is a UI-level hint (not a DB constraint), so the module_id column
--- remains nullable and bare inserts (e.g. from migrations) still work.
---
--- 0060 already carries these values for fresh databases; this migration brings
--- existing/production databases into line.
-
-UPDATE fields
-SET input_type = 'default',
-    description = 'Singular form of table name (auto-derived from table_name when blank)'
-WHERE table_name = 'entities'
-  AND field_name = 'singular';
-
-UPDATE fields
-SET input_type = 'required'
-WHERE table_name = 'entities'
-  AND field_name = 'module_id';
-
--- NB: ctype coverage for created_at/updated_at (formerly a b6 backfill here) is now set inline at
--- every insert site as ctype='audit' (b7), alongside the is_core→ctype migration, so no backfill
--- is needed — the database is regenerated with correct values in place.
-$pgsem__core_0240_entities_field_metadata$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0240_entities_field_metadata', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0240_entities_field_metadata', '3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16868,29 +15196,9 @@ $pgsem__core_0260_dashboard$;
 -- created_at/updated_at audit columns at 999998/999999 — never inflate the
 -- running max), or 10 for the first record.
 --
--- This generalizes (and replaces) the old fields-only auto_set_field_order()
--- trigger: the `fields` entity simply declares order_column = 'field_order'.
 
 -- =====================================================
--- 1. Add the order_column metadata column to entities
--- =====================================================
-
-ALTER TABLE entities ADD COLUMN IF NOT EXISTS order_column TEXT NOT NULL DEFAULT '';
-
-ALTER TABLE entities ADD CONSTRAINT valid_order_column
-    CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$');
-
-COMMENT ON COLUMN entities.order_column IS 'Store a fixed row order in this column';
-
--- Dictionary metadata so the field shows up in get_schema() properties and the UI.
--- The column was added above (with its CHECK constraint), so add_dd_field()'s
--- ADD COLUMN IF NOT EXISTS is a harmless no-op here.
-INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
-VALUES
-    ('entities', 'order_column', 'Order Column', 'Store a fixed row order in this column', '', 'text', FALSE, 112, 'default', 'default', 'core', FALSE, '', '', '');
-
--- =====================================================
--- 2. Generic BEFORE INSERT auto-assign trigger function
+-- 1. Generic BEFORE INSERT auto-assign trigger function
 -- =====================================================
 -- Installed (per entity) on the physical table by handle_entity_order_column().
 -- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
@@ -16947,7 +15255,7 @@ COMMENT ON FUNCTION auto_set_order_value IS
 REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
 
 -- =====================================================
--- 3. Entity-level trigger: maintain the physical order column + its trigger
+-- 2. Entity-level trigger: maintain the physical order column + its trigger
 -- =====================================================
 -- Fires AFTER the structural create/enable triggers (zz_ prefix) so the physical
 -- table already exists. Idempotent and additive-safe.
@@ -17022,25 +15330,17 @@ CREATE TRIGGER zz_entity_order_column_update_trigger
     EXECUTE FUNCTION handle_entity_order_column();
 
 -- =====================================================
--- 4. Remove the legacy fields-only auto_set_field_order() mechanism
+-- 3. Auto-assign trigger on the fields table
 -- =====================================================
--- Superseded by the generic order_column mechanism (the `fields` entity declares
--- order_column = 'field_order' below).
-
-DROP TRIGGER IF EXISTS auto_set_field_order_trigger ON fields;
-DROP FUNCTION IF EXISTS auto_set_field_order();
-
--- =====================================================
--- 5. Declare field_order as the order column for the fields entity
--- =====================================================
--- This UPDATE fires zz_entity_order_column_update_trigger, which (re)installs the
--- generic auto-assign trigger on the physical `fields` table. field_order already
--- exists, so the ADD COLUMN IF NOT EXISTS is a no-op.
+-- The fields entity is seeded with order_column = 'field_order' (0060) before the
+-- entities trigger above exists, so its trigger is installed here.
 --
 -- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
 -- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
 -- created_at/updated_at audit columns at 999998/999999 never inflate the max.
-UPDATE entities SET order_column = 'field_order' WHERE table_name = 'fields';
+CREATE TRIGGER zz_auto_order_fields
+    BEFORE INSERT ON public.fields
+    FOR EACH ROW EXECUTE FUNCTION auto_set_order_value('field_order');
 $pgsem__core_0270_entity_order_column$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -17057,7 +15357,7 @@ $pgsem__core_0270_entity_order_column$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0270_entity_order_column', '5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8');
+      VALUES ('_core.0270_entity_order_column', '928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17097,7 +15397,7 @@ INSERT INTO entities (
     table_name, singular, singular_label, plural_label,
     description, module_id, view_permission, edit_permission,
     id_column, label_column,
-    select_rule
+    select_rule, order_column
 )
 VALUES (
     'user_bookmarks',
@@ -17110,7 +15410,8 @@ VALUES (
     'user:read',
     'id',
     'title',
-    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb
+    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb,
+    'row_order'
 );
 
 -- =====================================================
@@ -17175,16 +15476,6 @@ CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
     FOR INSERT
     TO semantius_user
     WITH CHECK ((SELECT rbac.has_permission('user:read')) AND user_id = rbac.user_id());
-
--- =====================================================
--- STEP 5: Enable drag-and-drop row ordering
--- =====================================================
--- Triggers handle_entity_order_column() to:
---   • ALTER TABLE user_bookmarks ADD COLUMN row_order INTEGER NOT NULL DEFAULT 0
---   • install the zz_auto_order_user_bookmarks BEFORE INSERT trigger that
---     auto-assigns MAX(row_order)+10 (or 10 for the first row) when row_order=0
-
-UPDATE entities SET order_column = 'row_order' WHERE table_name = 'user_bookmarks';
 $pgsem__core_0280_user_bookmarks$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -17201,7 +15492,7 @@ $pgsem__core_0280_user_bookmarks$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0280_user_bookmarks', '8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49');
+      VALUES ('_core.0280_user_bookmarks', '5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17213,27 +15504,11 @@ $pgsem__core_0280_user_bookmarks$;
       EXECUTE $pgsem__core_0282_module_version$-- =====================================================
 -- MODULE VERSION TRACKING
 -- =====================================================
--- Adds version and version_date columns to modules table.
+-- Maintains modules.version and modules.version_date.
 -- Automatically increments version and sets version_date when
 -- modules or any related table (entities, roles, permissions,
 -- processes) is modified.
 -- =====================================================
-
--- =====================================================
--- ADD COLUMNS TO MODULES TABLE
--- =====================================================
-
-ALTER TABLE modules ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE modules ADD COLUMN version_date TIMESTAMPTZ;
-
--- =====================================================
--- ADD FIELD METADATA
--- =====================================================
-
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', ''),
-    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '');
 
 -- =====================================================
 -- TRIGGER FUNCTION: bump_module_version
@@ -17437,244 +15712,7 @@ $pgsem__core_0282_module_version$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0282_module_version', '70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0284_module_slug_provision') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0284_module_slug_provision';
-    BEGIN
-      EXECUTE $pgsem__core_0284_module_slug_provision$-- =====================================================
--- MIGRATION: provision modules.module_slug, drop modules.alias
--- =====================================================
--- modules.alias was renamed to modules.module_slug (commit 6b3c56b) by editing
--- 0020/0040/0060/0080 in place. Databases provisioned before that edit still
--- carry the old shape:
---   * column  modules.alias  (TEXT NOT NULL DEFAULT '', no UNIQUE)
---   * no     modules.module_slug column / UNIQUE constraint
---   * dictionary row fields('modules','alias') "Alias"
---   * get_user_modules() emitting an "alias" key
--- while the tool contract (create_module/update_module require module_slug),
--- the SKILL docs ({ui_baseurl}/{module_slug}/{table_name}), the UI routing and
--- 0200/0220 all expect module_slug.
---
--- This migration brings existing databases in line. It is idempotent and a
--- no-op on fresh databases where 0020 already created module_slug:
---   1. physical column: RENAME alias -> module_slug (or merge + DROP alias when
---      both exist)
---   2. backfill empty slugs from module_name (same rule the old auto_set_module_slug
---      trigger used, made unique with an _<id> suffix on collision) so the UNIQUE
---      constraint can be added and every module is routable
---   3. DEFAULT '' NOT NULL UNIQUE + column comment (matches 0020)
---   4. dictionary: fields('modules','alias') -> ('modules','module_slug') with the
---      0060/0220 metadata (title/description/input_type)
---   5. get_user_modules(): re-issue the current 0080 body (to_jsonb(m)) so the
---      payload carries module_slug instead of alias
---
--- Ordering note: this file runs after 0200 (slug JsonLogic rule) and 0220
--- (module_slug field metadata, a no-op while the row is still named alias),
--- which is why step 4 sets the metadata itself.
-
-DO $$
-DECLARE
-    v_has_alias_col   BOOLEAN;
-    v_has_slug_col    BOOLEAN;
-    v_has_alias_field BOOLEAN;
-    v_has_slug_field  BOOLEAN;
-    v_has_rename_trg  BOOLEAN;
-BEGIN
-    SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'modules' AND column_name = 'alias'
-    ) INTO v_has_alias_col;
-
-    SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'modules' AND column_name = 'module_slug'
-    ) INTO v_has_slug_col;
-
-    SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'modules' AND field_name = 'alias')
-      INTO v_has_alias_field;
-    SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'modules' AND field_name = 'module_slug')
-      INTO v_has_slug_field;
-
-    -- =====================================================
-    -- STEP 1: physical column
-    -- =====================================================
-    IF v_has_alias_col AND NOT v_has_slug_col THEN
-        ALTER TABLE modules RENAME COLUMN alias TO module_slug;
-        RAISE NOTICE 'modules: renamed column alias -> module_slug';
-        v_has_slug_col  := TRUE;
-        v_has_alias_col := FALSE;
-    ELSIF v_has_alias_col AND v_has_slug_col THEN
-        -- Both present (partially migrated database): keep module_slug, take the
-        -- alias value only where module_slug is still empty, then drop alias.
-        UPDATE modules SET module_slug = alias WHERE module_slug = '' AND alias <> '';
-        ALTER TABLE modules DROP COLUMN alias;
-        RAISE NOTICE 'modules: merged alias into module_slug and dropped alias';
-        v_has_alias_col := FALSE;
-    END IF;
-
-    -- =====================================================
-    -- STEP 2: backfill empty slugs so UNIQUE can be enforced
-    -- =====================================================
-    -- Base slug: lowercase module_name with every non-alphanumeric run collapsed
-    -- to '_' and leading/trailing '_' trimmed (the old auto_set_module_slug rule).
-    -- Collisions (with an existing slug or another backfilled row) get '_<id>'.
-    -- Result always matches the 0200 rule ^[a-z0-9][a-z0-9_-]*$.
-    WITH candidates AS (
-        SELECT id,
-               trim(both '_' from lower(regexp_replace(module_name, '[^a-zA-Z0-9]+', '_', 'g'))) AS base
-        FROM modules
-        WHERE module_slug = ''
-    ),
-    resolved AS (
-        SELECT c.id,
-               CASE
-                   WHEN c.base = '' THEN 'module_' || c.id
-                   WHEN EXISTS (SELECT 1 FROM modules m2 WHERE m2.module_slug = c.base AND m2.id <> c.id)
-                     OR (SELECT count(*) FROM candidates c2 WHERE c2.base = c.base) > 1
-                        THEN c.base || '_' || c.id
-                   ELSE c.base
-               END AS slug
-        FROM candidates c
-    )
-    UPDATE modules m
-       SET module_slug = r.slug
-      FROM resolved r
-     WHERE m.id = r.id;
-
-    -- =====================================================
-    -- STEP 3: column contract (matches 0020: TEXT DEFAULT '' NOT NULL UNIQUE)
-    -- =====================================================
-    ALTER TABLE modules ALTER COLUMN module_slug SET DEFAULT '';
-    UPDATE modules SET module_slug = '' WHERE module_slug IS NULL;
-    ALTER TABLE modules ALTER COLUMN module_slug SET NOT NULL;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        WHERE t.relname = 'modules'
-          AND t.relnamespace = 'public'::regnamespace
-          AND c.contype = 'u'
-          AND c.conkey = ARRAY[(
-              SELECT attnum FROM pg_attribute
-              WHERE attrelid = t.oid AND attname = 'module_slug'
-          )]
-    ) THEN
-        ALTER TABLE modules ADD CONSTRAINT modules_module_slug_key UNIQUE (module_slug);
-        RAISE NOTICE 'modules: added UNIQUE (module_slug)';
-    END IF;
-
-    COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module';
-
-    -- =====================================================
-    -- STEP 4: dictionary row
-    -- =====================================================
-    IF v_has_alias_field AND NOT v_has_slug_field THEN
-        -- Renaming fields.field_name fires validate_field_rename_and_format(),
-        -- which would try to ALTER TABLE ... RENAME COLUMN alias -> module_slug on
-        -- a managed entity. The physical rename already happened in step 1, so
-        -- suspend that trigger for this metadata-only rename.
-        SELECT EXISTS (
-            SELECT 1 FROM pg_trigger
-            WHERE tgrelid = 'public.fields'::regclass
-              AND tgname = 'validate_field_rename_and_format_trigger'
-        ) INTO v_has_rename_trg;
-
-        IF v_has_rename_trg THEN
-            ALTER TABLE fields DISABLE TRIGGER validate_field_rename_and_format_trigger;
-        END IF;
-
-        UPDATE fields
-           SET field_name  = 'module_slug',
-               title       = 'Module Slug',
-               description = 'URL-safe unique identifier for module',
-               input_type  = 'required'
-         WHERE table_name = 'modules'
-           AND field_name = 'alias';
-
-        IF v_has_rename_trg THEN
-            ALTER TABLE fields ENABLE TRIGGER validate_field_rename_and_format_trigger;
-        END IF;
-
-        RAISE NOTICE 'fields: renamed modules.alias -> modules.module_slug';
-
-    ELSIF v_has_alias_field AND v_has_slug_field THEN
-        -- delete_dd_field() runs ALTER TABLE ... DROP COLUMN IF EXISTS alias for a
-        -- managed entity; the column is already gone after step 1, so this is safe.
-        DELETE FROM fields WHERE table_name = 'modules' AND field_name = 'alias';
-        RAISE NOTICE 'fields: dropped stale modules.alias row';
-
-    ELSIF NOT v_has_slug_field THEN
-        -- No dictionary row at all: seed it as 0060 does. add_dd_field() uses
-        -- ADD COLUMN IF NOT EXISTS, so the existing physical column is kept.
-        INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order,
-                            input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-        VALUES ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for module',
-                'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', '');
-        RAISE NOTICE 'fields: seeded modules.module_slug row';
-    END IF;
-
-    -- Make sure the metadata matches 0060/0220 even if the row already existed.
-    UPDATE fields
-       SET title       = 'Module Slug',
-           description = 'URL-safe unique identifier for module',
-           input_type  = 'required'
-     WHERE table_name = 'modules'
-       AND field_name = 'module_slug'
-       AND (title <> 'Module Slug'
-            OR description IS DISTINCT FROM 'URL-safe unique identifier for module'
-            OR input_type <> 'required');
-END;
-$$;
-
--- =====================================================
--- STEP 5: get_user_modules() (current 0080_public_functions.sql body)
--- =====================================================
--- Older databases still run the pre-rename body that builds the object by hand
--- and emits "alias"; to_jsonb(m) returns every current column, incl. module_slug.
---
--- This CREATE OR REPLACE runs later than the one in 0080_public_functions.sql
--- and silently wins, so a change made only there is lost.
-
-CREATE OR REPLACE FUNCTION public.get_user_modules()
-RETURNS JSONB AS $$
-BEGIN
-    RETURN COALESCE(
-        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
-        FROM modules m
-        WHERE rbac.has_any_permission('admin', m.view_permission)),
-        '[]'::jsonb
-    );
-END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
-
-COMMENT ON FUNCTION public.get_user_modules IS
-'Returns modules array filtered by RLS. Used internally by get_userinfo().';
-
-REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
-$pgsem__core_0284_module_slug_provision$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0284_module_slug_provision', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0284_module_slug_provision', '2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033');
+      VALUES ('_core.0282_module_version', '91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -17958,7 +15996,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
+  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
 BEGIN
   -- Works before _versions exists (i.e. before the first migrate()).
   IF to_regclass('public._versions') IS NULL THEN
@@ -17999,8 +16037,8 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0130_create_tables_view_compat', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0190_user_name_claims', '_core.0200_module_slug_validation', '_core.0210_raci', '_core.0220_module_slug_field_metadata', '_core.0230_entity_insert_defaults', '_core.0240_entities_field_metadata', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0284_module_slug_provision', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"2ab3b8422b7e7a11cbf931089cc5eac3a6b06ea6ecc35e9a0800d66bcb03a8e9","_core.0020_rbac_schema":"c6b7ba8e0103311d798d3883ef0f6cf3d1c34b381757e3c6d27b73993cd4f722","_core.0030_rbac_functions":"93a1fa2ed19b47b7c2e6fe568f34df4884f14fc79a1d9acf1289c319c3ef7389","_core.0040_rbac_seed":"692afb06dd31e1793078e0725d5680559edd90231db62a08f344ca31ef876623","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"9cdf678514fc9bda004a581b606f3c6e7c05cde8beaeed5e2e05621e7debee3b","_core.0070_dd_functions":"48050376198191f920f950b6122faf2daaec83b85d37a21c45a0a2a08253c4bc","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"670fcf91e019582b1ed2194169ef682c587a667dad15771c887fb7e77ec27c79","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0130_create_tables_view_compat":"220246635f293ba54538e7530561f3f98d6bb81c720580d941977bccd72e4e6f","_core.0140_dd_rename":"1ac1a10ca84d0254a691d56b90611b7ba2192575905a69d249df81b60d5fb2c6","_core.0145_managed_enable":"536617992f56dfe3bedb314bd72bffc0c4a70affaf33f8abe886a0dec7615c49","_core.0150_audit_log":"c7c19be57f967c61eb7877c184167d8803632ecda7eef29fcaf50c4900a22faf","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"b2a808ca0db95466fae2c55847dc3cb34defd7a17cb8e5e81ae466699294c83f","_core.0190_user_name_claims":"1dcc5a36e66e52bfd268dbfb596928a725815f0df1963e19d80ecab84ed18f0e","_core.0200_module_slug_validation":"9b7fd7e7843130230b2383b1ff74787bf8e40205f8178cc02d210b7d1e30e59e","_core.0210_raci":"edb6a7ff296c292435a82152b8edf5cd0d6678ffde722f05f815ce37440c75c8","_core.0220_module_slug_field_metadata":"a1ef1975c5f07e69b3d61755415117499763bae2e0068838ccaac9f5cf154e24","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0240_entities_field_metadata":"3671d1812f1124c661949324c245527b78aa1cbd16978992d63625246a987f2c","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"5cf54fd6f044d1efc653ce93c038b22d854e83ed624d2a2bc2b24db837522cc8","_core.0280_user_bookmarks":"8e3872e41aba7055035d8a1c8fcb55ec0b3c283e3a9a06a735ad35e6d4bbeb49","_core.0282_module_version":"70f7057a3b9866f824f268ac24f2db06027e0619a0fc3b168079d8c00555856e","_core.0284_module_slug_provision":"2e8f71ff080072e614b3f9ed12e5bc5aba484285aaef7761ca49165b12733033","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
+  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"7e5214f2afbc1ab11a41805d2b5c8a61e0c701f6e6b2027c5779763bd2771d9b","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73","_core.0150_audit_log":"7549351458a8f15af047f1322fa19b356adf3c046a3fae2fe3932b3208f20f86","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa","_core.0210_raci":"abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
