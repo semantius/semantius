@@ -213,12 +213,34 @@ is published. Re-releasing the newest version is supported and expected (see
 above); this is the cost of it.
 
 `<major>` is parsed from `docker-postgres/Dockerfile`'s `FROM` line, so a base
-bump moves the tag suffix with it. **A pre-release never moves `:latest` or
-`:latest-pg<major>`** - those mean the current stable build, so `v0.5.0-beta1`
-publishes only `:0.5.0-beta1-pg18` and a pre-release is consumed by asking for it
-by name. There is deliberately no bare `:<version>`
-image tag: a version tag that silently changed PostgreSQL major later is the
-exact ambiguity the suffix removes.
+bump moves the tag suffix with it. **`:latest` and `:latest-pg<major>` follow the
+newest release, pre-releases included**, so `v0.5.0-beta1` publishes
+`:0.5.0-beta1-pg18` and moves both moving tags onto it.
+
+The rejected alternative is `:latest` as the newest *final* release. It sounds
+safer and is the commoner convention, but it holds the tag on whatever shipped
+last for as long as everything ahead of it is a pre-release - and "the last final
+build" is only a useful thing to hand someone while that build is still
+supported, which the tag cannot know. That is not hypothetical here: the
+0.1.0/0.3.0/0.4.0 lineage was cut off, so under that rule `:latest` served 0.4.0
+- a build with no upgrade path into 0.5.0, whose core tables are extension
+members, and which therefore loses data on `DROP EXTENSION` without `CASCADE`.
+A moving tag that quietly points at a dead end is worse than one that moves.
+
+The guard that remains is the one that matters: a moving tag may only go
+*forward*. Both are published only when the version being released is the
+highest tag in the repo, so re-releasing an older version can never drag
+`:latest` backwards. Anything that must not move pins `:<version>-pg<major>`,
+which is always published.
+
+**There is no `:stable` yet.** It belongs with the first final release: at that
+point `:stable` follows the newest final and `:latest` keeps following the
+newest of anything, which is the two-channel arrangement both tags need to mean
+what they say. Until then nothing would point at it but the discarded lineage.
+
+There is deliberately no bare `:<version>` image tag: a version tag that
+silently changed PostgreSQL major later is the exact ambiguity the suffix
+removes.
 
 The gates, in order: `deno task extension <ver> --strict` → committed build must
 equal the regenerated one → Path B → Path A → lifecycle → PGXN manifest checks →

@@ -35,15 +35,14 @@ version="${version#v}"
 # makes a re-release replace its own image. Mirrors the same decision in
 # .github/workflows/extension-release.yml.
 git fetch --tags --force --quiet 2>/dev/null || true
-# A PRE-RELEASE never moves :latest. Someone pulling :latest is asking for the
-# current stable build, not for 0.6.0-beta1, and every registry and package
-# manager treats it that way. The version-pinned tag is still produced, which is
-# how a pre-release is consumed: by asking for it exactly.
-top_version="$(git tag -l 'v*' | semver_finals | semver_max_of)"
-if semver_is_prerelease "$version"; then
-  is_highest=0
-  latest_note="$version is a pre-release"
-elif [ -z "$top_version" ] || [ "$(semver_cmp "$version" "$top_version")" != "-1" ]; then
+# :latest is the newest release, pre-releases included. Scoping it to the newest
+# FINAL release instead pins it to whatever shipped last for as long as
+# everything ahead of it is a pre-release, and "the last final build" is only a
+# useful promise while that build is still one worth handing someone - which is
+# not something the tag can know. A consumer that must not move asks for the
+# exact version, which is always published.
+top_version="$(git tag -l 'v*' | semver_max_of)"
+if [ -z "$top_version" ] || [ "$(semver_cmp "$version" "$top_version")" != "-1" ]; then
   is_highest=1
 else
   is_highest=0
