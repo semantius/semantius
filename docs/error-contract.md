@@ -377,7 +377,7 @@ the JSON hint that fill their `${name}` placeholders.
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
 | `90001` | `42501` | `Authentication required: No valid JWT claims found` | - | - | No JWT claims reached the database, or they could not be parsed. |
-| `90002` | `42501` | `Authentication required: JWT role claim must be authenticated` | - | - | The token's `role` claim is something other than `authenticated`. |
+| `90002` | `42501` | `Authentication required: JWT role claim must be authenticated` | - | - | The token's `role` claim is something other than `authenticated` — or it has no `role` claim and no `roles` claim carrying `authenticated` either. |
 | `90003` | `42501` | `Authentication required: JWT sub claim is missing` | - | - | The token carries no subject, so there is nobody to be. |
 | `90004` | `42501` | `Authentication required: JWT audience claim is missing (expected ${expected})` | - | `expected` | `_settings.jwt_aud` is set and the token has no `aud`. |
 | `90005` | `42501` | `Authentication required: JWT audience does not match (expected ${expected}, got ${actual})` | - | `expected`, `actual` | The token was minted for a different audience. |

@@ -17,6 +17,14 @@ installs the core schema as ordinary objects.
   schema. LATIN1 and SQL_ASCII databases are refused.
 - New `semantius.pending()`, `semantius.version()` and `semantius.status()`.
 - `_versions` gained a `checksum` column, written by both install paths.
+- `rbac.uid()` accepts a token that carries **no** `role` claim when its `roles`
+  claim contains `authenticated`. Microsoft Entra ID is the case this exists
+  for: `role` and `roles` are both in its restricted claim set, so no
+  claims-mapping policy can emit `role`, and an app role named `authenticated`
+  arrives as `"roles": ["authenticated"]` instead. PostgREST selects the
+  database role from that same array (`jwt-role-claim-key = .roles[0]`), so both
+  ends of one token read the same thing. A `role` claim holding any other value
+  is still refused.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.

@@ -133,6 +133,8 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
 -- Normalizes Supabase format to Neon format for all downstream code
+-- Accepts a `roles` array carrying `authenticated` when no `role` claim exists
+-- at all (Step 3) — the only shape some issuers can emit
 -- STABLE, and it writes - transaction-local GUCs only, never a row. So does
 -- rbac.ensure_context_initialized(), which every STABLE reader calls. STABLE
 -- also lets the planner run the call while estimating selectivity, so never
@@ -151,6 +153,8 @@ DECLARE
     v_jwt_aud TEXT;
     v_aud_json JSONB;
     v_system_user TEXT;
+    v_roles_claim TEXT;
+    v_roles_json JSONB;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
@@ -189,6 +193,55 @@ BEGIN
             -- Read normalized values
             v_role := current_setting('request.jwt.claim.role', true);
             sub_value := current_setting('request.jwt.claim.sub', true);
+        END IF;
+    END IF;
+
+    -- Step 3: an issuer that CANNOT mint a `role` claim. Microsoft Entra ID is
+    -- the case this exists for: `role` and `roles` are both in its restricted
+    -- claim set, so no claims-mapping policy can emit `role`, and an app role
+    -- named `authenticated` arrives as `"roles": ["authenticated"]` instead.
+    -- PostgREST selects the database role from that same array
+    -- (jwt-role-claim-key = `.roles[0]`), so reading it here keeps both ends of
+    -- one token agreeing about one thing rather than inventing a second
+    -- convention.
+    --
+    -- ONLY when `role` is absent. A token that carries `role` with some other
+    -- value has already answered the question and stays answered: `anon` plus a
+    -- `roles` array is still `anon`.
+    --
+    -- Step 2 has fanned the blob out, so this arrives as the JSON TEXT of
+    -- whatever `roles` held — an array from Entra, but issuers exist that emit
+    -- a bare or space-separated string, and neither of those is valid JSON. So
+    -- the cast is guarded: a cast failure is one of those strings, never an
+    -- error for the caller.
+    IF v_role IS NULL OR v_role = '' THEN
+        v_roles_claim := current_setting('request.jwt.claim.roles', true);
+
+        IF v_roles_claim IS NOT NULL AND v_roles_claim <> '' THEN
+            BEGIN
+                v_roles_json := v_roles_claim::jsonb;
+            EXCEPTION
+                WHEN OTHERS THEN v_roles_json := NULL;
+            END;
+
+            IF v_roles_json IS NOT NULL AND jsonb_typeof(v_roles_json) = 'array' THEN
+                IF v_roles_json ? 'authenticated' THEN
+                    v_role := 'authenticated';
+                END IF;
+            ELSE
+                -- A JSON string, or text that never parsed. Both may hold a
+                -- space-separated list, and a single name is a list of one.
+                IF 'authenticated' = ANY (string_to_array(
+                        COALESCE(v_roles_json #>> '{}', v_roles_claim), ' ')) THEN
+                    v_role := 'authenticated';
+                END IF;
+            END IF;
+
+            -- Cache the verdict the way Step 2 caches the blob, so a second
+            -- call in the same request takes the fast path at the top.
+            IF v_role = 'authenticated' THEN
+                PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+            END IF;
         END IF;
     END IF;
 
@@ -279,7 +332,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
 
 -- =====================================================
 -- USER MANAGEMENT

@@ -4,15 +4,16 @@
 -- authenticate_as() always sets Neon-style request.jwt.claim.* settings, so
 -- the suite never exercised the Supabase-style single JSON blob path of
 -- rbac.uid() (0030_rbac_functions.sql, "Step 2") nor the JSON-scalar audience
--- form. 0250 covers plain-string and JSON-array audiences, 0390 covers the
--- no-claims session. This file fills the remaining branches.
+-- form, nor the `roles`-array stand-in for a missing `role` claim ("Step 3").
+-- 0250 covers plain-string and JSON-array audiences, 0390 covers the no-claims
+-- session. This file fills the remaining branches.
 --
 -- Every group starts from a semantius_user session whose Neon-style role/sub
 -- settings are blank, so rbac.uid() has to fall back to request.jwt.claims.
 -- All settings are transaction-local and vanish with the ROLLBACK.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(22);
 
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
@@ -73,7 +74,54 @@ SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
     'uid: an empty blob is rejected');
 
 -- =====================================================
--- GROUP 3: JSON-scalar audience (jwt_aud configured in _settings)
+-- GROUP 3: a `roles` array stands in for a missing `role` claim
+-- =====================================================
+-- The Microsoft Entra ID shape. `role` and `roles` are both restricted claims
+-- there, so an app role named `authenticated` is the only way the issuer can
+-- say it, and it arrives as an array. PostgREST reads the same array to pick
+-- the database role (jwt-role-claim-key = `.roles[0]`).
+-- Runs BEFORE the audience group on purpose: that group inserts a jwt_aud row
+-- which would then apply to every call here too.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","roles":["authenticated"],"email":"sales@test.com"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a roles array carrying authenticated is accepted when role is absent');
+SELECT is(current_setting('request.jwt.claim.role', true), 'authenticated',
+    'uid: the verdict is cached as request.jwt.claim.role for the next call');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","roles":["reader","authenticated","admin"]}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: authenticated is found among several roles');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims', '{"sub":"user2","roles":["reader","admin"]}', true);
+SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
+    'uid: a roles array without authenticated is rejected');
+
+-- Issuers that emit `roles` as a string rather than an array.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims', '{"sub":"user2","roles":"authenticated"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a roles claim holding a single JSON string is accepted');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims', '{"sub":"user2","roles":"reader authenticated"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a space-separated roles string is accepted');
+
+-- An explicit role claim still decides, whatever roles says.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"anon","roles":["authenticated"]}', true);
+SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
+    'uid: role=anon is still refused even when roles carries authenticated');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims', '{"roles":["authenticated"]}', true);
+SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
+    'uid: a roles array without a sub is rejected');
+
+-- =====================================================
+-- GROUP 4: JSON-scalar audience (jwt_aud configured in _settings)
 -- =====================================================
 RESET ROLE;
 INSERT INTO _settings (name, value) VALUES ('jwt_aud', 'myapp');
