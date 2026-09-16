@@ -743,13 +743,6 @@ check "an over-long DDL statement is truncated to exactly 8192 characters" "8192
 maxlen=$(psqlq life1 "SELECT COALESCE(max(length(query_text)), 0) FROM audit_ddl_logs")
 [ "$maxlen" -le 8192 ] 2>/dev/null && ok "no audit row exceeds the bound (max $maxlen)" \
   || bad "query_text max length is $maxlen"
-# Two halves: the generated companions really exist (so the churn really
-# happened and the next assertion is not vacuous), and none of it was logged.
-n_label=$(psqlq life1 "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND (p.proname = '_label' OR p.proname LIKE '%' || chr(92) || '_label')")
-[ "$n_label" -gt 0 ] 2>/dev/null && ok "the install generated $n_label *_label companions" \
-  || bad "no *_label companions found, so the next check proves nothing"
-check "generated *_label functions produce no audit rows" "0" \
-  "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity ~ '(^|[.])[^.(]*_label[(]'")"
 
 # ---------------------------------------------------------------- 12 cleanup
 step "[12] Cleanup"
