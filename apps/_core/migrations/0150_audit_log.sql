@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS public.audit_record_logs (
     op             audit.operation NOT NULL,
     ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id        INTEGER NOT NULL DEFAULT 0,
+    db_role        TEXT,
+    is_superuser   BOOLEAN,
+    client_addr    INET,
     table_oid      OID NOT NULL,
     table_schema   NAME NOT NULL,
     table_name     NAME NOT NULL,
@@ -76,6 +79,34 @@ Each row captures the operation type, the full record (new/old), and metadata.';
 COMMENT ON COLUMN public.audit_record_logs.record_pk IS 'Primary key value of the affected record for easy lookup';
 COMMENT ON COLUMN public.audit_record_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context.';
 
+-- The three columns below describe the CONNECTION that wrote the row, as
+-- opposed to user_id, which describes the authenticated principal inside it.
+-- They exist because user_id cannot distinguish "no JWT" from "no JWT and a
+-- superuser psql session": both log 0. A write through the API carries
+-- db_role = the authenticator role and is_superuser = false; anything else got
+-- in past the request path.
+--
+-- All three are read from the backend's own state - a syscache-backed keyword,
+-- a GUC, and the connection struct - so they cost no catalog scan, no parse and
+-- no allocation, and none of them is settable by the client. Contrast
+-- application_name, which is a connection-string parameter and therefore
+-- evidence of nothing. They are constant for a session and still read per
+-- statement rather than cached: the read is cheaper than the cache would be.
+--
+-- What they do NOT survive is a superuser who sets session_replication_role to
+-- 'replica' before writing, which skips these triggers outright. They raise the
+-- cost of an undocumented write; they do not make one impossible.
+COMMENT ON COLUMN public.audit_record_logs.db_role IS 'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.';
+-- is_superuser is read from the GUC here, and 0290_owner_hardening reads
+-- pg_roles.rolsuper instead, deliberately: the GUC reports the OUTER user, so
+-- under a SECURITY DEFINER function - which every one of these triggers is - it
+-- keeps reporting the session rather than the function owner. 0290 needs to know
+-- whether the EFFECTIVE user can create a BYPASSRLS role, so the GUC is wrong
+-- for it. This column wants the session, which is exactly what the GUC still
+-- reports, and reading it costs no catalog access.
+COMMENT ON COLUMN public.audit_record_logs.is_superuser IS 'Whether the writing session had superuser privileges. True on a data row means RLS was bypassed. Read from the is_superuser GUC, which reports the session rather than the SECURITY DEFINER owner - the opposite of what 0290_owner_hardening needs, which is why that file reads rolsuper instead.';
+COMMENT ON COLUMN public.audit_record_logs.client_addr IS 'inet_client_addr(): the connecting address, or NULL for a unix-socket connection - which means a shell on the database host rather than a client on the network.';
+
 -- Indexes for efficient querying
 CREATE INDEX IF NOT EXISTS audit_record_logs_record_id
     ON public.audit_record_logs(record_id)
@@ -95,6 +126,17 @@ CREATE INDEX IF NOT EXISTS audit_record_logs_table_oid
 CREATE INDEX IF NOT EXISTS audit_record_logs_record_pk
     ON public.audit_record_logs(record_pk)
     WHERE record_pk != '';
+
+-- "Show me every privileged write, newest first" is the forensic question these
+-- columns exist to answer, and it must stay fast as the table grows. The
+-- predicate holds for approximately no rows on a healthy system, so the index
+-- stays near-empty and costs nothing to maintain. It is deliberately not
+-- predicated on a role NAME: role names are installation-specific, an index
+-- predicate is not something a deployment can adjust, and is_superuser is the
+-- property that actually matters.
+CREATE INDEX IF NOT EXISTS audit_record_logs_superuser
+    ON public.audit_record_logs(ts DESC)
+    WHERE is_superuser;
 
 -- =====================================================
 -- STEP 3: Create DDL audit table (audit_ddl_logs)
@@ -267,6 +309,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -279,6 +324,9 @@ BEGIN
         v_record_pk,
         TG_OP::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -292,8 +340,9 @@ $$;
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
 'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
 Skips rows that change nothing outside updated_at and its own trigger arguments
-(see audit.enable_tracking), writing no row for them. Captures the JWT user_id
-and primary key value for the rows it does log. INSERT and DELETE are logged by
+(see audit.enable_tracking), writing no row for them. Captures the JWT user_id,
+the writing connection (db_role, is_superuser, client_addr) and the primary key
+value for the rows it does log. INSERT and DELETE are logged by
 the statement-level functions in this schema.';
 
 -- INSERT and DELETE are logged one statement at a time. The work the row-level
@@ -332,6 +381,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -344,6 +396,9 @@ BEGIN
         audit.extract_record_pk(pkey_cols, to_jsonb(r)),
         'INSERT'::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -357,7 +412,8 @@ $$;
 
 COMMENT ON FUNCTION audit.insert_trigger IS
 'Statement-level AFTER INSERT trigger function that logs every inserted row to
-audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+audit_record_logs in one statement. Captures the JWT user_id, the writing
+connection (db_role, is_superuser, client_addr) and the primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.delete_trigger()
     RETURNS TRIGGER
@@ -375,6 +431,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -387,6 +446,9 @@ BEGIN
         audit.extract_record_pk(pkey_cols, to_jsonb(r)),
         'DELETE'::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -400,7 +462,8 @@ $$;
 
 COMMENT ON FUNCTION audit.delete_trigger IS
 'Statement-level AFTER DELETE trigger function that logs every deleted row to
-audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+audit_record_logs in one statement. Captures the JWT user_id, the writing
+connection (db_role, is_superuser, client_addr) and the primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     RETURNS TRIGGER
@@ -412,6 +475,9 @@ BEGIN
     INSERT INTO public.audit_record_logs(
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name
@@ -419,6 +485,9 @@ BEGIN
     SELECT
         TG_OP::audit.operation,
         audit.current_user_id(),
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME;
@@ -428,7 +497,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.truncate_trigger IS
-'Statement-level AFTER trigger function that logs TRUNCATE operations to audit_record_logs.';
+'Statement-level AFTER trigger function that logs TRUNCATE operations to
+audit_record_logs, with the JWT user_id and the writing connection.';
 
 -- =====================================================
 -- STEP 6: Enable/disable audit tracking functions
