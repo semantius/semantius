@@ -10080,6 +10080,9 @@ CREATE TABLE IF NOT EXISTS public.audit_record_logs (
     op             audit.operation NOT NULL,
     ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id        INTEGER NOT NULL DEFAULT 0,
+    db_role        TEXT,
+    is_superuser   BOOLEAN,
+    client_addr    INET,
     table_oid      OID NOT NULL,
     table_schema   NAME NOT NULL,
     table_name     NAME NOT NULL,
@@ -10103,6 +10106,34 @@ Each row captures the operation type, the full record (new/old), and metadata.';
 COMMENT ON COLUMN public.audit_record_logs.record_pk IS 'Primary key value of the affected record for easy lookup';
 COMMENT ON COLUMN public.audit_record_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context.';
 
+-- The three columns below describe the CONNECTION that wrote the row, as
+-- opposed to user_id, which describes the authenticated principal inside it.
+-- They exist because user_id cannot distinguish "no JWT" from "no JWT and a
+-- superuser psql session": both log 0. A write through the API carries
+-- db_role = the authenticator role and is_superuser = false; anything else got
+-- in past the request path.
+--
+-- All three are read from the backend's own state - a syscache-backed keyword,
+-- a GUC, and the connection struct - so they cost no catalog scan, no parse and
+-- no allocation, and none of them is settable by the client. Contrast
+-- application_name, which is a connection-string parameter and therefore
+-- evidence of nothing. They are constant for a session and still read per
+-- statement rather than cached: the read is cheaper than the cache would be.
+--
+-- What they do NOT survive is a superuser who sets session_replication_role to
+-- 'replica' before writing, which skips these triggers outright. They raise the
+-- cost of an undocumented write; they do not make one impossible.
+COMMENT ON COLUMN public.audit_record_logs.db_role IS 'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.';
+-- is_superuser is read from the GUC here, and 0290_owner_hardening reads
+-- pg_roles.rolsuper instead, deliberately: the GUC reports the OUTER user, so
+-- under a SECURITY DEFINER function - which every one of these triggers is - it
+-- keeps reporting the session rather than the function owner. 0290 needs to know
+-- whether the EFFECTIVE user can create a BYPASSRLS role, so the GUC is wrong
+-- for it. This column wants the session, which is exactly what the GUC still
+-- reports, and reading it costs no catalog access.
+COMMENT ON COLUMN public.audit_record_logs.is_superuser IS 'Whether the writing session had superuser privileges. True on a data row means RLS was bypassed. Read from the is_superuser GUC, which reports the session rather than the SECURITY DEFINER owner - the opposite of what 0290_owner_hardening needs, which is why that file reads rolsuper instead.';
+COMMENT ON COLUMN public.audit_record_logs.client_addr IS 'inet_client_addr(): the connecting address, or NULL for a unix-socket connection - which means a shell on the database host rather than a client on the network.';
+
 -- Indexes for efficient querying
 CREATE INDEX IF NOT EXISTS audit_record_logs_record_id
     ON public.audit_record_logs(record_id)
@@ -10122,6 +10153,17 @@ CREATE INDEX IF NOT EXISTS audit_record_logs_table_oid
 CREATE INDEX IF NOT EXISTS audit_record_logs_record_pk
     ON public.audit_record_logs(record_pk)
     WHERE record_pk != '';
+
+-- "Show me every privileged write, newest first" is the forensic question these
+-- columns exist to answer, and it must stay fast as the table grows. The
+-- predicate holds for approximately no rows on a healthy system, so the index
+-- stays near-empty and costs nothing to maintain. It is deliberately not
+-- predicated on a role NAME: role names are installation-specific, an index
+-- predicate is not something a deployment can adjust, and is_superuser is the
+-- property that actually matters.
+CREATE INDEX IF NOT EXISTS audit_record_logs_superuser
+    ON public.audit_record_logs(ts DESC)
+    WHERE is_superuser;
 
 -- =====================================================
 -- STEP 3: Create DDL audit table (audit_ddl_logs)
@@ -10294,6 +10336,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -10306,6 +10351,9 @@ BEGIN
         v_record_pk,
         TG_OP::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -10319,8 +10367,9 @@ $$;
 COMMENT ON FUNCTION audit.insert_update_delete_trigger IS
 'Row-level AFTER UPDATE trigger function that logs updates to audit_record_logs.
 Skips rows that change nothing outside updated_at and its own trigger arguments
-(see audit.enable_tracking), writing no row for them. Captures the JWT user_id
-and primary key value for the rows it does log. INSERT and DELETE are logged by
+(see audit.enable_tracking), writing no row for them. Captures the JWT user_id,
+the writing connection (db_role, is_superuser, client_addr) and the primary key
+value for the rows it does log. INSERT and DELETE are logged by
 the statement-level functions in this schema.';
 
 -- INSERT and DELETE are logged one statement at a time. The work the row-level
@@ -10359,6 +10408,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -10371,6 +10423,9 @@ BEGIN
         audit.extract_record_pk(pkey_cols, to_jsonb(r)),
         'INSERT'::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -10384,7 +10439,8 @@ $$;
 
 COMMENT ON FUNCTION audit.insert_trigger IS
 'Statement-level AFTER INSERT trigger function that logs every inserted row to
-audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+audit_record_logs in one statement. Captures the JWT user_id, the writing
+connection (db_role, is_superuser, client_addr) and the primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.delete_trigger()
     RETURNS TRIGGER
@@ -10402,6 +10458,9 @@ BEGIN
         record_pk,
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name,
@@ -10414,6 +10473,9 @@ BEGIN
         audit.extract_record_pk(pkey_cols, to_jsonb(r)),
         'DELETE'::audit.operation,
         v_user_id,
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME,
@@ -10427,7 +10489,8 @@ $$;
 
 COMMENT ON FUNCTION audit.delete_trigger IS
 'Statement-level AFTER DELETE trigger function that logs every deleted row to
-audit_record_logs in one statement. Captures the JWT user_id and primary key value.';
+audit_record_logs in one statement. Captures the JWT user_id, the writing
+connection (db_role, is_superuser, client_addr) and the primary key value.';
 
 CREATE OR REPLACE FUNCTION audit.truncate_trigger()
     RETURNS TRIGGER
@@ -10439,6 +10502,9 @@ BEGIN
     INSERT INTO public.audit_record_logs(
         op,
         user_id,
+        db_role,
+        is_superuser,
+        client_addr,
         table_oid,
         table_schema,
         table_name
@@ -10446,6 +10512,9 @@ BEGIN
     SELECT
         TG_OP::audit.operation,
         audit.current_user_id(),
+        session_user,
+        current_setting('is_superuser')::BOOLEAN,
+        inet_client_addr(),
         TG_RELID,
         TG_TABLE_SCHEMA,
         TG_TABLE_NAME;
@@ -10455,7 +10524,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.truncate_trigger IS
-'Statement-level AFTER trigger function that logs TRUNCATE operations to audit_record_logs.';
+'Statement-level AFTER trigger function that logs TRUNCATE operations to
+audit_record_logs, with the JWT user_id and the writing connection.';
 
 -- =====================================================
 -- STEP 6: Enable/disable audit tracking functions
@@ -11082,7 +11152,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11');
+      VALUES ('_core.0150_audit_log', '4f649d850ac9cc7541df3a46796bc78558fa3e6c185c166b43dfafd19513ec62');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16577,7 +16647,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"4f649d850ac9cc7541df3a46796bc78558fa3e6c185c166b43dfafd19513ec62","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
