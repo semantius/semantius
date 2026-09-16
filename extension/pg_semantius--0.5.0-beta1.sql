@@ -722,7 +722,8 @@ BEGIN
     END IF;
     RETURN a = b;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+-- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 -- is_raci_actor and has_consultation call functions defined in 0210; no rule
 -- evaluated during install uses those operators.
@@ -1511,7 +1512,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '7e5214f2afbc1ab11a41805d2b5c8a61e0c701f6e6b2027c5779763bd2771d9b');
+      VALUES ('_core.0015_jsonlogic', 'c6465ee6b0b19dc0504c001a32444c21e48dedec6cb2607f215e7bf465534881');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9905,9 +9906,11 @@ $$;
 COMMENT ON FUNCTION audit.primary_key_columns IS
 'Returns the column names that form the primary key of a table, identified by OID.';
 
+-- VOLATILE: a table without a primary key gets a random id per row. SET search_path
+-- keeps this function from being inlined, so the label costs no plan quality.
 CREATE OR REPLACE FUNCTION audit.to_record_id(entity_oid OID, pkey_cols TEXT[], rec JSONB)
     RETURNS UUID
-    STABLE
+    VOLATILE
     LANGUAGE sql
     SET search_path = public
 AS $$
@@ -10733,7 +10736,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '7549351458a8f15af047f1322fa19b356adf3c046a3fae2fe3932b3208f20f86');
+      VALUES ('_core.0150_audit_log', '71d0ab86eda47ea664387dc0854599ee35ca677c1250fbaae12808feb578eb44');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13012,13 +13015,17 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- The mappings go first, while this row still exists: queue_event_after_delete
+    -- needs the queue name to drop the triggers on the mapped tables, and the
+    -- ON DELETE CASCADE would remove them only after the name is gone.
+    DELETE FROM queue_table_events WHERE queue_id = OLD.id;
     PERFORM pgmq.drop_queue(OLD.queue_name);
     RETURN OLD;
 END;
 $$;
 
 COMMENT ON FUNCTION queue_before_delete() IS
-'Trigger function that drops the underlying pgmq queue (pgmq.drop_queue) when a row is deleted from the queues table.';
+'Trigger function that, when a row is deleted from the queues table, deletes its queue_table_events mappings (which drops their triggers) and then the underlying pgmq queue.';
 
 CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
@@ -13296,7 +13303,8 @@ BEGIN
     FROM queues q WHERE q.id = OLD.queue_id;
 
     IF v_queue_name IS NULL THEN
-        -- Queue already deleted (cascade); nothing to clean up
+        -- No queue row, so nothing names the triggers. A queue delete does not end
+        -- here: queue_before_delete removes the mappings while the queue still exists.
         RETURN OLD;
     END IF;
 
@@ -13534,7 +13542,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', '3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014');
+      VALUES ('_core.0170_queue', 'dd634d7735e30364a7ab2193ad995d8fc07331388f5f08b697976a4a3e44b147');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16038,7 +16046,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"7e5214f2afbc1ab11a41805d2b5c8a61e0c701f6e6b2027c5779763bd2771d9b","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73","_core.0150_audit_log":"7549351458a8f15af047f1322fa19b356adf3c046a3fae2fe3932b3208f20f86","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"3f9f539324bd90b7858e7d494a60dafdb6edc3f0d09b86edd6d38cbd57319014","_core.0180_computed_validation":"a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa","_core.0210_raci":"abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"c6465ee6b0b19dc0504c001a32444c21e48dedec6cb2607f215e7bf465534881","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73","_core.0150_audit_log":"71d0ab86eda47ea664387dc0854599ee35ca677c1250fbaae12808feb578eb44","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"dd634d7735e30364a7ab2193ad995d8fc07331388f5f08b697976a4a3e44b147","_core.0180_computed_validation":"a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa","_core.0210_raci":"abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

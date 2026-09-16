@@ -148,9 +148,11 @@ $$;
 COMMENT ON FUNCTION audit.primary_key_columns IS
 'Returns the column names that form the primary key of a table, identified by OID.';
 
+-- VOLATILE: a table without a primary key gets a random id per row. SET search_path
+-- keeps this function from being inlined, so the label costs no plan quality.
 CREATE OR REPLACE FUNCTION audit.to_record_id(entity_oid OID, pkey_cols TEXT[], rec JSONB)
     RETURNS UUID
-    STABLE
+    VOLATILE
     LANGUAGE sql
     SET search_path = public
 AS $$

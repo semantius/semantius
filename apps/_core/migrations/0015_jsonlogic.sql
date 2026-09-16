@@ -89,7 +89,8 @@ BEGIN
     END IF;
     RETURN a = b;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+-- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 -- is_raci_actor and has_consultation call functions defined in 0210; no rule
 -- evaluated during install uses those operators.

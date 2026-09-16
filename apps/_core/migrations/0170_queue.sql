@@ -117,13 +117,17 @@ SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- The mappings go first, while this row still exists: queue_event_after_delete
+    -- needs the queue name to drop the triggers on the mapped tables, and the
+    -- ON DELETE CASCADE would remove them only after the name is gone.
+    DELETE FROM queue_table_events WHERE queue_id = OLD.id;
     PERFORM pgmq.drop_queue(OLD.queue_name);
     RETURN OLD;
 END;
 $$;
 
 COMMENT ON FUNCTION queue_before_delete() IS
-'Trigger function that drops the underlying pgmq queue (pgmq.drop_queue) when a row is deleted from the queues table.';
+'Trigger function that, when a row is deleted from the queues table, deletes its queue_table_events mappings (which drops their triggers) and then the underlying pgmq queue.';
 
 CREATE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
@@ -401,7 +405,8 @@ BEGIN
     FROM queues q WHERE q.id = OLD.queue_id;
 
     IF v_queue_name IS NULL THEN
-        -- Queue already deleted (cascade); nothing to clean up
+        -- No queue row, so nothing names the triggers. A queue delete does not end
+        -- here: queue_before_delete removes the mappings while the queue still exists.
         RETURN OLD;
     END IF;
 
