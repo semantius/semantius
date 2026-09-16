@@ -294,7 +294,7 @@ BEGIN
         SELECT array_agg(attname::text) INTO v_ignored
         FROM pg_attribute
         WHERE attrelid = TG_RELID AND attnum > 0 AND NOT attisdropped AND attgenerated <> '';
-        -- Every operand is an explicitly cast TEXT[], never a bare literal:
+        -- Every operand is an array, never a bare string literal:
         -- with an untyped 'updated_at' on the right, PostgreSQL's || operator
         -- resolution picks the anyarray||anyarray candidate and tries to parse
         -- the literal as array syntax, raising "malformed array literal"
@@ -358,7 +358,7 @@ $pgsem__core_0010_create_core$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0010_create_core', 'e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99');
+      VALUES ('_core.0010_create_core', 'd796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -389,9 +389,8 @@ $pgsem__core_0010_create_core$;
 -- Security floor (the entire point of this role):
 --   NOSUPERUSER  -> cannot bypass anything.
 --   NOINHERIT    -> holds NONE of authenticated's privileges passively; it can do
---                   nothing but `SET ROLE authenticated`. A NOINHERIT gatekeeper
---                   that ENFORCES RLS by SET ROLE-ing into an RLS-subject role —
---                   it never bypasses RLS. This is what makes it safe to expose
+--                   nothing but `SET ROLE authenticated`, which lands it in a
+--                   role RLS applies to. That is what makes it safe to expose
 --                   with a password.
 --   NOBYPASSRLS  -> the default; never granted. The only RLS-bypass risk on a
 --                   managed platform is connecting as the `postgres`/owner role
@@ -460,7 +459,7 @@ $pgsem__core_0011_session_authenticator$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0011_session_authenticator', '38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef');
+      VALUES ('_core.0011_session_authenticator', 'f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -669,7 +668,7 @@ BEGIN
 
             -- First try numeric coercion to preserve original JsonLogic behavior.
             -- data_exception is the whole 22xxx class: bad syntax, overflow,
-            -- anything the cast can raise on caller-supplied text (B20).
+            -- anything the cast can raise on caller-supplied text.
             BEGIN
                 RETURN txt_val::numeric;
             EXCEPTION WHEN data_exception THEN
@@ -772,25 +771,30 @@ DECLARE
     scoped_data jsonb;
     scoped_logic jsonb;
     initial_val jsonb;
-    -- for var
+    -- The groups below name the operator each variable was introduced for, not
+    -- the operator that owns it: this function is one dispatch in a single
+    -- scope, so a slot is reused wherever it fits. var_key and nav serve
+    -- set_record as well as var, elem serves cat as well as merge, and txt_a and
+    -- txt_b are borrowed by every operator that handles text.
+    -- var
     var_key text;
     sub_props text[];
     nav jsonb;
-    -- for missing
+    -- missing
     missing_arr jsonb;
     keys_arr jsonb;
     looked_up jsonb;
-    -- for merge
+    -- merge
     merge_result jsonb;
     elem jsonb;
-    -- for substr
+    -- substr
     src text;
     start_pos int;
     end_len int;
     temp_str text;
-    -- for text ops
+    -- text ops
     txt_a text; txt_b text;
-    -- for throw_error
+    -- throw_error
     err_code text; err_hint jsonb; err_name text; err_value jsonb;
 BEGIN
     -- Handle NULL rule
@@ -805,7 +809,9 @@ BEGIN
         RETURN result;
     END IF;
 
-    -- Not an object or multi-key object => pass through (primitive)
+    -- Anything that is not an object is a value, not logic. A multi-key
+    -- object is not logic either, and the single-key test below is where that
+    -- is decided.
     IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
     -- Must have exactly one key to be logic.
     -- Read the key with an expression, never a query. jsonb_object_keys is
@@ -848,15 +854,19 @@ BEGIN
     -- all of them - evaluates twelve conditions that cannot match before
     -- reaching its own, on every node of every rule on every row.
     --
-    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
-    -- not move or change a single operator. The list must stay exactly the set
-    -- of operators implemented between here and the barrier. Adding one without
-    -- listing it here does not fail quietly - the operator falls through to the
-    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
-    -- foot of this function, which every operator's own test case will catch.
+    -- The list must stay exactly the set of operators implemented between here
+    -- and the barrier. Adding one without listing it here does not fail quietly:
+    -- the operator falls through to the eager section, matches nothing, and
+    -- raises 'Unrecognized operation' at the foot of this function, which every
+    -- operator's own test case catches.
     --
-    -- Reordering the operators themselves was measured and abandoned: it is
-    -- worth 0-2% against this guard's 5, and churns the whole file.
+    -- The bodies below are indented as though this guard were not around them,
+    -- which is cosmetic and stays that way: re-indenting them would rewrite
+    -- every line of the dispatch to no effect.
+    --
+    -- Ordering the operators by frequency instead of by this membership test is
+    -- worth 0-2% where the test is worth 5, so they stay in the order they read
+    -- best.
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
@@ -1132,10 +1142,12 @@ BEGIN
     END IF;
 
     -- ===================== > >= < <= =====================
-    -- Two strings compare as text in code-point order (COLLATE "C"), which is
-    -- what JavaScript's own operators do and therefore what the reference
-    -- implementation does; any other pair is coerced to numbers through
-    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
+    -- Two strings compare as text in code-point order (COLLATE "C"); any other
+    -- pair is coerced to numbers through jl_to_number, so "10" > "9" is false
+    -- and "10" > 9 is true. JavaScript orders strings by UTF-16 code unit, which
+    -- is the same order for every character in the Basic Multilingual Plane and
+    -- a different one above U+FFFF, where a surrogate pair sorts below U+E000
+    -- there and above it here. The
     -- three-argument between form of < and <= applies the rule to each pair.
     IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
         IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
@@ -1421,7 +1433,10 @@ BEGIN
     END IF;
 
     -- ===================== throw_error =====================
-    -- Raises an error a client can localize (docs/error-contract.md).
+    -- Raises an error the client can localize rather than print: the message is
+    -- a template, the code says which translation to look up, and the parameters
+    -- travel beside it keeping the JSON type their expression produced, so the
+    -- client can substitute them into its own wording.
     -- Usage: {"throw_error":"Order is already shipped"}
     --        {"throw_error":["Order ${id} is already shipped", "99017",
     --                        ["id", {"var":"id"}]]}
@@ -1551,7 +1566,7 @@ $pgsem__core_0015_jsonlogic$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', '13a079561b861e10b08af79ab14039c9822952640f258a25ce65232f8509db7c');
+      VALUES ('_core.0015_jsonlogic', 'fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -1968,8 +1983,12 @@ DECLARE
     depth_below INTEGER;
     depth_above INTEGER;
 BEGIN
-    -- Both permissions are known to exist: the two foreign keys on this table
-    -- reject the row before this trigger is reached.
+    -- Nothing below needs either permission to exist. The two foreign keys on
+    -- this table do reject a row naming an unregistered one, but a foreign key
+    -- is an AFTER trigger and fires at the end of the statement, so this BEFORE
+    -- trigger sees the row first. A name matching no permission contributes no
+    -- rows to either walk, which is the same answer as a name at the edge of the
+    -- graph.
 
     -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the included can reach the including through existing paths
@@ -2050,7 +2069,8 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Validate JWT claims before allowing any operation
 -- Centralizes all JWT validation so that role, aud, or other checks
 -- only need to be changed in one place.
--- Called by rbac.uid() which is the gateway for all authenticated operations.
+-- This is the gateway for all authenticated operations: every entry point in
+-- this file reaches it, directly or through ensure_context_initialized.
 -- Single JWT validation + user identity function
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
@@ -2208,8 +2228,12 @@ COMMENT ON FUNCTION rbac.uid IS
 -- =====================================================
 
 -- Read-only function to get user_id by external_id
--- Used by RLS policies in read-only transactions (e.g., PostgREST GET requests)
 -- Returns NULL if user doesn't exist
+--
+-- Nothing in the database calls it: the policies resolve the caller through
+-- rbac.has_permission and the context cache instead. It exists as an RPC for a
+-- client that holds an external_id and wants the internal one, which is why the
+-- target check below is the whole of its access control.
 --
 -- SELF-OR-ADMIN. Four functions in this file take a subject as a parameter and
 -- answer a question about it - this one, user_has_permission,
@@ -2230,8 +2254,10 @@ COMMENT ON FUNCTION rbac.uid IS
 -- answer.
 --
 -- rbac.uid() is called inside the test, not before it: it is the authentication
--- gate (it raises when the session carries no valid claims) and it is STABLE, so
--- naming it here costs nothing on the paths that call it again downstream.
+-- gate, raising when the session carries no valid claims. STABLE does not make
+-- the call free - a textual call runs the full validation and a _settings read
+-- every time, which is why the hot paths carry a warm test instead - but this
+-- function is not a hot path, and the self branch needs the subject anyway.
 CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
     p_external_id TEXT
 )
@@ -2258,11 +2284,11 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
-'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Used by RLS policies.';
+'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Self-or-admin: asking about another principal requires admin. Reachable over PostgREST RPC; no policy or function in the database calls it.';
 
 -- Initialize or update user from JWT
 -- Called by get_userinfo() to create/update user and update last_seen
--- NOT called by RLS policies (they use read-only lookup)
+-- Not reachable by the request role at all: see the revoke below this function.
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
     p_email TEXT DEFAULT NULL,
@@ -2363,7 +2389,9 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
--- VOLATILE, and the only writer the STABLE readers reach. Writes no row.
+-- VOLATILE, and one of the two writers the STABLE readers reach: rbac.uid()
+-- normalizes claims into GUCs of its own on the Supabase and PostgreSQL 18
+-- paths. Both write settings only, never a row.
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
 -- request role can overwrite, and nothing here can tell a value written by rbac
@@ -2394,9 +2422,11 @@ BEGIN
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
         -- Just the one-time notice here; the uid() gate below serves this
-        -- branch too. Once per transaction: the flag is transaction-local,
-        -- because a session-scoped write is the one side effect a ROLLBACK
-        -- cannot undo. An unauthenticated bearer session sees this WARNING
+        -- branch too. Once per transaction: the flag is transaction-local so
+        -- that it cannot outlive the request. A session-scoped one would survive
+        -- on a pooled backend and silence the warning for every later request
+        -- that happened to land on the same connection.
+        -- An unauthenticated bearer session sees this WARNING
         -- before the 42501 that the gate below still raises for it, which is
         -- harmless - the notice is only asserted in authenticated sessions.
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
@@ -2433,8 +2463,10 @@ BEGIN
                   HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
 
-    -- OPTIMIZATION: Load all user permissions once as comma-separated string
-    -- This expensive recursive CTE runs only once per request
+    -- OPTIMIZATION: Load all user permissions once as comma-separated string.
+    -- Once per transaction where the cache is trusted, which is every session
+    -- but a bearer one - there the context is rebuilt on every check, so this
+    -- recursive CTE runs per check and the WARNING above says so.
     SELECT string_agg(permission_name, ',' ORDER BY permission_name)
     INTO v_permissions
     FROM rbac.get_user_permissions_by_id(v_user_id);
@@ -2460,9 +2492,10 @@ COMMENT ON FUNCTION rbac.ensure_context_initialized IS
 
 -- Check if user has a specific permission
 -- This includes:
--- 1. Direct permissions from roles
--- 2. Implied permissions via hierarchy
--- 3. OAuth scope restrictions (if scopes are set)
+-- 1. Permissions from the subject's roles
+-- 2. Direct per-user grants from user_permissions
+-- 3. Implied permissions via hierarchy
+-- 4. OAuth scope restrictions (if scopes are set)
 CREATE OR REPLACE FUNCTION rbac.user_has_permission(
     p_external_id TEXT,
     p_permission_name TEXT
@@ -2556,10 +2589,9 @@ COMMENT ON FUNCTION rbac.user_has_permission IS
 -- broken one. The policies on users ask for user:read to SELECT and user:manage
 -- to INSERT, UPDATE and DELETE, so a literal match would give a token scoped to
 -- user:manage the three write policies and deny it the read - authority to write
--- rows it cannot see. The three checkers also disagreed about it: this expansion
--- is what rbac.user_has_permission always did, while rbac.has_permission and
--- rbac.has_any_permission compared the raw strings, so the same session got
--- opposite answers to one question depending on which function a policy called.
+-- rows it cannot see. All three checkers expand the scope side for that reason:
+-- if one compared the raw strings instead, the same session would get opposite
+-- answers to one question depending on which function a policy called.
 --
 -- Expanding the scope side cannot widen authority. Every checker intersects this
 -- list with the permissions the user actually holds, which are themselves
@@ -2988,10 +3020,11 @@ RETURNS TABLE (
 DECLARE
     v_user_id INTEGER;
 BEGIN
-    -- Self-or-admin, as at rbac.get_user_by_external_id. The self branch is what
-    -- keeps rbac.ensure_context_initialized working and is also why the guard
-    -- cannot recurse: that function asks only about rbac.uid(), so it never
-    -- reaches the admin test, which would otherwise call back into it.
+    -- Self-or-admin, as at rbac.get_user_by_external_id. The guard cannot
+    -- recurse through the context: rbac.ensure_context_initialized builds the
+    -- permission cache from rbac.get_user_permissions_by_id, which takes an
+    -- internal id and carries no guard, so it never reaches the admin test that
+    -- would call back into it.
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN
         PERFORM rbac.require_permission('admin');
     END IF;
@@ -3015,7 +3048,7 @@ COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Self-or-admin wrapper: resolves the subject external_id to its internal id and
 delegates to rbac.get_user_permissions_by_id for the actual permission set,
 including implied permissions. Returns no rows for an unknown or disabled
-subject, exactly as the recursive query this used to run inline.';
+subject rather than raising, so neither case is distinguishable from the other.';
 
 -- Get current user's permissions (uses lazy initialization)
 CREATE OR REPLACE FUNCTION rbac.get_current_user_permissions()
@@ -3101,11 +3134,13 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Get current user's internal database Id. Called once per audited row on
--- every write path (audit.current_user_id -> user_id_or_null -> user_id) and
--- twice per statement by public.jl_request_context, so unlike the other
--- checkers a cold call here is not a rare event confined to the first check of
--- a transaction - it recurs per row. The warm test is therefore inlined here
+-- Get current user's internal database Id. On an audited UPDATE it is called
+-- once per row (audit.current_user_id -> user_id_or_null -> user_id), because
+-- audit_i_u_d is the one row-level audit trigger; audit_i and audit_d are
+-- statement-level and reach it once. public.jl_request_context reaches it twice
+-- per statement. So unlike the other checkers a cold call here is not confined
+-- to the first check of a transaction - on the row-level path it recurs per
+-- row. The warm test is therefore inlined here
 -- too, exactly as in rbac.has_permission, whose comment carries the full
 -- reasoning for the ordering and for what the subject comparison does and does
 -- not guarantee; this copy relies on the same invariants.
@@ -3138,8 +3173,7 @@ COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
 whose cached subject matches the live JWT sub) reads app.current_user_id
 straight back with no further call; a cold context is rebuilt via rbac.uid()
-(the authentication gate) and rbac.ensure_context_initialized(), as it always
-was.';
+(the authentication gate) and rbac.ensure_context_initialized().';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the
@@ -3325,7 +3359,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', 'de5844bc1a2b6d152ca900293962bbb3c5abb3a4ccc42a50b14d5aa31ae0f12a');
+      VALUES ('_core.0030_rbac_functions', 'a682f42a9f71d699b5aa497fa088642f7b0a8df0be30bbce1f133bad3143221a');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3785,17 +3819,18 @@ BEGIN
     -- hashtext('migrate') and hashtext('pgmq.queue_...') are already in use.
     --
     -- The election fires on INSERT only, so it is genuinely once per system and
-    -- not a recovery mechanism. A principal whose users row already exists logs
-    -- in through an ON CONFLICT DO UPDATE (rbac.upsert_user_from_jwt), which
-    -- fires UPDATE triggers and never this one - so an established user cannot
-    -- be elected however many times they authenticate, even with the
-    -- administrator set empty. That is why the set is not allowed to empty:
-    -- rbac.assert_administrator_remains below refuses any statement that would.
+    -- not a recovery mechanism. A principal whose users row already exists is
+    -- updated in place by rbac.upsert_user_from_jwt, which fires UPDATE triggers
+    -- and never this one - so an established user cannot be elected however many
+    -- times they authenticate, even with the administrator set empty. That is why
+    -- the set is not allowed to empty: rbac.assert_administrator_remains below
+    -- refuses any statement that would.
     --
-    -- One consequence stays open by design. An administrator holding
-    -- user:manage can elect a principal deliberately, by inserting a users row
-    -- with last_seen set while no administrator exists. Reaching that needs a
-    -- superuser to have emptied the set first, so it is accepted.
+    -- One consequence stays open by design. A user holding user:manage - which
+    -- is what the users policies require, admin or not - can elect a principal
+    -- deliberately, by inserting a users row with last_seen set while no
+    -- administrator exists. Reaching that needs a superuser to have emptied the
+    -- set first, so it is accepted.
     IF NEW.last_seen IS NOT NULL THEN
         PERFORM pg_advisory_xact_lock(hashtext('rbac.bootstrap_administrator'));
 
@@ -4080,7 +4115,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', 'e4e4dfb895442d059d3e234dc4dd62bb1cff70027c3baf900bb6efd5971a621f');
+      VALUES ('_core.0050_rbac_rls', '548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -5062,10 +5097,13 @@ COMMENT ON FUNCTION format_to_data_type IS
 --
 -- The catalog lookup returns nothing when the referenced entity is unknown, or
 -- is registered with no physical table yet (to_regclass gives NULL). The format
--- then stands, which keeps INTEGER for reference and parent; the ADD CONSTRAINT
--- that follows fails on the missing relation, as it did before this function
--- existed. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
--- tests and the DDL builders' NOT NULL default table keep matching on it.
+-- then stands, which keeps INTEGER for reference and parent. What happens next
+-- depends on which case it was: with no table to point at, the ADD CONSTRAINT
+-- fails on the missing relation; with a table that is simply not a registered
+-- entity, it succeeds or fails on whether that table's key is an INTEGER.
+--
+-- The result is upper-cased so quote_default_value's INTEGER/BOOLEAN tests and
+-- the DDL builders' NOT NULL default table keep matching on it.
 CREATE OR REPLACE FUNCTION field_data_type(
     p_format TEXT,
     p_precision SMALLINT DEFAULT NULL,
@@ -5116,13 +5154,15 @@ COMMENT ON FUNCTION format_to_json_type IS
 -- above and it has to agree with it: the schema RPCs describe the very column
 -- that function creates, so a reference is typed after the key it points at
 -- here too. `entities` is keyed by TEXT and `users` by INTEGER, and a schema
--- that called both "integer" would make the UI cast 'public:read' to a number
--- and PostgREST reject the write.
+-- that called both "integer" would make the UI cast 'orders' to a number and
+-- PostgREST reject the write.
 --
--- The referenced key's own format is what decides, not its catalog type, so
--- that a text key declared as `email` or `uuid` is described as precisely as
--- any other field. The format stands when the referenced entity is unknown or
--- has no field row for its key column.
+-- The referenced key's own format is what decides, not its catalog type. Both
+-- routes agree on the JSON type for every key in the dictionary today; reading
+-- the format is what keeps them agreeing when a key is declared as something
+-- narrower than its column type, because format_to_json_type is the one
+-- mapping either side consults. The format stands when the referenced entity is
+-- unknown or has no field row for its key column.
 CREATE OR REPLACE FUNCTION field_json_type(p_format TEXT, p_reference_table TEXT DEFAULT NULL)
 RETURNS JSONB AS $$
     SELECT COALESCE(
@@ -5436,9 +5476,12 @@ BEGIN
 
     -- The request role has no default privileges in public, so a dictionary
     -- table is unreachable through the Data API until it is granted here. The
-    -- grant comes last, after the four policies above: it is what publishes a
-    -- table, and until policies exist it is the whole of that table's access
-    -- control, so it is never the first thing in place.
+    -- grant comes last, after row-level security is on and the four policies
+    -- above exist, so the table is never reachable in a state where its
+    -- permission model is not yet in place. Ordering it first would not actually
+    -- expose anything - RLS with no policy denies every non-owner - but the
+    -- table would then be published by a statement that has not yet decided who
+    -- may read it.
     EXECUTE format(
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
         NEW.table_name
@@ -5465,7 +5508,9 @@ BEGIN
     END IF;
 
     -- Insert field records for id, label, created_at, and updated_at columns.
-    -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
+    -- All these are core fields (ctype <> '') that cannot be deleted, and cannot
+    -- be renamed except the label column, which validate_field_rename_and_format
+    -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -5540,7 +5585,8 @@ CREATE TRIGGER update_table_comment_trigger
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
--- (no rename/delete/format/default change) keys on `ctype <> ''`. For that to be sound the
+-- (no delete, no format or default change, and no rename but the label column's)
+-- keys on `ctype <> ''`. For that to be sound the
 -- marker must be settable ONLY by DD/migration code and immutable thereafter — otherwise a
 -- tenant admin (who holds the fields edit permission) could mint a ctype, or clear the ctype
 -- of the id column to "free" it for deletion. Privilege is decided by BYPASSRLS: the migration
@@ -5746,8 +5792,10 @@ BEGIN
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         
         -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
-        -- ON UPDATE CASCADE enables automatic cascading when a referenced TEXT PK
-        -- (e.g. entities.table_name) is renamed. For INTEGER PKs it has no effect.
+        -- ON UPDATE CASCADE carries a rewritten key value down to the referencing
+        -- rows, which is what makes a referenced TEXT PK renameable (e.g.
+        -- entities.table_name). A surrogate INTEGER key is never rewritten, so
+        -- the clause sits there unused rather than doing something different.
         v_alter_sql := format(
             'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
             NEW.table_name,
@@ -6879,7 +6927,9 @@ DECLARE
 BEGIN
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
-    -- rbac.uid() validates the JWT and primes the permission cache used below.
+    -- rbac.uid() validates the JWT and raises on a session that carries no valid
+    -- claims; the permission check further down builds the context cache if this
+    -- is the first check of the transaction.
     PERFORM rbac.uid();
 
     -- Look up the entity to find its id_column and the access predicate.
@@ -6976,7 +7026,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', 'e17843bc7f901f0a5809c622b3c11ba5487ee35f34679451c14380fb379c72f5');
+      VALUES ('_core.0070_dd_functions', '29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -7141,10 +7191,11 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions_by_id(v_user_id);
 
-    -- Explicitly initialize the context cache with the permissions we just computed.
-    -- This is necessary because get_user_modules() -> has_any_permission() uses
-    -- ensure_context_initialized() which may see a stale snapshot (STABLE function)
-    -- when the user was just created in this same function call.
+    -- Prime the context cache with the permissions just computed above, rather
+    -- than leaving get_user_modules() -> has_any_permission() to reach
+    -- ensure_context_initialized() and resolve the identical set a second time.
+    -- The recursive permission query is the expensive part of this function, and
+    -- on a first login it would otherwise run twice in one call.
     PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
     PERFORM set_config('app.current_external_id', v_external_id, true);
     PERFORM set_config('app.user_permissions', COALESCE(
@@ -7247,9 +7298,9 @@ GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 -- GET SCHEMA FOR TABLE (Internal helper)
 -- =====================================================
 
--- Helper that builds a schema JSON for a single table. Self-gating (b9): it applies the
--- view_permission check + existence-hiding itself (identical undefined_table error for
--- missing-table and permission-denied), so it is safe to expose directly to the request role.
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
 -- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
 CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
@@ -7315,8 +7366,10 @@ BEGIN
             f.input_type_rule,
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
-            -- doesn't exist or is missing columns. These fields are only added to JSON output when
-            -- format='reference' and reference_table is not empty (see line ~245).
+            -- doesn't exist or is missing columns. The JSON assembly below emits
+            -- these four only for a field whose format is a reference and whose
+            -- reference_table is not empty, so an empty string never reaches the
+            -- output as a value.
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
@@ -7826,7 +7879,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '16e7bde74251287ea5ce80b6cd98b0d67764b9c2cadb41e46be35fb389888ce5');
+      VALUES ('_core.0080_public_functions', '2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9505,7 +9558,10 @@ DECLARE
     v_sql         TEXT;
     r             RECORD;
 BEGIN
-    -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
+    -- Skip when the entity metadata or the physical table is absent, which is
+    -- what a drop or a cascade leaves behind mid-statement. Being unmanaged is
+    -- not a reason to skip: an unmanaged entity with a table gets its label
+    -- companions like any other.
     IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN
         RETURN;
     END IF;
@@ -9907,7 +9963,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '146d9efb3714573f7971f746793ed3fdaa96efe0968dec01464b62442671a4f8');
+      VALUES ('_core.0145_managed_enable', 'ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10528,18 +10584,14 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
 --
--- Three limitations, all accepted:
---   - GRANT and REVOKE arrive with no classid, objid, schema_name or
---     object_identity, so they can be neither scoped to a schema nor
---     recognized as label churn. They are kept anyway, because the privilege
---     history is what this table exists for; on the extension install path
---     their query_text is only the migrate() call that issued them. Recovering
---     the target from the DDL text was considered and declined: that is a
---     parser for an open-ended grammar, feeding an evidence table.
---   - CREATE SCHEMA reports no schema of its own - its identity is the new
---     schema's name - so creating a schema is always logged, foreign ones
---     included. Dropping one is logged too, by the sibling below, for the same
---     reason and with the same consequence.
+-- Two limitations, both accepted:
+--   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
+--     recognized as label churn either, and on the extension install path their
+--     query_text is only the migrate() call that issued them. Recovering the
+--     target from the DDL text was considered and declined: that is a parser
+--     for an open-ended grammar, feeding an evidence table.
+--   - Dropping a schema is logged too, by the sibling below, for the reason
+--     filter 2 gives for creating one and with the same consequence.
 --
 -- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
 -- rows for them whatever the tag, which is why audit.log_drop_event exists.
@@ -10596,7 +10648,10 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- pg_event_trigger_ddl_commands() returns zero rows even when the tag is
 -- DROP TABLE - so without this trigger a table can be destroyed and leave no
 -- evidence at all. SECURITY DEFINER for the same reason as its sibling: the
--- request role must be able to drop a temp table without failing on the insert.
+-- request role may not write audit_ddl_logs at all - that is what makes the log
+-- evidence - so the trigger has to insert as the owner or not at all. Temp
+-- objects never reach the insert, because the is_temporary filter below drops
+-- them first.
 --
 -- The first statement is a teardown guard, and it is load-bearing. A full
 -- teardown drops the tables in public one at a time, in whatever order it walks
@@ -10974,7 +11029,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '6ee443ee378c43b293eb3ce7c9ac0fc83bd6b063bd5a34d218d2849fdce9a3b9');
+      VALUES ('_core.0150_audit_log', '5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13340,8 +13395,10 @@ CREATE TRIGGER queue_event_before_update_trigger
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_before_update();
 
--- Helper: build the queue message with id_field and id_value
--- (record and old_record are omitted; id_field comes from entities.id_column)
+-- Helper: build one queue message per affected record. A message carries the
+-- operation, the timestamp, the table, the id column and the id value - enough
+-- to fetch the record, never the record itself, so a queue reader needs its own
+-- permission to read it. id_field comes from entities.id_column.
 
 CREATE OR REPLACE FUNCTION queue_build_record_json()
 RETURNS TRIGGER
@@ -13549,8 +13606,10 @@ BEGIN
 
     -- Every event name, not just the ones this handler covers: a mapping whose
     -- event_handler was narrowed after install still owns the triggers created
-    -- for the wider set, and a mapping deleted without them leaves a table
-    -- enqueuing to a queue it is no longer mapped to.
+    -- for the wider set, and a mapping deleted without them leaves those
+    -- triggers on the table. An orphan resolves no mapping and enqueues nothing,
+    -- so it sends no message anywhere - it just costs a lookup on every write to
+    -- that table and makes the catalog say a queue is watching when none is.
     FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
     LOOP
         EXECUTE format(
@@ -13771,7 +13830,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', '93078d4bf8ff831ff22903a2600e745da9a6693df7bf2caa0517331ccc03bf95');
+      VALUES ('_core.0170_queue', 'e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13798,11 +13857,12 @@ $pgsem__core_0170_queue$;
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
 --
--- DELETE arm (I7): the rules also fire on DELETE, evaluated against the row being
+-- DELETE arm: the rules also fire on DELETE, evaluated against the row being
 -- removed (OLD). Computed-field output is discarded on DELETE (the row is going
 -- away), but validation_rules can abort the delete — e.g. a rule guarded by
--- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. Because the USING/WITH
--- CHECK predicate is per-row, this holds regardless of statement shape (A4).
+-- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. The trigger is per row,
+-- so a statement deleting many rows is judged one row at a time and a single
+-- refusal takes the whole statement with it.
 
 -- =====================================================
 -- STEP 0: Error-hint merge used by the generated trigger
@@ -13867,7 +13927,10 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop the function if it exists
+        -- No entity by that name. Every caller passes one it just read, and the
+        -- entities DELETE arm drops the function itself, so this is reached only
+        -- by a caller naming a table the dictionary does not know - drop
+        -- whatever is there under that name and leave.
         v_fn_name := 'compute_validate_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
         RETURN;
@@ -14225,11 +14288,12 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- only on the first statement of a transaction.
 --
 -- The user id comes from rbac.user_id() rather than from app.current_user_id.
--- That setting is client-writable in a direct SQL session, and every other
--- reader in the codebase reaches the identity through the rbac helpers so that
--- hardening them hardens all of it at once; a raw read here would be the one
--- reader left behind. rbac.user_id() also raises 28000 for a subject with no
--- users row, which is the answer the other RLS paths give.
+-- That setting is client-writable in a direct SQL session, and rbac.user_id()
+-- derives the value instead of believing it. is_raci_actor and has_consultation
+-- in 0210 still read the setting raw after calling ensure_context_initialized,
+-- so this is not the last raw read in the codebase - it is one fewer. Going
+-- through the helper also means a subject with no users row raises 42501 here,
+-- the same answer the other RLS paths give.
 CREATE OR REPLACE FUNCTION public.jl_request_context()
 RETURNS JSONB AS $$
 DECLARE
@@ -14264,9 +14328,9 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop both overloads if they exist. A
-        -- DROP that names only one signature is a silent no-op for the other,
-        -- and the CASCADE that removes the dependent policies rides on it.
+        -- No entity by that name; drop both overloads if they exist. A DROP that
+        -- names only one signature is a silent no-op for the other, and the
+        -- CASCADE that removes the dependent policies rides on it.
         v_fn_name := 'select_rule_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
@@ -14398,7 +14462,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row. The generated function has EXECUTE revoked from PUBLIC.';
+'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it. With no select_rule set, the three policies are the permission-only form instead. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -14486,7 +14550,7 @@ $pgsem__core_0180_computed_validation$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', '39e2d1c3211af80c2a106d6544ccf25fa8c892e5e73fa8bbc93952bed58759b0');
+      VALUES ('_core.0180_computed_validation', '34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14855,7 +14919,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION has_consultation IS
-'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state) AND the caller participates in the governing process (holds a role with a RACI assignment on it). Non-participants get FALSE (caller-scoped, b9). Backs C-block gates. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
+'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state) AND the caller participates in the governing process (holds a role with a RACI assignment on it). A non-participant gets FALSE rather than the true answer: this function is granted to the request role and reachable over RPC, where a record-scoped answer would tell any signed-in user whether a record exists in a given state. It reports whether consultation happened; it does not itself hold anything back - raci_gate_trigger_fn does that, and reads consult_mode, which this does not. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
 
 REVOKE EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) TO semantius_user;
@@ -15268,7 +15332,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '5473611129125393aa1ddc1c2773f712066ffd3f178026a86e1faa17b1fe6d95');
+      VALUES ('_core.0210_raci', '08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16460,7 +16524,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"13a079561b861e10b08af79ab14039c9822952640f258a25ce65232f8509db7c","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"de5844bc1a2b6d152ca900293962bbb3c5abb3a4ccc42a50b14d5aa31ae0f12a","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"e4e4dfb895442d059d3e234dc4dd62bb1cff70027c3baf900bb6efd5971a621f","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"e17843bc7f901f0a5809c622b3c11ba5487ee35f34679451c14380fb379c72f5","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"16e7bde74251287ea5ce80b6cd98b0d67764b9c2cadb41e46be35fb389888ce5","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"146d9efb3714573f7971f746793ed3fdaa96efe0968dec01464b62442671a4f8","_core.0150_audit_log":"6ee443ee378c43b293eb3ce7c9ac0fc83bd6b063bd5a34d218d2849fdce9a3b9","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"93078d4bf8ff831ff22903a2600e745da9a6693df7bf2caa0517331ccc03bf95","_core.0180_computed_validation":"39e2d1c3211af80c2a106d6544ccf25fa8c892e5e73fa8bbc93952bed58759b0","_core.0210_raci":"5473611129125393aa1ddc1c2773f712066ffd3f178026a86e1faa17b1fe6d95","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"a682f42a9f71d699b5aa497fa088642f7b0a8df0be30bbce1f133bad3143221a","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

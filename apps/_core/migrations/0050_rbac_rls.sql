@@ -327,14 +327,15 @@ BEGIN
     -- not a recovery mechanism. A principal whose users row already exists is
     -- updated in place by rbac.upsert_user_from_jwt, which fires UPDATE triggers
     -- and never this one - so an established user cannot be elected however many
-    -- times they authenticate, even with the administrator set empty. That is why the set is not allowed to empty:
-    -- rbac.assert_administrator_remains below refuses any statement that would.
+    -- times they authenticate, even with the administrator set empty. That is why
+    -- the set is not allowed to empty: rbac.assert_administrator_remains below
+    -- refuses any statement that would.
     --
     -- One consequence stays open by design. A user holding user:manage - which
     -- is what the users policies require, admin or not - can elect a principal
     -- deliberately, by inserting a users row with last_seen set while no
-    -- administrator exists. Reaching that needs a
-    -- superuser to have emptied the set first, so it is accepted.
+    -- administrator exists. Reaching that needs a superuser to have emptied the
+    -- set first, so it is accepted.
     IF NEW.last_seen IS NOT NULL THEN
         PERFORM pg_advisory_xact_lock(hashtext('rbac.bootstrap_administrator'));
 

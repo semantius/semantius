@@ -647,10 +647,9 @@ COMMENT ON FUNCTION rbac.user_has_permission IS
 -- broken one. The policies on users ask for user:read to SELECT and user:manage
 -- to INSERT, UPDATE and DELETE, so a literal match would give a token scoped to
 -- user:manage the three write policies and deny it the read - authority to write
--- rows it cannot see. The three checkers also disagreed about it: this expansion
--- is what rbac.user_has_permission always did, while rbac.has_permission and
--- rbac.has_any_permission compared the raw strings, so the same session got
--- opposite answers to one question depending on which function a policy called.
+-- rows it cannot see. All three checkers expand the scope side for that reason:
+-- if one compared the raw strings instead, the same session would get opposite
+-- answers to one question depending on which function a policy called.
 --
 -- Expanding the scope side cannot widen authority. Every checker intersects this
 -- list with the permissions the user actually holds, which are themselves

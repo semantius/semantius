@@ -20,9 +20,8 @@
 -- Security floor (the entire point of this role):
 --   NOSUPERUSER  -> cannot bypass anything.
 --   NOINHERIT    -> holds NONE of authenticated's privileges passively; it can do
---                   nothing but `SET ROLE authenticated`. A NOINHERIT gatekeeper
---                   that ENFORCES RLS by SET ROLE-ing into an RLS-subject role —
---                   it never bypasses RLS. This is what makes it safe to expose
+--                   nothing but `SET ROLE authenticated`, which lands it in a
+--                   role RLS applies to. That is what makes it safe to expose
 --                   with a password.
 --   NOBYPASSRLS  -> the default; never granted. The only RLS-bypass risk on a
 --                   managed platform is connecting as the `postgres`/owner role

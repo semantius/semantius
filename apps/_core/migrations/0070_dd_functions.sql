@@ -77,8 +77,10 @@ COMMENT ON FUNCTION format_to_data_type IS
 -- then stands, which keeps INTEGER for reference and parent. What happens next
 -- depends on which case it was: with no table to point at, the ADD CONSTRAINT
 -- fails on the missing relation; with a table that is simply not a registered
--- entity, it succeeds or fails on whether that table's key is an INTEGER. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
--- tests and the DDL builders' NOT NULL default table keep matching on it.
+-- entity, it succeeds or fails on whether that table's key is an INTEGER.
+--
+-- The result is upper-cased so quote_default_value's INTEGER/BOOLEAN tests and
+-- the DDL builders' NOT NULL default table keep matching on it.
 CREATE OR REPLACE FUNCTION field_data_type(
     p_format TEXT,
     p_precision SMALLINT DEFAULT NULL,

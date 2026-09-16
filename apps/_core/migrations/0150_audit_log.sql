@@ -610,18 +610,14 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
 --
--- Three limitations, all accepted:
---   - GRANT and REVOKE arrive with no classid, objid, schema_name or
---     object_identity, so they can be neither scoped to a schema nor
---     recognized as label churn. They are kept anyway, because the privilege
---     history is what this table exists for; on the extension install path
---     their query_text is only the migrate() call that issued them. Recovering
---     the target from the DDL text was considered and declined: that is a
---     parser for an open-ended grammar, feeding an evidence table.
---   - CREATE SCHEMA reports no schema of its own - its identity is the new
---     schema's name - so creating a schema is always logged, foreign ones
---     included. Dropping one is logged too, by the sibling below, for the same
---     reason and with the same consequence.
+-- Two limitations, both accepted:
+--   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
+--     recognized as label churn either, and on the extension install path their
+--     query_text is only the migrate() call that issued them. Recovering the
+--     target from the DDL text was considered and declined: that is a parser
+--     for an open-ended grammar, feeding an evidence table.
+--   - Dropping a schema is logged too, by the sibling below, for the reason
+--     filter 2 gives for creating one and with the same consequence.
 --
 -- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
 -- rows for them whatever the tag, which is why audit.log_drop_event exists.
