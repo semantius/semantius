@@ -784,7 +784,7 @@ DECLARE
     v_cached_permissions TEXT;
     v_permission TEXT;
     v_oauth_scopes TEXT;
-    v_has_base_permission BOOLEAN := FALSE;
+    v_scope_list TEXT[];
     v_external_id TEXT;
 BEGIN
     -- Validate input. rbac.uid() runs on this cold branch only - see
@@ -813,44 +813,47 @@ BEGIN
 
     -- Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
-    
-    IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
-        -- Check if any permission exists in cache
-        FOREACH v_permission IN ARRAY p_permission_names
-        LOOP
-            IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0 THEN
-                v_has_base_permission := TRUE;
-                EXIT; -- Found one, stop checking
-            END IF;
-        END LOOP;
-        
-        IF NOT v_has_base_permission THEN
-            RETURN FALSE;
-        END IF;
-        
-        -- Check OAuth scopes if present
-        v_oauth_scopes := current_setting('app.oauth_scopes', true);
-        
-        IF v_oauth_scopes IS NULL OR v_oauth_scopes = '' THEN
-            RETURN TRUE;
-        END IF;
-        
-        -- Verify at least one permission is in OAuth scopes
-        FOREACH v_permission IN ARRAY p_permission_names
-        LOOP
-            -- Separators normalized: any run of commas or whitespace.
-            -- See rbac.has_permission for why this is inlined and why it
-            -- cannot escalate.
-            IF v_permission = ANY(
-                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '')) THEN
-                RETURN TRUE;
-            END IF;
-        END LOOP;
-        
+
+    IF v_cached_permissions IS NULL OR v_cached_permissions = '' THEN
+        -- Not reachable after initialization; a user with no permissions at all
+        -- still gets an empty cache entry rather than none.
         RETURN FALSE;
     END IF;
-    
-    -- Should never reach here after initialization
+
+    -- Separators normalized: any run of commas or whitespace, so 'a,b', 'a b'
+    -- and ' a ,, b ' name the same two scopes. rbac.has_permission and
+    -- rbac.user_has_permission split the same way and 0405_test_rbac_helpers.sql
+    -- pins the agreement: a list read in the wrong format would silently confine
+    -- the session to nothing. Split once here rather than inside the loop - the
+    -- list does not change while the loop runs.
+    v_oauth_scopes := current_setting('app.oauth_scopes', true);
+
+    IF v_oauth_scopes IS NOT NULL AND v_oauth_scopes <> '' THEN
+        v_scope_list := array_remove(
+            regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '');
+    END IF;
+
+    -- One loop, and it has to be one: both conditions must hold for the SAME
+    -- permission. Asking them separately - 'is any of these held' AND 'is any of
+    -- these in scope' - lets the two answers come from different entries, so a
+    -- token scoped to a permission its bearer does not hold would still unlock
+    -- the ones the bearer does hold. A scope list is an intersection with what
+    -- the user holds and can only ever subtract; nothing about it may widen an
+    -- answer. The single-permission checkers cannot split this way, which is why
+    -- the trap is specific to the variadic form.
+    --
+    -- Scope names match literally, as in rbac.has_permission: a scope names one
+    -- permission and not what that permission implies through
+    -- permission_hierarchy. An empty or unset list is no confinement at all.
+    FOREACH v_permission IN ARRAY p_permission_names
+    LOOP
+        IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0
+           AND (v_scope_list IS NULL OR v_permission = ANY(v_scope_list))
+        THEN
+            RETURN TRUE;
+        END IF;
+    END LOOP;
+
     RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;

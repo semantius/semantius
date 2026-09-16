@@ -32,7 +32,7 @@
 -- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(76);
+SELECT plan(79);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -108,9 +108,24 @@ SELECT throws_ok($$SELECT rbac.require_any_permission('nwind:manage')$$,
     '42501', NULL,
     'require_any_permission: OAuth scope restriction raises insufficient_privilege');
 
+-- The two conditions belong to one permission. A scope list may name a
+-- permission its bearer does not hold - it is what the client asked for, not
+-- what was granted, and a role revoked after the token was minted leaves the
+-- same shape - so 'admin' here satisfies neither half on its own: user2 does
+-- not hold it, and the permission user2 does hold is not in the list. Answering
+-- 'somebody is held' and 'somebody is in scope' separately would return true
+-- and hand a token scoped to 'admin' everything its bearer holds instead.
+SELECT set_config('app.oauth_scopes', 'admin', true);
+SELECT ok(NOT rbac.has_any_permission('admin', 'nwind:view'),
+    'has_any_permission: an in-scope name the user lacks does not license a held name out of scope');
+SELECT ok(NOT rbac.has_any_permission('admin'),
+    'has_any_permission: a scope the user does not hold grants nothing on its own');
+
 SELECT set_config('app.oauth_scopes', '', true);
 SELECT ok(rbac.has_permission('nwind:manage'),
     'has_permission: an empty scope list means no scope restriction');
+SELECT ok(rbac.has_any_permission('admin', 'nwind:view'),
+    'has_any_permission: an empty scope list means no scope restriction');
 
 -- =====================================================
 -- GROUP 4: user_has_permission / validate_oauth_scopes (user3, admin)

@@ -18,7 +18,7 @@
 --   • the physical FK on quakq2 now references the qwertz2 table by OID
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(29);
 
 SELECT authenticate_as('user3');
 
@@ -146,6 +146,34 @@ SELECT is_empty(
 SELECT has_column(
     'public', 'qwertz1', 'rtzup3',
     'Column rtzup3 should exist after field rename'
+);
+
+-- =====================================================
+-- GUARD: a field cannot be re-parented by a direct UPDATE
+--        (has to run before the table rename below)
+-- =====================================================
+-- update_dd_field lets a fields.table_name change through only as the cascade
+-- of a table rename, which it recognizes by the dd.table_rename marker.
+-- rename_dd_table sets that marker and never clears it, so once one rename has
+-- run in this transaction the marker is non-NULL for the rest of it. The case
+-- worth pinning is the opposite one - a session that has renamed nothing, where
+-- current_setting(..., TRUE) returns SQL NULL and a guard written with <> reads
+-- NULL, does not take its own branch, and lets the update through. Moving this
+-- below the rename would leave that unexercised.
+
+SELECT throws_ok(
+    $$UPDATE fields SET table_name = 'quakq2'
+      WHERE table_name = 'qwertz1' AND field_name = 'other_col'$$,
+    '90221',
+    NULL,
+    'A direct table_name update on a field is refused'
+);
+
+SELECT is(
+    (SELECT count(*)::integer FROM fields
+     WHERE table_name = 'qwertz1' AND field_name = 'other_col'),
+    1,
+    'The field stays with the entity it was created on'
 );
 
 -- =====================================================

@@ -12,7 +12,7 @@
 -- and the exemption itself is asserted with RESET ROLE.
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(16);
 
 SELECT authenticate_as('user3');
 
@@ -72,6 +72,48 @@ SELECT throws_ok(
     '42501',
     'This would leave the system without an enabled Administrator',
     'with the reference gone, the guard refuses the delete that would cascade');
+
+-- =====================================================
+-- The guard does not rest on who the caller is
+-- =====================================================
+-- Writing users needs `user:manage`, not `admin`: users_insert_policy,
+-- users_update_policy and users_delete_policy all name it. A guard that excused
+-- every caller without `admin` would excuse exactly the callers who can empty
+-- the Administrator set without being one, which is why the count runs through
+-- rbac.count_enabled_administrators instead of asking what the caller is.
+-- granted_by is pinned to user1 rather than left to default to the granting
+-- administrator. user_permissions.granted_by references users(id) with no ON
+-- DELETE action, so a row pointing at user3 would make the delete below fail on
+-- 23503 before the guard ever ran, and the guard is what is under test here.
+INSERT INTO user_permissions (user_id, permission_name, granted_by)
+VALUES (1001, 'user:manage', 1001);
+
+SELECT authenticate_as('user1');
+
+SELECT throws_ok(
+    $$UPDATE users SET is_disabled = TRUE WHERE id = 1003$$,
+    '42501',
+    'This would leave the system without an enabled Administrator',
+    'user:manage without admin cannot disable the last Administrator');
+
+SELECT throws_ok(
+    $$DELETE FROM users WHERE id = 1003$$,
+    '42501',
+    'This would leave the system without an enabled Administrator',
+    'user:manage without admin cannot delete the last Administrator');
+
+-- The other half of counting through a definer. A statement trigger fires even
+-- when RLS reduced the statement to no rows, and user2 may read neither
+-- user_roles nor another user's row - so the count cannot come from the
+-- caller's view, which would read as zero here. The true count is unchanged and
+-- not zero, so a statement that did nothing is refused nothing.
+SELECT authenticate_as('user2');
+
+SELECT lives_ok(
+    $$DELETE FROM users WHERE id = 1003$$,
+    'a statement that RLS reduces to no rows is not refused');
+
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- What the guard does not block

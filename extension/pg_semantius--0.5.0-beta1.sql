@@ -2672,7 +2672,7 @@ DECLARE
     v_cached_permissions TEXT;
     v_permission TEXT;
     v_oauth_scopes TEXT;
-    v_has_base_permission BOOLEAN := FALSE;
+    v_scope_list TEXT[];
     v_external_id TEXT;
 BEGIN
     -- Validate input. rbac.uid() runs on this cold branch only - see
@@ -2701,44 +2701,47 @@ BEGIN
 
     -- Get cached permissions (now guaranteed to exist)
     v_cached_permissions := current_setting('app.user_permissions', true);
-    
-    IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
-        -- Check if any permission exists in cache
-        FOREACH v_permission IN ARRAY p_permission_names
-        LOOP
-            IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0 THEN
-                v_has_base_permission := TRUE;
-                EXIT; -- Found one, stop checking
-            END IF;
-        END LOOP;
-        
-        IF NOT v_has_base_permission THEN
-            RETURN FALSE;
-        END IF;
-        
-        -- Check OAuth scopes if present
-        v_oauth_scopes := current_setting('app.oauth_scopes', true);
-        
-        IF v_oauth_scopes IS NULL OR v_oauth_scopes = '' THEN
-            RETURN TRUE;
-        END IF;
-        
-        -- Verify at least one permission is in OAuth scopes
-        FOREACH v_permission IN ARRAY p_permission_names
-        LOOP
-            -- Separators normalized: any run of commas or whitespace.
-            -- See rbac.has_permission for why this is inlined and why it
-            -- cannot escalate.
-            IF v_permission = ANY(
-                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '')) THEN
-                RETURN TRUE;
-            END IF;
-        END LOOP;
-        
+
+    IF v_cached_permissions IS NULL OR v_cached_permissions = '' THEN
+        -- Not reachable after initialization; a user with no permissions at all
+        -- still gets an empty cache entry rather than none.
         RETURN FALSE;
     END IF;
-    
-    -- Should never reach here after initialization
+
+    -- Separators normalized: any run of commas or whitespace, so 'a,b', 'a b'
+    -- and ' a ,, b ' name the same two scopes. rbac.has_permission and
+    -- rbac.user_has_permission split the same way and 0405_test_rbac_helpers.sql
+    -- pins the agreement: a list read in the wrong format would silently confine
+    -- the session to nothing. Split once here rather than inside the loop - the
+    -- list does not change while the loop runs.
+    v_oauth_scopes := current_setting('app.oauth_scopes', true);
+
+    IF v_oauth_scopes IS NOT NULL AND v_oauth_scopes <> '' THEN
+        v_scope_list := array_remove(
+            regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '');
+    END IF;
+
+    -- One loop, and it has to be one: both conditions must hold for the SAME
+    -- permission. Asking them separately - 'is any of these held' AND 'is any of
+    -- these in scope' - lets the two answers come from different entries, so a
+    -- token scoped to a permission its bearer does not hold would still unlock
+    -- the ones the bearer does hold. A scope list is an intersection with what
+    -- the user holds and can only ever subtract; nothing about it may widen an
+    -- answer. The single-permission checkers cannot split this way, which is why
+    -- the trap is specific to the variadic form.
+    --
+    -- Scope names match literally, as in rbac.has_permission: a scope names one
+    -- permission and not what that permission implies through
+    -- permission_hierarchy. An empty or unset list is no confinement at all.
+    FOREACH v_permission IN ARRAY p_permission_names
+    LOOP
+        IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0
+           AND (v_scope_list IS NULL OR v_permission = ANY(v_scope_list))
+        THEN
+            RETURN TRUE;
+        END IF;
+    END LOOP;
+
     RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
@@ -3171,7 +3174,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', 'b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd');
+      VALUES ('_core.0030_rbac_functions', '9d04dc02e4990a86035e378973e8399dba52766b1da1f902d3dcb270e1b9a5e2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -3728,49 +3731,57 @@ COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 --
 -- SECURITY INVOKER, unlike everything else in this file, and it has to be:
 -- current_user inside a SECURITY DEFINER function is the function owner, which
--- has BYPASSRLS, so the first exemption below would let every caller through.
+-- has BYPASSRLS, so the exemption below would let every caller through.
 --
 -- That exemption is the operator's escape hatch and matches fields_ctype_lock in
 -- 0070: a direct superuser or owner connection may still empty the administrator
 -- set, which is how a database is repaired and how a test builds a system that
 -- has never had one. It gives away nothing - such a connection already holds
--- everything the extension protects.
+-- everything the extension protects. It is also the only exemption, and that is
+-- the load-bearing part.
 --
--- The second exemption is what keeps an invoker trigger honest. A statement
--- trigger fires even when the statement matched no rows, so a plain user
--- issuing `DELETE FROM users` - which RLS silently reduces to nothing - reaches
--- this code too, and their view of user_roles is empty because reading it needs
--- `admin`. Counting from that view would refuse a statement that did nothing.
--- Every policy on users, user_roles and roles requires `admin` to write, so a
--- caller without it cannot have changed anything here, and a caller with it can
--- read every row the count needs. An unauthenticated session raises inside
--- rbac.has_permission rather than answering, and is not an administrator either.
+-- The count therefore cannot come from the caller's own view of the tables. An
+-- invoker trigger reads user_roles under RLS, where reading needs `admin`, so a
+-- caller without it sees an empty set and every statement would look like the
+-- last one. Excusing the caller who cannot see the rows is not a way out either:
+-- writing users needs `user:manage`, not `admin`, so a caller who holds
+-- user:manage and nothing else can disable or delete the last Administrator
+-- while being excused from the check that exists to stop it.
+-- rbac.count_enabled_administrators is SECURITY DEFINER for that reason: one
+-- answer, the true one, whoever asks. It is never inlined - PostgreSQL does not
+-- inline a definer function - so the owner's BYPASSRLS still applies inside it.
+--
+-- A statement trigger also fires when the statement matched no rows - a plain
+-- user issuing `DELETE FROM users` that RLS silently reduces to nothing reaches
+-- this code too. With a true count that costs nothing: the set is unchanged, so
+-- it is non-empty unless it was already empty, and a system already in that
+-- state is repaired through the exemption above.
+CREATE OR REPLACE FUNCTION rbac.count_enabled_administrators()
+RETURNS INTEGER AS $$
+    SELECT count(*)::integer
+    FROM user_roles ur
+    JOIN users u ON u.id = ur.user_id
+    WHERE ur.role_id = 2
+      AND u.is_disabled = FALSE;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public;
+
+-- The invoker trigger above has to be able to call this, so semantius_user keeps
+-- the EXECUTE that 0030's ALTER DEFAULT PRIVILEGES grants it. What that exposes
+-- is one bit - whether the system still has an administrator - which any session
+-- can already read off the guard by issuing a statement the guard watches.
+REVOKE EXECUTE ON FUNCTION rbac.count_enabled_administrators() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.count_enabled_administrators IS
+'Number of enabled users holding role 2 (Administrator). SECURITY DEFINER so the answer does not depend on what the caller may read.';
+
 CREATE OR REPLACE FUNCTION rbac.assert_administrator_remains()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_is_admin BOOLEAN;
 BEGIN
     IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
         RETURN NULL;
     END IF;
 
-    BEGIN
-        v_is_admin := rbac.has_permission('admin');
-    EXCEPTION WHEN OTHERS THEN
-        RETURN NULL;
-    END;
-
-    IF NOT v_is_admin THEN
-        RETURN NULL;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM user_roles ur
-        JOIN users u ON u.id = ur.user_id
-        WHERE ur.role_id = 2
-          AND u.is_disabled = FALSE
-    ) THEN
+    IF rbac.count_enabled_administrators() = 0 THEN
         RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
@@ -3918,7 +3929,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_00
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', 'd649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c');
+      VALUES ('_core.0050_rbac_rls', 'e4e4dfb895442d059d3e234dc4dd62bb1cff70027c3baf900bb6efd5971a621f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -5711,8 +5722,17 @@ BEGIN
 
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
-        -- Allow only when this is a cascade triggered by rename_dd_table()
-        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+        -- Allow only when this is a cascade triggered by rename_dd_table(),
+        -- which sets the marker to 'old:new' immediately before updating the
+        -- fields rows.
+        --
+        -- IS DISTINCT FROM, not <>. current_setting(..., TRUE) returns SQL NULL
+        -- in a session that never set the variable, `NULL <> anything` is NULL,
+        -- and an IF on NULL is not taken - so a plain `UPDATE fields SET
+        -- table_name = ...` would walk straight through this guard and hand the
+        -- field's metadata to another entity while the physical column stayed
+        -- where it was, leaving the catalog and the tables disagreeing.
+        IF current_setting('dd.table_rename', TRUE) IS DISTINCT FROM OLD.table_name || ':' || NEW.table_name THEN
             RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
         END IF;
         -- Cascade rename: metadata has been updated; no DDL needed here
@@ -6808,7 +6828,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', 'a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d');
+      VALUES ('_core.0070_dd_functions', '7814c46f9874b405f8ddbacba212c722bb414c1e1e90df4eaf7c547f62bbdc21');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16046,7 +16066,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"c6465ee6b0b19dc0504c001a32444c21e48dedec6cb2607f215e7bf465534881","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"b0785067ebbbaf83f1da994175f9cfc3b8afcb533335fe111721fc9e8dff74cd","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"d649527aa935fb8597a0c32cc6847698fc0b222ece6ff26c19bcf5e4e6e4a01c","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"a6778b4b80ae09712235150a3313fbf74d4a12542ff638140c3a546a23a0686d","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73","_core.0150_audit_log":"71d0ab86eda47ea664387dc0854599ee35ca677c1250fbaae12808feb578eb44","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"dd634d7735e30364a7ab2193ad995d8fc07331388f5f08b697976a4a3e44b147","_core.0180_computed_validation":"a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa","_core.0210_raci":"abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"e641b0e29b0cd6e6f899ac198ec7504d4dafb9c942dd725884bebcee0c353c99","_core.0011_session_authenticator":"38bba84a3cdb3e793b7a061690efab4d191a88152b6bc8e8f808c05026cf41ef","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"c6465ee6b0b19dc0504c001a32444c21e48dedec6cb2607f215e7bf465534881","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"9d04dc02e4990a86035e378973e8399dba52766b1da1f902d3dcb270e1b9a5e2","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"e4e4dfb895442d059d3e234dc4dd62bb1cff70027c3baf900bb6efd5971a621f","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"7814c46f9874b405f8ddbacba212c722bb414c1e1e90df4eaf7c547f62bbdc21","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"86dc0a64b5cf1fa35d14edd4158049a174e0ada67376d5daeff3b4cbc5ea30d7","_core.0090_notify_triggers":"30695b5477f0359bacf07177228c2a4bd8a7ab920958aa811ca5055b899bf767","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"dab6da67b9f51c72dccdfaf37507a0b9ff19a291215eb55b5f1dbc0f3db20d73","_core.0150_audit_log":"71d0ab86eda47ea664387dc0854599ee35ca677c1250fbaae12808feb578eb44","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"dd634d7735e30364a7ab2193ad995d8fc07331388f5f08b697976a4a3e44b147","_core.0180_computed_validation":"a7d44ddf01e6e3265b29c355b8d76dbb809be47d950e2fe33754965fde9c07aa","_core.0210_raci":"abf40fe61bd4acaf464a48dd20b55f076aceeba713fd8b5ce60b42156f314bd5","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

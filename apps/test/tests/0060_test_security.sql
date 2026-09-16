@@ -123,7 +123,14 @@ SELECT is(
             'build_record_logic_trigger',
             'build_select_rule_policy',
             'raci_install_or_drop_emit_trigger',
-            'rebuild_entity_label_functions'
+            'rebuild_entity_label_functions',
+            -- Counts the enabled Administrators for rbac.assert_administrator_remains.
+            -- It must answer for a session that carries no claims at all - the
+            -- superuser repair connection the guard exempts is exactly that - so
+            -- rbac.uid() here would raise on the one caller that has to get
+            -- through, and cost a claims validation on every guarded statement
+            -- for the rest.
+            'count_enabled_administrators'
         )
         -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
         AND p.proname NOT LIKE 'select\_rule\_%'

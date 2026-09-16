@@ -885,8 +885,17 @@ BEGIN
 
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
-        -- Allow only when this is a cascade triggered by rename_dd_table()
-        IF current_setting('dd.table_rename', TRUE) <> OLD.table_name || ':' || NEW.table_name THEN
+        -- Allow only when this is a cascade triggered by rename_dd_table(),
+        -- which sets the marker to 'old:new' immediately before updating the
+        -- fields rows.
+        --
+        -- IS DISTINCT FROM, not <>. current_setting(..., TRUE) returns SQL NULL
+        -- in a session that never set the variable, `NULL <> anything` is NULL,
+        -- and an IF on NULL is not taken - so a plain `UPDATE fields SET
+        -- table_name = ...` would walk straight through this guard and hand the
+        -- field's metadata to another entity while the physical column stayed
+        -- where it was, leaving the catalog and the tables disagreeing.
+        IF current_setting('dd.table_rename', TRUE) IS DISTINCT FROM OLD.table_name || ':' || NEW.table_name THEN
             RAISE EXCEPTION 'Cannot change table_name of a field' USING ERRCODE = '90221';
         END IF;
         -- Cascade rename: metadata has been updated; no DDL needed here

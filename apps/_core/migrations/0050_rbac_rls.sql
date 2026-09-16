@@ -421,49 +421,57 @@ COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 --
 -- SECURITY INVOKER, unlike everything else in this file, and it has to be:
 -- current_user inside a SECURITY DEFINER function is the function owner, which
--- has BYPASSRLS, so the first exemption below would let every caller through.
+-- has BYPASSRLS, so the exemption below would let every caller through.
 --
 -- That exemption is the operator's escape hatch and matches fields_ctype_lock in
 -- 0070: a direct superuser or owner connection may still empty the administrator
 -- set, which is how a database is repaired and how a test builds a system that
 -- has never had one. It gives away nothing - such a connection already holds
--- everything the extension protects.
+-- everything the extension protects. It is also the only exemption, and that is
+-- the load-bearing part.
 --
--- The second exemption is what keeps an invoker trigger honest. A statement
--- trigger fires even when the statement matched no rows, so a plain user
--- issuing `DELETE FROM users` - which RLS silently reduces to nothing - reaches
--- this code too, and their view of user_roles is empty because reading it needs
--- `admin`. Counting from that view would refuse a statement that did nothing.
--- Every policy on users, user_roles and roles requires `admin` to write, so a
--- caller without it cannot have changed anything here, and a caller with it can
--- read every row the count needs. An unauthenticated session raises inside
--- rbac.has_permission rather than answering, and is not an administrator either.
+-- The count therefore cannot come from the caller's own view of the tables. An
+-- invoker trigger reads user_roles under RLS, where reading needs `admin`, so a
+-- caller without it sees an empty set and every statement would look like the
+-- last one. Excusing the caller who cannot see the rows is not a way out either:
+-- writing users needs `user:manage`, not `admin`, so a caller who holds
+-- user:manage and nothing else can disable or delete the last Administrator
+-- while being excused from the check that exists to stop it.
+-- rbac.count_enabled_administrators is SECURITY DEFINER for that reason: one
+-- answer, the true one, whoever asks. It is never inlined - PostgreSQL does not
+-- inline a definer function - so the owner's BYPASSRLS still applies inside it.
+--
+-- A statement trigger also fires when the statement matched no rows - a plain
+-- user issuing `DELETE FROM users` that RLS silently reduces to nothing reaches
+-- this code too. With a true count that costs nothing: the set is unchanged, so
+-- it is non-empty unless it was already empty, and a system already in that
+-- state is repaired through the exemption above.
+CREATE OR REPLACE FUNCTION rbac.count_enabled_administrators()
+RETURNS INTEGER AS $$
+    SELECT count(*)::integer
+    FROM user_roles ur
+    JOIN users u ON u.id = ur.user_id
+    WHERE ur.role_id = 2
+      AND u.is_disabled = FALSE;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public;
+
+-- The invoker trigger above has to be able to call this, so semantius_user keeps
+-- the EXECUTE that 0030's ALTER DEFAULT PRIVILEGES grants it. What that exposes
+-- is one bit - whether the system still has an administrator - which any session
+-- can already read off the guard by issuing a statement the guard watches.
+REVOKE EXECUTE ON FUNCTION rbac.count_enabled_administrators() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.count_enabled_administrators IS
+'Number of enabled users holding role 2 (Administrator). SECURITY DEFINER so the answer does not depend on what the caller may read.';
+
 CREATE OR REPLACE FUNCTION rbac.assert_administrator_remains()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_is_admin BOOLEAN;
 BEGIN
     IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
         RETURN NULL;
     END IF;
 
-    BEGIN
-        v_is_admin := rbac.has_permission('admin');
-    EXCEPTION WHEN OTHERS THEN
-        RETURN NULL;
-    END;
-
-    IF NOT v_is_admin THEN
-        RETURN NULL;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM user_roles ur
-        JOIN users u ON u.id = ur.user_id
-        WHERE ur.role_id = 2
-          AND u.is_disabled = FALSE
-    ) THEN
+    IF rbac.count_enabled_administrators() = 0 THEN
         RAISE EXCEPTION 'This would leave the system without an enabled Administrator'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
