@@ -23,6 +23,7 @@ export async function dropallCommand(databaseUrl: string, confirm: boolean = fal
   console.warn("• All types");
   console.warn("• All other database objects in the public schema");
   console.warn("• All user-owned schemas/namespaces (except 'public' and 'auth')");
+  console.warn("• Developer tooling installed by the coverage command (plpgsql_check)");
   console.warn("");
   console.warn("THIS OPERATION CANNOT BE UNDONE!");
   console.warn("=".repeat(50));
@@ -119,6 +120,9 @@ async function generateDropallScript(databaseUrl: string): Promise<void> {
     
     // 7. Drop custom schemas
     scriptContent += await generateDropCustomSchemasSql(client);
+
+    // 8. Drop developer tooling the skip list above deliberately spares
+    scriptContent += await generateDropDevToolExtensionsSql(client);
     
     // Write to dropall.sql
     const outputPath = "./dropall.sql";
@@ -354,6 +358,35 @@ async function generateDropCustomSchemasSql(client: Client): Promise<string> {
   return sql;
 }
 
+
+async function generateDropDevToolExtensionsSql(client: Client): Promise<string> {
+  const installed = await client.queryObject(
+    `SELECT 1 FROM pg_extension WHERE extname = 'plpgsql_check'`,
+  );
+
+  if (installed.rows.length === 0) {
+    console.info("No developer tooling extensions found to drop");
+    return "-- No developer tooling extensions found to drop\n";
+  }
+
+  console.info("Found developer tooling extension plpgsql_check to drop");
+
+  // RESTRICT is what distinguishes a development container's `extensions`
+  // schema, which holds nothing else and should go, from a managed platform's,
+  // which holds pgcrypto and friends and must survive. The DO block swallows
+  // the resulting error so one generated script runs against either.
+  return `-- Drop developer tooling installed by the coverage command
+DROP EXTENSION IF EXISTS plpgsql_check;
+DO $$
+BEGIN
+    EXECUTE 'DROP SCHEMA IF EXISTS extensions RESTRICT';
+EXCEPTION
+    WHEN dependent_objects_still_exist THEN NULL;
+END $$;
+
+`;
+}
+
 async function dropAllObjects(client: Client): Promise<void> {
   console.log("Discovering database objects in public schema...");
   
@@ -379,6 +412,9 @@ async function dropAllObjects(client: Client): Promise<void> {
   
   // 7. Drop custom schemas/namespaces (except 'public' and 'auth')
   await dropCustomSchemas(client);
+
+  // 8. Drop developer tooling the skip list above deliberately spares
+  await dropDevToolExtensions(client);
 }
 
 async function dropViews(client: Client): Promise<void> {
@@ -619,5 +655,39 @@ async function dropCustomSchemas(client: Client): Promise<void> {
     } catch (error) {
       console.error(`  Failed to drop schema ${schema_name}:`, error instanceof Error ? error.message : String(error));
     }
+  }
+}
+// Developer tooling, dropped after the schemas. The coverage command installs
+// plpgsql_check into `extensions`, and that schema is on the skip list above
+// because a managed platform keeps its own extensions there and must not lose
+// them. Together those two facts mean a database that was profiled once would
+// carry the extension forever and never again match a freshly migrated one.
+async function dropDevToolExtensions(client: Client): Promise<void> {
+  const installed = await client.queryObject(
+    `SELECT 1 FROM pg_extension WHERE extname = 'plpgsql_check'`,
+  );
+
+  if (installed.rows.length === 0) {
+    console.log("No developer tooling extensions found to drop");
+  } else {
+    try {
+      await client.queryObject(`DROP EXTENSION plpgsql_check`);
+      console.log("  Dropped extension: plpgsql_check");
+    } catch (error) {
+      console.error("  Failed to drop extension plpgsql_check:", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // RESTRICT, never CASCADE: PostgreSQL refuses the drop while anything is
+  // still in the schema, and that refusal is the entire safety mechanism. A
+  // development container's `extensions` holds nothing once the profiler is
+  // gone, so it disappears and the database is left as it was before coverage
+  // ever ran. A managed platform's holds pgcrypto and friends, so the drop is
+  // refused and the schema survives untouched.
+  try {
+    await client.queryObject(`DROP SCHEMA IF EXISTS extensions RESTRICT`);
+    console.log("  Dropped schema: extensions (it was empty)");
+  } catch {
+    console.log("  Kept schema: extensions (not empty - it holds other extensions)");
   }
 }
