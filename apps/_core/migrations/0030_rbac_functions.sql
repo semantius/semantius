@@ -41,8 +41,12 @@ DECLARE
     depth_below INTEGER;
     depth_above INTEGER;
 BEGIN
-    -- Both permissions are known to exist: the two foreign keys on this table
-    -- reject the row before this trigger is reached.
+    -- Nothing below needs either permission to exist. The two foreign keys on
+    -- this table do reject a row naming an unregistered one, but a foreign key
+    -- is an AFTER trigger and fires at the end of the statement, so this BEFORE
+    -- trigger sees the row first. A name matching no permission contributes no
+    -- rows to either walk, which is the same answer as a name at the edge of the
+    -- graph.
 
     -- Check if adding this edge would create a cycle or exceed depth limit
     -- A cycle exists if the included can reach the including through existing paths
@@ -123,7 +127,8 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Validate JWT claims before allowing any operation
 -- Centralizes all JWT validation so that role, aud, or other checks
 -- only need to be changed in one place.
--- Called by rbac.uid() which is the gateway for all authenticated operations.
+-- This is the gateway for all authenticated operations: every entry point in
+-- this file reaches it, directly or through ensure_context_initialized.
 -- Single JWT validation + user identity function
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
@@ -281,8 +286,12 @@ COMMENT ON FUNCTION rbac.uid IS
 -- =====================================================
 
 -- Read-only function to get user_id by external_id
--- Used by RLS policies in read-only transactions (e.g., PostgREST GET requests)
 -- Returns NULL if user doesn't exist
+--
+-- Nothing in the database calls it: the policies resolve the caller through
+-- rbac.has_permission and the context cache instead. It exists as an RPC for a
+-- client that holds an external_id and wants the internal one, which is why the
+-- target check below is the whole of its access control.
 --
 -- SELF-OR-ADMIN. Four functions in this file take a subject as a parameter and
 -- answer a question about it - this one, user_has_permission,
@@ -303,8 +312,10 @@ COMMENT ON FUNCTION rbac.uid IS
 -- answer.
 --
 -- rbac.uid() is called inside the test, not before it: it is the authentication
--- gate (it raises when the session carries no valid claims) and it is STABLE, so
--- naming it here costs nothing on the paths that call it again downstream.
+-- gate, raising when the session carries no valid claims. STABLE does not make
+-- the call free - a textual call runs the full validation and a _settings read
+-- every time, which is why the hot paths carry a warm test instead - but this
+-- function is not a hot path, and the self branch needs the subject anyway.
 CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
     p_external_id TEXT
 )
@@ -331,11 +342,11 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
-'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Used by RLS policies.';
+'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Self-or-admin: asking about another principal requires admin. Reachable over PostgREST RPC; no policy or function in the database calls it.';
 
 -- Initialize or update user from JWT
 -- Called by get_userinfo() to create/update user and update last_seen
--- NOT called by RLS policies (they use read-only lookup)
+-- Not reachable by the request role at all: see the revoke below this function.
 CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_external_id TEXT,
     p_email TEXT DEFAULT NULL,
@@ -436,7 +447,9 @@ COMMENT ON FUNCTION rbac.is_bearer_session IS
 -- Initialize request context on first use (lazy initialization)
 -- Loads all user permissions once and caches them for the transaction
 -- This is called automatically by permission checking functions
--- VOLATILE, and the only writer the STABLE readers reach. Writes no row.
+-- VOLATILE, and one of the two writers the STABLE readers reach: rbac.uid()
+-- normalizes claims into GUCs of its own on the Supabase and PostgreSQL 18
+-- paths. Both write settings only, never a row.
 --
 -- Trust model of the cache: the app.* settings are ordinary GUCs that the
 -- request role can overwrite, and nothing here can tell a value written by rbac
@@ -467,9 +480,11 @@ BEGIN
     -- function stays - whoami and the tests use it.
     IF system_user LIKE 'oauth:%' THEN
         -- Just the one-time notice here; the uid() gate below serves this
-        -- branch too. Once per transaction: the flag is transaction-local,
-        -- because a session-scoped write is the one side effect a ROLLBACK
-        -- cannot undo. An unauthenticated bearer session sees this WARNING
+        -- branch too. Once per transaction: the flag is transaction-local so
+        -- that it cannot outlive the request. A session-scoped one would survive
+        -- on a pooled backend and silence the warning for every later request
+        -- that happened to land on the same connection.
+        -- An unauthenticated bearer session sees this WARNING
         -- before the 42501 that the gate below still raises for it, which is
         -- harmless - the notice is only asserted in authenticated sessions.
         IF current_setting('app.bearer_cache_notice', true) IS DISTINCT FROM 'sent' THEN
@@ -506,8 +521,10 @@ BEGIN
                   HINT = jsonb_build_object('code', '90006', 'external_id', v_external_id)::text;
     END IF;
 
-    -- OPTIMIZATION: Load all user permissions once as comma-separated string
-    -- This expensive recursive CTE runs only once per request
+    -- OPTIMIZATION: Load all user permissions once as comma-separated string.
+    -- Once per transaction where the cache is trusted, which is every session
+    -- but a bearer one - there the context is rebuilt on every check, so this
+    -- recursive CTE runs per check and the WARNING above says so.
     SELECT string_agg(permission_name, ',' ORDER BY permission_name)
     INTO v_permissions
     FROM rbac.get_user_permissions_by_id(v_user_id);
@@ -533,9 +550,10 @@ COMMENT ON FUNCTION rbac.ensure_context_initialized IS
 
 -- Check if user has a specific permission
 -- This includes:
--- 1. Direct permissions from roles
--- 2. Implied permissions via hierarchy
--- 3. OAuth scope restrictions (if scopes are set)
+-- 1. Permissions from the subject's roles
+-- 2. Direct per-user grants from user_permissions
+-- 3. Implied permissions via hierarchy
+-- 4. OAuth scope restrictions (if scopes are set)
 CREATE OR REPLACE FUNCTION rbac.user_has_permission(
     p_external_id TEXT,
     p_permission_name TEXT
@@ -1061,10 +1079,11 @@ RETURNS TABLE (
 DECLARE
     v_user_id INTEGER;
 BEGIN
-    -- Self-or-admin, as at rbac.get_user_by_external_id. The self branch is what
-    -- keeps rbac.ensure_context_initialized working and is also why the guard
-    -- cannot recurse: that function asks only about rbac.uid(), so it never
-    -- reaches the admin test, which would otherwise call back into it.
+    -- Self-or-admin, as at rbac.get_user_by_external_id. The guard cannot
+    -- recurse through the context: rbac.ensure_context_initialized builds the
+    -- permission cache from rbac.get_user_permissions_by_id, which takes an
+    -- internal id and carries no guard, so it never reaches the admin test that
+    -- would call back into it.
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN
         PERFORM rbac.require_permission('admin');
     END IF;
@@ -1088,7 +1107,7 @@ COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Self-or-admin wrapper: resolves the subject external_id to its internal id and
 delegates to rbac.get_user_permissions_by_id for the actual permission set,
 including implied permissions. Returns no rows for an unknown or disabled
-subject, exactly as the recursive query this used to run inline.';
+subject rather than raising, so neither case is distinguishable from the other.';
 
 -- Get current user's permissions (uses lazy initialization)
 CREATE OR REPLACE FUNCTION rbac.get_current_user_permissions()
@@ -1174,11 +1193,13 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Get current user's internal database Id. Called once per audited row on
--- every write path (audit.current_user_id -> user_id_or_null -> user_id) and
--- twice per statement by public.jl_request_context, so unlike the other
--- checkers a cold call here is not a rare event confined to the first check of
--- a transaction - it recurs per row. The warm test is therefore inlined here
+-- Get current user's internal database Id. On an audited UPDATE it is called
+-- once per row (audit.current_user_id -> user_id_or_null -> user_id), because
+-- audit_i_u_d is the one row-level audit trigger; audit_i and audit_d are
+-- statement-level and reach it once. public.jl_request_context reaches it twice
+-- per statement. So unlike the other checkers a cold call here is not confined
+-- to the first check of a transaction - on the row-level path it recurs per
+-- row. The warm test is therefore inlined here
 -- too, exactly as in rbac.has_permission, whose comment carries the full
 -- reasoning for the ordering and for what the subject comparison does and does
 -- not guarantee; this copy relies on the same invariants.
@@ -1211,8 +1232,7 @@ COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
 whose cached subject matches the live JWT sub) reads app.current_user_id
 straight back with no further call; a cold context is rebuilt via rbac.uid()
-(the authentication gate) and rbac.ensure_context_initialized(), as it always
-was.';
+(the authentication gate) and rbac.ensure_context_initialized().';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the

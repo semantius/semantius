@@ -36,7 +36,7 @@ BEGIN
 
             -- First try numeric coercion to preserve original JsonLogic behavior.
             -- data_exception is the whole 22xxx class: bad syntax, overflow,
-            -- anything the cast can raise on caller-supplied text (B20).
+            -- anything the cast can raise on caller-supplied text.
             BEGIN
                 RETURN txt_val::numeric;
             EXCEPTION WHEN data_exception THEN
@@ -139,25 +139,30 @@ DECLARE
     scoped_data jsonb;
     scoped_logic jsonb;
     initial_val jsonb;
-    -- for var
+    -- The groups below name the operator each variable was introduced for, not
+    -- the operator that owns it: this function is one dispatch in a single
+    -- scope, so a slot is reused wherever it fits. var_key and nav serve
+    -- set_record as well as var, elem serves cat as well as merge, and txt_a and
+    -- txt_b are borrowed by every operator that handles text.
+    -- var
     var_key text;
     sub_props text[];
     nav jsonb;
-    -- for missing
+    -- missing
     missing_arr jsonb;
     keys_arr jsonb;
     looked_up jsonb;
-    -- for merge
+    -- merge
     merge_result jsonb;
     elem jsonb;
-    -- for substr
+    -- substr
     src text;
     start_pos int;
     end_len int;
     temp_str text;
-    -- for text ops
+    -- text ops
     txt_a text; txt_b text;
-    -- for throw_error
+    -- throw_error
     err_code text; err_hint jsonb; err_name text; err_value jsonb;
 BEGIN
     -- Handle NULL rule
@@ -172,7 +177,9 @@ BEGIN
         RETURN result;
     END IF;
 
-    -- Not an object or multi-key object => pass through (primitive)
+    -- Anything that is not an object is a value, not logic. A multi-key
+    -- object is not logic either, and the single-key test below is where that
+    -- is decided.
     IF jsonb_typeof(rule) <> 'object' THEN RETURN rule; END IF;
     -- Must have exactly one key to be logic.
     -- Read the key with an expression, never a query. jsonb_object_keys is
@@ -215,15 +222,19 @@ BEGIN
     -- all of them - evaluates twelve conditions that cannot match before
     -- reaching its own, on every node of every rule on every row.
     --
-    -- The bodies are deliberately NOT re-indented: this adds a guard, it does
-    -- not move or change a single operator. The list must stay exactly the set
-    -- of operators implemented between here and the barrier. Adding one without
-    -- listing it here does not fail quietly - the operator falls through to the
-    -- eager section, matches nothing, and raises 'Unrecognized operation' at the
-    -- foot of this function, which every operator's own test case will catch.
+    -- The list must stay exactly the set of operators implemented between here
+    -- and the barrier. Adding one without listing it here does not fail quietly:
+    -- the operator falls through to the eager section, matches nothing, and
+    -- raises 'Unrecognized operation' at the foot of this function, which every
+    -- operator's own test case catches.
     --
-    -- Reordering the operators themselves was measured and abandoned: it is
-    -- worth 0-2% against this guard's 5, and churns the whole file.
+    -- The bodies below are indented as though this guard were not around them,
+    -- which is cosmetic and stays that way: re-indenting them would rewrite
+    -- every line of the dispatch to no effect.
+    --
+    -- Ordering the operators by frequency instead of by this membership test is
+    -- worth 0-2% where the test is worth 5, so they stay in the order they read
+    -- best.
     IF op = ANY(ARRAY['if','?:','and','or','filter','map','reduce','all','none','some','let','set_record']) THEN
 
     IF op = 'if' OR op = '?:' THEN
@@ -499,10 +510,12 @@ BEGIN
     END IF;
 
     -- ===================== > >= < <= =====================
-    -- Two strings compare as text in code-point order (COLLATE "C"), which is
-    -- what JavaScript's own operators do and therefore what the reference
-    -- implementation does; any other pair is coerced to numbers through
-    -- jl_to_number, so "10" > "9" is false and "10" > 9 is true (B21). The
+    -- Two strings compare as text in code-point order (COLLATE "C"); any other
+    -- pair is coerced to numbers through jl_to_number, so "10" > "9" is false
+    -- and "10" > 9 is true. JavaScript orders strings by UTF-16 code unit, which
+    -- is the same order for every character in the Basic Multilingual Plane and
+    -- a different one above U+FFFF, where a surrogate pair sorts below U+E000
+    -- there and above it here. The
     -- three-argument between form of < and <= applies the rule to each pair.
     IF op = '>' OR op = '>=' OR op = '<' OR op = '<=' THEN
         IF jsonb_typeof(a) = 'string' AND jsonb_typeof(b) = 'string' THEN
@@ -788,7 +801,10 @@ BEGIN
     END IF;
 
     -- ===================== throw_error =====================
-    -- Raises an error a client can localize (docs/error-contract.md).
+    -- Raises an error the client can localize rather than print: the message is
+    -- a template, the code says which translation to look up, and the parameters
+    -- travel beside it keeping the JSON type their expression produced, so the
+    -- client can substitute them into its own wording.
     -- Usage: {"throw_error":"Order is already shipped"}
     --        {"throw_error":["Order ${id} is already shipped", "99017",
     --                        ["id", {"var":"id"}]]}

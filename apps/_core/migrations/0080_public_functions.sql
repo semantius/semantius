@@ -96,10 +96,11 @@ BEGIN
     INTO v_permissions
     FROM rbac.get_user_permissions_by_id(v_user_id);
 
-    -- Explicitly initialize the context cache with the permissions we just computed.
-    -- This is necessary because get_user_modules() -> has_any_permission() uses
-    -- ensure_context_initialized() which may see a stale snapshot (STABLE function)
-    -- when the user was just created in this same function call.
+    -- Prime the context cache with the permissions just computed above, rather
+    -- than leaving get_user_modules() -> has_any_permission() to reach
+    -- ensure_context_initialized() and resolve the identical set a second time.
+    -- The recursive permission query is the expensive part of this function, and
+    -- on a first login it would otherwise run twice in one call.
     PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
     PERFORM set_config('app.current_external_id', v_external_id, true);
     PERFORM set_config('app.user_permissions', COALESCE(
@@ -202,9 +203,9 @@ GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 -- GET SCHEMA FOR TABLE (Internal helper)
 -- =====================================================
 
--- Helper that builds a schema JSON for a single table. Self-gating (b9): it applies the
--- view_permission check + existence-hiding itself (identical undefined_table error for
--- missing-table and permission-denied), so it is safe to expose directly to the request role.
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
 -- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
 CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
@@ -270,8 +271,10 @@ BEGIN
             f.input_type_rule,
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
-            -- doesn't exist or is missing columns. These fields are only added to JSON output when
-            -- format='reference' and reference_table is not empty (see line ~245).
+            -- doesn't exist or is missing columns. The JSON assembly below emits
+            -- these four only for a field whose format is a reference and whose
+            -- reference_table is not empty, so an empty string never reaches the
+            -- output as a value.
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,

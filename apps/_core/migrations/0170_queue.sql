@@ -204,8 +204,10 @@ CREATE TRIGGER queue_event_before_update_trigger
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_before_update();
 
--- Helper: build the queue message with id_field and id_value
--- (record and old_record are omitted; id_field comes from entities.id_column)
+-- Helper: build one queue message per affected record. A message carries the
+-- operation, the timestamp, the table, the id column and the id value - enough
+-- to fetch the record, never the record itself, so a queue reader needs its own
+-- permission to read it. id_field comes from entities.id_column.
 
 CREATE OR REPLACE FUNCTION queue_build_record_json()
 RETURNS TRIGGER
@@ -413,8 +415,10 @@ BEGIN
 
     -- Every event name, not just the ones this handler covers: a mapping whose
     -- event_handler was narrowed after install still owns the triggers created
-    -- for the wider set, and a mapping deleted without them leaves a table
-    -- enqueuing to a queue it is no longer mapped to.
+    -- for the wider set, and a mapping deleted without them leaves those
+    -- triggers on the table. An orphan resolves no mapping and enqueues nothing,
+    -- so it sends no message anywhere - it just costs a lookup on every write to
+    -- that table and makes the catalog say a queue is watching when none is.
     FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
     LOOP
         EXECUTE format(

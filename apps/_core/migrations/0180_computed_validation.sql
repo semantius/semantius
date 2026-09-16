@@ -16,11 +16,12 @@
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
 --
--- DELETE arm (I7): the rules also fire on DELETE, evaluated against the row being
+-- DELETE arm: the rules also fire on DELETE, evaluated against the row being
 -- removed (OLD). Computed-field output is discarded on DELETE (the row is going
 -- away), but validation_rules can abort the delete — e.g. a rule guarded by
--- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. Because the USING/WITH
--- CHECK predicate is per-row, this holds regardless of statement shape (A4).
+-- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. The trigger is per row,
+-- so a statement deleting many rows is judged one row at a time and a single
+-- refusal takes the whole statement with it.
 
 -- =====================================================
 -- STEP 0: Error-hint merge used by the generated trigger
@@ -85,7 +86,10 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop the function if it exists
+        -- No entity by that name. Every caller passes one it just read, and the
+        -- entities DELETE arm drops the function itself, so this is reached only
+        -- by a caller naming a table the dictionary does not know - drop
+        -- whatever is there under that name and leave.
         v_fn_name := 'compute_validate_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
         RETURN;
@@ -443,11 +447,12 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- only on the first statement of a transaction.
 --
 -- The user id comes from rbac.user_id() rather than from app.current_user_id.
--- That setting is client-writable in a direct SQL session, and every other
--- reader in the codebase reaches the identity through the rbac helpers so that
--- hardening them hardens all of it at once; a raw read here would be the one
--- reader left behind. rbac.user_id() also raises 28000 for a subject with no
--- users row, which is the answer the other RLS paths give.
+-- That setting is client-writable in a direct SQL session, and rbac.user_id()
+-- derives the value instead of believing it. is_raci_actor and has_consultation
+-- in 0210 still read the setting raw after calling ensure_context_initialized,
+-- so this is not the last raw read in the codebase - it is one fewer. Going
+-- through the helper also means a subject with no users row raises 42501 here,
+-- the same answer the other RLS paths give.
 CREATE OR REPLACE FUNCTION public.jl_request_context()
 RETURNS JSONB AS $$
 DECLARE
@@ -482,9 +487,9 @@ DECLARE
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
-        -- Entity is being deleted — drop both overloads if they exist. A
-        -- DROP that names only one signature is a silent no-op for the other,
-        -- and the CASCADE that removes the dependent policies rides on it.
+        -- No entity by that name; drop both overloads if they exist. A DROP that
+        -- names only one signature is a silent no-op for the other, and the
+        -- CASCADE that removes the dependent policies rides on it.
         v_fn_name := 'select_rule_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
@@ -616,7 +621,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) a per-row FOR SELECT RLS policy function that evaluates the entity select_rule JsonLogic against each row. The generated function has EXECUTE revoked from PUBLIC.';
+'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it. With no select_rule set, the three policies are the permission-only form instead. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 

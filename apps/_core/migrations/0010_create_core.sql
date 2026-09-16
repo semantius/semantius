@@ -90,7 +90,7 @@ BEGIN
         SELECT array_agg(attname::text) INTO v_ignored
         FROM pg_attribute
         WHERE attrelid = TG_RELID AND attnum > 0 AND NOT attisdropped AND attgenerated <> '';
-        -- Every operand is an explicitly cast TEXT[], never a bare literal:
+        -- Every operand is an array, never a bare string literal:
         -- with an untyped 'updated_at' on the right, PostgreSQL's || operator
         -- resolution picks the anyarray||anyarray candidate and tries to parse
         -- the literal as array syntax, raising "malformed array literal"

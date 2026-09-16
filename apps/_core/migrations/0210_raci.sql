@@ -358,7 +358,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION has_consultation IS
-'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state) AND the caller participates in the governing process (holds a role with a RACI assignment on it). Non-participants get FALSE (caller-scoped, b9). Backs C-block gates. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
+'Returns TRUE when an acted consulted raci_events row exists for the record under (entity, to_state) AND the caller participates in the governing process (holds a role with a RACI assignment on it). A non-participant gets FALSE rather than the true answer: this function is granted to the request role and reachable over RPC, where a record-scoped answer would tell any signed-in user whether a record exists in a given state. It reports whether consultation happened; it does not itself hold anything back - raci_gate_trigger_fn does that, and reads consult_mode, which this does not. Usable as a JsonLogic operator: {"has_consultation": ["table_name", "state", {"var":"id"}]}.';
 
 REVOKE EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION has_consultation(TEXT, TEXT, TEXT) TO semantius_user;

@@ -74,9 +74,10 @@ COMMENT ON FUNCTION format_to_data_type IS
 --
 -- The catalog lookup returns nothing when the referenced entity is unknown, or
 -- is registered with no physical table yet (to_regclass gives NULL). The format
--- then stands, which keeps INTEGER for reference and parent; the ADD CONSTRAINT
--- that follows fails on the missing relation, as it did before this function
--- existed. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
+-- then stands, which keeps INTEGER for reference and parent. What happens next
+-- depends on which case it was: with no table to point at, the ADD CONSTRAINT
+-- fails on the missing relation; with a table that is simply not a registered
+-- entity, it succeeds or fails on whether that table's key is an INTEGER. The result is upper-cased so quote_default_value's INTEGER/BOOLEAN
 -- tests and the DDL builders' NOT NULL default table keep matching on it.
 CREATE OR REPLACE FUNCTION field_data_type(
     p_format TEXT,
@@ -128,13 +129,15 @@ COMMENT ON FUNCTION format_to_json_type IS
 -- above and it has to agree with it: the schema RPCs describe the very column
 -- that function creates, so a reference is typed after the key it points at
 -- here too. `entities` is keyed by TEXT and `users` by INTEGER, and a schema
--- that called both "integer" would make the UI cast 'public:read' to a number
--- and PostgREST reject the write.
+-- that called both "integer" would make the UI cast 'orders' to a number and
+-- PostgREST reject the write.
 --
--- The referenced key's own format is what decides, not its catalog type, so
--- that a text key declared as `email` or `uuid` is described as precisely as
--- any other field. The format stands when the referenced entity is unknown or
--- has no field row for its key column.
+-- The referenced key's own format is what decides, not its catalog type. Both
+-- routes agree on the JSON type for every key in the dictionary today; reading
+-- the format is what keeps them agreeing when a key is declared as something
+-- narrower than its column type, because format_to_json_type is the one
+-- mapping either side consults. The format stands when the referenced entity is
+-- unknown or has no field row for its key column.
 CREATE OR REPLACE FUNCTION field_json_type(p_format TEXT, p_reference_table TEXT DEFAULT NULL)
 RETURNS JSONB AS $$
     SELECT COALESCE(
@@ -448,9 +451,12 @@ BEGIN
 
     -- The request role has no default privileges in public, so a dictionary
     -- table is unreachable through the Data API until it is granted here. The
-    -- grant comes last, after the four policies above: it is what publishes a
-    -- table, and until policies exist it is the whole of that table's access
-    -- control, so it is never the first thing in place.
+    -- grant comes last, after row-level security is on and the four policies
+    -- above exist, so the table is never reachable in a state where its
+    -- permission model is not yet in place. Ordering it first would not actually
+    -- expose anything - RLS with no policy denies every non-owner - but the
+    -- table would then be published by a statement that has not yet decided who
+    -- may read it.
     EXECUTE format(
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
         NEW.table_name
@@ -477,7 +483,9 @@ BEGIN
     END IF;
 
     -- Insert field records for id, label, created_at, and updated_at columns.
-    -- All these are core fields (ctype <> '') that cannot be deleted or renamed; ctype is set
+    -- All these are core fields (ctype <> '') that cannot be deleted, and cannot
+    -- be renamed except the label column, which validate_field_rename_and_format
+    -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -552,7 +560,8 @@ CREATE TRIGGER update_table_comment_trigger
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
--- (no rename/delete/format/default change) keys on `ctype <> ''`. For that to be sound the
+-- (no delete, no format or default change, and no rename but the label column's)
+-- keys on `ctype <> ''`. For that to be sound the
 -- marker must be settable ONLY by DD/migration code and immutable thereafter — otherwise a
 -- tenant admin (who holds the fields edit permission) could mint a ctype, or clear the ctype
 -- of the id column to "free" it for deletion. Privilege is decided by BYPASSRLS: the migration
@@ -758,8 +767,10 @@ BEGIN
         v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
         
         -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
-        -- ON UPDATE CASCADE enables automatic cascading when a referenced TEXT PK
-        -- (e.g. entities.table_name) is renamed. For INTEGER PKs it has no effect.
+        -- ON UPDATE CASCADE carries a rewritten key value down to the referencing
+        -- rows, which is what makes a referenced TEXT PK renameable (e.g.
+        -- entities.table_name). A surrogate INTEGER key is never rewritten, so
+        -- the clause sits there unused rather than doing something different.
         v_alter_sql := format(
             'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
             NEW.table_name,
@@ -1891,7 +1902,9 @@ DECLARE
 BEGIN
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
-    -- rbac.uid() validates the JWT and primes the permission cache used below.
+    -- rbac.uid() validates the JWT and raises on a session that carries no valid
+    -- claims; the permission check further down builds the context cache if this
+    -- is the first check of the transaction.
     PERFORM rbac.uid();
 
     -- Look up the entity to find its id_column and the access predicate.

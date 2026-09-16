@@ -553,7 +553,10 @@ DECLARE
     v_sql         TEXT;
     r             RECORD;
 BEGIN
-    -- Skip when entity metadata or the physical table is absent (drops / cascades / unmanaged).
+    -- Skip when the entity metadata or the physical table is absent, which is
+    -- what a drop or a cascade leaves behind mid-statement. Being unmanaged is
+    -- not a reason to skip: an unmanaged entity with a table gets its label
+    -- companions like any other.
     IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN
         RETURN;
     END IF;

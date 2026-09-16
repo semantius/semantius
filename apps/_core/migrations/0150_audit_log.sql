@@ -678,7 +678,10 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- pg_event_trigger_ddl_commands() returns zero rows even when the tag is
 -- DROP TABLE - so without this trigger a table can be destroyed and leave no
 -- evidence at all. SECURITY DEFINER for the same reason as its sibling: the
--- request role must be able to drop a temp table without failing on the insert.
+-- request role may not write audit_ddl_logs at all - that is what makes the log
+-- evidence - so the trigger has to insert as the owner or not at all. Temp
+-- objects never reach the insert, because the is_temporary filter below drops
+-- them first.
 --
 -- The first statement is a teardown guard, and it is load-bearing. A full
 -- teardown drops the tables in public one at a time, in whatever order it walks
