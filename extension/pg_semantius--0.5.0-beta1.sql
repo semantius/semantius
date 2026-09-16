@@ -2075,6 +2075,8 @@ CREATE TRIGGER prevent_permission_hierarchy_cycle
 -- Handles both Neon format (individual request.jwt.claim.* settings)
 -- and Supabase format (single request.jwt.claims JSON blob)
 -- Normalizes Supabase format to Neon format for all downstream code
+-- Accepts a `roles` array carrying `authenticated` when no `role` claim exists
+-- at all (Step 3) — the only shape some issuers can emit
 -- STABLE, and it writes - transaction-local GUCs only, never a row. So does
 -- rbac.ensure_context_initialized(), which every STABLE reader calls. STABLE
 -- also lets the planner run the call while estimating selectivity, so never
@@ -2093,6 +2095,8 @@ DECLARE
     v_jwt_aud TEXT;
     v_aud_json JSONB;
     v_system_user TEXT;
+    v_roles_claim TEXT;
+    v_roles_json JSONB;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
@@ -2131,6 +2135,55 @@ BEGIN
             -- Read normalized values
             v_role := current_setting('request.jwt.claim.role', true);
             sub_value := current_setting('request.jwt.claim.sub', true);
+        END IF;
+    END IF;
+
+    -- Step 3: an issuer that CANNOT mint a `role` claim. Microsoft Entra ID is
+    -- the case this exists for: `role` and `roles` are both in its restricted
+    -- claim set, so no claims-mapping policy can emit `role`, and an app role
+    -- named `authenticated` arrives as `"roles": ["authenticated"]` instead.
+    -- PostgREST selects the database role from that same array
+    -- (jwt-role-claim-key = `.roles[0]`), so reading it here keeps both ends of
+    -- one token agreeing about one thing rather than inventing a second
+    -- convention.
+    --
+    -- ONLY when `role` is absent. A token that carries `role` with some other
+    -- value has already answered the question and stays answered: `anon` plus a
+    -- `roles` array is still `anon`.
+    --
+    -- Step 2 has fanned the blob out, so this arrives as the JSON TEXT of
+    -- whatever `roles` held — an array from Entra, but issuers exist that emit
+    -- a bare or space-separated string, and neither of those is valid JSON. So
+    -- the cast is guarded: a cast failure is one of those strings, never an
+    -- error for the caller.
+    IF v_role IS NULL OR v_role = '' THEN
+        v_roles_claim := current_setting('request.jwt.claim.roles', true);
+
+        IF v_roles_claim IS NOT NULL AND v_roles_claim <> '' THEN
+            BEGIN
+                v_roles_json := v_roles_claim::jsonb;
+            EXCEPTION
+                WHEN OTHERS THEN v_roles_json := NULL;
+            END;
+
+            IF v_roles_json IS NOT NULL AND jsonb_typeof(v_roles_json) = 'array' THEN
+                IF v_roles_json ? 'authenticated' THEN
+                    v_role := 'authenticated';
+                END IF;
+            ELSE
+                -- A JSON string, or text that never parsed. Both may hold a
+                -- space-separated list, and a single name is a list of one.
+                IF 'authenticated' = ANY (string_to_array(
+                        COALESCE(v_roles_json #>> '{}', v_roles_claim), ' ')) THEN
+                    v_role := 'authenticated';
+                END IF;
+            END IF;
+
+            -- Cache the verdict the way Step 2 caches the blob, so a second
+            -- call in the same request takes the fast path at the top.
+            IF v_role = 'authenticated' THEN
+                PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+            END IF;
         END IF;
     END IF;
 
@@ -2221,7 +2274,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
 
 -- =====================================================
 -- USER MANAGEMENT
@@ -3359,7 +3412,7 @@ $pgsem__core_0030_rbac_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', 'a682f42a9f71d699b5aa497fa088642f7b0a8df0be30bbce1f133bad3143221a');
+      VALUES ('_core.0030_rbac_functions', 'dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16524,7 +16577,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"a682f42a9f71d699b5aa497fa088642f7b0a8df0be30bbce1f133bad3143221a","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"5ea44a9c19d17b0ed0cd5ee9abc6c3123ad5968ef7b79d7bdae5961ee7566f11","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
