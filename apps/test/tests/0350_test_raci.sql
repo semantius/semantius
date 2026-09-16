@@ -15,7 +15,7 @@
 -- emits_events toggle) is covered by 0400_test_raci_gates_emit_trigger.sql.
 BEGIN;
 
-SELECT plan(66);
+SELECT plan(77);
 
 -- Authenticate as admin for all RACI setup
 SELECT authenticate_as('user3');
@@ -754,6 +754,159 @@ SELECT throws_ok(
 );
 
 -- Restore the admin role for any subsequent steps.
+SELECT authenticate_as('user3');
+
+-- =====================================================
+-- GROUP 13: consult_mode = block holds the process, not the write
+-- =====================================================
+-- consult_mode was a column nothing read: read, notify and block all behaved
+-- the same, because no predicate anywhere consulted it. It is the opt-in now,
+-- and what it opts into is narrow - while a blocking consultation on a record is
+-- unacted, that record does not change a state column any gate governs. Every
+-- other column still accepts writes, and the statement still succeeds; a
+-- consultation somebody else has to complete must not cost the editor in front
+-- of the record the rest of their edit.
+--
+-- The consultation is raised BY entering to_state, so what a blocking one holds
+-- is the record's next move, not the one that asked for it. That is the sequence
+-- asserted below: probe_gate enters 'approved' freely, the emit trigger raises
+-- the consultation, and 'approved' is where it stays until that consultation
+-- acts.
+--
+-- The gate is still emits_events = TRUE from group 11, and Northwind Sales holds
+-- the make_offer consultation with consult_mode = 'block' from group 4.
+
+SELECT authenticate_as('user3');
+
+INSERT INTO raci_probe (name) VALUES ('probe_gate');
+
+CREATE TEMP TABLE _rpg ON COMMIT DROP AS
+SELECT (SELECT id FROM raci_probe WHERE name = 'probe_gate') AS g_id;
+
+-- Entering the gated state is not held: nothing is pending on the record yet,
+-- and the consultation this raises is the one that gates what comes next.
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT g_id FROM _rpg);
+
+-- Test 64
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT g_id FROM _rpg)),
+    'approved',
+    'entering the gated state is not held by the consultation it raises'
+);
+
+-- Test 65: and the blocking consultation now exists, unacted
+SELECT is(
+    (SELECT count(*)::integer FROM raci_events
+      WHERE entity = 'raci_probe' AND record_id = (SELECT g_id::text FROM _rpg)
+        AND raci = 'consulted' AND status <> 'acted'),
+    1,
+    'entering the gated state raised a consulted event that is still pending'
+);
+
+-- The write that matters: one statement moving the state AND another column.
+UPDATE raci_probe
+SET    status = 'rejected',
+       name   = 'probe_gate_edited'
+WHERE  id = (SELECT g_id FROM _rpg);
+
+-- Test 66
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT g_id FROM _rpg)),
+    'approved',
+    'a blocking consultation holds the state column at its stored value'
+);
+
+-- Test 67: the point of holding rather than refusing - the rest of the edit lands
+SELECT is(
+    (SELECT name FROM raci_probe WHERE id = (SELECT g_id FROM _rpg)),
+    'probe_gate_edited',
+    'the same statement writes every other column'
+);
+
+-- Test 68: and it is not an error the writer has to handle
+SELECT lives_ok(
+    $$UPDATE raci_probe SET status = 'rejected' WHERE name = 'probe_gate_edited'$$,
+    'a held transition is a successful statement, not a raised one'
+);
+
+-- Save again. Once the consultation is acted the same write goes through, and
+-- nothing replayed the one that was held.
+UPDATE raci_events
+SET    status = 'acted', acted_at = CURRENT_TIMESTAMP
+WHERE  entity = 'raci_probe' AND record_id = (SELECT g_id::text FROM _rpg)
+  AND  raci = 'consulted';
+
+-- Test 69
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT g_id FROM _rpg)),
+    'approved',
+    'acting on the consultation does not replay the transition that was held'
+);
+
+UPDATE raci_probe SET status = 'rejected' WHERE id = (SELECT g_id FROM _rpg);
+
+-- Test 70
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT g_id FROM _rpg)),
+    'rejected',
+    'the same write succeeds once the consultation has acted'
+);
+
+-- The opt-in is real: the same setup with consult_mode = read holds nothing.
+INSERT INTO raci_probe (name) VALUES ('probe_mode');
+
+CREATE TEMP TABLE _rpm ON COMMIT DROP AS
+SELECT (SELECT id FROM raci_probe WHERE name = 'probe_mode') AS m_id;
+
+UPDATE raci_assignments ra
+SET    consult_mode = 'read'
+FROM   processes p
+WHERE  p.id = ra.process_id AND p.process_key = 'make_offer' AND ra.raci = 'consulted';
+
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT m_id FROM _rpm);
+
+-- Test 71: the consultation is raised whatever the mode - only gating differs
+SELECT is(
+    (SELECT count(*)::integer FROM raci_events
+      WHERE entity = 'raci_probe' AND record_id = (SELECT m_id::text FROM _rpm)
+        AND raci = 'consulted' AND status <> 'acted'),
+    1,
+    'a read consultation is raised exactly as a blocking one is'
+);
+
+UPDATE raci_probe SET status = 'rejected' WHERE id = (SELECT m_id FROM _rpm);
+
+-- Test 72
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT m_id FROM _rpm)),
+    'rejected',
+    'a pending consultation in read mode holds nothing'
+);
+
+-- Test 73: the gate reads the mode live, so switching it back holds again
+UPDATE raci_assignments ra
+SET    consult_mode = 'block'
+FROM   processes p
+WHERE  p.id = ra.process_id AND p.process_key = 'make_offer' AND ra.raci = 'consulted';
+
+UPDATE raci_probe SET status = 'approved' WHERE id = (SELECT m_id FROM _rpm);
+
+SELECT is(
+    (SELECT status FROM raci_probe WHERE id = (SELECT m_id FROM _rpm)),
+    'rejected',
+    'switching the mode back to block holds the next transition, with no reinstall'
+);
+
+-- Test 74: the record-scoped answer is not reachable from the request role. It
+-- ignores the caller by design, so over RPC it would be the existence oracle the
+-- caller-scope on has_consultation exists to close.
+SELECT authenticate_as('user1');
+SELECT throws_ok(
+    $$SELECT raci_blocking_consultation_pending('raci_probe', '1')$$,
+    '42501', NULL,
+    'raci_blocking_consultation_pending is not callable by the request role'
+);
+
 SELECT authenticate_as('user3');
 
 -- =====================================================

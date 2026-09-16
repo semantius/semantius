@@ -457,6 +457,7 @@ block has no rows yet.
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
 | `90601` | `90601` | `Table ${table} cannot be audited because it has no primary key` | - | `table` | An audit row is keyed by the row it describes. |
+| `90602` | `90602` | `Audit log entity ${table} cannot be managed` | `hint` | `table` | The audit logs are append-only evidence; adoption would grant the request role INSERT and UPDATE on the log. |
 
 ### 907xx - modules and slugs
 

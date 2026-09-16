@@ -8,7 +8,7 @@
 -- (queue_table_events.table_name is unique), so it is never mapped here.
 BEGIN;
 
-SELECT plan(42);
+SELECT plan(44);
 
 -- Authenticate as admin
 SELECT authenticate_as('user3');
@@ -374,7 +374,19 @@ SELECT is(
 -- TEST: Deleting queue deletes pgmq queue
 -- =====================================================
 
--- Test 35: Delete queue should drop pgmq queue
+-- test_q1 still holds the shippers (update) and suppliers (delete) mappings;
+-- only the categories one was deleted above. Asserting that here is what stops
+-- the trigger check below from passing on an empty set.
+
+-- Test 35: the queue still has live mappings with triggers installed
+SELECT ok(
+    (SELECT count(*) FROM pg_trigger
+      WHERE tgrelid IN ('public.shippers'::regclass, 'public.suppliers'::regclass)
+        AND starts_with(tgname::text, 'queue_')) > 0,
+    'setup: shippers and suppliers still carry queue triggers from test_q1'
+);
+
+-- Test 36: Delete queue should drop pgmq queue
 DELETE FROM queues WHERE queue_name = 'test_q1';
 
 SELECT ok(
@@ -384,11 +396,23 @@ SELECT ok(
     'Deleting queue should remove it from pgmq.meta'
 );
 
+-- Test 37: the mappings go with the queue, and their triggers with them.
+-- queue_before_delete deletes the mappings while the queues row still exists:
+-- queue_event_after_delete builds the trigger names from the queue name, and an
+-- ON DELETE CASCADE would take that name away before it could run.
+SELECT is(
+    (SELECT count(*) FROM pg_trigger
+      WHERE tgrelid IN ('public.shippers'::regclass, 'public.suppliers'::regclass)
+        AND starts_with(tgname::text, 'queue_')),
+    0::bigint,
+    'Deleting a queue drops the triggers of the mappings it still held'
+);
+
 -- =====================================================
 -- TEST: RPC functions exist
 -- =====================================================
 
--- Test 36: queue_read function exists
+-- Test 38: queue_read function exists
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_proc p
@@ -398,7 +422,7 @@ SELECT ok(
     'queue_read function should exist in public schema'
 );
 
--- Test 37: queue_pop function exists
+-- Test 39: queue_pop function exists
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_proc p
@@ -408,7 +432,7 @@ SELECT ok(
     'queue_pop function should exist in public schema'
 );
 
--- Test 38: queue_archive function exists
+-- Test 40: queue_archive function exists
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_proc p
@@ -418,7 +442,7 @@ SELECT ok(
     'queue_archive function should exist in public schema'
 );
 
--- Test 39: queue_delete function exists
+-- Test 41: queue_delete function exists
 SELECT ok(
     (SELECT EXISTS (
         SELECT 1 FROM pg_proc p
@@ -435,7 +459,7 @@ SELECT ok(
 -- Authenticate as admin for RPC test
 SELECT authenticate_as('user3');
 
--- Test 40: queue_read returns messages from test_q2
+-- Test 42: queue_read returns messages from test_q2
 SELECT ok(
     (SELECT public.queue_read('test_q2', 1, 10) IS NOT NULL),
     'queue_read should return non-null result'

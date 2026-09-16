@@ -458,10 +458,9 @@ BEGIN
     RETURN jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        -- An unresolved user is jsonb null, never SQL NULL: a NULL here would
-        -- make the whole || merge in the caller NULL and silently empty the
-        -- rule's data, so every rule would see a row with no columns.
-        '$user_id', CASE WHEN v_uid IS NULL THEN 'null'::jsonb ELSE to_jsonb(v_uid) END
+        -- rbac.user_id() raises rather than returning NULL, so there is no
+        -- unresolved case to fold here.
+        '$user_id', to_jsonb(v_uid)
     );
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;

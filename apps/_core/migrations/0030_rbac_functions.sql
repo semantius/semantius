@@ -38,7 +38,8 @@ CREATE OR REPLACE FUNCTION rbac.check_permission_hierarchy_cycle()
 RETURNS TRIGGER AS $$
 DECLARE
     cycle_exists BOOLEAN;
-    max_depth INTEGER;
+    depth_below INTEGER;
+    depth_above INTEGER;
 BEGIN
     -- Both permissions are known to exist: the two foreign keys on this table
     -- reject the row before this trigger is reached.
@@ -62,8 +63,30 @@ BEGIN
     SELECT
         EXISTS (SELECT 1 FROM hierarchy_path WHERE permission_name = NEW.including_permission_name),
         COALESCE(MAX(depth), 0)
-    INTO cycle_exists, max_depth
+    INTO cycle_exists, depth_below
     FROM hierarchy_path;
+
+    -- The chain the new edge joins runs through it, so what is above the
+    -- including permission counts as much as what is below the included one.
+    -- Measuring only downward lets an 11-edge chain grow without limit: every
+    -- edge added under its leaf sees nothing below it and passes.
+    --
+    -- Both walks stop at 11. That is not an approximation of the answer: a
+    -- single side reaching 11 already puts the total over the limit, so the
+    -- counts are exact wherever the verdict depends on them.
+    WITH RECURSIVE ancestor_path AS (
+        SELECT including_permission_name AS permission_name, 1 AS depth
+        FROM permission_hierarchy
+        WHERE included_permission_name = NEW.including_permission_name
+
+        UNION ALL
+
+        SELECT ph.including_permission_name, ap.depth + 1
+        FROM permission_hierarchy ph
+        INNER JOIN ancestor_path ap ON ph.included_permission_name = ap.permission_name
+        WHERE ap.depth < 11
+    )
+    SELECT COALESCE(MAX(depth), 0) INTO depth_above FROM ancestor_path;
 
     IF cycle_exists THEN
         RAISE EXCEPTION 'Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}'
@@ -73,10 +96,11 @@ BEGIN
                       'included',  NEW.included_permission_name)::text;
     END IF;
     
-    IF max_depth >= 11 THEN
+    -- depth_above + the new edge + depth_below, counted in edges.
+    IF depth_above + 1 + depth_below > 11 THEN
         RAISE EXCEPTION 'Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}'
             USING ERRCODE = '90211',
-                  HINT = jsonb_build_object('depth', max_depth + 1)::text;
+                  HINT = jsonb_build_object('depth', depth_above + 1 + depth_below)::text;
     END IF;
     
     RETURN NEW;
@@ -518,7 +542,7 @@ CREATE OR REPLACE FUNCTION rbac.user_has_permission(
 )
 RETURNS BOOLEAN AS $$
 DECLARE
-    v_oauth_scopes TEXT;
+    v_scope_closure TEXT;
     v_has_permission BOOLEAN;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id, where the rule is
@@ -577,42 +601,129 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Check OAuth2 scopes if present
-    v_oauth_scopes := current_setting('app.oauth_scopes', true);
-    
+    -- Check OAuth2 scopes if present. The expansion this function has always
+    -- applied now lives in rbac.scope_closure, so the two cached checkers apply
+    -- exactly the same one.
+    v_scope_closure := rbac.scope_closure();
+
     -- If no OAuth scopes set (user-initiated request), allow
-    IF v_oauth_scopes IS NULL OR v_oauth_scopes = '' THEN
+    IF v_scope_closure IS NULL THEN
         RETURN TRUE;
     END IF;
-    
-    -- Check if required permission is in OAuth scopes
-    -- OAuth scopes can include the permission OR a parent permission that implies it
-    RETURN EXISTS (
-        WITH RECURSIVE permission_tree AS (
-            -- Get permissions from OAuth scopes
-            SELECT DISTINCT p.permission_name
-            FROM permissions p
-            WHERE p.permission_name = ANY(
-                -- Separators normalized: any run of commas or whitespace.
-                -- See rbac.has_permission for why this is inlined and why it
-                -- cannot escalate.
-                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''))
-            
-            UNION
-            
-            -- Add implied permissions
-            SELECT DISTINCT ph.included_permission_name
-            FROM permission_tree pt
-            JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
-        )
-        SELECT 1 FROM permission_tree
-        WHERE permission_name = p_permission_name
-    );
+
+    RETURN position(',' || p_permission_name || ',' IN ',' || v_scope_closure || ',') > 0;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
+
+-- =====================================================
+-- OAUTH SCOPE CONFINEMENT
+-- =====================================================
+-- A scope names a permission, and naming a permission names everything that
+-- permission includes. permission_hierarchy is what a permission MEANS, so a
+-- token scoped to user:manage may read users: user:manage includes user:read.
+--
+-- Matching the scope list literally instead is not a stricter reading, it is a
+-- broken one. The policies on users ask for user:read to SELECT and user:manage
+-- to INSERT, UPDATE and DELETE, so a literal match would give a token scoped to
+-- user:manage the three write policies and deny it the read - authority to write
+-- rows it cannot see. The three checkers also disagreed about it: this expansion
+-- is what rbac.user_has_permission always did, while rbac.has_permission and
+-- rbac.has_any_permission compared the raw strings, so the same session got
+-- opposite answers to one question depending on which function a policy called.
+--
+-- Expanding the scope side cannot widen authority. Every checker intersects this
+-- list with the permissions the user actually holds, which are themselves
+-- already the transitive closure of their grants; a scope can only subtract from
+-- that. The one thing it must not do is subtract more than the token asked for.
+--
+-- What this still does not do is make confinement binding. app.oauth_scopes is a
+-- client-settable GUC like the rest of app.*, so a session that can run SQL can
+-- blank it and walk out of its own confinement - a blank list reads as "no
+-- scopes", i.e. no restriction. Closing that needs the list carried in a context
+-- the client cannot forge, written and checksummed by a definer-only entry
+-- point. Not done here.
+CREATE OR REPLACE FUNCTION rbac.expand_scopes(p_scopes TEXT)
+RETURNS TEXT AS $$
+    WITH RECURSIVE permission_tree AS (
+        -- Separators normalized: any run of commas or whitespace, so 'a,b',
+        -- 'a b' and ' a ,, b ' name the same two scopes. A scope naming no
+        -- registered permission contributes nothing, which is why the seed
+        -- side reads from permissions rather than from the array directly.
+        SELECT DISTINCT p.permission_name
+        FROM permissions p
+        WHERE p.permission_name = ANY(
+            array_remove(regexp_split_to_array(p_scopes, '[,[:space:]]+'), ''))
+
+        UNION
+
+        SELECT DISTINCT ph.included_permission_name
+        FROM permission_tree pt
+        JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
+    )
+    SELECT string_agg(permission_name, ',' ORDER BY permission_name) FROM permission_tree;
+$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.expand_scopes IS
+'The permissions a scope list confines a session to: the names it carries plus everything those names include through permission_hierarchy, as a comma-separated list. NULL when the list names no registered permission.';
+
+-- SECURITY INVOKER, deliberately. permissions and permission_hierarchy are
+-- admin-only under RLS, and this has to answer the same way for every caller, so
+-- it relies on running inside one of the three SECURITY DEFINER checkers below -
+-- there current_user is the owner, which holds BYPASSRLS. Reached any other way
+-- it sees no rows, returns nothing, and the caller reads that as "confined to
+-- nothing": the failure is a denial, never a grant. The request role cannot
+-- reach it at all (revoked at the end of this file).
+CREATE OR REPLACE FUNCTION rbac.scope_closure()
+RETURNS TEXT AS $$
+DECLARE
+    v_raw      TEXT;
+    v_expanded TEXT;
+BEGIN
+    v_raw := current_setting('app.oauth_scopes', true);
+
+    -- No list at all is no confinement. A list made only of separators is NOT
+    -- the same thing and must not be read as one - it expands to nothing and
+    -- denies everything, which is what a caller asking for nothing deserves.
+    IF v_raw IS NULL OR v_raw = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- The expansion is a recursive walk, so it is computed once per transaction
+    -- and kept beside app.user_permissions. The cache is keyed on the raw list
+    -- it was built from, so rewriting app.oauth_scopes mid-transaction rebuilds
+    -- rather than answering from the previous list.
+    --
+    -- Not read in a bearer session: there the app.* settings are client-writable
+    -- and nothing can tell a value written by rbac from one written by the
+    -- client, which is the same stance rbac.has_permission takes toward the
+    -- permission cache. It costs the walk on every check and is correct.
+    IF system_user NOT LIKE 'oauth:%' THEN
+        v_expanded := current_setting('app.oauth_scopes_expanded', true);
+        IF v_expanded IS NOT NULL
+           AND current_setting('app.oauth_scopes_expanded_for', true) IS NOT DISTINCT FROM v_raw
+        THEN
+            RETURN v_expanded;
+        END IF;
+    END IF;
+
+    -- COALESCE, so a list naming nothing registered is '' - confined to nothing -
+    -- and never NULL, which the callers read as unconfined.
+    v_expanded := COALESCE(rbac.expand_scopes(v_raw), '');
+
+    IF system_user NOT LIKE 'oauth:%' THEN
+        PERFORM set_config('app.oauth_scopes_expanded_for', v_raw, true);
+        PERFORM set_config('app.oauth_scopes_expanded', v_expanded, true);
+    END IF;
+
+    RETURN v_expanded;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+
+COMMENT ON FUNCTION rbac.scope_closure IS
+'The expanded scope list confining this session, or NULL when it is not confined. Memoized per transaction against the raw app.oauth_scopes it was built from; never memoized in an OAuth bearer session, where app.* is client-writable.';
 
 -- Check if current request user has permission
 -- AUTO-INITIALIZES context on first call (lazy initialization)
@@ -624,6 +735,7 @@ RETURNS BOOLEAN AS $$
 DECLARE
     v_cached_permissions TEXT;
     v_oauth_scopes TEXT;
+    v_scope_closure TEXT;
     v_external_id TEXT;
 BEGIN
     -- Validate permission_name. rbac.uid() runs on this cold branch only: it is
@@ -700,43 +812,33 @@ BEGIN
     IF v_cached_permissions IS NOT NULL AND v_cached_permissions != '' THEN
         -- Check if permission exists in comma-separated list
         IF position(',' || p_permission_name || ',' IN ',' || v_cached_permissions || ',') > 0 THEN
-            -- Permission found in cache, now check OAuth scopes if present
+            -- Permission found in cache, now check OAuth scopes if present.
+            --
+            -- The raw setting is read here rather than left to
+            -- rbac.scope_closure(), which would answer the same question: almost
+            -- every session carries no scope list, and that case has to stay one
+            -- current_setting read. Entering scope_closure would cost a PL/pgSQL
+            -- frame - a search_path save and restore - several times what the
+            -- read costs, on every permission check in the system. Same
+            -- reasoning as the inlined warm-path test above.
             v_oauth_scopes := current_setting('app.oauth_scopes', true);
-            
-            -- If no OAuth scopes set (user-initiated request), allow
+
+            -- No scopes set (user-initiated request): no restriction.
             IF v_oauth_scopes IS NULL OR v_oauth_scopes = '' THEN
                 RETURN TRUE;
             END IF;
+
+            -- Confined. rbac.scope_closure() is the expanded list: the scopes
+            -- the token names plus everything those include, memoized for the
+            -- transaction.
+            v_scope_closure := rbac.scope_closure();
             
-            -- Check if permission is in OAuth scopes.
-            -- Separator normalization. app.oauth_scopes was read as a
-            -- comma-separated list here and as a space-separated one in
-            -- rbac.user_has_permission, so the same value meant different things to
-            -- different checkers and a list in the "wrong" format confined the session
-            -- to nothing at all. Any run of commas or whitespace now separates, in all
-            -- four readers, so "a,b", "a b" and " a ,, b " are the same two scopes.
-            --
-            -- Inlined rather than given a helper function on purpose: guard test 0240
-            -- requires every function to pin search_path, and a pinned search_path
-            -- stops PostgreSQL inlining the call - the same trap that made
-            -- rbac.is_bearer_session() cost a real call on the hot path.
-            --
-            -- This cannot escalate. Scopes only ever subtract: the permission has
-            -- already been found in the caller's own permission set above, and this
-            -- test can only take it away again. Normalizing stops the filter denying
-            -- what the token actually granted; it cannot grant what the user lacks.
-            --
-            -- Normalizing the separators does not make the confinement binding.
-            -- app.oauth_scopes is a client-settable GUC like the rest of app.*, so
-            -- a session that can run SQL can simply blank it and walk out of its
-            -- own confinement - and blanking it reads as "no scopes", which the
-            -- branch above treats as no restriction. Closing that needs the scope
-            -- list to be carried inside a context the client cannot forge, i.e.
-            -- written and checksummed by a definer-only entry point, so that a
-            -- cleared or widened list is detected rather than believed. That work
-            -- is not done; only the separator inconsistency is fixed here.
-            RETURN p_permission_name = ANY(
-                array_remove(regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), ''));
+            -- This cannot escalate. The permission has already been found in
+            -- the caller's own permission set above, so this test can only take
+            -- it away again; it never adds one. The same string search as the
+            -- cache test, over the same comma-separated shape, which is why
+            -- rbac.scope_closure returns a list rather than an array.
+            RETURN position(',' || p_permission_name || ',' IN ',' || v_scope_closure || ',') > 0;
         ELSE
             -- Permission not in cache
             RETURN FALSE;
@@ -784,7 +886,7 @@ DECLARE
     v_cached_permissions TEXT;
     v_permission TEXT;
     v_oauth_scopes TEXT;
-    v_scope_list TEXT[];
+    v_scope_closure TEXT;
     v_external_id TEXT;
 BEGIN
     -- Validate input. rbac.uid() runs on this cold branch only - see
@@ -820,17 +922,17 @@ BEGIN
         RETURN FALSE;
     END IF;
 
-    -- Separators normalized: any run of commas or whitespace, so 'a,b', 'a b'
-    -- and ' a ,, b ' name the same two scopes. rbac.has_permission and
-    -- rbac.user_has_permission split the same way and 0405_test_rbac_helpers.sql
-    -- pins the agreement: a list read in the wrong format would silently confine
-    -- the session to nothing. Split once here rather than inside the loop - the
-    -- list does not change while the loop runs.
+    -- Resolved once, before the loop: the confinement does not change while the
+    -- loop runs, and rbac.scope_closure walks permission_hierarchy on its first
+    -- call in a transaction. The raw setting is tested first so an unconfined
+    -- session never enters that frame at all - see rbac.has_permission for why
+    -- one frame on this path is worth avoiding. A list that names nothing
+    -- registered expands to '' and confines the session to nothing, which is not
+    -- the same as carrying no list.
     v_oauth_scopes := current_setting('app.oauth_scopes', true);
 
     IF v_oauth_scopes IS NOT NULL AND v_oauth_scopes <> '' THEN
-        v_scope_list := array_remove(
-            regexp_split_to_array(v_oauth_scopes, '[,[:space:]]+'), '');
+        v_scope_closure := rbac.scope_closure();
     END IF;
 
     -- One loop, and it has to be one: both conditions must hold for the SAME
@@ -842,13 +944,15 @@ BEGIN
     -- answer. The single-permission checkers cannot split this way, which is why
     -- the trap is specific to the variadic form.
     --
-    -- Scope names match literally, as in rbac.has_permission: a scope names one
-    -- permission and not what that permission implies through
-    -- permission_hierarchy. An empty or unset list is no confinement at all.
+    -- The scope side is the expanded list, as in rbac.has_permission and
+    -- rbac.user_has_permission: a scope names a permission and everything that
+    -- permission includes, so a token scoped to a parent permission satisfies a
+    -- check naming one of its children.
     FOREACH v_permission IN ARRAY p_permission_names
     LOOP
         IF position(',' || v_permission || ',' IN ',' || v_cached_permissions || ',') > 0
-           AND (v_scope_list IS NULL OR v_permission = ANY(v_scope_list))
+           AND (v_scope_closure IS NULL
+                OR position(',' || v_permission || ',' IN ',' || v_scope_closure || ',') > 0)
         THEN
             RETURN TRUE;
         END IF;
@@ -1270,3 +1374,11 @@ CREATE TRIGGER auto_grant_permission_to_administrator
 -- Revoke default PUBLIC execute on all rbac functions defined above
 -- Must come AFTER all CREATE FUNCTION statements
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
+
+-- The scope helpers are SECURITY INVOKER and only correct inside one of the
+-- three definer checkers, where current_user is the owner. Taking EXECUTE away
+-- from the request role is what stops them being called anywhere else: 0030's
+-- ALTER DEFAULT PRIVILEGES grants it to semantius_user on every function
+-- created in this schema, so the revoke has to be explicit.
+REVOKE EXECUTE ON FUNCTION rbac.expand_scopes(TEXT) FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;

@@ -602,10 +602,13 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
 --      and REVOKE events carry a NULL object_identity, so roughly half the
 --      churn is unfilterable by any predicate this function can see.
---      Conversely the pattern is a suffix match, so a hand-written function
---      named <something>_label in one of the five schemas is not audited
---      either, and an entity whose name needs quoting is (the quote sits
---      between _label and the paren). Neither occurs today.
+--      A generated companion is recognized by its argument - one parameter,
+--      typed as the row type of a registered entity - not by its name alone,
+--      so a hand-written function whose name ends in _label is audited like
+--      any other. public.snake_to_label(text) is one and would otherwise be
+--      lost. An entity whose name needs quoting is audited too, because the
+--      quotes travel into the identity and match no table_name; no such entity
+--      exists today.
 --
 -- Three limitations, all accepted:
 --   - GRANT and REVOKE arrive with no classid, objid, schema_name or
@@ -639,11 +642,21 @@ BEGIN
         CONTINUE WHEN obj.schema_name IS NOT NULL
                   AND (starts_with(obj.schema_name, 'pg_temp')
                        OR obj.schema_name NOT IN ('public', 'common', 'rbac', 'audit', 'pgmq'));
-        -- Bracket expressions, not backslash escapes: the body is re-parsed at
-        -- first execution, so a session with standard_conforming_strings = off
-        -- would otherwise turn this pattern into an invalid regexp.
+        -- The name alone is not enough. A generated companion is
+        -- <field>_label(<entity rowtype>) - or plain _label for the composed
+        -- record label - so what identifies it is its argument: one parameter,
+        -- typed as the row type of a registered entity. A suffix match on the
+        -- name catches public.snake_to_label(text) as well, and that one is
+        -- history, not churn. Bracket expressions, not backslash escapes: the
+        -- body is re-parsed at first execution, so a session with
+        -- standard_conforming_strings = off would otherwise turn this pattern
+        -- into an invalid regexp.
         CONTINUE WHEN obj.object_type = 'function'
-                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]'
+                  AND COALESCE(
+                          substring(obj.object_identity from '[(](?:[^.)]+[.])?([^.)]+)[)]$')
+                              IN (SELECT e.table_name FROM public.entities e),
+                          FALSE);
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
         VALUES (v_user_id, obj.command_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
                 left(current_query(), 8192));
@@ -721,11 +734,21 @@ BEGIN
             COALESCE(obj.schema_name, '') IN ('public', 'common', 'rbac', 'audit', 'pgmq')
             OR (obj.schema_name IS NULL AND obj.object_type = 'schema')
         );
-        -- Bracket expressions, not backslash escapes: the body is re-parsed at
-        -- first execution, so a session with standard_conforming_strings = off
-        -- would otherwise turn this pattern into an invalid regexp.
+        -- The name alone is not enough. A generated companion is
+        -- <field>_label(<entity rowtype>) - or plain _label for the composed
+        -- record label - so what identifies it is its argument: one parameter,
+        -- typed as the row type of a registered entity. A suffix match on the
+        -- name catches public.snake_to_label(text) as well, and that one is
+        -- history, not churn. Bracket expressions, not backslash escapes: the
+        -- body is re-parsed at first execution, so a session with
+        -- standard_conforming_strings = off would otherwise turn this pattern
+        -- into an invalid regexp.
         CONTINUE WHEN obj.object_type = 'function'
-                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]';
+                  AND obj.object_identity ~ '(^|[.])[^.(]*_label[(]'
+                  AND COALESCE(
+                          substring(obj.object_identity from '[(](?:[^.)]+[.])?([^.)]+)[)]$')
+                              IN (SELECT e.table_name FROM public.entities e),
+                          FALSE);
         INSERT INTO public.audit_ddl_logs (user_id, command_tag, object_type, object_identity, query_text)
         VALUES (v_user_id, tg_tag, COALESCE(obj.object_type, ''), COALESCE(obj.object_identity, ''),
                 left(current_query(), 8192));
@@ -781,6 +804,61 @@ VALUES
     ('audit_ddl_logs', 'object_type',     'Object Type',     'Type of database object affected',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
+
+-- =====================================================
+-- STEP 8b: The audit entities can never become managed
+-- =====================================================
+-- These two are registered so the standard API can read them, not so the
+-- dictionary can own them, and the difference is their whole protection: the
+-- request role may read and delete rows here but never insert or update one,
+-- which is what makes the table evidence rather than ordinary data.
+--
+-- enable_dd_table (0145) configures an adopted table as though it had never
+-- been unmanaged - row-level security on, the four permission policies, the
+-- table grant. On these two that is not adoption, it is unlocking: the INSERT
+-- and UPDATE policies plus the grant that comes with them would let anybody
+-- holding the entity's edit_permission write the log, and an administrator
+-- could then forge an entry or rewrite one. Flipping managed is a single
+-- boolean UPDATE that entities_update_policy already lets an administrator
+-- make, so the flip is the thing that has to be refused - not the adoption it
+-- would trigger.
+--
+-- Refusing here rather than skipping the securing block there is what lets
+-- adoption stay unconditional. A table that can be adopted is adopted whole;
+-- there is no half-configured third state to reason about, and the one class of
+-- table that could not survive it never reaches it.
+--
+-- apps/test/tests/0041_test_no_unmanaged_ootb.sql holds the same two names as
+-- the only sanctioned unmanaged entities and fails if that list moves.
+CREATE OR REPLACE FUNCTION audit.assert_audit_entity_stays_unmanaged()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.managed AND NOT OLD.managed
+       AND OLD.table_name IN ('audit_record_logs', 'audit_ddl_logs') THEN
+        RAISE EXCEPTION 'Audit log entity ${table} cannot be managed'
+            USING ERRCODE = '90602',
+                  HINT = jsonb_build_object(
+                      'table', OLD.table_name,
+                      'hint', 'The audit logs are append-only evidence. Managing them would grant the request role INSERT and UPDATE on the log.')::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = audit, public;
+
+COMMENT ON FUNCTION audit.assert_audit_entity_stays_unmanaged IS
+'BEFORE UPDATE trigger on entities: refuses managed FALSE -> TRUE for audit_record_logs and audit_ddl_logs, whose append-only protection adoption would remove.';
+
+REVOKE EXECUTE ON FUNCTION audit.assert_audit_entity_stays_unmanaged() FROM PUBLIC;
+
+-- Scoped to the one column that can trigger adoption, so an ordinary entity
+-- edit does not run it.
+CREATE TRIGGER assert_audit_entity_stays_unmanaged_trigger
+    BEFORE UPDATE OF managed ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION audit.assert_audit_entity_stays_unmanaged();
+
+COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
+'Refuses any UPDATE that would make an audit log entity managed.';
 
 -- =====================================================
 -- STEP 9: Trigger to manage audit tracking on entity changes

@@ -15,11 +15,17 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
-CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
+-- The numeric value of a jsonb, or SQL NULL where there is none. This is
+-- JavaScript's NaN, and it exists because two callers need opposite things from
+-- it: arithmetic wants a number whatever it was handed, while equality must not
+-- invent one. jl_to_number below folds NULL to 0 for the first; jl_loose_eq
+-- answers false for the second, which is what JavaScript does when it compares
+-- against NaN.
+CREATE OR REPLACE FUNCTION jl_try_number(val jsonb) RETURNS numeric AS $$
 DECLARE
     txt_val text;
 BEGIN
-    IF val IS NULL THEN RETURN 0::numeric; END IF;
+    IF val IS NULL THEN RETURN NULL; END IF;
 
     CASE jsonb_typeof(val)
         WHEN 'number' THEN
@@ -37,19 +43,32 @@ BEGIN
                 NULL;
             END;
 
+            -- Number('') and Number('   ') are 0 in JavaScript, not NaN, and the
+            -- numeric cast above raises on both. Without this an empty string
+            -- would stop comparing equal to 0 and to false.
+            IF trim(txt_val) = '' THEN
+                RETURN 0::numeric;
+            END IF;
+
             -- Then try timestamp/date coercion for ISO-like date strings. This is
             -- a Semantius extension (JavaScript would give NaN); it makes the
             -- function STABLE, not IMMUTABLE, because the parse follows DateStyle.
             BEGIN
                 RETURN extract(epoch FROM txt_val::timestamp)::numeric;
             EXCEPTION WHEN data_exception THEN
-                RETURN 0::numeric;
+                RETURN NULL;
             END;
 
         WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1::numeric ELSE 0::numeric END;
-        WHEN 'null' THEN RETURN 0::numeric;
-        ELSE RETURN 0::numeric;
+        WHEN 'null' THEN RETURN NULL;
+        ELSE RETURN NULL;
     END CASE;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
+BEGIN
+    RETURN COALESCE(jl_try_number(val), 0::numeric);
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
@@ -79,12 +98,23 @@ BEGIN
     IF ta = tb THEN RETURN a = b; END IF;
     -- null == null only (already handled), null != anything else
     IF ta = 'null' OR tb = 'null' THEN RETURN false; END IF;
-    -- number vs string: coerce string to number
+    -- number vs string: coerce string to number. jl_try_number, not
+    -- jl_to_number: a string that carries no number at all has none to compare,
+    -- and reading it as 0 would make "abc" == 0 true. JavaScript coerces it to
+    -- NaN and answers false.
     IF (ta = 'number' AND tb = 'string') OR (ta = 'string' AND tb = 'number') THEN
-        RETURN jl_to_number(a) = jl_to_number(b);
+        RETURN jl_try_number(a) IS NOT NULL
+           AND jl_try_number(b) IS NOT NULL
+           AND jl_try_number(a) = jl_try_number(b);
     END IF;
-    -- boolean vs other: coerce boolean to number then compare
+    -- boolean vs other: coerce boolean to number then compare. Only a string
+    -- side can fail to produce one; an array or object keeps the historical 0,
+    -- and JavaScript's own answer for false == [] is true as well.
     IF ta = 'boolean' OR tb = 'boolean' THEN
+        IF (ta = 'string' AND jl_try_number(a) IS NULL)
+           OR (tb = 'string' AND jl_try_number(b) IS NULL) THEN
+            RETURN false;
+        END IF;
         RETURN jl_to_number(a) = jl_to_number(b);
     END IF;
     RETURN a = b;
@@ -744,11 +774,16 @@ BEGIN
     -- Null values always return false.
     -- Usage: {"is_match":[{"var":"email"}, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"]}
     IF op = 'is_match' THEN
-        txt_a := jl_to_text(a);
-        txt_b := jl_to_text(b);
-        IF txt_a IS NULL OR txt_b IS NULL THEN
+        -- The null test is on the jsonb, not on the converted text. jl_to_text
+        -- renders JSON null as the empty string, so a text-level test cannot
+        -- tell a missing value from an empty one and {"is_match":[null,"^$"]}
+        -- would report a match.
+        IF a IS NULL OR b IS NULL
+           OR jsonb_typeof(a) = 'null' OR jsonb_typeof(b) = 'null' THEN
             RETURN 'false'::jsonb;
         END IF;
+        txt_a := jl_to_text(a);
+        txt_b := jl_to_text(b);
         RETURN to_jsonb(regexp_match(txt_a, txt_b) IS NOT NULL);
     END IF;
 
@@ -840,8 +875,10 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
 'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
+COMMENT ON FUNCTION jl_try_number(jsonb) IS
+'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. Used by jl_loose_eq, which must not read a non-numeric string as 0.';
 COMMENT ON FUNCTION jl_to_number(jsonb) IS
-'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators).';
+'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators). Reads anything without a numeric value as 0.';
 COMMENT ON FUNCTION jl_to_text(jsonb) IS
 'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
 COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
@@ -851,6 +888,7 @@ COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 
 -- Revoke public execute on all jsonlogic functions
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
@@ -859,6 +897,7 @@ REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
 GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;

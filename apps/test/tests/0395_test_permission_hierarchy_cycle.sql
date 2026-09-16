@@ -7,7 +7,7 @@
 -- Fixtures (0030_seed.sql): user1=1001 (User role only), user3=admin.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(16);
 
 SELECT authenticate_as('user3');
 
@@ -122,6 +122,32 @@ SELECT throws_like(
     'an edge with downstream depth 11 exceeds the limit and is rejected'
 );
 
+-- The limit counts the whole chain the new edge joins, not only what hangs
+-- below it. phc:d12 sits at the bottom of the 11-edge chain built above, so an
+-- edge under it has nothing below and 11 edges above. Measuring downward alone
+-- would wave it through, and every edge added under the new leaf after that.
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('phc:d13', 'depth test 13', 1),
+    ('phc:dx',  'depth test x',  1);
+
+-- Test 10: 11 above + the new edge = 12
+SELECT throws_like(
+    $$ INSERT INTO permission_hierarchy (including_permission_name, included_permission_name)
+       VALUES ('phc:d12', 'phc:d13') $$,
+    '%maximum depth of 11 levels%',
+    'an edge under the leaf of an 11-edge chain is rejected'
+);
+
+-- Test 11: phc:d11 carries 10 edges above it, so 10 + the new edge = 11. The
+-- boundary holds from this side too, and without it the test above would pass
+-- for a guard that simply refused everything.
+SELECT lives_ok(
+    $$ INSERT INTO permission_hierarchy (including_permission_name, included_permission_name)
+       VALUES ('phc:d11', 'phc:dx') $$,
+    'an edge with 10 edges above it is allowed (limit boundary)'
+);
+
 -- =====================================================
 -- RESOLUTION: including implies included, not the reverse
 -- =====================================================
@@ -142,19 +168,19 @@ INSERT INTO role_permissions (role_id, permission_name) VALUES
 
 SELECT authenticate_as('user1');
 
--- Test 10
+-- Test 12
 SELECT ok(
     rbac.has_permission('phc:parent'),
     'user1 holds phc:parent directly via the User role'
 );
 
--- Test 11
+-- Test 13
 SELECT ok(
     rbac.has_permission('phc:child'),
     'phc:child is implied through the hierarchy'
 );
 
--- Test 12
+-- Test 14
 SELECT ok(
     NOT rbac.has_permission('phc:parent2'),
     'holding the included side does not imply the including side'
@@ -164,14 +190,14 @@ SELECT ok(
 -- RLS: the hierarchy is admin-only
 -- =====================================================
 
--- Test 13: still authenticated as user1 — SELECT policy hides every row
+-- Test 15: still authenticated as user1 — SELECT policy hides every row
 SELECT is(
     (SELECT count(*)::int FROM permission_hierarchy),
     0,
     'non-admin sees no permission_hierarchy rows'
 );
 
--- Test 14: a non-admin INSERT is denied by the RLS WITH CHECK. The row itself
+-- Test 16: a non-admin INSERT is denied by the RLS WITH CHECK. The row itself
 -- is legal — phc:a -> phc:c is neither a cycle nor over the depth limit, and a
 -- referential check runs with RLS off, so both names resolve — which is what
 -- makes 42501 the only thing that can stop it.

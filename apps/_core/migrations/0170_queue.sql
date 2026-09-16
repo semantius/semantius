@@ -228,15 +228,16 @@ DECLARE
     v_msgs JSONB[] := ARRAY[]::JSONB[];
     v_msg JSONB;
 BEGIN
-    -- Find the queue_name, id_column, and event_handler via queue_table_events + queues + entities.
-    -- Falls back to 'id' when the LEFT JOIN to entities returns no row (table not registered
-    -- in the entity system). The entities.id_column column always has a value when the row exists.
+    -- Find the queue_name, id_column and event_handler via queue_table_events +
+    -- queues + entities. queue_table_events.table_name references entities with
+    -- a cascade, so the entity row exists for every mapping and the join is an
+    -- inner one; id_column always has a value when the row exists.
     -- queue_table_events.table_name is unique, so at most one mapping can match.
-    SELECT q.queue_name, COALESCE(e.id_column, 'id'), qte.event_handler
+    SELECT q.queue_name, e.id_column, qte.event_handler
     INTO v_queue_name, v_id_field, v_event_type
     FROM queue_table_events qte
     JOIN queues q ON q.id = qte.queue_id
-    LEFT JOIN entities e ON e.table_name = TG_TABLE_NAME
+    JOIN entities e ON e.table_name = TG_TABLE_NAME
     WHERE qte.table_name = TG_TABLE_NAME
     LIMIT 1;
 
@@ -315,7 +316,7 @@ $$;
 -- Manage event trigger creation / removal
 
 COMMENT ON FUNCTION queue_build_record_json() IS
-'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that serializes every affected record to JSON and enqueues them as pgmq messages on the mapped queue, in batches.';
+'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that enqueues one pgmq message per affected record on the mapped queue, in batches. A message carries the operation, timestamp, table, id column and id value - never the record itself.';
 
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
@@ -422,16 +423,6 @@ BEGIN
             OLD.table_name
         );
     END LOOP;
-
-    -- The handler-named trigger from before the per-event split. Harmless when
-    -- the handler is single-event (the loop above already dropped that name);
-    -- necessary for 'upsert' and 'change', which never had a name of their own
-    -- in the event set.
-    EXECUTE format(
-        'DROP TRIGGER IF EXISTS %I ON %I',
-        'queue_' || v_queue_name || '_' || OLD.event_handler || '_on_' || OLD.table_name,
-        OLD.table_name
-    );
 
     RETURN OLD;
 END;

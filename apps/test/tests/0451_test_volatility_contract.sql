@@ -8,9 +8,11 @@
 -- 0030_rbac_functions.sql. This file pins the two properties that make it safe.
 --
 -- GROUP 1: every setting written on a read path is transaction-local. A
--- session-scoped write is the one side effect a ROLLBACK cannot undo, so it
--- would survive a transaction that never committed - and, if a planner ever did
--- evaluate the call while estimating, would survive a statement that never ran.
+-- session-scoped write outlives the transaction that made it, so on a pooled
+-- connection it leaks one request's context into the next - and, if a planner
+-- ever did evaluate the call while estimating, would survive a statement that
+-- never ran. A rollback does undo such a write; what it cannot do is bound one
+-- that commits.
 -- The sweep is over function source, because there is no catalog column for
 -- "writes a GUC".
 --
@@ -79,7 +81,7 @@ SELECT is(
      WHERE p.provolatile <> 's'
        AND ((n.nspname = 'public' AND p.proname IN
                 ('get_schema', 'get_schemas', 'get_user_cubes', 'get_module_cubes',
-                 'get_user_modules', 'list_api_keys'))
+                 'get_user_modules', 'list_api_keys', 'build_schema_for_table'))
          OR (n.nspname = 'rbac' AND p.proname IN
                 ('require_permission', 'require_any_permission', 'get_user_permissions')))),
     NULL::text,

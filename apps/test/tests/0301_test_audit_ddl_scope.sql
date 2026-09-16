@@ -23,7 +23,7 @@
 -- asserted in pgdocker/pg-ext-lifecycle.sh, where sessions commit for real.
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(19);
 
 -- =====================================================
 -- TEST 1: DDL in a non-Semantius schema is not logged
@@ -155,6 +155,12 @@ SELECT ok(
 -- the CREATE/ALTER FUNCTION and COMMENT events - the matching GRANT and REVOKE
 -- events carry a NULL object_identity (and NULL classid/objid/schema_name), so
 -- nothing in the event trigger can tell which function they touched.
+--
+-- The second assertion matches on the argument, not on the name, because that
+-- is what the event trigger matches on: a generated companion takes one
+-- parameter typed as a registered entity's row type. A name-only filter would
+-- also catch the hand-written public.snake_to_label(text), which is audited -
+-- TEST 8b below is that case.
 
 SELECT ok(
     (SELECT count(*) FROM pg_proc p
@@ -166,10 +172,37 @@ SELECT ok(
 
 SELECT is(
     (SELECT count(*)::integer FROM audit_ddl_logs
-      WHERE object_identity ~ '(^|[.])[^.(]*_label[(]'),
+      WHERE object_identity ~ '(^|[.])[^.(]*_label[(]'
+        AND substring(object_identity from '[(](?:[^.)]+[.])?([^.)]+)[)]$')
+            IN (SELECT table_name FROM entities)),
     0,
     'generated *_label functions produce no audit rows'
 );
+
+-- =====================================================
+-- TEST 8b: a hand-written *_label function is history, not churn
+-- =====================================================
+-- The name is the same shape a generated companion has; the argument is not.
+-- One text parameter is no entity row type, so this one is audited.
+
+CREATE FUNCTION public.audit_scope_handwritten_label(p text) RETURNS text
+    LANGUAGE sql IMMUTABLE AS $fn$ SELECT p $fn$;
+
+SELECT is(
+    (SELECT count(*)::integer FROM audit_ddl_logs
+      WHERE object_identity LIKE 'public.audit_scope_handwritten_label(%'),
+    1,
+    'creating a hand-written *_label function is audited'
+);
+
+-- The case this was written for: public.snake_to_label(text) ships with the
+-- migrations and used to disappear from the log for no reason but its name.
+SELECT ok(
+    (SELECT count(*) FROM audit_ddl_logs
+      WHERE object_identity LIKE 'public.snake_to_label(%') > 0,
+    'the hand-written public.snake_to_label is audited'
+);
+
 
 -- =====================================================
 -- TEST 9: a command type nobody enumerated is audited

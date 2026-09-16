@@ -123,6 +123,7 @@ SELECT is(
             'build_record_logic_trigger',
             'build_select_rule_policy',
             'raci_install_or_drop_emit_trigger',
+            'raci_install_or_drop_gate_trigger',
             'rebuild_entity_label_functions',
             -- Counts the enabled Administrators for rbac.assert_administrator_remains.
             -- It must answer for a session that carries no claims at all - the

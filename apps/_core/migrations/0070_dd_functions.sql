@@ -486,15 +486,12 @@ BEGIN
         (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
-    
-    -- Note: The handle_field_searchable_insert_trigger will fire for the above INSERTs
-    -- and update entities.searchable automatically. However, since we're in a nested trigger context,
-    -- we need to ensure the searchable flag gets set correctly after this trigger completes.
-    -- The solution is to update it directly here since the label field is always searchable.
-    UPDATE entities 
-    SET searchable = TRUE 
-    WHERE table_name = NEW.table_name 
-      AND EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND searchable = TRUE);
+
+    -- entities.searchable needs no write here. The INSERT above is a statement
+    -- of its own even inside this trigger, so handle_field_searchable_insert_trigger
+    -- fires on it and update_table_searchable_flag has already set the flag from
+    -- the label field. Writing it again would fire the whole entities UPDATE
+    -- trigger stack a second time for every table created.
 
     RETURN NEW;
 END;

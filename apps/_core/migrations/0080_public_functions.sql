@@ -473,7 +473,10 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
+-- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
+-- effect, and PostgREST serves a STABLE function over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
 'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';

@@ -12,7 +12,7 @@
 -- needs to be unmanaged, add it to the allowlist below together with a reason.
 BEGIN;
 
-SELECT plan(2);
+SELECT plan(6);
 
 SELECT authenticate_as('user3');
 
@@ -36,6 +36,39 @@ SELECT is(
         AND table_name IN ('audit_record_logs', 'audit_ddl_logs')),
     2,
     'Both audit tables remain registered as the sanctioned unmanaged exceptions'
+);
+
+-- 3. The allowlist is enforced, not only asserted. enable_dd_table configures an
+--    adopted table as a managed one - the four permission policies and a grant
+--    of INSERT and UPDATE - and on these two that is not adoption but unlocking:
+--    the log would become writable by whoever holds its edit_permission. The
+--    flip itself is refused, which is what lets adoption stay unconditional for
+--    every other table.
+
+SELECT throws_ok(
+    $$UPDATE entities SET managed = TRUE WHERE table_name = 'audit_record_logs'$$,
+    '90602',
+    NULL,
+    'audit_record_logs cannot be made managed'
+);
+
+SELECT throws_ok(
+    $$UPDATE entities SET managed = TRUE WHERE table_name = 'audit_ddl_logs'$$,
+    '90602',
+    NULL,
+    'audit_ddl_logs cannot be made managed'
+);
+
+-- 4. An ordinary entity edit on those rows is untouched: the trigger is scoped
+--    to the managed column and only refuses FALSE -> TRUE.
+SELECT lives_ok(
+    $$UPDATE entities SET description = 'DML audit trail' WHERE table_name = 'audit_record_logs'$$,
+    'an ordinary edit of an audit entity is not affected by the guard'
+);
+
+SELECT lives_ok(
+    $$UPDATE entities SET managed = FALSE WHERE table_name = 'audit_record_logs'$$,
+    'writing managed = FALSE over FALSE is not a flip and is allowed'
 );
 
 SELECT * FROM finish();

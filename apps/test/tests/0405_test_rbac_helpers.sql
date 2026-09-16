@@ -32,7 +32,7 @@
 -- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(79);
+SELECT plan(109);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -375,6 +375,174 @@ SELECT is((SELECT public.get_userinfo()->>'external_id'), 'user1',
 SELECT throws_ok($$SELECT common.refresh_schema_cache()$$,
     '42501', NULL,
     'refresh_schema_cache: not callable by the request role');
+
+-- =====================================================
+-- GROUP 10: a scope names a permission AND what it includes
+-- =====================================================
+-- The seed has user:manage -> user:read, and the policies on users ask for
+-- user:read to SELECT and user:manage to INSERT, UPDATE and DELETE. A session
+-- scoped to user:manage is therefore the case that decides what a scope means:
+-- matched literally, that token may write rows it cannot read, which is not a
+-- stricter reading of the scope but an incoherent one.
+--
+-- Two of the three checkers had it wrong and the third had it right for as long
+-- as all three existed, and nothing here failed - the suite only ever asked each
+-- checker about a scope naming the permission itself. Every assertion below asks
+-- all three the same question, so a future divergence fails rather than hides.
+--
+-- hp  = rbac.has_permission(x)            - cached, current subject
+-- hap = rbac.has_any_permission(x)        - cached, current subject, variadic
+-- uhp = rbac.user_has_permission(sub, x)  - uncached, subject as a parameter
+
+-- A chain of this file's own, so the assertions do not rest on the seed keeping
+-- its present shape: sc:root -> sc:mid -> sc:leaf, granted to user2 through a
+-- role together with an unrelated sc:other. user2 HOLDS all four (a grant is
+-- stored as its closure); what varies below is only what the scope list says.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('sc:root',  'scope expansion root',    1),
+    ('sc:mid',   'scope expansion mid',     1),
+    ('sc:leaf',  'scope expansion leaf',    1),
+    ('sc:other', 'scope expansion sibling', 1);
+
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name) VALUES
+    ('sc:root', 'sc:mid'),
+    ('sc:mid',  'sc:leaf');
+
+INSERT INTO roles (role_name, description) VALUES ('Scope Probe', 'holds sc:root and sc:other');
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT id, 'sc:root' FROM roles WHERE role_name = 'Scope Probe';
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT id, 'sc:other' FROM roles WHERE role_name = 'Scope Probe';
+INSERT INTO user_roles (user_id, role_id)
+SELECT 1002, id FROM roles WHERE role_name = 'Scope Probe';
+
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user2');
+
+-- Unconfined: the grant's own closure. Three checkers, one answer.
+SELECT ok(rbac.has_permission('sc:leaf'),
+    'unconfined: hp sees the far end of a granted chain');
+SELECT ok(rbac.has_any_permission('sc:leaf'),
+    'unconfined: hap agrees');
+
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+SELECT ok(rbac.user_has_permission('user2', 'sc:leaf'),
+    'unconfined: uhp agrees');
+
+-- Scoped to the root. The token names one permission; that confines the session
+-- to it and to the two it includes, and to nothing beside them.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user2');
+SELECT set_config('app.oauth_scopes', 'sc:root', true);
+
+SELECT ok(rbac.has_permission('sc:root'),
+    'scope sc:root: hp allows the scope itself');
+SELECT ok(rbac.has_permission('sc:mid'),
+    'scope sc:root: hp allows what it includes one level down');
+SELECT ok(rbac.has_permission('sc:leaf'),
+    'scope sc:root: hp allows what it includes transitively');
+SELECT ok(NOT rbac.has_permission('sc:other'),
+    'scope sc:root: hp denies a held permission the scope does not reach');
+
+SELECT ok(rbac.has_any_permission('sc:leaf'),
+    'scope sc:root: hap allows what the scope includes transitively');
+SELECT ok(NOT rbac.has_any_permission('sc:other'),
+    'scope sc:root: hap denies a held permission outside the scope');
+SELECT ok(rbac.has_any_permission('sc:other', 'sc:leaf'),
+    'scope sc:root: hap picks the in-scope name out of a mixed list');
+
+SELECT throws_ok($$SELECT rbac.require_permission('sc:other')$$, '42501', NULL,
+    'scope sc:root: require_permission raises for a permission outside the scope');
+SELECT lives_ok($$SELECT rbac.require_permission('sc:leaf')$$,
+    'scope sc:root: require_permission passes for one the scope includes');
+SELECT lives_ok($$SELECT rbac.require_any_permission('sc:other', 'sc:leaf')$$,
+    'scope sc:root: require_any_permission passes on the in-scope name');
+
+-- The same question to the uncached checker, with the same scope list. 'admin'
+-- rides along because the subject is not the caller and that target check runs
+-- through rbac.has_permission, which this very list confines.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+SELECT set_config('app.oauth_scopes', 'admin sc:root', true);
+
+SELECT ok(rbac.user_has_permission('user2', 'sc:mid'),
+    'scope sc:root: uhp allows what it includes one level down');
+SELECT ok(rbac.user_has_permission('user2', 'sc:leaf'),
+    'scope sc:root: uhp allows what it includes transitively');
+SELECT ok(NOT rbac.user_has_permission('user2', 'sc:other'),
+    'scope sc:root: uhp denies a held permission the scope does not reach');
+
+-- Direction: a scope reaches downward, never upward. Scoped to the leaf, the
+-- root stays out even though the user holds it.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user2');
+SELECT set_config('app.oauth_scopes', 'sc:leaf', true);
+
+SELECT ok(rbac.has_permission('sc:leaf'),
+    'scope sc:leaf: hp allows the leaf');
+SELECT ok(NOT rbac.has_permission('sc:root'),
+    'scope sc:leaf: hp does not walk up to the including permission');
+SELECT ok(NOT rbac.has_any_permission('sc:root', 'sc:mid'),
+    'scope sc:leaf: hap does not walk up either');
+
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+SELECT set_config('app.oauth_scopes', 'admin sc:leaf', true);
+SELECT ok(NOT rbac.user_has_permission('user2', 'sc:root'),
+    'scope sc:leaf: uhp does not walk up either');
+
+-- Expansion cannot grant. user1 holds none of the chain, so a scope naming the
+-- root buys nothing: the list is intersected with what the user actually holds.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user1');
+SELECT set_config('app.oauth_scopes', 'sc:root', true);
+
+SELECT ok(NOT rbac.has_permission('sc:leaf'),
+    'a scope the user does not hold grants nothing: hp');
+SELECT ok(NOT rbac.has_any_permission('sc:leaf', 'sc:mid', 'sc:root'),
+    'a scope the user does not hold grants nothing: hap');
+
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+SELECT set_config('app.oauth_scopes', 'admin sc:root', true);
+SELECT ok(NOT rbac.user_has_permission('user1', 'sc:leaf'),
+    'a scope the user does not hold grants nothing: uhp');
+
+-- The seeded case the users policies actually turn on: user:manage includes
+-- user:read, so a token scoped to user:manage may read the rows it may write.
+SELECT set_config('app.oauth_scopes', '', true);
+SELECT authenticate_as('user3');
+SELECT set_config('app.oauth_scopes', 'user:manage', true);
+
+SELECT ok(rbac.has_permission('user:read'),
+    'scope user:manage: hp allows the read that user:manage includes');
+SELECT ok(rbac.has_any_permission('user:read'),
+    'scope user:manage: hap agrees');
+SELECT is((SELECT count(*)::int FROM users WHERE external_id = 'user2'), 1,
+    'scope user:manage: the users SELECT policy lets the row through');
+
+-- A scope naming no registered permission expands to nothing and confines to
+-- nothing, rather than reading as an absent list.
+SELECT set_config('app.oauth_scopes', 'sc:nosuch', true);
+SELECT ok(NOT rbac.has_permission('admin'),
+    'a scope naming no registered permission confines to nothing: hp');
+SELECT ok(NOT rbac.has_any_permission('admin', 'user:read'),
+    'a scope naming no registered permission confines to nothing: hap');
+
+-- Rewriting the list inside one transaction is seen: the expansion is memoized
+-- against the raw list it was built from, not against the transaction.
+SELECT set_config('app.oauth_scopes', 'user:manage', true);
+SELECT ok(rbac.has_permission('user:read'),
+    'memoized expansion: the first list is applied');
+SELECT set_config('app.oauth_scopes', 'public:read', true);
+SELECT ok(NOT rbac.has_permission('user:read'),
+    'memoized expansion: rewriting the list rebuilds rather than answering from the old one');
+
+SELECT set_config('app.oauth_scopes', '', true);
 
 SELECT * FROM finish();
 ROLLBACK;

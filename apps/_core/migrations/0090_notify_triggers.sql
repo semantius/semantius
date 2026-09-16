@@ -120,12 +120,11 @@ BEGIN
         , 'CREATE RULE'
         , 'COMMENT'
         )
-        -- don't notify for CREATE TEMP table or other pg_temp objects
-        AND cmd.schema_name IS DISTINCT FROM 'pg_temp'
-        -- and only for the schemas Semantius owns: DDL in a foreign schema
-        -- cannot change the API surface PostgREST exposes. A NULL schema_name
+        -- Only the schemas Semantius owns: DDL in a foreign schema cannot change
+        -- the API surface PostgREST exposes, and pg_temp is excluded by the same
+        -- list, so a CREATE TEMP TABLE notifies nobody. A NULL schema_name
         -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
-        -- schema but can still change it, so it stays in scope.
+        -- schema but can still change that surface, so it stays in scope.
         AND (cmd.schema_name IS NULL
              OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
         THEN

@@ -16,7 +16,7 @@
 --   5. adoption secures a hand-made table: RLS, four policies, the grants
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(17);
 
 -- =====================================================
 -- TEST 1: no default privilege on tables or sequences in public
@@ -213,6 +213,81 @@ SELECT ok(
     AND has_sequence_privilege('semantius_user',
             pg_get_serial_sequence('public.grant_probe_adopt', 'id'), 'USAGE'),
     'adoption grants the request role the table and its sequence'
+);
+
+-- =====================================================
+-- Adoption of a table that was already secured
+-- =====================================================
+-- The probe above has a policy of its own but row-level security switched off,
+-- which is how a hand-made table normally arrives. This one has RLS actually
+-- enabled, and used to be skipped: adoption left it with its own policies, no
+-- permission policies and no grant, so the entity claimed a permission model
+-- the table did not enforce. A managed table is configured as a managed table
+-- whatever it carried before.
+
+RESET ROLE;
+
+CREATE TABLE public.grant_probe_secured (
+    id SERIAL PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT ''
+);
+
+ALTER TABLE public.grant_probe_secured ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY grant_probe_secured_operator ON public.grant_probe_secured
+    FOR SELECT TO semantius_user USING (true);
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
+        ALTER TABLE public.grant_probe_secured OWNER TO semantius_owner;
+        ALTER SEQUENCE public.grant_probe_secured_id_seq OWNER TO semantius_owner;
+    END IF;
+END $$;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
+VALUES ('grant_probe_secured', 'grant_probe_secured', 'Secured Probe', 'Secured Probes', 'adoption probe, pre-secured', 1, 'nwind:view', 'nwind:manage', 'id', 'label', false);
+
+RESET ROLE;
+
+SELECT ok(
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.grant_probe_secured'::regclass)
+    AND NOT has_table_privilege('semantius_user', 'public.grant_probe_secured', 'SELECT'),
+    'before the flip the table is secured on its own and the request role holds nothing'
+);
+
+SELECT authenticate_as('user3');
+
+UPDATE entities SET managed = true WHERE table_name = 'grant_probe_secured';
+
+RESET ROLE;
+
+SELECT is(
+    (SELECT count(*)::integer FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'grant_probe_secured'
+        AND policyname IN ('grant_probe_secured_select_policy',
+                           'grant_probe_secured_insert_policy',
+                           'grant_probe_secured_update_policy',
+                           'grant_probe_secured_delete_policy')),
+    4,
+    'adoption creates the four permission policies on an already secured table'
+);
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = 'grant_probe_secured'
+               AND policyname = 'grant_probe_secured_operator'),
+    'the policy the table already carried survives adoption'
+);
+
+SELECT ok(
+    has_table_privilege('semantius_user', 'public.grant_probe_secured', 'INSERT')
+    AND has_table_privilege('semantius_user', 'public.grant_probe_secured', 'UPDATE')
+    AND has_sequence_privilege('semantius_user',
+            pg_get_serial_sequence('public.grant_probe_secured', 'id'), 'USAGE'),
+    'adoption grants the request role the table and its sequence here too'
 );
 
 SELECT * FROM finish();

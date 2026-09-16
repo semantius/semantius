@@ -12,7 +12,7 @@
 --     table SELECT nor EXECUTE on the public RPCs (0060 checks the REVOKEs
 --     statically; this checks the resulting ACLs behaviorally)
 --
---   * an unknown subject (JWT sub with no users row) is rejected with 28000
+--   * an unknown subject (JWT sub with no users row) is rejected with 42501
 --     on both the permission helper and an RLS-guarded table (from 0080)
 --
 -- Fixtures: user1=1001 (User role only), user3=admin; public.products is the
