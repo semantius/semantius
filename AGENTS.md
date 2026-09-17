@@ -337,6 +337,20 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 - **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead (unless the format auto-computes to nullable)
 - When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
 
+**CRITICAL: A column is a two-place change**
+- Touching a `CREATE TABLE` in `apps/_core/migrations/` is never finished until the
+  table's `fields` rows match it. A column with no `fields` row is invisible to
+  `get_schema()`, to the generated UI and to the MCP tools, even though PostgREST
+  reads the catalog directly and keeps returning it — so the drift is silent.
+- On a **managed** entity the `fields` rows are the source of truth and the DDL
+  triggers create the column from them; writing the column by hand instead is the
+  bug. On an **unmanaged** entity (`audit_record_logs`, `audit_ddl_logs`) nothing
+  derives one from the other, so both halves are written by hand and both must be
+  edited together.
+- The same applies in reverse to a DROP, and to a rename of either half.
+- Give the new `fields` row a `field_order` that keeps the metadata order matching
+  the physical column order (leave gaps: 10, 20, 30 ... so a later insert fits).
+
 **CRITICAL: Schema vs Sample Data Placement**
 - **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code
   - Table definitions (INSERT INTO entities, fields)
