@@ -45,10 +45,14 @@ if ! ls extension/pg_semantius--*.sql >/dev/null 2>&1; then
   exit 1
 fi
 
-# The build also COPYs + merges the Northwind demo migrations into the image.
-for f in apps/nwind/migrations/0010_create.sql apps/nwind/migrations/0020_load_data.sql; do
-  [ -f "$f" ] || { echo "Missing $f (needed to bake the optional nwind module)." >&2; exit 1; }
-done
+# The build also COPYs the Northwind demo migrations into the image. Checked as
+# a directory, not as a list of filenames: naming them here meant a migration
+# added to the app also had to be added to this check and to the Dockerfile, and
+# forgetting either shipped an image missing part of the module.
+if ! ls apps/nwind/migrations/*.sql >/dev/null 2>&1; then
+  echo "No migrations in apps/nwind/migrations (needed to bake the optional nwind module)." >&2
+  exit 1
+fi
 
 # Version: arg wins, else the control file's default_version - the one
 # authoritative value, and unlike a filename glob it can neither pick an upgrade

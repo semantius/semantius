@@ -37,16 +37,18 @@ COPY docker-postgres/initdb/ /docker-entrypoint-initdb.d/
 RUN chmod 0755 /docker-entrypoint-initdb.d/*.sh
 
 # --- Optional Northwind demo module -----------------------------------------
-#     MERGE the app's two migrations at BUILD time into one seed baked into the
-#     image; 40-nwind.sh runs it only when NWIND is set. Neither file redeclares
-#     _core (that is the extension). Append _versions guards so a later
-#     `deno task migrate --apps nwind` treats the module as already deployed.
-COPY apps/nwind/migrations/0010_create.sql apps/nwind/migrations/0020_load_data.sql /tmp/nwind/
-RUN mkdir -p /opt/semantius \
- && cat /tmp/nwind/0010_create.sql /tmp/nwind/0020_load_data.sql > /opt/semantius/nwind.sql \
- && printf "\n-- Record migration versions so the CLI does not re-apply nwind.\nINSERT INTO public._versions (name) VALUES ('nwind.0010_create'), ('nwind.0020_load_data') ON CONFLICT (name) DO NOTHING;\n" \
-      >> /opt/semantius/nwind.sql \
- && rm -rf /tmp/nwind
+#     The migrations are copied in UNMERGED and UNMODIFIED, and 40-nwind.sh
+#     applies them the way the CLI does - one transaction per file, each file
+#     recorded in _versions with its checksum in that same transaction - but
+#     only when NWIND is set. Neither file redeclares _core (that is the
+#     extension).
+#
+#     The whole directory, not a list of filenames: the previous build named
+#     0010 and 0020 in four places (this COPY, a cat, a hand-written _versions
+#     INSERT and build.sh's preflight), so adding a third migration to
+#     apps/nwind/migrations shipped an image that was silently missing it while
+#     claiming the module was fully deployed. A directory copy cannot drift.
+COPY apps/nwind/migrations/ /opt/semantius/nwind-migrations/
 
 # Activate the baked pg_hba. The official entrypoint runs the init scripts, then
 # passes these args through to the postgres server.

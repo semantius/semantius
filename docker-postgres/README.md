@@ -47,15 +47,26 @@ major later is the ambiguity the suffix removes.
 
 ## The optional Northwind module
 
-`40-nwind.sh` runs `/opt/semantius/nwind.sql`, which the Dockerfile **merges at
-build time** from the app's own two migrations —
-[`apps/nwind/migrations/0010_create.sql`](../apps/nwind/migrations/0010_create.sql)
-(registers the module/entities into the dictionary; triggers auto-create the
-tables) and
+The Dockerfile copies [`apps/nwind/migrations/`](../apps/nwind/migrations/) into
+the image unmerged and unmodified —
+[`0010_create.sql`](../apps/nwind/migrations/0010_create.sql) (registers the
+module/entities into the dictionary; triggers auto-create the tables) and
 [`0020_load_data.sql`](../apps/nwind/migrations/0020_load_data.sql) (the sample
-rows). Neither redeclares `_core` (that is the extension). The build appends
-`_versions` guards so a later `deno task migrate --apps nwind` treats it as
-already deployed.
+rows). Neither redeclares `_core` (that is the extension).
+
+`40-nwind.sh` then applies them **exactly as `deno task migrate --apps nwind`
+would**: files in name order, one transaction per file, each recorded in
+`public._versions` as `nwind.<file>` with the SHA-256 of its LF-normalized text
+— in that same transaction, so applied SQL and its `_versions` row can never
+disagree. A file already recorded is skipped, so a later `migrate --apps nwind`
+is a no-op.
+
+It replicates the runner instead of calling it because it cannot call it: the
+initdb temp server listens on the unix socket only (`listen_addresses=''`) and
+the CLI's driver speaks TCP. **Its contract is
+[`packages/core/src/migrate.ts`](../packages/core/src/migrate.ts)
+(`executeMigrations`) — if that changes, `40-nwind.sh` must change with it**, and
+`./test-image.sh` is what checks the two still agree.
 
 ## Scripts
 
@@ -63,9 +74,18 @@ already deployed.
 |---|---|
 | `./build.sh [version]` | Builds `semantius/postgres:<version>-pg<major>` + `:latest-pg<major>` + `:latest` **locally** from `./extension` (+ the nwind migrations). Does NOT regenerate the extension. |
 | `./publish.sh [version]` | Pushes those tags to GHCR (login required; CI does this on tag). |
+| `./test-image.sh [tag]` | Builds the image, then **starts** it twice on fresh data dirs — `NWIND=TRUE` and unset — and asserts first init completes and the demo module is (or is not) there. `--no-build` or a tag tests an image as it stands. |
 
-Both infer the version from the `./extension` build when no argument is given, and
-honor an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
+All three infer the version from the `./extension` build when no argument is given,
+and honor an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
+
+`test-image.sh` is the only check that runs the init scripts at all. The pgTAP
+suites and `docker-compose/test.sh` both install the Northwind module with
+`deno task migrate`; nothing else exercises `40-nwind.sh`, which is a second
+implementation of that runner. It asserts the two produce the same database —
+same `_versions` names, same checksums — and derives the migration list from
+`apps/nwind/migrations/` rather than naming files, so a migration the image fails
+to ship is a test failure. Run it before publishing a version.
 
 > **Changed migrations?** Regenerate the extension first. The version is
 > required — `deno task extension` refuses without one, because the old fallback

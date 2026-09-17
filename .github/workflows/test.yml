@@ -121,6 +121,31 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
+  # The DB image, actually STARTED. Parallel to `test` for the same reason as
+  # cli-binary: it needs no pgTAP database, so a container that cannot finish
+  # first init should say so in minutes rather than after the suites.
+  #
+  # Nothing else covers this. The suites and docker-compose/test.sh both load
+  # nwind through `deno task migrate`, which wraps every migration in a
+  # transaction; the image loads it from an initdb script through psql, which
+  # does not. Anything the seed relies on a transaction for - deferred
+  # constraints above all - is legal on the migrate path and fatal here, and the
+  # release job builds and pushes this image without ever booting it.
+  db-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # No extension regen: build.sh packages ./extension as committed, which is
+      # what the release publishes. Whether that build is stale is the `test`
+      # job's question, not this one's.
+      - name: Make the harness scripts executable
+        run: chmod +x docker-postgres/*.sh
+
+      - name: First init boots, with and without the demo module
+        run: ./docker-postgres/test-image.sh
+
   # The pg_semantius binary, built and run on both platforms that ship one from
   # a runner. It is parallel to `test` rather than part of it: it needs no
   # database and no Docker, so there is no reason for it to wait 45 minutes to
