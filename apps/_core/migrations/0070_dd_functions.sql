@@ -345,16 +345,28 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION dd_field_comment IS
 'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
 
--- The core tables (0020, 0060) are seeded before the field triggers exist, so their columns
--- have no comment yet. Give them the one the triggers would have written. PostgREST shows a
--- column comment as the column description in its OpenAPI output, so this keeps the DD
--- description the only source there too; later changes to a field reach the comment through
--- the update trigger.
+-- The core tables (0020, 0060) are seeded before the entity and field triggers exist, so
+-- neither they nor their columns have a comment yet. Give them the ones the triggers would
+-- have written. PostgREST shows these comments as descriptions in its OpenAPI output, so this
+-- keeps the DD description the only source there too; later changes reach the comments through
+-- the update triggers. 0480_test_core_comments_match_dd.sql fails if a migration overwrites one.
 DO $$
 DECLARE
     r RECORD;
     v_comment TEXT;
 BEGIN
+    FOR r IN
+        SELECT e.table_name, e.plural_label, e.description
+        FROM entities e
+        JOIN information_schema.tables t
+          ON t.table_schema = 'public' AND t.table_name = e.table_name AND t.table_type = 'BASE TABLE'
+    LOOP
+        v_comment := dd_table_comment(r.plural_label, r.description);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', r.table_name, v_comment);
+        END IF;
+    END LOOP;
+
     FOR r IN
         SELECT f.table_name, f.field_name, f.title, f.format, f.description, f.enum_values
         FROM fields f

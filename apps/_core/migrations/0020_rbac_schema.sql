@@ -34,10 +34,6 @@ CREATE TABLE modules (
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
 
--- Matches the format the DDL triggers apply (plural label + blank line + description),
--- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
-COMMENT ON TABLE modules IS E'Modules\n\nGroups of related tables and permissions';
-
 -- =====================================================
 -- PERMISSIONS AND ROLES
 -- =====================================================
@@ -78,8 +74,6 @@ CREATE TABLE permissions (
     CONSTRAINT permission_name_shape CHECK (permission_name ~ '^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$')
 );
 
-COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
-
 -- Roles: Groups of permissions
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
@@ -96,8 +90,6 @@ CREATE TABLE roles (
     CONSTRAINT valid_role_origin CHECK (origin IN ('system', 'model', 'model_master', 'user')),
     CONSTRAINT valid_role_slug CHECK (slug = '' OR slug ~ '^[a-z0-9_]+$')
 );
-
-COMMENT ON TABLE roles IS 'Groups of permissions that can be assigned to users';
 
 -- =====================================================
 -- AUTO-SET ROLE SLUG TRIGGER
@@ -166,8 +158,6 @@ CREATE TABLE users (
     CONSTRAINT users_external_id_not_empty CHECK (btrim(external_id) <> '')
 );
 
-COMMENT ON TABLE users IS 'Users and agents';
-
 -- User-Role mapping
 CREATE TABLE user_roles (
     id TEXT GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
@@ -177,8 +167,6 @@ CREATE TABLE user_roles (
     assigned_by INTEGER REFERENCES users(id),
     UNIQUE (user_id, role_id)
 );
-
-COMMENT ON TABLE user_roles IS 'Many-to-many mapping between users and roles';
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
@@ -190,8 +178,6 @@ CREATE TABLE role_permissions (
     UNIQUE (role_id, permission_name)
 );
 
-COMMENT ON TABLE role_permissions IS 'Many-to-many mapping between roles and permissions';
-
 -- User-Permission mapping (direct per-user permissions)
 CREATE TABLE user_permissions (
     id TEXT GENERATED ALWAYS AS (user_id || '.' || permission_name) STORED PRIMARY KEY,
@@ -201,8 +187,6 @@ CREATE TABLE user_permissions (
     granted_by INTEGER REFERENCES users(id),
     UNIQUE (user_id, permission_name)
 );
-
-COMMENT ON TABLE user_permissions IS 'Many-to-many mapping between users and permissions for direct per-user permission grants';
 
 -- =====================================================
 -- PERMISSION HIERARCHY
@@ -220,8 +204,6 @@ CREATE TABLE permission_hierarchy (
     CONSTRAINT no_self_reference CHECK (including_permission_name != included_permission_name),
     CONSTRAINT valid_permission_hierarchy_origin CHECK (origin IN ('system', 'model', 'model_master', 'user'))
 );
-
-COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
 
 -- =====================================================
 -- ADD FK COLUMNS TO MODULES (after roles and permissions exist)

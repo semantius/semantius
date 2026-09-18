@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-18T17:31:29.224Z
+**Generated:** 2026-09-18T17:39:35.390Z
 
 ---
 
@@ -399,7 +399,7 @@ Defines permission inclusion (including permission implies included permissions)
 
 ## Entity: permissions
 
-System permissions that can be assigned to roles
+System permissions that can be assigned to roles and organized via hierarchy
 
 | field_name | label | value |
 |------------|-------|-------|
@@ -409,7 +409,7 @@ System permissions that can be assigned to roles
 | singular_label | Singular Label | Permission |
 | plural_label | Plural Label | Permissions |
 | icon_url | Icon URL | - |
-| description | Description | System permissions that can be assigned to roles |
+| description | Description | System permissions that can be assigned to roles and organized via hierarchy |
 | module_id | Module Id | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
