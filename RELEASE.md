@@ -8,10 +8,10 @@ Everything here is about **one artifact set**: the `pg_semantius` extension
 build in `extension/`, the GitHub Release that carries its archive, and the
 GHCR database image built from it. They always move together at one version.
 
-## The rule: newest is mutable, everything before it is frozen
+## The rule: the highest version is mutable, everything below it is frozen
 
-A version stays **mutable while it is the newest build**. It may be regenerated,
-re-tagged and re-released as often as needed. It becomes **frozen the moment a
+A version stays **mutable while it is the highest version built**. It may be
+regenerated, re-tagged and re-released as often as needed. It becomes **frozen the moment a
 higher version is committed** to `extension/versions.json`.
 
 This is deliberate. `0.5.0` is a fresh start: the 0.1.0/0.3.0/0.4.0 lineage was
@@ -25,8 +25,8 @@ Two things enforce it:
 - `deno task extension <ver>` **refuses** when `versions.json` already holds a
   higher version. Without that guard the run would leave a broken `extension/`:
   the edit detection is skipped (it only looks at versions *below* the target,
-  and a superseded version has none), the newer full install is pruned away, the
-  newer upgrade script is orphaned, and `default_version` moves backwards.
+  and a superseded version has none), the higher version's full install is pruned
+  away, its upgrade script is orphaned, and `default_version` moves backwards.
 - The version argument is **required**. It used to fall back to the CLI
   package's own version (`0.1.0`), which quietly did all of the above.
 
@@ -113,10 +113,10 @@ block the versions below it.
 
 | `./release.sh v<a.b.c>` | |
 |---|---|
-| **a tag `v<a.b.c>` exists and it is the newest released** | refresh - a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
+| **a tag `v<a.b.c>` exists and it is the highest released** | refresh - a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
 | **a tag exists but something higher is released** | rejected: published, superseded, frozen |
-| **no tag, and it sorts above the newest released** | a new release |
-| **no tag, and it does not sort above the newest released** | rejected: it is in the past |
+| **no tag, and it sorts above the highest released** | a new release |
+| **no tag, and it does not sort above the highest released** | rejected: it is in the past |
 
 If `versions.json` holds builds at or above the target that have **no tag**,
 `release.sh` names them and drops them from the manifest before generating.
@@ -125,8 +125,8 @@ script leading to it - so it is a stale artifact rather than history, and left i
 place it would make the generator refuse the target.
 
 From the moment a higher version is in the manifest, the lower one is frozen for
-the generator too, and **only migrations added in the newer version may be
-edited**. Editing one an earlier version already shipped fails the build, because
+the generator too, and **only migrations added in the higher version may
+be edited**. Editing one an earlier version already shipped fails the build, because
 the upgrade script carries only migrations *added* since the previous version -
 so such an edit could never reach an existing installation.
 `--allow-edited-migrations` waives it for a deliberate hot-patch.
@@ -209,15 +209,16 @@ both install one-liners.
 first so the assets are replaced cleanly, and for the whole build-and-upload
 window `releases/latest` falls back to the previous tag - which has no
 `pg_semantius-*` binaries, so both install one-liners 404 until the new release
-is published. Re-releasing the newest version is supported and expected (see
+is published. Re-releasing the highest version is supported and expected (see
 above); this is the cost of it.
 
 `<major>` is parsed from `docker-postgres/Dockerfile`'s `FROM` line, so a base
 bump moves the tag suffix with it. **`:latest` and `:latest-pg<major>` follow the
-newest release, pre-releases included**, so `v0.5.0-beta1` publishes
-`:0.5.0-beta1-pg18` and moves both moving tags onto it.
+highest version released, pre-releases included** - highest, not most recent -
+so `v0.5.0-beta1` publishes `:0.5.0-beta1-pg18` and moves both moving tags onto
+it.
 
-The rejected alternative is `:latest` as the newest *final* release. It sounds
+The rejected alternative is `:latest` as the highest *final* release. It sounds
 safer and is the commoner convention, but it holds the tag on whatever shipped
 last for as long as everything ahead of it is a pre-release - and "the last final
 build" is only a useful thing to hand someone while that build is still
@@ -234,8 +235,8 @@ highest tag in the repo, so re-releasing an older version can never drag
 which is always published.
 
 **There is no `:stable` yet.** It belongs with the first final release: at that
-point `:stable` follows the newest final and `:latest` keeps following the
-newest of anything, which is the two-channel arrangement both tags need to mean
+point `:stable` follows the highest final and `:latest` keeps following the
+highest of anything, which is the two-channel arrangement both tags need to mean
 what they say. Until then nothing would point at it but the discarded lineage.
 
 There is deliberately no bare `:<version>` image tag: a version tag that
@@ -259,7 +260,7 @@ named); neither uploads anything.
 
 That is on purpose, because **PGXN is the one channel this project cannot take
 back**. A GitHub Release is deleted and recreated on every re-release and a GHCR
-tag is overwritten, which is what makes the newest version mutable. A PGXN
+tag is overwritten, which is what makes the highest version mutable. A PGXN
 release is permanent: a version can never be replaced or withdrawn, only
 superseded by a higher one. Publishing `0.5.0` there while it is still moving
 would freeze a build that is going to change.

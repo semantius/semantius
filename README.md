@@ -145,7 +145,7 @@ in CI to prove it is reproducible.
 **One version for the whole repo.** Every artifact shares a single version, so
 releases are tagged `v<version>` (e.g. `v0.5.0`), not per-artifact. The tag is
 what CI builds *from*; `extension/versions.json` is what may be built — the
-newest version there is mutable and can be re-released, and is frozen once a
+highest version there is mutable and can be re-released, and is frozen once a
 higher one exists.
 
 Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)

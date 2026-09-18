@@ -129,7 +129,8 @@ core of the remediation — today it is not):
   present · variable injection `$user_id`/`$old`/`$now`/`$today`/`$mode`(planned) ·
   `view_permission` (= reach) · `WITH CHECK`.
 - **A6 · Enforcement layer** — RLS policy (bypassed by owner/BYPASSRLS) · BEFORE trigger
-  (fires for owner; bypassed by `session_replication_role=replica`) · SECURITY DEFINER logic ·
+  (fires for owner; bypassed by `session_replication_role=replica`) · SECURITY DEFINER logic
+  (e.g. `/rpc/fix_id_sequence`, gated on the entity's `edit_permission` like its INSERT policy) ·
   PostgREST/RPC.
 - **A7 · Grant path** — role→`role_permissions` · direct `user_permissions` · recursive
   `permission_hierarchy` (permissions, NOT roles — roles are flat) · OAuth-scope intersection ·

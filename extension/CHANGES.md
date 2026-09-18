@@ -25,6 +25,11 @@ installs the core schema as ordinary objects.
   database role from that same array (`jwt-role-claim-key = .roles[0]`), so both
   ends of one token read the same thing. A `role` claim holding any other value
   is still refused.
+- New `public.fix_id_sequence(p_table)`: after an import that wrote explicit
+  ids, moves the table's id sequence past `max(id)` so the next ordinary insert
+  does not fail with 23505. Callable by holders of the entity's
+  `edit_permission`; never lowers a sequence; answers `90232` (retry) when the
+  table stays locked by another writer for 2 s.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.

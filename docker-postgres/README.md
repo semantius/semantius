@@ -3,7 +3,7 @@
 Builds and publishes the self-contained database image:
 
 ```
-ghcr.io/semantius/postgres:<version>-pg<major>   # canonical; moves while newest
+ghcr.io/semantius/postgres:<version>-pg<major>   # canonical; moves while highest
 ghcr.io/semantius/postgres:latest-pg<major>      # moving, major pinned
 ghcr.io/semantius/postgres:latest                # moving, default major
 ```
@@ -93,8 +93,8 @@ to ship is a test failure. Run it before publishing a version.
 > ```bash
 > deno task extension 0.5.0
 > ```
-> A version may be regenerated while it is the newest build, and is frozen once a
-> higher one is committed; see [RELEASE.md](../RELEASE.md).
+> A version may be regenerated while it is the highest version built, and is frozen
+> once a higher one is committed; see [RELEASE.md](../RELEASE.md).
 
 ## Build context
 

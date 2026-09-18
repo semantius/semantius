@@ -97,10 +97,17 @@ interface ExtensionOptions {
    * the change can never reach an existing installation. Only migrations added
    * IN THIS version are editable, which falls out of two things that must not be
    * "fixed": highestVersionBelow()'s strict `< 0` filter (a version is never its
-   * own prev, so regenerating the newest version skips the check entirely) and
+   * own prev, so regenerating the highest version skips the check entirely) and
    * the `k in prevFiles` test in the edit detection below.
    */
   allowEditedMigrations?: boolean;
+  /**
+   * Compare the migrations with the set versions.json records for `version`
+   * and write nothing; exit 1 when they differ. The pgdocker extension
+   * harnesses install whatever build is in the output directory, so without
+   * this a migration change is silently tested against the previous core.
+   */
+  check?: boolean;
 }
 
 export async function extensionCommand(
@@ -125,7 +132,8 @@ export async function extensionCommand(
     Deno.exit(1);
   }
 
-  console.log(`Generating "${name}" extension v${version}...`);
+  const action = options.check ? "Checking" : "Generating";
+  console.log(`${action} "${name}" extension v${version}...`);
 
   const appList = apps
     .split(",")
@@ -213,14 +221,40 @@ export async function extensionCommand(
   // an embedded migration would terminate its own EXECUTE early.
   assertNoTagCollisions(migs);
 
-  // Ensure output directory exists.
-  await Deno.mkdir(outputDir, { recursive: true });
-
   // -- Versioning (pgTAP-style): one current full install + an accumulated
   //    chain of upgrade scripts, with a manifest tracking each version's
   //    migration set so deltas (and edits to released migrations) are detected.
   const manifestPath = `${outputDir}/versions.json`;
   const manifest = await loadManifest(manifestPath);
+
+  if (options.check) {
+    const recorded = manifest.versions[version]?.files;
+    if (!recorded) {
+      console.error(
+        `No build of ${version} in ${manifestPath}. Run: deno task extension ${version}`,
+      );
+      Deno.exit(1);
+    }
+    const current: Record<string, string> = {};
+    for (const m of migs) current[`${m.app}/${m.name}`] = m.checksum;
+    const changed = Object.keys(current).filter((k) =>
+      k in recorded && recorded[k] !== current[k]
+    );
+    const added = Object.keys(current).filter((k) => !(k in recorded));
+    const removed = Object.keys(recorded).filter((k) => !(k in current));
+    if (changed.length + added.length + removed.length === 0) {
+      console.log(`${outputDir} is current for ${version}.`);
+      return;
+    }
+    console.error(`${outputDir} is stale for ${version}:`);
+    for (const k of changed) console.error(`  changed  ${k}`);
+    for (const k of added) console.error(`  added    ${k}`);
+    for (const k of removed) console.error(`  removed  ${k}`);
+    console.error(`Run: deno task extension ${version}`);
+    Deno.exit(1);
+  }
+
+  await Deno.mkdir(outputDir, { recursive: true });
 
   // Every protection below lives inside `if (prev)`, and loadManifest returns an
   // empty manifest both for a missing file and for valid JSON of the wrong
@@ -234,12 +268,12 @@ export async function extensionCommand(
     );
   }
 
-  // A version stays mutable only while it is the newest build in the manifest:
+  // A version stays mutable only while it is the highest version in the manifest:
   // it may be regenerated, re-tagged and re-released until a higher version is
   // committed, after which it is frozen. Without this check, regenerating a
   // superseded version silently corrupts the output directory - `prev` is
   // undefined (nothing sorts BELOW it), so no edit detection runs,
-  // pruneStaleScripts deletes the NEWER full install, the newer upgrade script
+  // pruneStaleScripts deletes the HIGHER full install, the higher upgrade script
   // survives (both its endpoints are still in the manifest) but now points at a
   // version that has no full install, and default_version moves backwards.
   // See RELEASE.md.
@@ -249,7 +283,7 @@ export async function extensionCommand(
   if (superseded.length > 0) {
     console.error(
       `Error: version ${version} is frozen - ${manifestPath} already holds ` +
-        `${superseded.join(", ")}. Regenerating it would delete the newer full ` +
+        `${superseded.join(", ")}. Regenerating it would delete the higher full ` +
         `install and move default_version backwards. Generate ` +
         `${superseded[superseded.length - 1]} or a higher version instead.`,
     );
@@ -262,7 +296,7 @@ export async function extensionCommand(
   }
 
   // `prev` is the highest version STRICTLY below the target, so a version is
-  // never its own prev: regenerating the newest build skips this whole block and
+  // never its own prev: regenerating the highest build skips this whole block and
   // every one of its migrations stays editable. That is the first half of the
   // rule ("0.5.0 allows changing all existing migrations"); the second half is
   // the `k in prevFiles` test below, which exempts migrations added in THIS

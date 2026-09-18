@@ -7916,6 +7916,93 @@ COMMENT ON FUNCTION public.get_user_cubes IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
+
+-- =====================================================
+-- FIX ID SEQUENCE
+-- =====================================================
+
+-- After an import writes explicit ids, the id sequence lags behind them and the
+-- next ordinary insert fails with 23505. This moves the sequence past max(id).
+--
+-- Callable by whoever may insert into the table: the entity's edit_permission.
+-- Non-admins get the same 42501 for an unknown table as for a denied one, as
+-- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- SECURITY DEFINER because the request role cannot setval, and under RLS its
+-- max(id) would miss the rows it cannot see.
+-- The lock keeps inserts out between max() and setval. While it waits, every
+-- later writer of the table queues behind it, so lock_timeout caps the wait at
+-- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
+-- The sequence is never lowered: that would re-issue the ids of deleted rows.
+-- A table the definer does not own fails at the LOCK with 42501.
+CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
+RETURNS BIGINT AS $$
+DECLARE
+    v_id_column TEXT;
+    v_edit_permission TEXT;
+    v_sequence TEXT;
+    v_max BIGINT;
+    v_last BIGINT;
+    v_called BOOLEAN;
+    v_next BIGINT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
+    FROM public.entities e
+    WHERE e.table_name = p_table;
+
+    -- edit_permission is NOT NULL, so NULL here means there is no such entity.
+    IF v_edit_permission IS NULL AND rbac.has_permission('admin') THEN
+        RAISE EXCEPTION 'Table ${table} is not an entity'
+            USING ERRCODE = '90231',
+                  HINT = jsonb_build_object('table', p_table)::text;
+    END IF;
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+        RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
+    END IF;
+
+    -- pg_get_serial_sequence raises on a missing table or column instead of
+    -- returning NULL, and a missing table would surface as 42P01.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
+          AND a.attname = v_id_column
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+    ) THEN
+        RETURN NULL;
+    END IF;
+    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
+    IF v_sequence IS NULL THEN
+        RETURN NULL;  -- a text, uuid or otherwise non-serial key
+    END IF;
+
+    BEGIN
+        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
+    EXCEPTION WHEN lock_not_available THEN
+        RAISE EXCEPTION 'Table ${table} is busy, try again'
+            USING ERRCODE = '90232',
+                  HINT = jsonb_build_object(
+                      'table', p_table,
+                      'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
+    END;
+
+    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
+    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+    v_next := GREATEST(COALESCE(v_max, 0) + 1,
+                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
+    PERFORM setval(v_sequence, v_next, false);
+    RETURN v_next;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+
+COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+
+REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0080_public_functions$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -7932,7 +8019,7 @@ $pgsem__core_0080_public_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c');
+      VALUES ('_core.0080_public_functions', '8d2aae3267264ab7486c3e0b11a7252e4ac9e455355eeb76d9bd03653707dcf3');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10907,28 +10994,12 @@ VALUES
 -- =====================================================
 -- STEP 8b: The audit entities can never become managed
 -- =====================================================
--- These two are registered so the standard API can read them, not so the
--- dictionary can own them, and the difference is their whole protection: the
--- request role may read and delete rows here but never insert or update one,
--- which is what makes the table evidence rather than ordinary data.
---
--- enable_dd_table (0145) configures an adopted table as though it had never
--- been unmanaged - row-level security on, the four permission policies, the
--- table grant. On these two that is not adoption, it is unlocking: the INSERT
--- and UPDATE policies plus the grant that comes with them would let anybody
--- holding the entity's edit_permission write the log, and an administrator
--- could then forge an entry or rewrite one. Flipping managed is a single
--- boolean UPDATE that entities_update_policy already lets an administrator
--- make, so the flip is the thing that has to be refused - not the adoption it
--- would trigger.
---
--- Refusing here rather than skipping the securing block there is what lets
--- adoption stay unconditional. A table that can be adopted is adopted whole;
--- there is no half-configured third state to reason about, and the one class of
--- table that could not survive it never reaches it.
---
--- apps/test/tests/0041_test_no_unmanaged_ootb.sql holds the same two names as
--- the only sanctioned unmanaged entities and fails if that list moves.
+-- The request role may read and delete audit rows but never insert or update
+-- them; that is what makes the log evidence. Setting managed = TRUE would make
+-- enable_dd_table (0145) add the standard INSERT/UPDATE policies and grant, so
+-- anyone holding edit_permission could forge or rewrite entries. The flip is
+-- refused here, so enable_dd_table needs no exception for these two tables.
+-- 0041_test_no_unmanaged_ootb.sql pins them as the only unmanaged entities.
 CREATE OR REPLACE FUNCTION audit.assert_audit_entity_stays_unmanaged()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -11155,7 +11226,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', 'bd996a903a13d995006d2bb3dc0be46628ae616fc02f05f1ff7161d4b4aab7fb');
+      VALUES ('_core.0150_audit_log', 'a9ec70d835f555e6d41ec0fc89678751a991f3d33d803ad76239f82b505b6ced');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16650,7 +16721,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"2d1554f48db0ff65b95e3a1384f98e8a8f247097a635803372d355c327d71b7c","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"bd996a903a13d995006d2bb3dc0be46628ae616fc02f05f1ff7161d4b4aab7fb","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"24cd517a9be8f63cebb45aa493884d1bb77afc99093a38015f467556d74674ef","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"0e8d58809b0cdbbe0aab551bf130f51fec7539465a7cd54a098fc711e43c452c","_core.0070_dd_functions":"29d7459a11fbf4ad6175d4d0dfc77a240eb432cc06404aa8caa4ef6d0a21f69c","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"8d2aae3267264ab7486c3e0b11a7252e4ac9e455355eeb76d9bd03653707dcf3","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"ac497dff47d43ae196a0781160ac72060562e611cee50bd8c856f5a6d6f85f2a","_core.0150_audit_log":"a9ec70d835f555e6d41ec0fc89678751a991f3d33d803ad76239f82b505b6ced","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"e63ebfc5027ac8f0680dcf81fcb8ce622d408f07d67e99757ac5c403edcd4bea","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"08416fda8b7f7bcd9427559f3c5cf89585f057c56d0115609497e3ce06b01339","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"dbe8a9cd97314f72182f4564e29a81eabdfbc1e52dbeddf49ee4e3a8dad1915f","_core.0260_dashboard":"73561870f7361b9a2d8e915dce31be530f66a3d8f3758b349f247d9d3702a613","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

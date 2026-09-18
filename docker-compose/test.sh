@@ -119,7 +119,7 @@ if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" 
 fi
 
 # [0/5] Regenerate the extension from CURRENT migrations, so the rebuilt image
-# tests what is on disk now. Version inferred from the newest built extension SQL,
+# tests what is on disk now. Version inferred from the highest built extension SQL,
 # exactly like docker-postgres/build.sh.
 if [ "$PULL" = 1 ]; then
   echo "== [0/4] Skipped — --pull tests the PUBLISHED image, not local source =="

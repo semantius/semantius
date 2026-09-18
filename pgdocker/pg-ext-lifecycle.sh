@@ -12,6 +12,7 @@
 #   1c. concurrency: two migrate() callers serialize on the advisory lock
 #   1d. transaction shape: psql -1, and BEGIN/ROLLBACK leaves nothing
 #   1e. first-user bootstrap: two concurrent logins elect exactly one admin
+#   1f. fix_id_sequence gives up on a busy table with 90232
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
@@ -94,6 +95,10 @@ SELECT (SELECT coalesce(sum(cnt), 0) FROM (
 step "[0] Preflight: control file and generated script"
 CONTROL="$REPO_ROOT/extension/pg_semantius.control"
 [ -f "$CONTROL" ] || { echo "No extension build in ../extension. Run: deno task extension <version>" >&2; exit 1; }
+# Everything below installs this build, so it must match the migrations.
+EXT_VERSION="$(sed -nE "s/^default_version = '(.*)'/\1/p" "$CONTROL")"
+( cd "$REPO_ROOT" && deno task extension "$EXT_VERSION" --check ) \
+  || { echo "Refusing to test a stale extension build." >&2; exit 1; }
 SQLFILE="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql | head -1)"
 
 grep -q "^schema = public$"       "$CONTROL" && ok "control: schema = public"        || bad "control: schema = public missing"
@@ -258,6 +263,38 @@ check "the loser still holds the User role" "1" \
 psqlq life1e "$(race_login race_c c@example.test '')" >/dev/null
 check "a later login is not elected" "1" \
   "$(psqlq life1e "SELECT count(*) FROM public.user_roles WHERE role_id = 2")"
+
+# ------------------------------------------ 1f fix_id_sequence lock timeout
+step "[1f] fix_id_sequence gives up on a busy table with 90232"
+# The pgTAP suite cannot hold a lock against itself, so the timeout is proven
+# here: session A keeps an insert open, and session B must give up after the
+# function's 2 s lock_timeout with 90232 instead of queueing behind A.
+psqlrun life1e "INSERT INTO public.entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
+                VALUES ('lock_probe', 'lock_probe', 'Lock Probe', 'Lock Probes', 'fix_id_sequence lock probe', 1, 'public:read', 'admin', 'id', 'label')" >/dev/null
+fix_as_admin() { # race_a is the administrator 1e elected
+  printf '%s' "BEGIN; SET LOCAL ROLE semantius_user;
+               SET LOCAL \"request.jwt.claim.role\" = 'authenticated';
+               SET LOCAL \"request.jwt.claim.sub\" = 'race_a';
+               SELECT public.fix_id_sequence('lock_probe'); COMMIT;"
+}
+wait_for() { # wait_for <sql> <value>: poll life1e for up to 10 s
+  for _ in $(seq 50); do [ "$(psqlq life1e "$1")" = "$2" ] && return 0; sleep 0.2; done
+  return 1
+}
+LOCK_HELD="SELECT count(*) FROM pg_locks WHERE relation = to_regclass('public.lock_probe') AND mode = 'RowExclusiveLock' AND granted"
+docker exec -d "$CONTAINER" psql -U postgres -d life1e -c \
+  "BEGIN; INSERT INTO public.lock_probe (label) VALUES ('a'); SELECT pg_sleep(5); COMMIT;" >/dev/null
+if wait_for "$LOCK_HELD" 1; then
+  # `|| true`: the refusal is the expected result, and set -e would abort on it.
+  b_out=$(docker exec "$CONTAINER" psql -U postgres -d life1e -v VERBOSITY=verbose -qtAc "$(fix_as_admin)" 2>&1 || true)
+  echo "$b_out" | grep -q "90232" && ok "a call behind an open insert fails with 90232" \
+    || bad "expected 90232, got: $b_out"
+  wait_for "$LOCK_HELD" 0 || bad "session A never committed"
+  check "the retry succeeds once the writer has committed" "2" \
+    "$(docker exec "$CONTAINER" psql -U postgres -d life1e -qtAc "$(fix_as_admin)" 2>&1)"
+else
+  bad "session A never took its lock on lock_probe"
+fi
 
 # --------------------------------------------------- 2 dump / single-pass restore
 step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)"

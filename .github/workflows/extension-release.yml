@@ -360,7 +360,7 @@ jobs:
       # The extension files were generated above, so the build context already
       # has them. Publishes ghcr.io/<owner>/postgres under three names for one
       # image: :<version>-pg<major> (canonical; moves while that version is the
-      # newest build, frozen once a higher one is committed - see RELEASE.md),
+      # highest build, frozen once a higher one is committed - see RELEASE.md),
       # :latest-pg<major>
       # (moving, major pinned) and :latest (moving, default major). There is
       # deliberately no bare :<version> — a version tag that silently changed
@@ -389,7 +389,7 @@ jobs:
         run: |
           . scripts/semver.sh
           git fetch --tags --force --quiet
-          # :latest is the newest release, pre-releases included: ">= the highest
+          # :latest is the highest version, pre-releases included: ">= the highest
           # tag of any kind". semver, not sort -V, so 0.6.0 still outranks
           # 0.6.0-rc1 and cutting the final moves the tag forward rather than
           # back. Matches docker-postgres/{build,publish}.sh.
@@ -398,7 +398,7 @@ jobs:
             HIGHEST=1
           else
             HIGHEST=0
-            WHY="$TOP is newer"
+            WHY="$TOP is higher"
           fi
           {
             echo "tags<<TAGS_EOF"

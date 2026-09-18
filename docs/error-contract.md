@@ -395,6 +395,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90103` | `42501` | `Cannot delete role 1 (User) from user. All users must have the User role.` | - | - | Reachable by editing `user_roles`, so it is a refusal like any other. |
 | `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard. |
 | `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | Hides whether the queue exists from a caller who may not read it. |
+| `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`. Hides whether the entity exists, as 90105 does for queues. |
 
 ### 902xx - data dictionary: entities and fields
 
@@ -425,6 +426,8 @@ the JSON hint that fill their `${name}` placeholders.
 | `90228` | `90228` | `label_parent ${label_parent} must not be self-referential (the identity spine must be acyclic)` | - | `label_parent` | |
 | `90229` | `90229` | `label_parent ${label_parent} must not target junction entity ${table}` | - | `label_parent`, `table` | |
 | `90230` | `90230` | `label_parent on ${table} via ${label_parent} would create a cycle in the identity spine` | - | `table`, `label_parent` | |
+| `90231` | `90231` | `Table ${table} is not an entity` | - | `table` | `fix_id_sequence` on a name no entity has. The answer an administrator gets; everyone else gets 90106. |
+| `90232` | `90232` | `Table ${table} is busy, try again` | `Another transaction is writing to ${table}. Retry when it has finished.` | `table` | `fix_id_sequence` waited 2 s for its table lock. Safe to retry. |
 
 ### 903xx - schema and record RPCs
 

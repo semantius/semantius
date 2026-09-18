@@ -191,6 +191,11 @@ deno task migrate --apps _core --script
 # For a release use ./release.sh instead - it also tests, commits and tags.
 deno task extension 0.5.0
 
+# Check that ./extension still matches the migrations: writes nothing, exits 1
+# and names the changed migrations when it is stale. The pgdocker extension
+# harnesses run this before installing the build.
+deno task extension 0.5.0 --check
+
 # Drop all database objects (requires confirmation)
 deno task dropall --confirm
 

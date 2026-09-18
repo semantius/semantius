@@ -880,28 +880,12 @@ VALUES
 -- =====================================================
 -- STEP 8b: The audit entities can never become managed
 -- =====================================================
--- These two are registered so the standard API can read them, not so the
--- dictionary can own them, and the difference is their whole protection: the
--- request role may read and delete rows here but never insert or update one,
--- which is what makes the table evidence rather than ordinary data.
---
--- enable_dd_table (0145) configures an adopted table as though it had never
--- been unmanaged - row-level security on, the four permission policies, the
--- table grant. On these two that is not adoption, it is unlocking: the INSERT
--- and UPDATE policies plus the grant that comes with them would let anybody
--- holding the entity's edit_permission write the log, and an administrator
--- could then forge an entry or rewrite one. Flipping managed is a single
--- boolean UPDATE that entities_update_policy already lets an administrator
--- make, so the flip is the thing that has to be refused - not the adoption it
--- would trigger.
---
--- Refusing here rather than skipping the securing block there is what lets
--- adoption stay unconditional. A table that can be adopted is adopted whole;
--- there is no half-configured third state to reason about, and the one class of
--- table that could not survive it never reaches it.
---
--- apps/test/tests/0041_test_no_unmanaged_ootb.sql holds the same two names as
--- the only sanctioned unmanaged entities and fails if that list moves.
+-- The request role may read and delete audit rows but never insert or update
+-- them; that is what makes the log evidence. Setting managed = TRUE would make
+-- enable_dd_table (0145) add the standard INSERT/UPDATE policies and grant, so
+-- anyone holding edit_permission could forge or rewrite entries. The flip is
+-- refused here, so enable_dd_table needs no exception for these two tables.
+-- 0041_test_no_unmanaged_ootb.sql pins them as the only unmanaged entities.
 CREATE OR REPLACE FUNCTION audit.assert_audit_entity_stays_unmanaged()
 RETURNS TRIGGER AS $$
 BEGIN

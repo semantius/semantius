@@ -54,6 +54,8 @@ interface CliArgs {
   strict?: boolean;
   /** `extension --allow-edited-migrations`: waive the released-migration check. */
   "allow-edited-migrations"?: boolean;
+  /** `extension --check`: compare the build with the migrations, write nothing. */
+  check?: boolean;
   "coverage-min"?: string;
   env?: string;
   "database-url"?: string;
@@ -264,13 +266,16 @@ ${initCommand}    connect          Test database connection
 ${checkoutCommands}    migrate          Process and validate app folders (requires --apps parameter)
     extension <VER>  Generate the PostgreSQL extension (control + SQL) into
                      ./extension at an explicit version (e.g. 0.5.0). The version
-                     is required. Regenerating the newest version in place is
+                     is required. Regenerating the highest version in place is
                      supported; a version is frozen once a higher one is in
                      versions.json. See RELEASE.md.
                      Only migrations ADDED in <VER> may be edited; editing one an
                      earlier version shipped fails the build. Waive with
                      --allow-edited-migrations. (--strict is now the default and
                      is accepted but ignored.)
+                     --check writes nothing and exits 1 when ./extension no
+                     longer matches the migrations (the pgdocker extension
+                     harnesses run it before installing the build).
                      Prefer ./release.sh <VER>, which also tests and tags.
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
     reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
@@ -344,6 +349,7 @@ async function main(): Promise<void> {
       "coverage",
       "strict",
       "allow-edited-migrations",
+      "check",
     ],
     // "_" keeps positional args as strings; without it @std/flags coerces
     // numeric-looking positionals to numbers and drops leading zeros, which
@@ -458,7 +464,7 @@ async function main(): Promise<void> {
           `extension: a version is required, e.g. \`${INVOCATION} extension 0.5.0\`.`,
         );
         console.error(
-          "Regenerating the newest version in place is supported; see RELEASE.md.",
+          "Regenerating the highest version in place is supported; see RELEASE.md.",
         );
         Deno.exit(1);
       }
@@ -480,6 +486,7 @@ async function main(): Promise<void> {
         name: "pg_semantius",
         outputDir: args.output || "./extension",
         allowEditedMigrations: args["allow-edited-migrations"] === true,
+        check: args.check === true,
       });
       break;
     }

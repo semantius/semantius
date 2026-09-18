@@ -158,13 +158,13 @@ if [ "$TAG_EXISTS" = "1" ]; then
   # Already released. Re-releasing is allowed only while nothing higher is out.
   if [ -n "$RELEASED" ] && [ "$(semver_cmp "$TARGET" "$RELEASED")" = "-1" ]; then
     cat >&2 <<EOF
-release.sh: v$TARGET is released, but v$RELEASED is newer.
+release.sh: v$TARGET is released, but v$RELEASED is higher.
 
   A released version is frozen once a higher one is out: its artifacts are
   published, its upgrade chain is depended on, and regenerating it would move
   default_version backwards.
 
-  To re-release the newest:  ./release.sh v$RELEASED
+  To re-release the highest: ./release.sh v$RELEASED
   To cut a new one:          ./release.sh v<higher than $RELEASED>
 EOF
     FINISHED=1; exit 1
@@ -176,7 +176,7 @@ elif [ -n "$RELEASED" ] && [ "$(semver_cmp "$TARGET" "$RELEASED")" != "1" ]; the
   target_pre=""
   case "$TARGET" in *-*) target_pre="${TARGET#*-}" ;; esac
   cat >&2 <<EOF
-release.sh: $TARGET is not above the newest released version $RELEASED.
+release.sh: $TARGET is not above the highest released version $RELEASED.
 
   Nothing was ever released as v$TARGET, and it does not sort above v$RELEASED,
   so there is nothing to refresh and nothing to cut.

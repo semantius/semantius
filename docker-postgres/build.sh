@@ -8,12 +8,12 @@
 #
 # Builds + tags (one image, three names):
 #     ghcr.io/semantius/postgres:<version>-pg<major>   canonical; moves while
-#                                                      that version is newest
+#                                                      that version is highest
 #     ghcr.io/semantius/postgres:latest-pg<major>      moving, major pinned
 #     ghcr.io/semantius/postgres:latest                moving, default major
 #
 # The two :latest* tags are only applied when <version> is the highest v* tag in
-# the repo, so building an older version cannot shadow a newer local image.
+# the repo, so building an older version cannot shadow a higher one's local image.
 # There is deliberately NO bare :<version> tag — a version tag that silently
 # changed Postgres major later is exactly the ambiguity the suffix removes.
 #
@@ -68,18 +68,19 @@ version="${version#v}"
 # makes a re-release replace its own image. Mirrors the same decision in
 # .github/workflows/extension-release.yml.
 git fetch --tags --force --quiet 2>/dev/null || true
-# :latest is the newest release, pre-releases included. Scoping it to the newest
-# FINAL release instead pins it to whatever shipped last for as long as
-# everything ahead of it is a pre-release, and "the last final build" is only a
-# useful promise while that build is still one worth handing someone - which is
-# not something the tag can know. A consumer that must not move asks for the
-# exact version, which is always published.
+# :latest is the HIGHEST version released, pre-releases included - not the most
+# recent release. Scoping it to the highest FINAL release instead pins it to
+# whatever shipped last for as long as everything ahead of it is a pre-release,
+# and "the last final build" is only a useful promise while that build is still
+# one worth handing someone - which is not something the tag can know. A
+# consumer that must not move asks for the exact version, which is always
+# published.
 top_version="$(git tag -l 'v*' | semver_max_of)"
 if [ -z "$top_version" ] || [ "$(semver_cmp "$version" "$top_version")" != "-1" ]; then
   is_highest=1
 else
   is_highest=0
-  latest_note="$top_version is newer"
+  latest_note="$top_version is higher"
 fi
 latest_note="${latest_note:-}"
 

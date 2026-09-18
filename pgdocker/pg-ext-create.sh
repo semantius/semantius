@@ -13,12 +13,15 @@ if [ ! -f .env ]; then
   echo "Created .env from .env.example — edit POSTGRES_PASSWORD if you want."
 fi
 
-# The extension must be generated first (repo root -> ../extension).
-if ! ls ../extension/pg_semantius--*.sql >/dev/null 2>&1; then
+# The image installs whatever is in ../extension, so a build that no longer
+# matches the migrations would silently test the previous core.
+if [ ! -f ../extension/pg_semantius.control ]; then
   echo "No extension build found in ../extension." >&2
   echo "Generate it first, from the repo root:  deno task extension <version>" >&2
   exit 1
 fi
+EXT_VERSION="$(sed -nE "s/^default_version = '(.*)'/\1/p" ../extension/pg_semantius.control)"
+( cd .. && deno task extension "$EXT_VERSION" --check )
 
 # 1) Build the base OAuth image that Dockerfile.ext layers on top of.
 docker compose build postgres

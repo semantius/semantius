@@ -20,7 +20,7 @@
 # Method: regenerate into a COPY of extension/ with two fabricated orphans in
 # it, one with an unknown `<from>` and one with an unknown `<to>`, and assert
 # both are gone and the real build is still there. The copy brings versions.json
-# along, so the frozen-version guard sees the target as the newest build and
+# along, so the frozen-version guard sees the target as the highest build and
 # lets it be regenerated. Nothing outside --output is written, so the real
 # extension/ is untouched.
 #

@@ -768,3 +768,90 @@ COMMENT ON FUNCTION public.get_user_cubes IS
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
+
+-- =====================================================
+-- FIX ID SEQUENCE
+-- =====================================================
+
+-- After an import writes explicit ids, the id sequence lags behind them and the
+-- next ordinary insert fails with 23505. This moves the sequence past max(id).
+--
+-- Callable by whoever may insert into the table: the entity's edit_permission.
+-- Non-admins get the same 42501 for an unknown table as for a denied one, as
+-- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- SECURITY DEFINER because the request role cannot setval, and under RLS its
+-- max(id) would miss the rows it cannot see.
+-- The lock keeps inserts out between max() and setval. While it waits, every
+-- later writer of the table queues behind it, so lock_timeout caps the wait at
+-- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
+-- The sequence is never lowered: that would re-issue the ids of deleted rows.
+-- A table the definer does not own fails at the LOCK with 42501.
+CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
+RETURNS BIGINT AS $$
+DECLARE
+    v_id_column TEXT;
+    v_edit_permission TEXT;
+    v_sequence TEXT;
+    v_max BIGINT;
+    v_last BIGINT;
+    v_called BOOLEAN;
+    v_next BIGINT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
+    FROM public.entities e
+    WHERE e.table_name = p_table;
+
+    -- edit_permission is NOT NULL, so NULL here means there is no such entity.
+    IF v_edit_permission IS NULL AND rbac.has_permission('admin') THEN
+        RAISE EXCEPTION 'Table ${table} is not an entity'
+            USING ERRCODE = '90231',
+                  HINT = jsonb_build_object('table', p_table)::text;
+    END IF;
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+        RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
+    END IF;
+
+    -- pg_get_serial_sequence raises on a missing table or column instead of
+    -- returning NULL, and a missing table would surface as 42P01.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
+          AND a.attname = v_id_column
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+    ) THEN
+        RETURN NULL;
+    END IF;
+    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
+    IF v_sequence IS NULL THEN
+        RETURN NULL;  -- a text, uuid or otherwise non-serial key
+    END IF;
+
+    BEGIN
+        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
+    EXCEPTION WHEN lock_not_available THEN
+        RAISE EXCEPTION 'Table ${table} is busy, try again'
+            USING ERRCODE = '90232',
+                  HINT = jsonb_build_object(
+                      'table', p_table,
+                      'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
+    END;
+
+    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
+    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+    v_next := GREATEST(COALESCE(v_max, 0) + 1,
+                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
+    PERFORM setval(v_sequence, v_next, false);
+    RETURN v_next;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+
+COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+
+REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
